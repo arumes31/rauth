@@ -1,0 +1,50 @@
+services:
+  auth:
+    container_name: rcloudauth_auth
+    build: .
+    ports:
+      - "5980:80"
+    environment:
+      - REDIS_HOST=rcloudauth_redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=asd2123c123cas
+      - INITIAL_USER=admin
+      - INITIAL_PASSWORD=securepassword
+      - INITIAL_EMAIL=admin@example.com
+      - INITIAL_2FA_SECRET=Q7ND5X63PGNTKOMYLMM5K5OG77V55GSK
+      - AUTH_TOKEN_VALIDITY_MINUTES=10080
+      - COOKIE_DOMAIN=reitetschlaeger.com
+      - ALLOWED_HOSTS=testauth123.reitetschlaeger.com,192.168.3.123,localhost,upstream
+      - GEO_API_HOST=rcloudauth_geo-service
+      - GEO_API_PORT=3000
+      - SERVER_SECRET=dCo2fPTZt4FatzS8p7DhP4AxtZKMfReF
+    depends_on:
+      - redis
+    networks:
+      - auth-network
+  redis:
+    image: redis:8.0
+    container_name: rcloudauth_redis
+    command: redis-server --requirepass asd2123c123cas --port 6379
+    volumes:
+      - /proxy/rcloudauth/redis-data:/data
+    networks:
+      - auth-network
+  rcloudauth-geo-service:
+    container_name: rcloudauth_geo-service
+    build:
+      context: ./geo-service
+    environment:
+      - MAXMIND_ACCOUNT_ID=671928
+      - MAXMIND_LICENSE_KEY=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
+      - GEOIP_EDITION_IDS=GeoLite2-Country
+      - GEOIP_DATABASE_DIRECTORY=/srv/app/geoip
+    volumes:
+      - /proxy/rcloudauth/geoipupdate_data:/srv/app/geoip
+    networks:
+      - auth-network
+
+networks:
+  auth-network:
+    name: free1_default
+    external: true
