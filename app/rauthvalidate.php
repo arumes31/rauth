@@ -7,6 +7,9 @@ use GuzzleHttp\Client as HttpClient;
 
 session_start();
 
+// Extract domain from request
+$request_host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+
 // Generate a request ID for tracing
 $request_id = bin2hex(random_bytes(8));
 error_log("rauthvalidate.php: Request ID: $request_id");
@@ -182,20 +185,20 @@ $tfa = new TwoFactorAuth('RCloudAuth');
 $token_validity_minutes = getenv('AUTH_TOKEN_VALIDITY_MINUTES') ?: 10080;
 $token_validity_seconds = (int)$token_validity_minutes * 60;
 $cookie_domain = '.' . getenv('COOKIE_DOMAIN') ?: '.reitetschlaeger.com';
-$allowed_hosts = explode(',', getenv('ALLOWED_HOSTS') ?: 'testauth123.reitetschlaeger.com,192.168.3.123,localhost,upstream');
+$allowed_hosts = explode(',', getenv('ALLOWED_HOSTS') ?: "$request_host,192.168.3.123,localhost,upstream");
 error_log("rauthvalidate.php [$request_id]: Token validity: $token_validity_minutes minutes ($token_validity_seconds seconds)");
 error_log("rauthvalidate.php [$request_id]: Cookie domain: $cookie_domain");
 error_log("rauthvalidate.php [$request_id]: Allowed hosts: " . implode(',', $allowed_hosts));
 
 // Validate rd parameter
-$redirect_url = $_GET['rd'] ?? $_SERVER['HTTP_X_ORIGINAL_URL'] ?? 'https://testauth123.reitetschlaeger.com/';
+$redirect_url = $_GET['rd'] ?? $_SERVER['HTTP_X_ORIGINAL_URL'] ?? "https://$request_host/";
 $parsed_url = parse_url($redirect_url);
 $allowed_hosts = array_map('trim', $allowed_hosts);
 if (!isset($parsed_url['host']) || !in_array($parsed_url['host'], $allowed_hosts)) {
-    $redirect_url = 'https://testauth123.reitetschlaeger.com/';
+    $redirect_url = "https://$request_host/";
     error_log("rauthvalidate.php [$request_id]: Invalid rd host, defaulting to $redirect_url");
 } elseif ($parsed_url['path'] === '/rauthvalidate') {
-    $redirect_url = 'https://testauth123.reitetschlaeger.com/';
+    $redirect_url = "https://$request_host/";
     error_log("rauthvalidate.php [$request_id]: rd was /rauthvalidate, defaulting to $redirect_url");
 }
 error_log("rauthvalidate.php [$request_id]: Redirect URL set to $redirect_url");

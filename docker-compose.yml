@@ -14,12 +14,12 @@ services:
       - INITIAL_2FA_SECRET=Q7ND5X63PGNTKOMYLMM5K5OG77V55GSK
       - AUTH_TOKEN_VALIDITY_MINUTES=10080
       - COOKIE_DOMAIN=reitetschlaeger.com
-      - ALLOWED_HOSTS=testauth123.reitetschlaeger.com,192.168.3.123,localhost,upstream
+      - ALLOWED_HOSTS=home.reitetschlaeger.com,testauth123.reitetschlaeger.com,192.168.3.123,localhost,upstream
       - GEO_API_HOST=rauth-geo-service
       - GEO_API_PORT=3000
       - SERVER_SECRET=dCo2fPTZt4FatzS8p7DhP4AxtZKMfReF
     depends_on:
-      - redis
+      - rauth-auth-redis
     networks:
       - auth-network
   rauth-auth-redis:
@@ -41,8 +41,11 @@ services:
       - GEOIP_DATABASE_DIRECTORY=/srv/app/geoip
     volumes:
       - /proxy/rcloudauth/geoipupdate_data:/srv/app/geoip
+    depends_on:
+      - rauth-auth-redis
     networks:
       - auth-network
+      
 
 networks:
   auth-network:
