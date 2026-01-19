@@ -39,6 +39,7 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 		"users":    users,
 		"sessions": sessions,
 		"logs":     logs,
+		"csrf":     c.Get("csrf"),
 	})
 }
 

@@ -47,6 +47,13 @@ func main() {
 	e.HideBanner = true
 	e.Use(echoMiddleware.Logger())
 	e.Use(echoMiddleware.Recover())
+	
+	// CSRF Protection
+	e.Use(echoMiddleware.CSRFWithConfig(echoMiddleware.CSRFConfig{
+		TokenLookup: "form:csrf", // Look for 'csrf' field in forms
+		CookieName:  "_csrf",
+		CookiePath:  "/",
+	}))
 
 	renderer := &TemplateRenderer{
 		templates: template.Must(template.ParseFS(templateFS, "templates/*.html")),
@@ -61,8 +68,9 @@ func main() {
 
 	// Public Routes
 	e.GET("/rauthvalidate", authHandler.Validate)
-	e.GET("/login", func(c echo.Context) error { return c.Render(http.StatusOK, "login.html", nil) })
+	e.GET("/login", func(c echo.Context) error { return c.Render(http.StatusOK, "login.html", map[string]interface{}{"csrf": c.Get("csrf")}) })
 	e.POST("/login", authHandler.Login)
+	e.POST("/verify-2fa", authHandler.Verify2FA)
 
 	// Protected Routes
 	protected := e.Group("")

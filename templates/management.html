@@ -19,6 +19,7 @@
                 </a>
                 <span class="text-muted small me-4">Admin: <strong>{{.username}}</strong></span>
                 <form method="POST" action="/logout">
+                    <input type="hidden" name="csrf" value="{{.csrf}}">
                     <button type="submit" class="btn btn-sm btn-outline-danger">
                         <i class="bi bi-box-arrow-right"></i>
                     </button>
@@ -78,6 +79,7 @@
                                         <td>{{index . "ttl"}}s remaining</td>
                                         <td class="text-end pe-4">
                                             <form method="POST" action="/rauthmgmt/session/invalidate">
+                                                <input type="hidden" name="csrf" value="{{$.csrf}}">
                                                 <input type="hidden" name="token" value="{{index . "token"}}">
                                                 <button type="submit" class="btn btn-sm btn-outline-danger border-0"><i class="bi bi-trash"></i></button>
                                             </form>
@@ -147,10 +149,10 @@
                                     <td class="ps-4"><strong>{{.Username}}</strong></td>
                                     <td>{{.Email}}</td>
                                     <td>{{if eq .IsAdmin "1"}}Administrator{{else}}User{{end}}</td>
-                                    <td class="text-end pe-4">
-                                        <form method="POST" action="/rauthmgmt/user/delete">
-                                            <input type="hidden" name="username" value="{{.Username}}">
-                                            <button type="submit" class="btn btn-sm btn-outline-danger border-0"><i class="bi bi-person-x"></i></button>
+                                                                            <td class="text-end pe-4">
+                                                                                <form method="POST" action="/rauthmgmt/user/delete">
+                                                                                    <input type="hidden" name="csrf" value="{{$.csrf}}">
+                                                                                    <input type="hidden" name="username" value="{{.Username}}">                                            <button type="submit" class="btn btn-sm btn-outline-danger border-0"><i class="bi bi-person-x"></i></button>
                                         </form>
                                     </td>
                                 </tr>
@@ -173,6 +175,7 @@
                         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                     </div>
                     <div class="modal-body p-4">
+                        <input type="hidden" name="csrf" value="{{.csrf}}">
                         <div class="mb-3">
                             <label class="form-label small fw-bold">Username</label>
                             <input type="text" name="new_username" class="form-control" required>

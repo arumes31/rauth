@@ -32,6 +32,7 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 		"groups":   userData["groups"],
 		"isAdmin":  userData["is_admin"] == "1",
 		"logs":     logs,
+		"csrf":     c.Get("csrf"),
 	})
 }
 
