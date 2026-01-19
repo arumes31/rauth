@@ -129,7 +129,7 @@ function formatTime($timestamp) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Management | RCloudAuth</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
     <style>
         body { background: #121212; color: #e0e0e0; min-height: 100vh; font-family: 'Segoe UI', sans-serif; }
         .navbar { background: #1e1e1e; border-bottom: 1px solid #333; }
@@ -302,6 +302,6 @@ function formatTime($timestamp) {
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
