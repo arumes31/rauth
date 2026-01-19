@@ -197,56 +197,60 @@ function issueToken($username, $ip, $country, $auth, $ttl, $domain, $redirect, $
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login | RCloudAuth</title>
+    <title>Sign In | RCloudAuth</title>
     <link href="/static/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        body { background: #121212; color: #e0e0e0; height: 100vh; display: flex; align-items: center; justify-content: center; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        .card { background: #1e1e1e; border: 1px solid #333; width: 100%; max-width: 400px; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
-        .card-header { border-bottom: 1px solid #333; text-align: center; padding: 2rem 1rem 1rem; }
-        .card-body { padding: 2rem; }
-        .btn-primary { background: #3f51b5; border: none; padding: 0.75rem; font-weight: 600; }
-        .btn-primary:hover { background: #5c6bc0; }
-        .form-control { background: #2c2c2c; border: 1px solid #444; color: #fff; padding: 0.75rem; }
-        .form-control:focus { background: #333; border-color: #3f51b5; color: #fff; box-shadow: none; }
-        .alert-danger { background: #f44336; border: none; color: #fff; }
-        .footer-info { font-size: 0.8rem; color: #888; text-align: center; margin-top: 1rem; }
-    </style>
+    <link href="/static/css/bootstrap-icons.min.css" rel="stylesheet">
+    <link href="/static/css/modern.css" rel="stylesheet">
 </head>
-<body>
-    <div class="card">
-        <div class="card-header">
-            <h3>RCloudAuth</h3>
-            <div class="text-muted">Secure Access Control</div>
+<body class="d-flex align-items-center justify-content-center vh-100">
+    <div class="card animate-fade-in shadow-lg" style="width: 100%; max-width: 420px;">
+        <div class="card-header text-center pt-5 pb-4 border-0">
+            <h2 class="navbar-brand fs-1 mb-0">RCloudAuth</h2>
+            <p class="text-muted small mt-2">Enterprise Access Management</p>
         </div>
-        <div class="card-body">
+        <div class="card-body px-5 pb-5">
             <?php if (isset($error)): ?>
-                <div class="alert alert-danger"><?php echo htmlspecialchars($error); ?></div>
+                <div class="alert alert-danger bg-danger bg-opacity-10 text-danger border-0 small mb-4">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i> <?php echo htmlspecialchars($error); ?>
+                </div>
             <?php endif; ?>
 
             <form method="POST">
                 <?php if (isset($display2fa) || isset($_SESSION['pending_2fa'])): ?>
                     <input type="hidden" name="action" value="verify_2fa">
-                    <div class="mb-3">
-                        <label class="form-label">Two-Factor Authentication</label>
-                        <input type="text" class="form-control" name="totp_code" placeholder="Enter 6-digit code" required autofocus autocomplete="one-time-code">
+                    <div class="mb-4">
+                        <label class="form-label text-muted small fw-bold">Verification Code</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-transparent border-end-0 text-muted"><i class="bi bi-shield-lock"></i></span>
+                            <input type="text" class="form-control border-start-0 ps-0" name="totp_code" placeholder="000000" required autofocus autocomplete="one-time-code">
+                        </div>
+                        <div class="form-text mt-2 small text-muted">Enter the code from your authenticator app.</div>
                     </div>
-                    <button type="submit" class="btn btn-primary w-100">Verify</button>
+                    <button type="submit" class="btn btn-primary w-100 py-2">Verify Identity</button>
                 <?php else: ?>
                     <input type="hidden" name="action" value="login">
                     <div class="mb-3">
-                        <label class="form-label">Username</label>
-                        <input type="text" class="form-control" name="username" required autofocus>
+                        <label class="form-label text-muted small fw-bold">Username</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-transparent border-end-0 text-muted"><i class="bi bi-person"></i></span>
+                            <input type="text" class="form-control border-start-0 ps-0" name="username" placeholder="Enter username" required autofocus>
+                        </div>
                     </div>
-                    <div class="mb-3">
-                        <label class="form-label">Password</label>
-                        <input type="password" class="form-control" name="password" required>
+                    <div class="mb-4">
+                        <label class="form-label text-muted small fw-bold">Password</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-transparent border-end-0 text-muted"><i class="bi bi-key"></i></span>
+                            <input type="password" class="form-control border-start-0 ps-0" name="password" placeholder="••••••••" required>
+                        </div>
                     </div>
-                    <button type="submit" class="btn btn-primary w-100">Sign In</button>
+                    <button type="submit" class="btn btn-primary w-100 py-2">Sign In</button>
                 <?php endif; ?>
             </form>
             
-            <div class="footer-info">
-                IP: <?php echo htmlspecialchars($clientIp); ?> (<?php echo htmlspecialchars($clientCountry); ?>)
+            <div class="mt-5 pt-3 border-top border-secondary border-opacity-25 text-center">
+                <div class="footer-info text-muted extra-small">
+                    <i class="bi bi-geo-alt me-1"></i> <?php echo htmlspecialchars($clientIp); ?> (<?php echo htmlspecialchars($clientCountry); ?>)
+                </div>
             </div>
         </div>
     </div>

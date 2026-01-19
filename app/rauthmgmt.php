@@ -85,7 +85,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($targetUser && $targetUser !== $username) {
                     $redisUsers->del("user:$targetUser");
                     $redisUsers->srem('users', $targetUser);
-                    // Cleanup user sessions tracker
                     $redisTokens->del("user_sessions:$targetUser");
                     $audit->log('ADMIN_DELETE_USER', $username, ['target' => $targetUser]);
                     $success = "User $targetUser deleted.";
@@ -95,9 +94,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $targetUser = $_POST['target_user'] ?? '';
                 if ($targetToken) {
                     $redisTokens->del("X-rcloudauth-authtoken=$targetToken");
-                    if ($targetUser) {
-                        $redisTokens->srem("user_sessions:$targetUser", $targetToken);
-                    }
+                    if ($targetUser) $redisTokens->srem("user_sessions:$targetUser", $targetToken);
                     $audit->log('ADMIN_INVALIDATE_SESSION', $username, ['token' => substr($targetToken, 0, 8) . '...']);
                     $success = "Session invalidated.";
                 }
@@ -125,12 +122,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Data fetching
 $users = $redisUsers->listUsers();
 $auditLogs = $audit->getLogs(100);
-
-$activeSessions = [];
 $sessionKeys = $redisTokens->keys('X-rcloudauth-authtoken=*');
+$activeSessions = [];
 foreach ($sessionKeys as $key) {
     $data = $redisTokens->hgetall($key);
     if ($data) {
@@ -141,66 +136,64 @@ foreach ($sessionKeys as $key) {
 }
 
 $csrfToken = generateCsrfToken();
-
-function formatTime($timestamp) {
-    return date('Y-m-d H:i:s', $timestamp);
-}
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Management | RCloudAuth</title>
+    <title>Management | RCloudAuth</title>
     <link href="/static/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        body { background: #121212; color: #e0e0e0; min-height: 100vh; font-family: 'Segoe UI', sans-serif; }
-        .navbar { background: #1e1e1e; border-bottom: 1px solid #333; }
-        .card { background: #1e1e1e; border: 1px solid #333; border-radius: 12px; margin-top: 1rem; }
-        .nav-tabs { border-bottom-color: #333; }
-        .nav-link { color: #888; border: none !important; }
-        .nav-link.active { background: transparent !important; color: #3f51b5 !important; border-bottom: 2px solid #3f51b5 !important; }
-        .table { color: #e0e0e0; }
-        .table-dark { --bs-table-bg: #1e1e1e; }
-        .btn-danger { background: #d32f2f; border: none; }
-        .modal-content { background: #1e1e1e; color: #e0e0e0; border: 1px solid #333; }
-        .form-control { background: #2c2c2c; border-color: #444; color: #fff; }
-        .form-control:focus { background: #333; color: #fff; border-color: #3f51b5; box-shadow: none; }
-    </style>
+    <link href="/static/css/bootstrap-icons.min.css" rel="stylesheet">
+    <link href="/static/css/modern.css" rel="stylesheet">
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark">
+    <nav class="navbar navbar-expand-lg sticky-top">
         <div class="container">
-            <a class="navbar-brand" href="#">RCloudAuth Admin</a>
+            <a class="navbar-brand fs-3" href="#">RCloudAuth</a>
             <div class="d-flex align-items-center">
-                <a href="/rauthprofile" class="btn btn-sm btn-outline-info me-3">My Profile</a>
-                <span class="navbar-text me-3 d-none d-md-inline">Logged in as: <strong><?php echo htmlspecialchars($username); ?></strong></span>
+                <a href="/rauthprofile" class="btn btn-sm btn-link text-decoration-none text-muted me-3">
+                    <i class="bi bi-person-circle me-1"></i> My Profile
+                </a>
+                <span class="text-muted small me-4 d-none d-md-inline">Admin: <strong><?php echo htmlspecialchars($username); ?></strong></span>
                 <form method="POST">
                     <input type="hidden" name="action" value="logout">
                     <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                    <button type="submit" class="btn btn-sm btn-outline-light">Logout</button>
+                    <button type="submit" class="btn btn-sm btn-outline-danger">
+                        <i class="bi bi-box-arrow-right"></i>
+                    </button>
                 </form>
             </div>
         </div>
     </nav>
 
-    <div class="container mt-4">
+    <div class="container mt-5 animate-fade-in">
         <?php if (isset($success)): ?>
-            <div class="alert alert-success bg-success text-white border-0"><?php echo htmlspecialchars($success); ?></div>
+            <div class="alert alert-success bg-success bg-opacity-10 text-success border-0 rounded-3 mb-4">
+                <i class="bi bi-check-circle-fill me-2"></i> <?php echo htmlspecialchars($success); ?>
+            </div>
         <?php endif; ?>
         <?php if (isset($error)): ?>
-            <div class="alert alert-danger bg-danger text-white border-0"><?php echo htmlspecialchars($error); ?></div>
+            <div class="alert alert-danger bg-danger bg-opacity-10 text-danger border-0 rounded-3 mb-4">
+                <i class="bi bi-exclamation-octagon-fill me-2"></i> <?php echo htmlspecialchars($error); ?>
+            </div>
         <?php endif; ?>
 
-        <ul class="nav nav-tabs mb-3" id="adminTabs" role="tablist">
+        <ul class="nav nav-tabs mb-4" id="adminTabs" role="tablist">
             <li class="nav-item">
-                <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#sessions">Active Sessions</button>
+                <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#sessions">
+                    <i class="bi bi-activity me-2"></i> Active Sessions
+                </button>
             </li>
             <li class="nav-item">
-                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#users">User Management</button>
+                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#users">
+                    <i class="bi bi-people me-2"></i> User Directory
+                </button>
             </li>
             <li class="nav-item">
-                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#audit">Audit Logs</button>
+                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#audit">
+                    <i class="bi bi-journal-text me-2"></i> Audit Logs
+                </button>
             </li>
         </ul>
 
@@ -208,40 +201,49 @@ function formatTime($timestamp) {
             <!-- Sessions Tab -->
             <div class="tab-pane fade show active" id="sessions">
                 <div class="card">
-                    <div class="card-body">
-                        <div class="d-flex justify-content-between align-items-center mb-3">
-                            <h5 class="mb-0">Active Sessions (<?php echo count($activeSessions); ?>)</h5>
-                            <form method="POST" onsubmit="return confirm('Invalidate ALL sessions?');">
-                                <input type="hidden" name="action" value="clear_all_tokens">
-                                <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                                <button type="submit" class="btn btn-sm btn-danger">Clear All Sessions</button>
-                            </form>
-                        </div>
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0">Real-time Session Monitor</h6>
+                        <form method="POST" onsubmit="return confirm('Invalidate ALL active sessions?');">
+                            <input type="hidden" name="action" value="clear_all_tokens">
+                            <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                            <button type="submit" class="btn btn-xs btn-outline-danger py-1 px-3">Flush All</button>
+                        </form>
+                    </div>
+                    <div class="card-body p-0">
                         <div class="table-responsive">
-                            <table class="table table-dark table-hover">
+                            <table class="table table-hover mb-0">
                                 <thead>
                                     <tr>
-                                        <th>User</th>
-                                        <th>IP Address</th>
-                                        <th>Country</th>
-                                        <th>Expires In</th>
-                                        <th>Action</th>
+                                        <th class="ps-4">Username</th>
+                                        <th>IP & Region</th>
+                                        <th>Session TTL</th>
+                                        <th class="text-end pe-4">Manage</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <?php foreach ($activeSessions as $s): ?>
-                                    <tr>
-                                        <td><?php echo htmlspecialchars($s['username']); ?></td>
-                                        <td><?php echo htmlspecialchars($s['ip']); ?></td>
-                                        <td><?php echo htmlspecialchars($s['country']); ?></td>
-                                        <td><?php echo round($s['ttl'] / 60); ?> mins</td>
+                                    <tr class="align-middle">
+                                        <td class="ps-4">
+                                            <div class="fw-bold"><?php echo htmlspecialchars($s['username']); ?></div>
+                                            <div class="text-muted extra-small">ID: <?php echo substr($s['token'], 0, 8); ?>...</div>
+                                        </td>
                                         <td>
-                                            <form method="POST" style="display:inline;">
+                                            <div><?php echo htmlspecialchars($s['ip']); ?></div>
+                                            <div class="text-muted small"><i class="bi bi-globe me-1"></i> <?php echo htmlspecialchars($s['country']); ?></div>
+                                        </td>
+                                        <td>
+                                            <div class="progress" style="height: 4px; width: 100px;">
+                                                <div class="progress-bar bg-info" style="width: <?php echo ($s['ttl'] / 10080) * 100; ?>%"></div>
+                                            </div>
+                                            <span class="extra-small text-muted"><?php echo round($s['ttl'] / 60); ?>m remaining</span>
+                                        </td>
+                                        <td class="text-end pe-4">
+                                            <form method="POST">
                                                 <input type="hidden" name="action" value="invalidate_session">
                                                 <input type="hidden" name="target_token" value="<?php echo $s['token']; ?>">
                                                 <input type="hidden" name="target_user" value="<?php echo htmlspecialchars($s['username']); ?>">
                                                 <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                                                <button type="submit" class="btn btn-sm btn-outline-danger">Logout</button>
+                                                <button type="submit" class="btn btn-sm btn-outline-danger border-0"><i class="bi bi-trash"></i></button>
                                             </form>
                                         </td>
                                     </tr>
@@ -256,42 +258,49 @@ function formatTime($timestamp) {
             <!-- Users Tab -->
             <div class="tab-pane fade" id="users">
                 <div class="card">
-                    <div class="card-body">
-                        <div class="d-flex justify-content-between align-items-center mb-3">
-                            <h5 class="mb-0">Registered Users</h5>
-                            <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#createUserModal">
-                                Add New User
-                            </button>
-                        </div>
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0">Access Management</h6>
+                        <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#createUserModal">
+                            <i class="bi bi-plus-lg me-1"></i> New User
+                        </button>
+                    </div>
+                    <div class="card-body p-0">
                         <div class="table-responsive">
-                            <table class="table table-dark">
+                            <table class="table table-hover mb-0">
                                 <thead>
                                     <tr>
-                                        <th>Username</th>
-                                        <th>Email</th>
-                                        <th>Role</th>
-                                        <th>2FA</th>
-                                        <th>Action</th>
+                                        <th class="ps-4">User Details</th>
+                                        <th>Permissions</th>
+                                        <th>Security</th>
+                                        <th class="text-end pe-4">Manage</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <?php foreach ($users as $u): ?>
-                                    <tr>
-                                        <td><?php echo htmlspecialchars($u['username']); ?></td>
-                                        <td><?php echo htmlspecialchars($u['email']); ?></td>
+                                    <tr class="align-middle">
+                                        <td class="ps-4">
+                                            <div class="fw-bold"><?php echo htmlspecialchars($u['username']); ?></div>
+                                            <div class="text-muted small"><?php echo htmlspecialchars($u['email']); ?></div>
+                                        </td>
                                         <td>
-                                            <span class="badge <?php echo ($u['is_admin'] ?? '0') === '1' ? 'bg-primary' : 'bg-secondary'; ?>">
-                                                <?php echo ($u['is_admin'] ?? '0') === '1' ? 'Admin' : 'User'; ?>
+                                            <span class="badge <?php echo ($u['is_admin'] ?? '0') === '1' ? 'bg-primary' : 'bg-dark border border-secondary'; ?>">
+                                                <?php echo ($u['is_admin'] ?? '0') === '1' ? 'Administrator' : 'General User'; ?>
                                             </span>
                                         </td>
-                                        <td><?php echo !empty($u['2fa_secret']) ? '✅ Enabled' : '❌ Disabled'; ?></td>
                                         <td>
+                                            <?php if (!empty($u['2fa_secret'])): ?>
+                                                <span class="text-success small"><i class="bi bi-shield-check me-1"></i> 2FA Active</span>
+                                            <?php else: ?>
+                                                <span class="text-muted small"><i class="bi bi-shield-dash me-1"></i> 2FA Off</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td class="text-end pe-4">
                                             <?php if ($u['username'] !== $username): ?>
-                                            <form method="POST" onsubmit="return confirm('Delete user <?php echo $u['username']; ?>?');" style="display:inline;">
+                                            <form method="POST" onsubmit="return confirm('Permanent deletion?');">
                                                 <input type="hidden" name="action" value="delete_user">
                                                 <input type="hidden" name="target_user" value="<?php echo htmlspecialchars($u['username']); ?>">
                                                 <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                                                <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                                                <button type="submit" class="btn btn-sm btn-outline-danger border-0"><i class="bi bi-person-x"></i></button>
                                             </form>
                                             <?php endif; ?>
                                         </td>
@@ -307,27 +316,29 @@ function formatTime($timestamp) {
             <!-- Audit Tab -->
             <div class="tab-pane fade" id="audit">
                 <div class="card">
-                    <div class="card-body">
-                        <h5>Recent Activity Logs</h5>
+                    <div class="card-body p-0">
                         <div class="table-responsive">
-                            <table class="table table-dark table-sm">
-                                <thead>
+                            <table class="table table-hover mb-0">
+                                <thead class="bg-dark">
                                     <tr>
-                                        <th>Time</th>
-                                        <th>Action</th>
-                                        <th>User</th>
-                                        <th>IP</th>
-                                        <th>Details</th>
+                                        <th class="ps-4">Timestamp</th>
+                                        <th>Event</th>
+                                        <th>Context</th>
+                                        <th class="pe-4">Metadata</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <?php foreach ($auditLogs as $log): ?>
                                     <tr>
-                                        <td class="text-muted"><?php echo formatTime($log['timestamp']); ?></td>
-                                        <td><code><?php echo htmlspecialchars($log['action']); ?></code></td>
-                                        <td><?php echo htmlspecialchars($log['username']); ?></td>
-                                        <td><?php echo htmlspecialchars($log['ip']); ?></td>
-                                        <td class="small"><?php echo json_encode($log['details']); ?></td>
+                                        <td class="ps-4 text-muted small"><?php echo date('M d, H:i:s', $log['timestamp']); ?></td>
+                                        <td>
+                                            <span class="text-info"><?php echo htmlspecialchars($log['action']); ?></span>
+                                        </td>
+                                        <td>
+                                            <i class="bi bi-person me-1"></i> <?php echo htmlspecialchars($log['username']); ?>
+                                            <div class="text-muted extra-small"><i class="bi bi-hdd-network me-1"></i> <?php echo htmlspecialchars($log['ip']); ?></div>
+                                        </td>
+                                        <td class="pe-4"><code class="extra-small opacity-75"><?php echo json_encode($log['details']); ?></code></td>
                                     </tr>
                                     <?php endforeach; ?>
                                 </tbody>
@@ -341,38 +352,36 @@ function formatTime($timestamp) {
 
     <!-- Create User Modal -->
     <div class="modal fade" id="createUserModal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content shadow">
                 <form method="POST">
-                    <div class="modal-header">
-                        <h5 class="modal-title">Create New User</h5>
+                    <div class="modal-header border-bottom border-secondary border-opacity-25">
+                        <h5 class="modal-title">Create Identity</h5>
                         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                     </div>
-                    <div class="modal-body">
+                    <div class="modal-body p-4">
                         <input type="hidden" name="action" value="create_user">
                         <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
                         <div class="mb-3">
-                            <label class="form-label">Username</label>
-                            <input type="text" name="new_username" class="form-control" required autocomplete="off">
+                            <label class="form-label text-muted small fw-bold">Username</label>
+                            <input type="text" name="new_username" class="form-control" required>
                         </div>
                         <div class="mb-3">
-                            <label class="form-label">Email</label>
-                            <input type="email" name="new_email" class="form-control" autocomplete="off">
+                            <label class="form-label text-muted small fw-bold">Email</label>
+                            <input type="email" name="new_email" class="form-control">
                         </div>
-                        <div class="mb-3">
-                            <label class="form-label">Password</label>
-                            <input type="password" name="new_password" class="form-control" required autocomplete="new-password">
+                        <div class="mb-4">
+                            <label class="form-label text-muted small fw-bold">Secret Password</label>
+                            <input type="password" name="new_password" class="form-control" required>
                         </div>
-                        <div class="form-check mb-3">
+                        <div class="form-check form-switch">
                             <input class="form-check-input" type="checkbox" name="is_admin" id="isAdminCheck">
-                            <label class="form-check-label" for="isAdminCheck">
-                                Administrator access
-                            </label>
+                            <label class="form-check-label text-muted" for="isAdminCheck">Assign Administrative Privileges</label>
                         </div>
                     </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                        <button type="submit" class="btn btn-primary">Create User</button>
+                    <div class="modal-footer border-0">
+                        <button type="button" class="btn btn-link text-muted text-decoration-none" data-bs-dismiss="modal">Dismiss</button>
+                        <button type="submit" class="btn btn-primary px-4">Create Account</button>
                     </div>
                 </form>
             </div>
