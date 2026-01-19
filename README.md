@@ -1,5 +1,11 @@
 # RAuth: High-Performance Auth Proxy & Management
 
+[![Build and Push](https://github.com/arumes31/rauth/actions/workflows/build.yml/badge.svg)](https://github.com/arumes31/rauth/actions/workflows/build.yml)
+[![Go Security Scan](https://github.com/arumes31/rauth/actions/workflows/go-security.yml/badge.svg)](https://github.com/arumes31/rauth/actions/workflows/go-security.yml)
+[![Daily Security Scan](https://github.com/arumes31/rauth/actions/workflows/security.yml/badge.svg)](https://github.com/arumes31/rauth/actions/workflows/security.yml)
+![Go Version](https://img.shields.io/github/go-mod/go-version/arumes31/rauth)
+![License](https://img.shields.io/github/license/arumes31/rauth)
+
 RAuth is a lightweight, ultra-fast authentication proxy and user management system written in **Go**. It is designed to sit behind an Nginx `auth_request` module to provide secure access control, 2FA, and audit logging for your web applications.
 
 ## 🚀 Features
@@ -19,7 +25,7 @@ RAuth is a lightweight, ultra-fast authentication proxy and user management syst
 
 ## 🛠 Architecture
 
-- **Backend**: Go (Echo Framework)
+- **Backend**: Go 1.24 (Echo Framework)
 - **Database**: Redis (User data, Sessions, Rate limits, Audit logs)
 - **External Integration**: MaxMind GeoIP for region-based security.
 
@@ -49,6 +55,13 @@ Configure your protected application to use RAuth for authentication. See `nginx
 | `INITIAL_PASSWORD`| Admin password created on startup | (Required) |
 | `COOKIE_DOMAIN` | Domain for the auth cookie | `reitetschlaeger.com` |
 | `REDIS_HOST` | Redis server address | `rauth-auth-redis` |
+
+## ✅ Production Checklist
+
+- [ ] Change `INITIAL_PASSWORD` after first login.
+- [ ] Set `SERVER_SECRET` to a unique 32-character string.
+- [ ] Ensure `COOKIE_DOMAIN` matches your top-level domain.
+- [ ] Use `HTTPS` only (the app sets `Secure` cookies by default).
 
 ## 🧪 Development & Testing
 
