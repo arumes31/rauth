@@ -1,10 +1,10 @@
 # RAuth: High-Performance Auth Proxy & Management
 
-[![Build and Push](https://github.com/arumes31/rauth/actions/workflows/build.yml/badge.svg)](https://github.com/arumes31/rauth/actions/workflows/build.yml)
-[![Go Security Scan](https://github.com/arumes31/rauth/actions/workflows/go-security.yml/badge.svg)](https://github.com/arumes31/rauth/actions/workflows/go-security.yml)
-[![Daily Security Scan](https://github.com/arumes31/rauth/actions/workflows/security.yml/badge.svg)](https://github.com/arumes31/rauth/actions/workflows/security.yml)
-![Go Version](https://img.shields.io/github/go-mod/go-version/arumes31/rauth)
-![License](https://img.shields.io/github/license/arumes31/rauth)
+[![Build and Push](https://github.com/arumes31/rauth/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/arumes31/rauth/actions/workflows/build.yml)
+[![Go Security Scan](https://github.com/arumes31/rauth/actions/workflows/go-security.yml/badge.svg?branch=main)](https://github.com/arumes31/rauth/actions/workflows/go-security.yml)
+[![Daily Security Scan](https://github.com/arumes31/rauth/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/arumes31/rauth/actions/workflows/security.yml)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/arumes31/rauth?label=Go&logo=go)](https://github.com/arumes31/rauth/blob/main/go.mod)
+[![License](https://img.shields.io/github/license/arumes31/rauth?label=License&color=blue)](https://github.com/arumes31/rauth/blob/main/LICENSE)
 
 RAuth is a lightweight, ultra-fast authentication proxy and user management system written in **Go**. It is designed to sit behind an Nginx `auth_request` module to provide secure access control, 2FA, and audit logging for your web applications.
 
