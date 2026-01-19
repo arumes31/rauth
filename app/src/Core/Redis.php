@@ -55,4 +55,23 @@ class Redis {
         }
         return $users;
     }
+
+    public function createUser($username, $password, $email, $isAdmin = false) {
+        if ($this->exists("user:$username")) {
+            throw new \Exception("User already exists");
+        }
+
+        $userData = [
+            'username' => $username,
+            'password' => password_hash($password, PASSWORD_BCRYPT, ['cost' => 12]),
+            'email' => $email,
+            'uid' => uniqid('u_'),
+            'is_admin' => $isAdmin ? '1' : '0',
+            'created_at' => time()
+        ];
+
+        $this->hmset("user:$username", $userData);
+        $this->sadd('users', $username);
+        return true;
+    }
 }
