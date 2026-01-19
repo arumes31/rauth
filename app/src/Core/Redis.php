@@ -43,4 +43,16 @@ class Redis {
         }
         return self::$instances[$key];
     }
+
+    public function listUsers() {
+        $usernames = $this->smembers('users');
+        $users = [];
+        foreach ($usernames as $username) {
+            $data = $this->hgetall("user:$username");
+            if ($data) {
+                $users[] = $data;
+            }
+        }
+        return $users;
+    }
 }

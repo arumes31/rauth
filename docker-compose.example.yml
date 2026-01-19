@@ -1,0 +1,40 @@
+services:
+  # Main Authentication & Management Service
+  rauth-auth:
+    image: your-dockerhub-user/rauth-auth:latest
+    container_name: rauth-auth-service
+    restart: always
+    ports:
+      - "5980:80"
+    env_file: .env
+    depends_on:
+      - rauth-auth-redis
+      - rauth-geo-service
+    networks:
+      - rauth-network
+
+  # Redis for Session and User Data
+  rauth-auth-redis:
+    image: redis:8-alpine
+    container_name: rauth-auth-redis
+    restart: always
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - ./redis-data:/data
+    networks:
+      - rauth-network
+
+  # Geolocation API (MaxMind)
+  rauth-geo-service:
+    image: your-dockerhub-user/rauth-geo:latest
+    container_name: rauth-geo-service
+    restart: always
+    env_file: .env
+    volumes:
+      - ./geoip-data:/srv/app/geoip
+    networks:
+      - rauth-network
+
+networks:
+  rauth-network:
+    driver: bridge

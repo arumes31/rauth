@@ -6,6 +6,8 @@ use RAuth\Core\Redis;
 use RAuth\Core\Auth;
 use RAuth\Core\Logger;
 use RAuth\Core\GeoService;
+use RAuth\Core\RateLimiter;
+use RAuth\Core\AuditLogger;
 use RobThree\Auth\TwoFactorAuth;
 
 Logger::init();
@@ -14,6 +16,15 @@ session_start();
 $serverSecret = Config::getRequired('SERVER_SECRET');
 $auth = new Auth($serverSecret);
 $tfa = new TwoFactorAuth('RCloudAuth');
+$limiter = new RateLimiter();
+$audit = new AuditLogger();
+
+// Global Rate Limit
+$clientIp = Auth::getClientIP();
+if (!$limiter->check('global:' . $clientIp, 20, 60)) {
+    http_response_code(429);
+    exit("Too many requests.");
+}
 
 $tokenValidityMinutes = Config::get('AUTH_TOKEN_VALIDITY_MINUTES', 10080);
 $tokenValiditySeconds = (int)$tokenValidityMinutes * 60;
@@ -92,26 +103,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $totpCode = $_POST['totp_code'] ?? '';
 
     if ($action === 'login') {
-        try {
-            $redisUser = Redis::getInstance(0);
-            $user = $redisUser->hgetall("user:$username");
+        if (!$limiter->check("login:$username", 5, 300)) {
+            $error = "Too many failed attempts. Try again in 5 minutes.";
+            $audit->log('LOGIN_BRUTEFORCE_BLOCKED', $username);
+        } else {
+            try {
+                $redisUser = Redis::getInstance(0);
+                $user = $redisUser->hgetall("user:$username");
 
-            if ($user && password_verify($password, $user['password'])) {
-                $_SESSION['username'] = $username;
-                
-                if (!empty($user['2fa_secret']) || isset($_SESSION['country_change'])) {
-                    $_SESSION['pending_2fa'] = true;
-                    $_SESSION['2fa_secret'] = $user['2fa_secret'] ?: $tfa->createSecret();
-                    $display2fa = true;
+                if ($user && password_verify($password, $user['password'])) {
+                    $_SESSION['username'] = $username;
+                    $limiter->reset("login:$username");
+                    
+                    if (!empty($user['2fa_secret']) || isset($_SESSION['country_change'])) {
+                        $_SESSION['pending_2fa'] = true;
+                        $_SESSION['2fa_secret'] = $user['2fa_secret'] ?: $tfa->createSecret();
+                        $display2fa = true;
+                        $audit->log('LOGIN_PASSWORD_OK', $username, ['requires_2fa' => true]);
+                    } else {
+                        issueToken($username, $clientIp, $clientCountry, $auth, $tokenValiditySeconds, $cookieDomain, $redirectUrl, $audit);
+                    }
                 } else {
-                    issueToken($username, $clientIp, $clientCountry, $auth, $tokenValiditySeconds, $cookieDomain, $redirectUrl);
+                    $error = "Invalid credentials";
+                    $audit->log('LOGIN_FAILED', $username);
                 }
-            } else {
-                $error = "Invalid credentials";
+            } catch (\Exception $e) {
+                Logger::log("Login error: " . $e->getMessage());
+                $error = "System error";
             }
-        } catch (\Exception $e) {
-            Logger::log("Login error: " . $e->getMessage());
-            $error = "System error";
         }
     } elseif ($action === 'verify_2fa') {
         $username = $_SESSION['username'] ?? '';
@@ -119,15 +138,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($username && $twofaSecret && $tfa->verifyCode($twofaSecret, $totpCode)) {
             unset($_SESSION['pending_2fa'], $_SESSION['2fa_secret'], $_SESSION['country_change']);
-            issueToken($username, $clientIp, $clientCountry, $auth, $tokenValiditySeconds, $cookieDomain, $redirectUrl);
+            issueToken($username, $clientIp, $clientCountry, $auth, $tokenValiditySeconds, $cookieDomain, $redirectUrl, $audit);
         } else {
             $error = "Invalid 2FA code";
+            $audit->log('2FA_FAILED', $username);
             $display2fa = true;
         }
     }
 }
 
-function issueToken($username, $ip, $country, $auth, $ttl, $domain, $redirect) {
+function issueToken($username, $ip, $country, $auth, $ttl, $domain, $redirect, $audit) {
     $token = bin2hex(random_bytes(32));
     $encrypted = $auth->encryptToken($token);
     
@@ -137,9 +157,15 @@ function issueToken($username, $ip, $country, $auth, $ttl, $domain, $redirect) {
         'status' => 'valid',
         'ip' => $ip,
         'username' => $username,
-        'country' => $country
+        'country' => $country,
+        'created_at' => time()
     ]);
     $redis->expire($redisKey, $ttl);
+
+    // Track sessions per user
+    $redis->sadd("user_sessions:$username", $token);
+
+    $audit->log('LOGIN_SUCCESS', $username, ['ip' => $ip, 'country' => $country]);
 
     setcookie('X-rcloudauth-authtoken', $encrypted, [
         'expires' => time() + $ttl,
