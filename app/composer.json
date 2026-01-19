@@ -1,6 +1,6 @@
 {
     "require": {
-        "robthree/twofactorauth": "^2.0",
+        "robthree/twofactorauth": "^3.0",
         "predis/predis": "^2.0",
         "guzzlehttp/guzzle": "^7.0"
     },
