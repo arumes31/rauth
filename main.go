@@ -3,17 +3,19 @@ package main
 import (
 	"context"
 	"embed"
-	"html/template"
+	"fmt"
+	html/template
 	"io"
 	"net/http"
 	"os"
 	"os/signal"
 	"rauth/internal/core"
 	"rauth/internal/handlers"
-	"time"
+	"rauth/internal/middleware"
+	time
 
 	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
+	echoMiddleware "github.com/labstack/echo/v4/middleware"
 )
 
 //go:embed static/*
@@ -34,12 +36,14 @@ func main() {
 	cfg := core.LoadConfig()
 
 	if err := core.InitRedis(cfg); err != nil {
-		panic(err)
+		fmt.Printf("Redis error: %v\n", err)
+		os.Exit(1)
 	}
 
 	e := echo.New()
-	e.Use(middleware.Logger())
-	e.Use(middleware.Recover())
+	e.HideBanner = true
+	e.Use(echoMiddleware.Logger())
+	e.Use(echoMiddleware.Recover())
 
 	// Templates
 	renderer := &TemplateRenderer{
@@ -47,16 +51,44 @@ func main() {
 	}
 	e.Renderer = renderer
 
-	// Static files
+	// Static files from embedded FS
 	e.GET("/static/*", echo.WrapHandler(http.FileServer(http.FS(staticFS))))
 
+	// Handlers
 	authHandler := &handlers.AuthHandler{Cfg: cfg}
+	adminHandler := &handlers.AdminHandler{Cfg: cfg}
 
-	// Routes
+	// Public Routes
 	e.GET("/rauthvalidate", authHandler.Validate)
 	e.GET("/login", func(c echo.Context) error { return c.Render(http.StatusOK, "login.html", nil) })
 	e.POST("/login", authHandler.Login)
-	// ... more routes ...
+
+	// Protected Routes
+	protected := e.Group("")
+	protected.Use(middleware.AuthMiddleware(cfg))
+	
+	protected.POST("/logout", func(c echo.Context) error {
+		// Logic to clear cookie and invalidate token
+		cookie := new(http.Cookie)
+		cookie.Name = "X-rcloudauth-authtoken"
+		cookie.Value = ""
+		cookie.Expires = time.Now().Add(-1 * time.Hour)
+		cookie.Path = "/"
+		cookie.Domain = cfg.CookieDomain
+		c.SetCookie(cookie)
+		return c.Redirect(http.StatusFound, "/login")
+	})
+
+	// Admin Routes
+	admin := protected.Group("/rauthmgmt")
+	admin.Use(middleware.AdminMiddleware)
+	admin.GET("", adminHandler.Dashboard)
+	admin.POST("/user/create", adminHandler.CreateUser)
+
+	// Health check
+	e.GET("/health", func(c echo.Context) error {
+		return c.JSON(http.StatusOK, map[string]string{"status": "OK"})
+	})
 
 	// Start server
 	go func() {
@@ -65,7 +97,7 @@ func main() {
 		}
 	}()
 
-	// Wait for interrupt signal to gracefully shutdown the server
+	// Graceful shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt)
 	<-quit
