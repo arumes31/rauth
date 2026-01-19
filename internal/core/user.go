@@ -68,3 +68,7 @@ func DeleteUser(username string) error {
 	UserDB.SRem(Ctx, "users", username)
 	return nil
 }
+
+func UpdateUser(username string, updates map[string]interface{}) error {
+	return UserDB.HSet(Ctx, "user:"+username, updates).Err()
+}

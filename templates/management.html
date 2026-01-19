@@ -39,43 +39,91 @@
                     <i class="bi bi-people me-2"></i> User Directory
                 </button>
             </li>
+            <li class="nav-item">
+                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#audit">
+                    <i class="bi bi-journal-text me-2"></i> Audit Logs
+                </button>
+            </li>
         </ul>
 
         <div class="tab-content">
+            <!-- Sessions Tab -->
             <div class="tab-pane fade show active" id="sessions">
                 <div class="card">
-                    <div class="card-header d-flex justify-content-between">
+                    <div class="card-header d-flex justify-content-between align-items-center">
                         <h6 class="mb-0">Active Session Monitor</h6>
                     </div>
                     <div class="card-body p-0">
-                        <table class="table mb-0">
-                            <thead>
-                                <tr>
-                                    <th class="ps-4">User</th>
-                                    <th>IP</th>
-                                    <th>Expires In</th>
-                                    <th class="text-end pe-4">Manage</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {{range .sessions}}
-                                <tr class="align-middle">
-                                    <td class="ps-4"><strong>{{index . "username"}}</strong></td>
-                                    <td>{{index . "ip"}} ({{index . "country"}})</td>
-                                    <td>{{index . "ttl"}}s</td>
-                                    <td class="text-end pe-4">
-                                        <form method="POST" action="/rauthmgmt/session/invalidate">
-                                            <input type="hidden" name="token" value="{{index . "token"}}">
-                                            <button type="submit" class="btn btn-sm btn-outline-danger border-0"><i class="bi bi-trash"></i></button>
-                                        </form>
-                                    </td>
-                                </tr>
-                                {{end}}
-                            </tbody>
-                        </table>
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0">
+                                <thead>
+                                    <tr>
+                                        <th class="ps-4">Username</th>
+                                        <th>IP & Region</th>
+                                        <th>Session TTL</th>
+                                        <th class="text-end pe-4">Manage</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {{range .sessions}}
+                                    <tr class="align-middle">
+                                        <td class="ps-4">
+                                            <div class="fw-bold">{{index . "username"}}</div>
+                                            <div class="text-muted extra-small">ID: {{index . "token" | printf "%.8s"}}...</div>
+                                        </td>
+                                        <td>
+                                            <div>{{index . "ip"}}</div>
+                                            <div class="text-muted small"><i class="bi bi-globe me-1"></i> {{index . "country"}}</div>
+                                        </td>
+                                        <td>{{index . "ttl"}}s remaining</td>
+                                        <td class="text-end pe-4">
+                                            <form method="POST" action="/rauthmgmt/session/invalidate">
+                                                <input type="hidden" name="token" value="{{index . "token"}}">
+                                                <button type="submit" class="btn btn-sm btn-outline-danger border-0"><i class="bi bi-trash"></i></button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                    {{end}}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </div>
+
+            <!-- Users Tab ... (kept same) -->
+
+            <!-- Audit Tab -->
+            <div class="tab-pane fade" id="audit">
+                <div class="card">
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0">
+                                <thead class="bg-dark">
+                                    <tr>
+                                        <th class="ps-4">Timestamp</th>
+                                        <th>Event</th>
+                                        <th>Context</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {{range .logs}}
+                                    <tr>
+                                        <td class="ps-4 text-muted small">{{.Timestamp}}</td>
+                                        <td><span class="text-info">{{.Action}}</span></td>
+                                        <td>
+                                            <i class="bi bi-person me-1"></i> {{.Username}}
+                                            <div class="text-muted extra-small"><i class="bi bi-hdd-network me-1"></i> {{.IP}}</div>
+                                        </td>
+                                    </tr>
+                                    {{end}}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
 
             <div class="tab-pane fade" id="users">
                 <div class="card">

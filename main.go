@@ -4,7 +4,7 @@ import (
 	"context"
 	"embed"
 	"fmt"
-	html/template
+	"html/template"
 	"io"
 	"net/http"
 	"os"
@@ -12,7 +12,7 @@ import (
 	"rauth/internal/core"
 	"rauth/internal/handlers"
 	"rauth/internal/middleware"
-	time
+	"time"
 
 	"github.com/labstack/echo/v4"
 	echoMiddleware "github.com/labstack/echo/v4/middleware"
@@ -40,23 +40,24 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Startup Initialization
+	initializeSystem(cfg)
+
 	e := echo.New()
 	e.HideBanner = true
 	e.Use(echoMiddleware.Logger())
 	e.Use(echoMiddleware.Recover())
 
-	// Templates
 	renderer := &TemplateRenderer{
 		templates: template.Must(template.ParseFS(templateFS, "templates/*.html")),
 	}
 	e.Renderer = renderer
 
-	// Static files from embedded FS
 	e.GET("/static/*", echo.WrapHandler(http.FileServer(http.FS(staticFS))))
 
-	// Handlers
 	authHandler := &handlers.AuthHandler{Cfg: cfg}
 	adminHandler := &handlers.AdminHandler{Cfg: cfg}
+	profileHandler := &handlers.ProfileHandler{Cfg: cfg}
 
 	// Public Routes
 	e.GET("/rauthvalidate", authHandler.Validate)
@@ -68,36 +69,40 @@ func main() {
 	protected.Use(middleware.AuthMiddleware(cfg))
 	
 	protected.POST("/logout", func(c echo.Context) error {
-		// Logic to clear cookie and invalidate token
-		cookie := new(http.Cookie)
-		cookie.Name = "X-rcloudauth-authtoken"
-		cookie.Value = ""
-		cookie.Expires = time.Now().Add(-1 * time.Hour)
-		cookie.Path = "/"
-		cookie.Domain = cfg.CookieDomain
+		cookie := &http.Cookie{
+			Name:     "X-rcloudauth-authtoken",
+			Value:    "",
+			Path:     "/",
+			Domain:   cfg.CookieDomain,
+			Expires:  time.Now().Add(-1 * time.Hour),
+			HttpOnly: true,
+		}
 		c.SetCookie(cookie)
 		return c.Redirect(http.StatusFound, "/login")
 	})
+
+	// Profile Routes
+	protected.GET("/rauthprofile", profileHandler.Show)
+	protected.POST("/rauthprofile/password", profileHandler.ChangePassword)
 
 	// Admin Routes
 	admin := protected.Group("/rauthmgmt")
 	admin.Use(middleware.AdminMiddleware)
 	admin.GET("", adminHandler.Dashboard)
 	admin.POST("/user/create", adminHandler.CreateUser)
+	admin.POST("/user/delete", adminHandler.DeleteUser)
+	admin.POST("/session/invalidate", adminHandler.InvalidateSession)
 
-	// Health check
 	e.GET("/health", func(c echo.Context) error {
 		return c.JSON(http.StatusOK, map[string]string{"status": "OK"})
 	})
 
-	// Start server
 	go func() {
 		if err := e.Start(":80"); err != nil && err != http.ErrServerClosed {
 			e.Logger.Fatal("shutting down the server")
 		}
 	}()
 
-	// Graceful shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt)
 	<-quit
@@ -105,5 +110,17 @@ func main() {
 	defer cancel()
 	if err := e.Shutdown(ctx); err != nil {
 		e.Logger.Fatal(err)
+	}
+}
+
+func initializeSystem(cfg *core.Config) {
+	if cfg.InitialUser != "" && cfg.InitialPassword != "" {
+		fmt.Printf("Checking initial user: %s\n", cfg.InitialUser)
+		err := core.CreateUser(cfg.InitialUser, cfg.InitialPassword, "admin@local", true)
+		if err == nil {
+			fmt.Println("Initial admin user created.")
+		} else {
+			fmt.Println("Initial user already exists or error occurred.")
+		}
 	}
 }
