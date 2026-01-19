@@ -173,6 +173,7 @@ function formatTime($timestamp) {
         <div class="container">
             <a class="navbar-brand" href="#">RCloudAuth Admin</a>
             <div class="d-flex align-items-center">
+                <a href="/rauthprofile" class="btn btn-sm btn-outline-info me-3">My Profile</a>
                 <span class="navbar-text me-3 d-none d-md-inline">Logged in as: <strong><?php echo htmlspecialchars($username); ?></strong></span>
                 <form method="POST">
                     <input type="hidden" name="action" value="logout">

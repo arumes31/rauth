@@ -74,4 +74,12 @@ class Redis {
         $this->sadd('users', $username);
         return true;
     }
+
+    public function updateUser($username, $data) {
+        if (!$this->exists("user:$username")) {
+            return false;
+        }
+        $this->hmset("user:$username", $data);
+        return true;
+    }
 }

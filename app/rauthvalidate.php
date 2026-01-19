@@ -77,11 +77,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && !isset($_GET['action']) && !isset($_
                 $_SESSION['pending_2fa'] = true;
                 $_SESSION['username'] = $tokenData['username'];
                 $_SESSION['country_change'] = true;
-                // Note: In auth_request mode, we usually return 401 or 403.
-                // If it's a browser request to the validation endpoint, we might want to redirect.
-                // But usually /rauthvalidate is called by Nginx.
                 http_response_code(401); 
                 exit;
+            }
+
+            // Group-Based Access Control (RBAC)
+            $requiredGroup = $_SERVER['HTTP_X_RAUTH_REQUIRED_GROUP'] ?? null;
+            if ($requiredGroup) {
+                $redisUsers = Redis::getInstance(0);
+                $userData = $redisUsers->hgetall("user:" . $tokenData['username']);
+                $userGroups = explode(',', $userData['groups'] ?? 'default');
+                if (!in_array($requiredGroup, array_map('trim', $userGroups))) {
+                    Logger::log("Access denied: User {$tokenData['username']} lacks group $requiredGroup");
+                    http_response_code(403);
+                    exit("Forbidden: Missing group $requiredGroup");
+                }
             }
 
             http_response_code(200);
