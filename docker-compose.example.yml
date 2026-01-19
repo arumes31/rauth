@@ -1,40 +1,52 @@
 services:
-  # Main Authentication & Management Service
-  rauth-auth:
-    image: ghcr.io/your-github-user/rauth-auth:latest
+  rauth-auth-service:
     container_name: rauth-auth-service
-    restart: always
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER}/rauth-auth:latest
     ports:
-      - "5980:80"
-    env_file: .env
+      - "${AUTH_PORT:-5980}:80"
+    environment:
+      - REDIS_HOST=rauth-auth-redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - INITIAL_USER=${INITIAL_USER:-admin}
+      - INITIAL_PASSWORD=${INITIAL_PASSWORD}
+      - INITIAL_EMAIL=${INITIAL_EMAIL:-admin@example.com}
+      - INITIAL_2FA_SECRET=${INITIAL_2FA_SECRET}
+      - AUTH_TOKEN_VALIDITY_MINUTES=${AUTH_TOKEN_VALIDITY_MINUTES:-10080}
+      - COOKIE_DOMAIN=${COOKIE_DOMAIN}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS}
+      - GEO_API_HOST=rauth-geo-service
+      - GEO_API_PORT=3000
+      - SERVER_SECRET=${SERVER_SECRET}
     depends_on:
       - rauth-auth-redis
-      - rauth-geo-service
     networks:
-      - rauth-network
+      - auth-network
 
-  # Redis for Session and User Data
   rauth-auth-redis:
-    image: redis:8-alpine
+    image: redis:8.0-alpine
     container_name: rauth-auth-redis
-    restart: always
     command: redis-server --requirepass ${REDIS_PASSWORD}
     volumes:
       - ./redis-data:/data
     networks:
-      - rauth-network
+      - auth-network
 
-  # Geolocation API (MaxMind)
   rauth-geo-service:
-    image: ghcr.io/your-github-user/rauth-geo:latest
     container_name: rauth-geo-service
-    restart: always
-    env_file: .env
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER}/rauth-geo:latest
+    environment:
+      - MAXMIND_ACCOUNT_ID=${MAXMIND_ACCOUNT_ID}
+      - MAXMIND_LICENSE_KEY=${MAXMIND_LICENSE_KEY}
+      - GEOIP_EDITION_IDS=${GEOIP_EDITION_IDS:-GeoLite2-Country}
+      - GEOIP_DATABASE_DIRECTORY=/srv/app/geoip
     volumes:
       - ./geoip-data:/srv/app/geoip
+    depends_on:
+      - rauth-auth-redis
     networks:
-      - rauth-network
+      - auth-network
 
 networks:
-  rauth-network:
+  auth-network:
     driver: bridge
