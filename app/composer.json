@@ -1,7 +1,7 @@
 {
     "require": {
         "robthree/twofactorauth": "^2.0",
-        "predis/predis": "^2.0",
+        "predis/predis": "^3.3",
         "guzzlehttp/guzzle": "^7.0"
     },
     "autoload": {
