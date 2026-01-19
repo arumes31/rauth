@@ -41,4 +41,4 @@ fi
 
 # Start PHP built-in server
 echo "Starting PHP server..."
-php -S 0.0.0.0:3000 /srv/app/geoip-api.php
+php -d apc.enable_cli=1 -S 0.0.0.0:3000 /srv/app/geoip-api.php

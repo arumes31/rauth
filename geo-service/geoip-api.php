@@ -3,55 +3,55 @@ require 'vendor/autoload.php';
 
 use GeoIp2\Database\Reader;
 
-// Log request for debugging
-$request_id = bin2hex(random_bytes(8));
-error_log("geoip-api.php [$request_id]: Received request");
+/**
+ * GeoIP API Service
+ * 
+ * Provides country code for a given IP address with APCu caching.
+ */
 
-// Get IP from query parameter
+// Basic response helper
+function sendResponse($data, $code = 200) {
+    http_response_code($code);
+    header('Content-Type: application/json');
+    echo json_encode($data);
+    exit;
+}
+
 $ip = $_GET['ip'] ?? '';
-if (!$ip) {
-    http_response_code(400);
-    echo json_encode(['error' => 'IP parameter is required']);
-    error_log("geoip-api.php [$request_id]: Missing IP parameter");
-    exit;
+
+if (!$ip || !filter_var($ip, FILTER_VALIDATE_IP)) {
+    sendResponse(['error' => 'Valid IP parameter is required'], 400);
 }
 
-// Validate IP
-if (!filter_var($ip, FILTER_VALIDATE_IP)) {
-    http_response_code(400);
-    echo json_encode(['error' => 'Invalid IP address']);
-    error_log("geoip-api.php [$request_id]: Invalid IP address: $ip");
-    exit;
+// Cache check
+$cacheKey = "geoip_v1_$ip";
+if (function_exists('apcu_fetch')) {
+    $cached = apcu_fetch($cacheKey);
+    if ($cached !== false) {
+        sendResponse($cached);
+    }
 }
 
-// Check cache
-$cache_key = "geoip_$ip";
-$ttl = 3600; // Cache for 1 hour
-$cached_result = apcu_fetch($cache_key);
-if ($cached_result !== false) {
-    error_log("geoip-api.php [$request_id]: Cache hit for IP $ip");
-    header('Content-Type: application/json');
-    echo json_encode($cached_result);
-    exit;
-}
-
-// Initialize MaxMind reader
 try {
-    $reader = new Reader('/srv/app/geoip/GeoLite2-Country.mmdb');
+    $dbPath = getenv('GEOIP_DATABASE_DIRECTORY') ?: '/srv/app/geoip';
+    $reader = new Reader($dbPath . '/GeoLite2-Country.mmdb');
+    
     $record = $reader->country($ip);
-    $country_code = $record->country->isoCode ?? 'unknown';
-    $result = ['ip' => $ip, 'country' => $country_code];
-    error_log("geoip-api.php [$request_id]: Country code for IP $ip: $country_code");
-    
-    // Store in cache
-    apcu_store($cache_key, $result, $ttl);
-    error_log("geoip-api.php [$request_id]: Cached result for IP $ip");
-    
-    header('Content-Type: application/json');
-    echo json_encode($result);
-} catch (Exception $e) {
-    error_log("geoip-api.php [$request_id]: Failed to get country for IP $ip: " . $e->getMessage());
-    http_response_code(500);
-    echo json_encode(['error' => 'Unable to determine country']);
+    $result = [
+        'ip' => $ip,
+        'country' => $record->country->isoCode ?? 'unknown',
+        'timestamp' => time()
+    ];
+
+    if (function_exists('apcu_store')) {
+        apcu_store($cacheKey, $result, 86400); // Cache for 24 hours
+    }
+
+    sendResponse($result);
+
+} catch (\GeoIp2\Exception\AddressNotFoundException $e) {
+    sendResponse(['ip' => $ip, 'country' => 'unknown'], 200);
+} catch (\Exception $e) {
+    error_log("GeoIP Error: " . $e->getMessage());
+    sendResponse(['error' => 'Internal Server Error'], 500);
 }
-?>

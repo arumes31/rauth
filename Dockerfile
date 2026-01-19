@@ -9,8 +9,8 @@ RUN apt-get update && apt-get install -y \
     procps \
     net-tools \
     && pecl install redis \
-    && docker-php-ext-install zip \
-    && docker-php-ext-enable redis \
+    && docker-php-ext-install zip opcache \
+    && docker-php-ext-enable redis opcache \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     # Verify auth_request module is available
