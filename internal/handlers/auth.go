@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"net/http"
 	"rauth/internal/core"
-	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"

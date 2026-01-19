@@ -3,15 +3,16 @@ FROM golang:1.22-alpine AS builder
 
 WORKDIR /app
 
-# Install dependencies
-COPY go.mod go.sum ./
-RUN go mod download
+# Copy mod file
+COPY go.mod ./
 
 # Copy source code
 COPY . .
 
-# Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -o rauth main.go
+# Tidy, download and build in one step to ensure go.sum is respected
+RUN go mod tidy && \
+    go mod download && \
+    CGO_ENABLED=0 GOOS=linux go build -v -o rauth main.go
 
 # Final Stage
 FROM alpine:latest
