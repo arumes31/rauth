@@ -1,45 +1,30 @@
-FROM php:8.2-fpm
+# Build Stage
+FROM golang:1.22-alpine AS builder
 
-# Install Nginx, Redis tools, unzip, procps, net-tools, and dependencies
-RUN apt-get update && apt-get install -y \
-    nginx \
-    redis-tools \
-    unzip \
-    libzip-dev \
-    procps \
-    net-tools \
-    && pecl install redis \
-    && docker-php-ext-install zip opcache \
-    && docker-php-ext-enable redis opcache \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* \
-    # Verify auth_request module is available
-    && nginx -V 2>&1 | grep -q http_auth_request_module || { echo "auth_request module not found"; exit 1; } \
-    # Create nginx user and group
-    && groupadd -r nginx && useradd -r -g nginx nginx
+WORKDIR /app
 
-# Install Composer
-RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+# Install dependencies
+COPY go.mod go.sum ./
+RUN go mod download
 
-# Copy Nginx configuration
-COPY nginx.conf /etc/nginx/nginx.conf
-COPY proxy.conf /etc/nginx/conf.d/proxy.conf
+# Copy source code
+COPY . .
 
-# Copy PHP application
-COPY app /var/www/html
-WORKDIR /var/www/html
+# Build the application
+RUN CGO_ENABLED=0 GOOS=linux go build -o rauth main.go
 
-# Install PHP dependencies from composer.json
-RUN composer install --no-dev --optimize-autoloader
+# Final Stage
+FROM alpine:latest
 
-# Copy and configure entrypoint script
-COPY entrypoint.sh /entrypoint.sh
-RUN sed -i 's/\r$//' /entrypoint.sh && \
-    chmod +x /entrypoint.sh && \
-    ls -l /entrypoint.sh
+RUN apk --no-cache add ca-certificates tzdata
+
+WORKDIR /root/
+
+# Copy the binary from the builder stage
+COPY --from=builder /app/rauth .
 
 # Expose port
 EXPOSE 80
 
-# Start services
-ENTRYPOINT ["/entrypoint.sh"]
+# Run the application
+CMD ["./rauth"]
