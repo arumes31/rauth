@@ -1,4 +1,4 @@
-FROM php:8.2-fpm
+FROM php:8.5-fpm
 
 # Install Nginx, Redis tools, unzip, procps, net-tools, and dependencies
 RUN apt-get update && apt-get install -y \
