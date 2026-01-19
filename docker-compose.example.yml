@@ -1,7 +1,7 @@
 services:
   # Main Authentication & Management Service
   rauth-auth:
-    image: your-dockerhub-user/rauth-auth:latest
+    image: ghcr.io/your-github-user/rauth-auth:latest
     container_name: rauth-auth-service
     restart: always
     ports:
@@ -26,7 +26,7 @@ services:
 
   # Geolocation API (MaxMind)
   rauth-geo-service:
-    image: your-dockerhub-user/rauth-geo:latest
+    image: ghcr.io/your-github-user/rauth-geo:latest
     container_name: rauth-geo-service
     restart: always
     env_file: .env
