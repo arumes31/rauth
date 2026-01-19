@@ -1,0 +1,40 @@
+name: Daily Security Scan
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner (Auth Service)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'rauth-auth:latest'
+          scan-type: 'image'
+          format: 'sarif'
+          output: 'trivy-results-auth.sarif'
+          exit-code: '0'
+          ignore-unfixed: true
+          severity: 'CRITICAL,HIGH'
+
+      - name: Run Trivy vulnerability scanner (Geo Service)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'rauth-geo:latest'
+          scan-type: 'image'
+          format: 'sarif'
+          output: 'trivy-results-geo.sarif'
+          exit-code: '0'
+          ignore-unfixed: true
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: '.'
