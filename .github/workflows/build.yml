@@ -42,6 +42,7 @@ jobs:
     name: Build and Push
     needs: test
     runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: read
       packages: write

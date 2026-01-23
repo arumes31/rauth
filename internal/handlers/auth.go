@@ -201,6 +201,6 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 		slog.Warn("Unsafe redirect attempted", "host", redirect, "user", username)
 		redirect = "/"
 	}
-	if redirect == "" { redirect = "/" }
+	if redirect == "" { redirect = "/rauthprofile" }
 	return c.Redirect(http.StatusFound, redirect)
 }
