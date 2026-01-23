@@ -61,7 +61,7 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 	// Geo-check
 	currentCountry := core.GetCountryCode(clientIP)
 	if data["country"] != "unknown" && currentCountry != "unknown" && data["country"] != currentCountry {
-		core.LogAudit("COUNTRY_CHANGE_DETECTED", data["username"], clientIP, map[string]interface{}{"old": data["country"], "new": currentCountry})
+		core.LogAudit("COUNTRY_CHANGE_DETECTED", data["username"], clientIP, map[string]interface{}{"old": data["country"], "new": currentCountry, "current_ip": clientIP})
 		// Expire instant if country changes
 		core.TokenDB.Del(core.Ctx, redisKey)
 		return c.NoContent(http.StatusUnauthorized)

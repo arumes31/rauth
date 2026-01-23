@@ -15,8 +15,8 @@ type GeoResponse struct {
 }
 
 var (
-	geoCache     = make(map[string]string)
-	geoCacheLock sync.RWMutex
+	GeoCache     = make(map[string]string)
+	GeoCacheLock sync.RWMutex
 )
 
 func GetCountryCode(ip string) string {
@@ -35,12 +35,12 @@ func GetCountryCode(ip string) string {
 		}
 	}
 
-	geoCacheLock.RLock()
-	if code, ok := geoCache[ip]; ok {
-		geoCacheLock.RUnlock()
+	GeoCacheLock.RLock()
+	if code, ok := GeoCache[ip]; ok {
+		GeoCacheLock.RUnlock()
 		return code
 	}
-	geoCacheLock.RUnlock()
+	GeoCacheLock.RUnlock()
 
 	// Since LoadConfig is cheap but we want to avoid it in tight loops, 
 	// ideally we'd pass it in. For now, let's keep it but minimize impact.
@@ -60,13 +60,13 @@ func GetCountryCode(ip string) string {
 	}
 
 	if geo.Country != "" {
-		geoCacheLock.Lock()
+		GeoCacheLock.Lock()
 		// Basic cache eviction - if cache gets too big, clear it
-		if len(geoCache) > 1000 {
-			geoCache = make(map[string]string)
+		if len(GeoCache) > 1000 {
+			GeoCache = make(map[string]string)
 		}
-		geoCache[ip] = geo.Country
-		geoCacheLock.Unlock()
+		GeoCache[ip] = geo.Country
+		GeoCacheLock.Unlock()
 	}
 
 	return geo.Country
