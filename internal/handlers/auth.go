@@ -101,14 +101,23 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	clientIP := c.RealIP()
 
 	if !core.CheckRateLimit("login_ip:"+clientIP, 10, 300) {
-		return c.Render(http.StatusOK, "login.html", map[string]interface{}{"error": "Too many attempts."})
+		return c.Render(http.StatusOK, "login.html", map[string]interface{}{"error": "Too many attempts from this IP."})
+	}
+
+	if !core.AccountLockout(username, 5, 15) {
+		core.LogAudit("ACCOUNT_LOCKED", username, clientIP, nil)
+		return c.Render(http.StatusOK, "login.html", map[string]interface{}{"error": "Account temporarily locked due to multiple failed attempts. Please try again later.", "csrf": c.Get("csrf")})
 	}
 
 	userData, err := core.UserDB.HGetAll(core.Ctx, "user:"+username).Result()
 	if err != nil || len(userData) == 0 || !core.CheckPasswordHash(password, userData["password"]) {
+		core.IncrementLockout(username, 15)
 		core.LogAudit("LOGIN_FAILED", username, clientIP, nil)
 		return c.Render(http.StatusOK, "login.html", map[string]interface{}{"error": "Invalid credentials", "csrf": c.Get("csrf")})
 	}
+
+	// Success: Reset lockout for this user
+	core.ResetRateLimit("lockout:" + username)
 
 	// Check if 2FA is enabled
 	if userData["2fa_secret"] != "" {
@@ -159,6 +168,7 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 		// Clear pending cookie
 		c.SetCookie(&http.Cookie{Name: "rauth_2fa_pending", MaxAge: -1})
 		core.ResetRateLimit("login_ip:" + c.RealIP())
+		core.ResetRateLimit("lockout:" + username)
 		return h.issueToken(c, username)
 	}
 
