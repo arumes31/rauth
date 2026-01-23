@@ -83,7 +83,15 @@ RAuth is a lightweight, ultra-fast authentication proxy and user management syst
 | `TOKEN_VALIDITY_MINUTES` | Session validity duration | `2880` (2 days) |
 | `INITIAL_USER` | Admin username | `admin` |
 | `INITIAL_PASSWORD`| Admin password | (Required) |
+| `INITIAL_EMAIL` | Admin email | `admin@local` |
+| `INITIAL_2FA_SECRET` | Admin 2FA secret (optional) | (None) |
 | `COOKIE_DOMAIN` | Domain for the auth cookie | `example.com` |
+| `ALLOWED_HOSTS` | Comma-separated allowed redirect hosts | `localhost,127.0.0.1` |
+| `PWD_MIN_LENGTH` | Minimum password length | `8` |
+| `PWD_REQUIRE_UPPER` | Require uppercase | `true` |
+| `PWD_REQUIRE_LOWER` | Require lowercase | `true` |
+| `PWD_REQUIRE_NUMBER` | Require number | `true` |
+| `PWD_REQUIRE_SPECIAL` | Require special char | `true` |
 
 ## 💻 Development
 
@@ -108,7 +116,7 @@ docker-compose build --no-cache
 - [x] Use `HTTPS` only (secure cookies enabled).
 - [ ] Set a unique `SERVER_SECRET` (at least 32 characters).
 - [ ] Configure `ALLOWED_HOSTS` for strict redirection.
-- [ ] Update `INITIAL_PASSWORD` immediately after first login.
+- [ ] Update `INITIAL_PASSWORD` immediately after first login at `/rauthlogin`.
 
 ---
 Built with ❤️ for secure and fast self-hosting.

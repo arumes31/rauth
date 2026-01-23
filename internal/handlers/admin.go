@@ -134,15 +134,35 @@ func (h *AdminHandler) CreateUser(c echo.Context) error {
 
 
 
-		if user == "" || pass == "" {
+			if user == "" || pass == "" {
 
 
 
-			return echo.NewHTTPError(http.StatusBadRequest, "Username and password are required")
+				return echo.NewHTTPError(http.StatusBadRequest, "Username and password are required")
 
 
 
-		}
+			}
+
+
+
+		
+
+
+
+			if err := core.ValidatePassword(pass, h.Cfg); err != nil {
+
+
+
+				return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+
+
+
+			}
+
+
+
+		
 
 
 
@@ -150,23 +170,7 @@ func (h *AdminHandler) CreateUser(c echo.Context) error {
 
 
 
-		if err := core.ValidatePassword(pass); err != nil {
-
-
-
-			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-
-
-
-		}
-
-
-
-	
-
-
-
-		if err := core.CreateUser(user, pass, email, isAdmin); err != nil {
+		if err := core.CreateUser(user, pass, email, isAdmin, ""); err != nil {
 
 
 

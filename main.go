@@ -114,8 +114,8 @@ func main() {
 
 	// Public Routes
 	e.GET("/rauthvalidate", authHandler.Validate)
-	e.GET("/login", func(c echo.Context) error { return c.Render(http.StatusOK, "login.html", map[string]interface{}{"csrf": c.Get("csrf")}) })
-	e.POST("/login", authHandler.Login)
+	e.GET("/rauthlogin", func(c echo.Context) error { return c.Render(http.StatusOK, "login.html", map[string]interface{}{"csrf": c.Get("csrf"), "rd": c.QueryParam("rd")}) })
+	e.POST("/rauthlogin", authHandler.Login)
 	e.POST("/verify-2fa", authHandler.Verify2FA)
 
 	// Protected Routes
@@ -132,7 +132,7 @@ func main() {
 			HttpOnly: true,
 		}
 		c.SetCookie(cookie)
-		return c.Redirect(http.StatusFound, "/login")
+		return c.Redirect(http.StatusFound, "/rauthlogin")
 	})
 
 	// Profile Routes
@@ -170,7 +170,7 @@ func main() {
 func initializeSystem(cfg *core.Config) {
 	if cfg.InitialUser != "" && cfg.InitialPassword != "" {
 		slog.Info("Checking initial user", "user", cfg.InitialUser)
-		err := core.CreateUser(cfg.InitialUser, cfg.InitialPassword, "admin@local", true)
+		err := core.CreateUser(cfg.InitialUser, cfg.InitialPassword, cfg.InitialEmail, true, cfg.Initial2FASecret)
 		if err == nil {
 			slog.Info("Initial admin user created")
 		} else {

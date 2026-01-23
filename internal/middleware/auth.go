@@ -13,23 +13,23 @@ func AuthMiddleware(cfg *core.Config) echo.MiddlewareFunc {
 		return func(c echo.Context) error {
 			cookie, err := c.Cookie("X-rcloudauth-authtoken")
 			if err != nil {
-				return c.Redirect(http.StatusFound, "/login?rd="+c.Request().RequestURI)
+				return c.Redirect(http.StatusFound, "/rauthlogin?rd="+c.Request().RequestURI)
 			}
 
 			token, err := core.DecryptToken(cookie.Value, cfg.ServerSecret)
 			if err != nil {
 				slog.Warn("Failed to decrypt auth token", "ip", c.RealIP(), "error", err)
-				return c.Redirect(http.StatusFound, "/login")
+				return c.Redirect(http.StatusFound, "/rauthlogin")
 			}
 
 			data, err := core.TokenDB.HGetAll(core.Ctx, "X-rcloudauth-authtoken="+token).Result()
 			if err != nil {
 				slog.Error("Redis error in auth middleware", "error", err)
-				return c.Redirect(http.StatusFound, "/login")
+				return c.Redirect(http.StatusFound, "/rauthlogin")
 			}
 
 			if len(data) == 0 || data["status"] != "valid" {
-				return c.Redirect(http.StatusFound, "/login")
+				return c.Redirect(http.StatusFound, "/rauthlogin")
 			}
 
 			c.Set("username", data["username"])
@@ -54,7 +54,7 @@ func AdminMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		username, ok := c.Get("username").(string)
 		if !ok {
-			return c.Redirect(http.StatusFound, "/login")
+			return c.Redirect(http.StatusFound, "/rauthlogin")
 		}
 
 		userData, err := core.UserDB.HGetAll(core.Ctx, "user:"+username).Result()

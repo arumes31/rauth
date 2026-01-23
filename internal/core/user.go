@@ -33,7 +33,7 @@ func ListUsers() ([]User, error) {
 	return users, nil
 }
 
-func CreateUser(username, password, email string, isAdmin bool) error {
+func CreateUser(username, password, email string, isAdmin bool, twoFactor string) error {
 	exists, err := UserDB.Exists(Ctx, "user:"+username).Result()
 	if err != nil {
 		return err
@@ -60,6 +60,7 @@ func CreateUser(username, password, email string, isAdmin bool) error {
 		"groups":     "default",
 		"uid":        uuid.New().String(),
 		"created_at": time.Now().Unix(),
+		"2fa_secret": twoFactor,
 	}
 
 	err = UserDB.HSet(Ctx, "user:"+username, user).Err()

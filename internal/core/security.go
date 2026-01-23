@@ -14,9 +14,9 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-func ValidatePassword(password string) error {
-	if len(password) < 8 {
-		return fmt.Errorf("password must be at least 8 characters long")
+func ValidatePassword(password string, cfg *Config) error {
+	if len(password) < cfg.MinPasswordLength {
+		return fmt.Errorf("password must be at least %d characters long", cfg.MinPasswordLength)
 	}
 	var (
 		hasUpper   = regexp.MustCompile(`[A-Z]`).MatchString
@@ -24,16 +24,16 @@ func ValidatePassword(password string) error {
 		hasNumber  = regexp.MustCompile(`[0-9]`).MatchString
 		hasSpecial = regexp.MustCompile(`[!@#\$%\^&\*]`).MatchString
 	)
-	if !hasUpper(password) {
+	if cfg.RequirePasswordUpper && !hasUpper(password) {
 		return fmt.Errorf("password must contain at least one uppercase letter")
 	}
-	if !hasLower(password) {
+	if cfg.RequirePasswordLower && !hasLower(password) {
 		return fmt.Errorf("password must contain at least one lowercase letter")
 	}
-	if !hasNumber(password) {
+	if cfg.RequirePasswordNumber && !hasNumber(password) {
 		return fmt.Errorf("password must contain at least one number")
 	}
-	if !hasSpecial(password) {
+	if cfg.RequirePasswordSpecial && !hasSpecial(password) {
 		return fmt.Errorf("password must contain at least one special character")
 	}
 	return nil
