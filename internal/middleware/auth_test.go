@@ -39,14 +39,14 @@ func TestAuthMiddleware(t *testing.T) {
 		token := "valid-test-token"
 		encrypted, _ := core.EncryptToken(token, cfg.ServerSecret)
 		
-		core.TokenDB.HSet(core.Ctx, "X-rcloudauth-authtoken="+token, map[string]interface{}{
+		core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken="+token, map[string]interface{}{
 			"status": "valid",
 			"username": "testuser",
 			"groups": "admin",
 		})
 
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.AddCookie(&http.Cookie{Name: "X-rcloudauth-authtoken", Value: encrypted})
+		req.AddCookie(&http.Cookie{Name: "X-rauth-authtoken", Value: encrypted})
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
 

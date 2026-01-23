@@ -23,7 +23,7 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 		return c.NoContent(http.StatusTooManyRequests)
 	}
 
-	cookie, err := c.Cookie("X-rcloudauth-authtoken")
+	cookie, err := c.Cookie("X-rauth-authtoken")
 	if err != nil {
 		return c.NoContent(http.StatusUnauthorized)
 	}
@@ -33,7 +33,7 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 		return c.NoContent(http.StatusUnauthorized)
 	}
 
-	redisKey := "X-rcloudauth-authtoken=" + token
+	redisKey := "X-rauth-authtoken=" + token
 	data, err := core.TokenDB.HGetAll(core.Ctx, redisKey).Result()
 	if err != nil || len(data) == 0 || data["status"] != "valid" {
 		return c.NoContent(http.StatusUnauthorized)
@@ -55,7 +55,7 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 		
 		// Update cookie expiration
 		newCookie := &http.Cookie{
-			Name:     "X-rcloudauth-authtoken",
+			Name:     "X-rauth-authtoken",
 			Value:    cookie.Value,
 			Path:     "/",
 			Domain:   h.Cfg.CookieDomains[0],
@@ -161,7 +161,7 @@ func (h *AuthHandler) Setup2FA(c echo.Context) error {
 
 	// Generate a new 2FA key
 	key, err := totp.Generate(totp.GenerateOpts{
-		Issuer:      "RCloudAuth",
+		Issuer:      "RAuth",
 		AccountName: username,
 		Algorithm:   otp.AlgorithmSHA1,
 	})
@@ -260,7 +260,7 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 	clientIP := c.RealIP()
 	country := core.GetCountryCode(clientIP)
 
-	redisKey := "X-rcloudauth-authtoken=" + token
+	redisKey := "X-rauth-authtoken=" + token
 	err = core.TokenDB.HSet(core.Ctx, redisKey, map[string]interface{}{
 		"status":     "valid",
 		"ip":         clientIP,
@@ -277,7 +277,7 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 	core.TokenDB.Expire(core.Ctx, redisKey, validity)
 
 	cookie := &http.Cookie{
-		Name:     "X-rcloudauth-authtoken",
+		Name:     "X-rauth-authtoken",
 		Value:    encrypted,
 		Path:     "/",
 		Domain:   h.Cfg.CookieDomains[0],

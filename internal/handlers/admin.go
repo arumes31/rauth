@@ -42,7 +42,7 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 
 	// Fetch sessions
 
-	keys, err := core.TokenDB.Keys(core.Ctx, "X-rcloudauth-authtoken=*").Result()
+	keys, err := core.TokenDB.Keys(core.Ctx, "X-rauth-authtoken=*").Result()
 
 	if err != nil {
 
@@ -236,7 +236,7 @@ func (h *AdminHandler) InvalidateSession(c echo.Context) error {
 
 	
 
-	if err := core.TokenDB.Del(core.Ctx, "X-rcloudauth-authtoken="+token).Err(); err != nil {
+	if err := core.TokenDB.Del(core.Ctx, "X-rauth-authtoken="+token).Err(); err != nil {
 
 		slog.Error("Failed to invalidate session", "error", err)
 

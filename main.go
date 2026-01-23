@@ -127,7 +127,7 @@ func main() {
 	
 	protected.POST("/logout", func(c echo.Context) error {
 		cookie := &http.Cookie{
-			Name:     "X-rcloudauth-authtoken",
+			Name:     "X-rauth-authtoken",
 			Value:    "",
 			Path:     "/",
 			Domain:   cfg.CookieDomains[0],
