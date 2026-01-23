@@ -67,7 +67,7 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository_owner }}/rauth-auth
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest
             type=ref,event=branch
             type=ref,event=pr
             type=semver,pattern={{version}}
@@ -89,7 +89,7 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository_owner }}/rauth-geo
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest
             type=ref,event=branch
             type=ref,event=pr
             type=semver,pattern={{version}}
