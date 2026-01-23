@@ -22,24 +22,3 @@ func CheckRateLimit(key string, maxAttempts int, decaySeconds int) bool {
 func ResetRateLimit(key string) {
 	RateLimitDB.Del(Ctx, "rate_limit:"+key)
 }
-
-func AccountLockout(username string, maxAttempts int, lockoutMinutes int) bool {
-	key := "lockout:" + username
-	
-	count, err := RateLimitDB.Get(Ctx, key).Int()
-	if err != nil && err.Error() != "redis: nil" {
-		return true // Fail open
-	}
-
-	if count >= maxAttempts {
-		return false // Locked
-	}
-
-	return true
-}
-
-func IncrementLockout(username string, lockoutMinutes int) {
-	key := "lockout:" + username
-	RateLimitDB.Incr(Ctx, key)
-	RateLimitDB.Expire(Ctx, key, time.Duration(lockoutMinutes)*time.Minute)
-}
