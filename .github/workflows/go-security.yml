@@ -1,20 +1,25 @@
-name: Go Security Scan
+name: Go Security and Quality Scan
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, test ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, test ]
   schedule:
     - cron: '0 0 * * *' # Daily at midnight
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   security-scan:
+    name: Security & Quality
     runs-on: ubuntu-latest
     permissions:
       contents: read
       security-events: write
-      actions: read # Required for some telemetry and status reports
+      actions: read
 
     steps:
       - name: Checkout code
@@ -26,19 +31,24 @@ jobs:
           go-version: '1.24'
           cache: true
 
-      - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=5m
 
       - name: Run govulncheck
-        run: govulncheck ./...
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
 
       - name: Run Gosec Security Scanner
         uses: securego/gosec@master
         with:
-          # we let the report trigger failure if issues are found
           args: '-no-fail -fmt sarif -out results.sarif ./...'
 
-      - name: Upload SARIF file
+      - name: Upload Gosec SARIF file
         uses: github/codeql-action/upload-sarif@v4
+        if: always()
         with:
           sarif_file: results.sarif

@@ -90,7 +90,7 @@
                                 <tbody>
                                     {{range .logs}}
                                     <tr class="align-middle">
-                                        <td class="ps-4 text-muted small">{{.Timestamp}}</td>
+                                        <td class="ps-4 text-muted small">{{.Timestamp | formatTime}}</td>
                                         <td><span class="text-info small fw-bold">{{.Action}}</span></td>
                                         <td class="pe-4">
                                             <div class="extra-small text-muted"><i class="bi bi-hdd-network me-1"></i> {{.IP}}</div>

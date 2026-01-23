@@ -1,16 +1,29 @@
 version: 2
 updates:
+  # Maintain Go dependencies
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      go-dependencies:
+        patterns:
+          - "*"
+
+  # Maintain Docker dependencies for Auth Service
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
       interval: "weekly"
-  
+
+  # Maintain Docker dependencies for Geo Service
   - package-ecosystem: "docker"
     directory: "/geo-service"
     schedule:
       interval: "weekly"
 
-  - package-ecosystem: "composer"
-    directory: "/app"
+  # Maintain GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
     schedule:
       interval: "weekly"
