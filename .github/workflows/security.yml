@@ -1,45 +1,37 @@
-name: Daily Security Scan
+name: Container Security Scan
 
 on:
   schedule:
-    - cron: '0 0 * * *'
+    - cron: '0 12 * * *' # Daily at noon
   workflow_dispatch:
 
 jobs:
-  scan:
+  trivy:
+    name: Trivy Scan
     runs-on: ubuntu-latest
     permissions:
       contents: read
       security-events: write
       actions: read
 
+    strategy:
+      matrix:
+        image: [rauth-auth, rauth-geo]
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Run Trivy vulnerability scanner (Auth Service)
+      - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: 'rauth-auth:latest'
-          scan-type: 'image'
+          image-ref: 'ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:latest'
           format: 'sarif'
-          output: 'trivy-results-auth.sarif'
-          exit-code: '0'
-          ignore-unfixed: true
-          severity: 'CRITICAL,HIGH'
-
-      - name: Run Trivy vulnerability scanner (Geo Service)
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: 'rauth-geo:latest'
-          scan-type: 'image'
-          format: 'sarif'
-          output: 'trivy-results-geo.sarif'
-          exit-code: '0'
-          ignore-unfixed: true
+          output: 'trivy-results-${{ matrix.image }}.sarif'
           severity: 'CRITICAL,HIGH'
 
       - name: Upload Trivy scan results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v4
+        if: always()
         with:
-          sarif_file: '.'
+          sarif_file: 'trivy-results-${{ matrix.image }}.sarif'
