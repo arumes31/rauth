@@ -31,33 +31,33 @@
     <div class="container mt-5 animate-fade-in">
         <ul class="nav nav-tabs mb-4" id="adminTabs" role="tablist">
             <li class="nav-item">
-                <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#sessions">
+                <button class="nav-link active" id="sessions-tab" data-bs-toggle="tab" data-bs-target="#sessions" type="button" role="tab">
                     <i class="bi bi-activity me-2"></i> Active Sessions
                 </button>
             </li>
             <li class="nav-item">
-                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#users">
+                <button class="nav-link" id="users-tab" data-bs-toggle="tab" data-bs-target="#users" type="button" role="tab">
                     <i class="bi bi-people me-2"></i> User Directory
                 </button>
             </li>
             <li class="nav-item">
-                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#audit">
+                <button class="nav-link" id="audit-tab" data-bs-toggle="tab" data-bs-target="#audit" type="button" role="tab">
                     <i class="bi bi-journal-text me-2"></i> Audit Logs
                 </button>
             </li>
         </ul>
 
-        <div class="tab-content">
+        <div class="tab-content" id="adminTabsContent">
             <!-- Sessions Tab -->
-            <div class="tab-pane fade show active" id="sessions">
-                <div class="card">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <h6 class="mb-0">Active Session Monitor</h6>
+            <div class="tab-pane fade show active" id="sessions" role="tabpanel">
+                <div class="card shadow-sm border-0">
+                    <div class="card-header bg-white py-3">
+                        <h6 class="mb-0 fw-bold">Active Session Monitor</h6>
                     </div>
                     <div class="card-body p-0">
                         <div class="table-responsive">
                             <table class="table table-hover mb-0">
-                                <thead>
+                                <thead class="table-light">
                                     <tr>
                                         <th class="ps-4">Username</th>
                                         <th>IP & Region</th>
@@ -76,12 +76,64 @@
                                             <div>{{index . "ip"}}</div>
                                             <div class="text-muted small"><i class="bi bi-globe me-1"></i> {{index . "country"}}</div>
                                         </td>
-                                        <td>{{index . "ttl"}}s remaining</td>
+                                        <td><span class="badge bg-light text-dark border">{{index . "ttl"}}s remaining</span></td>
                                         <td class="text-end pe-4">
                                             <form method="POST" action="/rauthmgmt/session/invalidate">
                                                 <input type="hidden" name="csrf" value="{{$.csrf}}">
                                                 <input type="hidden" name="token" value="{{index . "token"}}">
-                                                <button type="submit" class="btn btn-sm btn-outline-danger border-0"><i class="bi bi-trash"></i></button>
+                                                <button type="submit" class="btn btn-sm btn-outline-danger border-0" title="Terminate Session"><i class="bi bi-trash"></i></button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                    {{else}}
+                                    <tr>
+                                        <td colspan="4" class="text-center py-5 text-muted">No active sessions found</td>
+                                    </tr>
+                                    {{end}}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Users Tab -->
+            <div class="tab-pane fade" id="users" role="tabpanel">
+                <div class="card shadow-sm border-0">
+                    <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0 fw-bold">User Access Management</h6>
+                        <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#createUserModal">
+                            <i class="bi bi-person-plus me-1"></i> Add User
+                        </button>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th class="ps-4">Username</th>
+                                        <th>Email</th>
+                                        <th>Role</th>
+                                        <th class="text-end pe-4">Manage</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {{range .users}}
+                                    <tr class="align-middle">
+                                        <td class="ps-4"><strong>{{.Username}}</strong></td>
+                                        <td>{{.Email}}</td>
+                                        <td>
+                                            {{if eq .IsAdmin "1"}}
+                                            <span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25">Administrator</span>
+                                            {{else}}
+                                            <span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25">User</span>
+                                            {{end}}
+                                        </td>
+                                        <td class="text-end pe-4">
+                                            <form method="POST" action="/rauthmgmt/user/delete">
+                                                <input type="hidden" name="csrf" value="{{$.csrf}}">
+                                                <input type="hidden" name="username" value="{{.Username}}">
+                                                <button type="submit" class="btn btn-sm btn-outline-danger border-0" title="Delete User"><i class="bi bi-person-x"></i></button>
                                             </form>
                                         </td>
                                     </tr>
@@ -93,15 +145,16 @@
                 </div>
             </div>
 
-            <!-- Users Tab ... (kept same) -->
-
             <!-- Audit Tab -->
-            <div class="tab-pane fade" id="audit">
-                <div class="card">
+            <div class="tab-pane fade" id="audit" role="tabpanel">
+                <div class="card shadow-sm border-0">
+                    <div class="card-header bg-white py-3">
+                        <h6 class="mb-0 fw-bold">System Audit Logs</h6>
+                    </div>
                     <div class="card-body p-0">
                         <div class="table-responsive">
                             <table class="table table-hover mb-0">
-                                <thead class="bg-dark">
+                                <thead class="table-light">
                                     <tr>
                                         <th class="ps-4">Timestamp</th>
                                         <th>Event</th>
@@ -110,13 +163,17 @@
                                 </thead>
                                 <tbody>
                                     {{range .logs}}
-                                    <tr>
-                                        <td class="ps-4 text-muted small">{{.Timestamp}}</td>
-                                        <td><span class="text-info">{{.Action}}</span></td>
+                                    <tr class="align-middle">
+                                        <td class="ps-4 text-muted small">{{.Timestamp | formatTime}}</td>
+                                        <td><span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-10 small fw-bold">{{.Action}}</span></td>
                                         <td>
-                                            <i class="bi bi-person me-1"></i> {{.Username}}
+                                            <div class="small"><i class="bi bi-person me-1"></i> {{.Username}}</div>
                                             <div class="text-muted extra-small"><i class="bi bi-hdd-network me-1"></i> {{.IP}}</div>
                                         </td>
+                                    </tr>
+                                    {{else}}
+                                    <tr>
+                                        <td colspan="3" class="text-center py-5 text-muted">No audit logs found</td>
                                     </tr>
                                     {{end}}
                                 </tbody>
@@ -126,75 +183,38 @@
                 </div>
             </div>
         </div>
-
-            <div class="tab-pane fade" id="users">
-                <div class="card">
-                    <div class="card-header d-flex justify-content-between">
-                        <h6 class="mb-0">Access Management</h6>
-                        <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#createUserModal">Add User</button>
-                    </div>
-                    <div class="card-body p-0">
-                        <table class="table mb-0">
-                            <thead>
-                                <tr>
-                                    <th class="ps-4">Username</th>
-                                    <th>Email</th>
-                                    <th>Role</th>
-                                    <th class="text-end pe-4">Manage</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {{range .users}}
-                                <tr class="align-middle">
-                                    <td class="ps-4"><strong>{{.Username}}</strong></td>
-                                    <td>{{.Email}}</td>
-                                    <td>{{if eq .IsAdmin "1"}}Administrator{{else}}User{{end}}</td>
-                                                                            <td class="text-end pe-4">
-                                                                                <form method="POST" action="/rauthmgmt/user/delete">
-                                                                                    <input type="hidden" name="csrf" value="{{$.csrf}}">
-                                                                                    <input type="hidden" name="username" value="{{.Username}}">                                            <button type="submit" class="btn btn-sm btn-outline-danger border-0"><i class="bi bi-person-x"></i></button>
-                                        </form>
-                                    </td>
-                                </tr>
-                                {{end}}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
     </div>
 
     <!-- Create User Modal -->
     <div class="modal fade" id="createUserModal" tabindex="-1">
         <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content">
+            <div class="modal-content border-0 shadow-lg">
                 <form method="POST" action="/rauthmgmt/user/create">
-                    <div class="modal-header">
-                        <h5 class="modal-title">New Identity</h5>
-                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    <div class="modal-header border-0 pb-0">
+                        <h5 class="modal-title fw-bold">New Identity</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                     </div>
                     <div class="modal-body p-4">
                         <input type="hidden" name="csrf" value="{{.csrf}}">
                         <div class="mb-3">
-                            <label class="form-label small fw-bold">Username</label>
-                            <input type="text" name="new_username" class="form-control" required>
+                            <label class="form-label small fw-bold text-muted">Username</label>
+                            <input type="text" name="new_username" class="form-control bg-light border-0" required placeholder="e.g. john.doe">
                         </div>
                         <div class="mb-3">
-                            <label class="form-label small fw-bold">Password</label>
-                            <input type="password" name="new_password" class="form-control" required>
+                            <label class="form-label small fw-bold text-muted">Password</label>
+                            <input type="password" name="new_password" class="form-control bg-light border-0" required placeholder="••••••••">
                         </div>
                         <div class="mb-3">
-                            <label class="form-label small fw-bold">Email</label>
-                            <input type="email" name="new_email" class="form-control">
+                            <label class="form-label small fw-bold text-muted">Email</label>
+                            <input type="email" name="new_email" class="form-control bg-light border-0" placeholder="user@example.com">
                         </div>
-                        <div class="form-check form-switch">
+                        <div class="form-check form-switch mt-4">
                             <input class="form-check-input" type="checkbox" name="is_admin" id="isAdminCheck">
-                            <label class="form-check-label" for="isAdminCheck">Admin access</label>
+                            <label class="form-check-label small fw-bold text-muted" for="isAdminCheck">Grant administrative privileges</label>
                         </div>
                     </div>
-                    <div class="modal-footer">
-                        <button type="submit" class="btn btn-primary w-100">Create Account</button>
+                    <div class="modal-footer border-0 pt-0">
+                        <button type="submit" class="btn btn-primary w-100 py-2 fw-bold">Create Account</button>
                     </div>
                 </form>
             </div>
