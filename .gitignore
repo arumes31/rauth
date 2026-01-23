@@ -1,0 +1,18 @@
+# Environment variables
+.env
+
+# Go
+bin/
+rauth
+rauth.exe
+*.test
+*.out
+
+# Redis data
+redis-data/
+
+# GeoIP data
+geoip-data/
+
+# Docker
+.docker-compose.un~
