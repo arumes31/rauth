@@ -118,6 +118,8 @@ func main() {
 	e.GET("/rauthlogin", func(c echo.Context) error { return c.Render(http.StatusOK, "login.html", map[string]interface{}{"csrf": c.Get("csrf"), "rd": c.QueryParam("rd")}) })
 	e.POST("/rauthlogin", authHandler.Login)
 	e.POST("/verify-2fa", authHandler.Verify2FA)
+	e.GET("/rauthsetup2fa", authHandler.Setup2FA)
+	e.POST("/rauthsetup2fa", authHandler.CompleteSetup2FA)
 
 	// Protected Routes
 	protected := e.Group("")
