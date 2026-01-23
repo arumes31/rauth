@@ -32,7 +32,9 @@ func TestUserManagement(t *testing.T) {
 		t.Errorf("Expected username newuser, got %s", users[0].Username)
 	}
 
-	DeleteUser("newuser")
+	if err := DeleteUser("newuser"); err != nil {
+		t.Fatalf("DeleteUser failed: %v", err)
+	}
 	users, _ = ListUsers()
 	if len(users) != 0 {
 		t.Error("User was not deleted")
