@@ -137,7 +137,10 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 
 func (h *AuthHandler) issueTempToken(username string) string {
 	b := make([]byte, 16)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		slog.Error("Failed to generate random temp token", "error", err)
+		return ""
+	}
 	token := hex.EncodeToString(b)
 	core.TokenDB.Set(core.Ctx, "pending_2fa:"+token, username, 5*time.Minute)
 	return token

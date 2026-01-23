@@ -34,12 +34,19 @@ func ListUsers() ([]User, error) {
 }
 
 func CreateUser(username, password, email string, isAdmin bool) error {
-	exists, _ := UserDB.Exists(Ctx, "user:"+username).Result()
+	exists, err := UserDB.Exists(Ctx, "user:"+username).Result()
+	if err != nil {
+		return err
+	}
 	if exists > 0 {
 		return fmt.Errorf("user already exists")
 	}
 
-	hash, _ := HashPassword(password)
+	hash, err := HashPassword(password)
+	if err != nil {
+		return err
+	}
+
 	adminVal := "0"
 	if isAdmin {
 		adminVal = "1"
@@ -55,7 +62,7 @@ func CreateUser(username, password, email string, isAdmin bool) error {
 		"created_at": time.Now().Unix(),
 	}
 
-	err := UserDB.HSet(Ctx, "user:"+username, user).Err()
+	err = UserDB.HSet(Ctx, "user:"+username, user).Err()
 	if err != nil {
 		return err
 	}
@@ -63,9 +70,10 @@ func CreateUser(username, password, email string, isAdmin bool) error {
 }
 
 func DeleteUser(username string) error {
-	UserDB.Del(Ctx, "user:"+username)
-	UserDB.SRem(Ctx, "users", username)
-	return nil
+	if err := UserDB.Del(Ctx, "user:"+username).Err(); err != nil {
+		return err
+	}
+	return UserDB.SRem(Ctx, "users", username).Err()
 }
 
 func UpdateUser(username string, updates map[string]interface{}) error {
