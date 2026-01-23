@@ -70,6 +70,10 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 }
 
 func (h *AuthHandler) Login(c echo.Context) error {
+	if c.FormValue("action") == "verify_2fa" {
+		return h.Verify2FA(c)
+	}
+
 	username := c.FormValue("username")
 	password := c.FormValue("password")
 	clientIP := c.RealIP()
