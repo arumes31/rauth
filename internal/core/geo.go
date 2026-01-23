@@ -23,6 +23,17 @@ func GetCountryCode(ip string) string {
 	if IsPrivateIP(ip) {
 		return "Internal"
 	}
+	
+	// Check for Tailscale (CGNAT range 100.64.0.0/10)
+	// Using basic string prefix check for speed or net package if desired.
+	// 100.64.0.0/10 covers 100.64.0.0 to 100.127.255.255
+	parsedIP := net.ParseIP(ip)
+	if parsedIP != nil {
+		_, tailscaleNet, _ := net.ParseCIDR("100.64.0.0/10")
+		if tailscaleNet.Contains(parsedIP) {
+			return "Tailscale"
+		}
+	}
 
 	geoCacheLock.RLock()
 	if code, ok := geoCache[ip]; ok {
