@@ -113,7 +113,7 @@ func main() {
 	profileHandler := &handlers.ProfileHandler{Cfg: cfg}
 
 	// Public Routes
-	e.GET("/", func(c echo.Context) error { return c.Redirect(http.StatusFound, "/rauthlogin") })
+	e.GET("/", authHandler.Root)
 	e.GET("/rauthvalidate", authHandler.Validate)
 	e.GET("/rauthlogin", func(c echo.Context) error { return c.Render(http.StatusOK, "login.html", map[string]interface{}{"csrf": c.Get("csrf"), "rd": c.QueryParam("rd")}) })
 	e.POST("/rauthlogin", authHandler.Login)

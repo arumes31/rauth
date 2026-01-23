@@ -17,6 +17,25 @@ type AuthHandler struct {
 	Cfg *core.Config
 }
 
+func (h *AuthHandler) Root(c echo.Context) error {
+	cookie, err := c.Cookie("X-rauth-authtoken")
+	if err != nil {
+		return c.Redirect(http.StatusFound, "/rauthlogin")
+	}
+
+	token, err := core.DecryptToken(cookie.Value, h.Cfg.ServerSecret)
+	if err != nil {
+		return c.Redirect(http.StatusFound, "/rauthlogin")
+	}
+
+	data, err := core.TokenDB.HGetAll(core.Ctx, "X-rauth-authtoken="+token).Result()
+	if err != nil || len(data) == 0 || data["status"] != "valid" {
+		return c.Redirect(http.StatusFound, "/rauthlogin")
+	}
+
+	return c.Redirect(http.StatusFound, "/rauthprofile")
+}
+
 func (h *AuthHandler) Validate(c echo.Context) error {
 	clientIP := c.RealIP()
 	if !core.CheckRateLimit("validate:"+clientIP, 100, 60) {
