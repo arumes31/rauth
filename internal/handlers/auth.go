@@ -86,6 +86,8 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 		c.SetCookie(newCookie)
 	}
 
+	c.Response().Header().Set("X-RAuth-User", data["username"])
+
 	return c.NoContent(http.StatusOK)
 }
 
