@@ -1,0 +1,51 @@
+{{define "setup_2fa.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Setup 2FA | RAuth</title>
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/css/bootstrap-icons.min.css" rel="stylesheet">
+    <link href="/static/css/modern.css" rel="stylesheet">
+</head>
+<body class="bg-light-animated d-flex align-items-center justify-content-center vh-100">
+    <div class="card animate-fade-in shadow-lg" style="width: 100%; max-width: 450px;">
+        <div class="card-header text-center pt-4 pb-3 border-0">
+            <h3 class="fw-bold text-primary mb-0">Secure Your Account</h3>
+            <p class="text-muted small mt-2">Two-Factor Authentication Setup</p>
+        </div>
+        <div class="card-body px-5 pb-5">
+            {{if .error}}
+                <div class="alert alert-danger bg-danger bg-opacity-10 text-danger border-0 small mb-4">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i> {{.error}}
+                </div>
+            {{end}}
+
+            <p class="text-muted small mb-3">
+                1. Install an authenticator app (Google Authenticator, Authy, etc.).<br>
+                2. Enter the following key manually:
+            </p>
+            
+            <div class="alert alert-secondary bg-black bg-opacity-50 text-center text-primary font-monospace py-3 border border-secondary mb-4" style="letter-spacing: 2px;">
+                {{.secret}}
+            </div>
+
+            <form method="POST" action="/rauthsetup2fa">
+                <input type="hidden" name="csrf" value="{{.csrf}}">
+                <input type="hidden" name="temp_secret" value="{{.secret}}">
+                
+                <div class="mb-4">
+                    <label class="form-label text-muted small fw-bold">Enter Verification Code</label>
+                    <div class="input-group">
+                        <span class="input-group-text bg-transparent border-end-0 text-muted"><i class="bi bi-shield-check"></i></span>
+                        <input type="text" class="form-control border-start-0 ps-0" name="totp_code" placeholder="000000" required autocomplete="one-time-code" autofocus>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary w-100 py-2">Enable 2FA & Continue</button>
+            </form>
+        </div>
+    </div>
+</body>
+</html>
+{{end}}

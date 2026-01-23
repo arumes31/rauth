@@ -11,7 +11,7 @@ import (
 func AuthMiddleware(cfg *core.Config) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
-			cookie, err := c.Cookie("X-rcloudauth-authtoken")
+			cookie, err := c.Cookie("X-rauth-authtoken")
 			if err != nil {
 				return c.Redirect(http.StatusFound, "/rauthlogin?rd="+c.Request().RequestURI)
 			}
@@ -22,7 +22,7 @@ func AuthMiddleware(cfg *core.Config) echo.MiddlewareFunc {
 				return c.Redirect(http.StatusFound, "/rauthlogin")
 			}
 
-			data, err := core.TokenDB.HGetAll(core.Ctx, "X-rcloudauth-authtoken="+token).Result()
+			data, err := core.TokenDB.HGetAll(core.Ctx, "X-rauth-authtoken="+token).Result()
 			if err != nil {
 				slog.Error("Redis error in auth middleware", "error", err)
 				return c.Redirect(http.StatusFound, "/rauthlogin")

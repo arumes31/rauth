@@ -35,7 +35,7 @@ func TestAuthHandler_Verify2FA_Reproduction(t *testing.T) {
 
 	// Create test user with 2FA
 	key, _ := totp.Generate(totp.GenerateOpts{
-		Issuer:      "RCloudAuth",
+		Issuer:      "RAuth",
 		AccountName: "testuser@example.com",
 	})
 	secret := key.Secret()

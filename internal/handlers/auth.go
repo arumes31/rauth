@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/pquerna/otp"
 	"github.com/pquerna/otp/totp"
 )
 
@@ -22,7 +23,7 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 		return c.NoContent(http.StatusTooManyRequests)
 	}
 
-	cookie, err := c.Cookie("X-rcloudauth-authtoken")
+	cookie, err := c.Cookie("X-rauth-authtoken")
 	if err != nil {
 		return c.NoContent(http.StatusUnauthorized)
 	}
@@ -32,7 +33,7 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 		return c.NoContent(http.StatusUnauthorized)
 	}
 
-	redisKey := "X-rcloudauth-authtoken=" + token
+	redisKey := "X-rauth-authtoken=" + token
 	data, err := core.TokenDB.HGetAll(core.Ctx, redisKey).Result()
 	if err != nil || len(data) == 0 || data["status"] != "valid" {
 		return c.NoContent(http.StatusUnauthorized)
@@ -54,7 +55,7 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 		
 		// Update cookie expiration
 		newCookie := &http.Cookie{
-			Name:     "X-rcloudauth-authtoken",
+			Name:     "X-rauth-authtoken",
 			Value:    cookie.Value,
 			Path:     "/",
 			Domain:   h.Cfg.CookieDomains[0],
@@ -107,8 +108,16 @@ func (h *AuthHandler) Login(c echo.Context) error {
 		})
 	}
 
-	core.ResetRateLimit("login_ip:" + clientIP)
-	return h.issueToken(c, username)
+	// Force 2FA Setup for new users (or users without 2FA)
+	setupToken := h.issueSetupToken(username)
+	c.SetCookie(&http.Cookie{
+		Name:     "rauth_setup_pending",
+		Value:    setupToken,
+		Path:     "/",
+		HttpOnly: true,
+		Expires:  time.Now().Add(10 * time.Minute),
+	})
+	return c.Redirect(http.StatusFound, "/rauthsetup2fa")
 }
 
 func (h *AuthHandler) Verify2FA(c echo.Context) error {
@@ -128,6 +137,7 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 		core.TokenDB.Del(core.Ctx, "pending_2fa:"+pendingCookie.Value)
 		// Clear pending cookie
 		c.SetCookie(&http.Cookie{Name: "rauth_2fa_pending", MaxAge: -1})
+		core.ResetRateLimit("login_ip:" + c.RealIP())
 		return h.issueToken(c, username)
 	}
 
@@ -139,6 +149,79 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 	})
 }
 
+func (h *AuthHandler) Setup2FA(c echo.Context) error {
+	cookie, err := c.Cookie("rauth_setup_pending")
+	if err != nil {
+		return c.Redirect(http.StatusFound, "/rauthlogin")
+	}
+	username, err := core.TokenDB.Get(core.Ctx, "pending_setup:"+cookie.Value).Result()
+	if err != nil {
+		return c.Redirect(http.StatusFound, "/rauthlogin")
+	}
+
+	// Generate a new 2FA key
+	key, err := totp.Generate(totp.GenerateOpts{
+		Issuer:      "RAuth",
+		AccountName: username,
+		Algorithm:   otp.AlgorithmSHA1,
+	})
+	if err != nil {
+		slog.Error("Failed to generate 2FA key", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Internal Server Error")
+	}
+
+	// Store secret temporarily
+	core.TokenDB.Set(core.Ctx, "pending_setup_secret:"+cookie.Value, key.Secret(), 5*time.Minute)
+
+	return c.Render(http.StatusOK, "setup_2fa.html", map[string]interface{}{
+		"secret": key.Secret(),
+		"csrf":   c.Get("csrf"),
+	})
+}
+
+func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
+	cookie, err := c.Cookie("rauth_setup_pending")
+	if err != nil {
+		return c.Redirect(http.StatusFound, "/rauthlogin")
+	}
+	
+	username, err := core.TokenDB.Get(core.Ctx, "pending_setup:"+cookie.Value).Result()
+	if err != nil {
+		return c.Redirect(http.StatusFound, "/rauthlogin")
+	}
+
+	secret, err := core.TokenDB.Get(core.Ctx, "pending_setup_secret:"+cookie.Value).Result()
+	if err != nil {
+		return c.Redirect(http.StatusFound, "/rauthsetup2fa")
+	}
+
+	code := c.FormValue("totp_code")
+	// Verify the code against the temporary secret
+	if totp.Validate(code, secret) {
+		// Save to user profile
+		err = core.UserDB.HSet(core.Ctx, "user:"+username, "2fa_secret", secret).Err()
+		if err != nil {
+			slog.Error("Failed to save 2FA secret", "error", err)
+			return echo.NewHTTPError(http.StatusInternalServerError, "Database Error")
+		}
+		
+		// Cleanup
+		core.TokenDB.Del(core.Ctx, "pending_setup:"+cookie.Value)
+		core.TokenDB.Del(core.Ctx, "pending_setup_secret:"+cookie.Value)
+		c.SetCookie(&http.Cookie{Name: "rauth_setup_pending", MaxAge: -1})
+
+		core.ResetRateLimit("login_ip:" + c.RealIP())
+		core.LogAudit("2FA_SETUP_SUCCESS", username, c.RealIP(), nil)
+		return h.issueToken(c, username)
+	}
+
+	return c.Render(http.StatusOK, "setup_2fa.html", map[string]interface{}{
+		"secret": secret,
+		"error":  "Invalid code. Please try again.",
+		"csrf":   c.Get("csrf"),
+	})
+}
+
 func (h *AuthHandler) issueTempToken(username string) string {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
@@ -147,6 +230,17 @@ func (h *AuthHandler) issueTempToken(username string) string {
 	}
 	token := hex.EncodeToString(b)
 	core.TokenDB.Set(core.Ctx, "pending_2fa:"+token, username, 5*time.Minute)
+	return token
+}
+
+func (h *AuthHandler) issueSetupToken(username string) string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		slog.Error("Failed to generate random setup token", "error", err)
+		return ""
+	}
+	token := hex.EncodeToString(b)
+	core.TokenDB.Set(core.Ctx, "pending_setup:"+token, username, 10*time.Minute)
 	return token
 }
 
@@ -166,7 +260,7 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 	clientIP := c.RealIP()
 	country := core.GetCountryCode(clientIP)
 
-	redisKey := "X-rcloudauth-authtoken=" + token
+	redisKey := "X-rauth-authtoken=" + token
 	err = core.TokenDB.HSet(core.Ctx, redisKey, map[string]interface{}{
 		"status":     "valid",
 		"ip":         clientIP,
@@ -183,7 +277,7 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 	core.TokenDB.Expire(core.Ctx, redisKey, validity)
 
 	cookie := &http.Cookie{
-		Name:     "X-rcloudauth-authtoken",
+		Name:     "X-rauth-authtoken",
 		Value:    encrypted,
 		Path:     "/",
 		Domain:   h.Cfg.CookieDomains[0],
