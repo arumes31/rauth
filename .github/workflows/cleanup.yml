@@ -1,0 +1,31 @@
+name: Cleanup Old Packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      num_to_keep:
+        description: 'Number of versions to keep'
+        default: '5'
+        required: true
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - name: Delete old Auth Service versions
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: 'rauth-auth'
+          package-type: 'container'
+          min-versions-to-keep: ${{ github.event.inputs.num_to_keep }}
+          delete-only-untagged-versions: 'false'
+
+      - name: Delete old Geo Service versions
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: 'rauth-geo'
+          package-type: 'container'
+          min-versions-to-keep: ${{ github.event.inputs.num_to_keep }}
+          delete-only-untagged-versions: 'false'
