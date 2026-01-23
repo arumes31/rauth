@@ -12,13 +12,13 @@ func TestUserManagement(t *testing.T) {
 	UserDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
 	AuditDB = redis.NewClient(&redis.Options{Addr: s.Addr()}) // Reuse s for simplicity
 
-	err := CreateUser("newuser", "pass123", "user@test.com", false)
+	err := CreateUser("newuser", "pass123", "user@test.com", false, "")
 	if err != nil {
 		t.Fatalf("CreateUser failed: %v", err)
 	}
 
 	// Duplicate
-	err = CreateUser("newuser", "pass123", "user@test.com", false)
+	err = CreateUser("newuser", "pass123", "user@test.com", false, "")
 	if err == nil {
 		t.Error("Should not allow creating duplicate user")
 	}

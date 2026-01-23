@@ -1,40 +1,62 @@
 # RAuth: High-Performance Auth Proxy & Management
 
-[![Build and Push](https://github.com/arumes31/rauth/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/arumes31/rauth/actions/workflows/build.yml)
-[![Go Security and Quality Scan](https://github.com/arumes31/rauth/actions/workflows/go-security.yml/badge.svg?branch=main)](https://github.com/arumes31/rauth/actions/workflows/go-security.yml)
-[![Container Security Scan](https://github.com/arumes31/rauth/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/arumes31/rauth/actions/workflows/security.yml)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/arumes31/rauth?label=Go&logo=go)](https://github.com/arumes31/rauth/blob/main/go.mod)
-[![License](https://img.shields.io/github/license/arumes31/rauth?label=License&color=blue)](https://github.com/arumes31/rauth/blob/main/LICENSE)
+<p align="center">
+  <img src="https://img.shields.io/github/go-mod/go-version/arumes31/rauth?label=Go&logo=go&color=00ADD8" alt="Go Version">
+  <img src="https://img.shields.io/github/license/arumes31/rauth?label=License&color=blue" alt="License">
+  <img src="https://img.shields.io/github/last-commit/arumes31/rauth/test?color=green" alt="Last Commit">
+</p>
+
+<p align="center">
+  <a href="https://github.com/arumes31/rauth/actions/workflows/build.yml">
+    <img src="https://github.com/arumes31/rauth/actions/workflows/build.yml/badge.svg?branch=test" alt="Build Status">
+  </a>
+  <a href="https://github.com/arumes31/rauth/actions/workflows/go-security.yml">
+    <img src="https://github.com/arumes31/rauth/actions/workflows/go-security.yml/badge.svg?branch=test" alt="Security Scan">
+  </a>
+  <a href="https://github.com/arumes31/rauth/actions/workflows/security.yml">
+    <img src="https://github.com/arumes31/rauth/actions/workflows/security.yml/badge.svg?branch=test" alt="Container Scan">
+  </a>
+</p>
+
+---
 
 RAuth is a lightweight, ultra-fast authentication proxy and user management system written in **Go**. It is designed to sit behind an Nginx `auth_request` module to provide secure access control, 2FA, and audit logging for your web applications.
+
+## 📖 Table of Contents
+- [🚀 Features](#-features)
+- [🛡️ Security Architecture](#️-security-architecture)
+- [🛠️ Technical Stack](#️-technical-stack)
+- [📦 Deployment](#-deployment)
+- [⚙️ Environment Variables](#️-environment-variables)
+- [💻 Development](#-development)
+- [✅ Production Checklist](#-production-checklist)
 
 ## 🚀 Features
 
 - **Blazing Fast**: Written in Go 1.24 for sub-millisecond authentication checks.
 - **Modern UI**: Clean, responsive dashboard using Bootstrap 5, featuring human-readable audit logs and session monitoring.
-- **Security First**:
-  - **AES-256-GCM** Authenticated Encryption for tokens.
-  - TOTP (2FA) support.
-  - **Instant Expiry on Country Change**: Automatically invalidates sessions if a geo-location change is detected.
-  - Built-in Atomic Rate Limiting.
-  - CSRF protection on all forms.
-  - Session tracking with global invalidation.
 - **Smart Session Management**:
   - **2-Day Default Validity**: Configurable session lifetimes.
   - **IP-Based Refresh**: Automatically extends sessions when accessed from the same IP address.
-  - Multiple concurrent sessions allowed across different devices.
+  - **Multi-Device Support**: Concurrent sessions allowed across different devices.
 - **Structured Logging**: Built-in observability using Go's `slog` for structured, machine-readable logs.
-- **Group-Based Access (RBAC)**: Restrict services to specific user groups via Nginx headers.
-- **Audit Logging**: Comprehensive activity tracking with formatted timestamps.
-- **Self-Service**: Users can manage their own passwords and view their security activity.
 - **Zero-Dependency Container**: Minimal footprint using multi-stage Docker builds.
 
-## 🛠 Architecture
+## 🛡️ Security Architecture
+
+- **AES-256-GCM Encryption**: High-standard authenticated encryption for tokens, ensuring both confidentiality and integrity.
+- **Instant Expiry on Country Change**: Automatically invalidates sessions if a geo-location change is detected between requests.
+- **TOTP (2FA)**: Native support for Time-based One-Time Passwords.
+- **Atomic Rate Limiting**: Redis-backed rate limiting to prevent brute-force attacks.
+- **CSRF Protection**: Robust protection on all state-changing forms.
+- **Geo-IP Caching**: High-performance in-memory cache for IP-to-country lookups.
+
+## 🛠️ Technical Stack
 
 - **Backend**: Go 1.24 (Echo Framework)
-- **Database**: Redis (Optimized with connection pooling and timeouts across 4 isolated databases).
-- **External Integration**: Geo-IP service with in-memory caching for high-performance region-based security.
-- **CI/CD**: Advanced GitHub Actions with Docker Layer Caching, Gosec, golangci-lint, and Trivy security scanning.
+- **Database**: Redis (Optimized with connection pooling and timeouts).
+- **Frontend**: Bootstrap 5 + Vanilla JS.
+- **CI/CD**: GitHub Actions with Docker Layer Caching, Gosec, golangci-lint, and Trivy.
 
 ## 📦 Deployment
 
@@ -44,45 +66,57 @@ RAuth is a lightweight, ultra-fast authentication proxy and user management syst
 
 ### 2. Quick Start
 1. Clone the repository.
-2. Create a `.env` file (see `example.env`).
+2. Create a `.env` file from the sanitized example:
+   ```bash
+   cp example.env .env
+   ```
 3. Run the stack:
    ```bash
    docker-compose up -d
    ```
 
-### 3. Nginx Integration
-Configure your protected application to use RAuth for authentication. See `nginx-proxy-example.conf` for a full template.
-
 ## ⚙️ Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `SERVER_SECRET` | Secret key for token encryption (min. 32 chars recommended) | (Required) |
-| `TOKEN_VALIDITY_MINUTES` | How long a session remains valid | `2880` (2 days) |
-| `INITIAL_USER` | Admin username created on startup | `admin` |
-| `INITIAL_PASSWORD`| Admin password created on startup | (Required) |
-| `COOKIE_DOMAIN` | Domain for the auth cookie | `reitetschlaeger.com` |
-| `REDIS_HOST` | Redis server address | `rauth-auth-redis` |
-| `REDIS_PASSWORD` | Optional Redis password | `""` |
+| `SERVER_SECRET` | Secret key for token encryption (min. 32 chars) | (Required) |
+| `TOKEN_VALIDITY_MINUTES` | Session validity duration | `2880` (2 days) |
+| `INITIAL_USER` | Admin username | `admin` |
+| `INITIAL_PASSWORD`| Admin password | (Required) |
+| `INITIAL_EMAIL` | Admin email | `admin@local` |
+| `INITIAL_2FA_SECRET` | Admin 2FA secret (optional) | (None) |
+| `COOKIE_DOMAIN` | Domain for the auth cookie | `example.com` |
+| `ALLOWED_HOSTS` | Comma-separated allowed redirect hosts | `localhost,127.0.0.1` |
+| `PWD_MIN_LENGTH` | Minimum password length | `8` |
+| `PWD_REQUIRE_UPPER` | Require uppercase | `true` |
+| `PWD_REQUIRE_LOWER` | Require lowercase | `true` |
+| `PWD_REQUIRE_NUMBER` | Require number | `true` |
+| `PWD_REQUIRE_SPECIAL` | Require special char | `true` |
+
+## 💻 Development
+
+### Running Tests Locally
+```bash
+go test -v ./...
+```
+
+### Local CI/CD Testing
+You can run GitHub Actions locally using [act](https://github.com/nektos/act):
+```bash
+act -j test -W .github/workflows/build.yml
+```
+
+### Docker Build
+```bash
+docker-compose build --no-cache
+```
 
 ## ✅ Production Checklist
 
-- [ ] Change `INITIAL_PASSWORD` after first login.
-- [ ] Set `SERVER_SECRET` to a unique, random string.
-- [ ] Ensure `COOKIE_DOMAIN` matches your top-level domain.
-- [ ] Use `HTTPS` only (the app sets `Secure`, `HttpOnly`, and `SameSite=Lax` cookies).
-
-## 🧪 Development & Testing
-
-Run unit tests:
-```bash
-go test ./...
-```
-
-The project uses GitHub Actions for CI/CD, including:
-- Automated testing and linting.
-- Docker image builds with layer caching.
-- Security scanning (Gosec & Trivy).
+- [x] Use `HTTPS` only (secure cookies enabled).
+- [ ] Set a unique `SERVER_SECRET` (at least 32 characters).
+- [ ] Configure `ALLOWED_HOSTS` for strict redirection.
+- [ ] Update `INITIAL_PASSWORD` immediately after first login at `/rauthlogin`.
 
 ---
 Built with ❤️ for secure and fast self-hosting.

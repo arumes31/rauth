@@ -68,6 +68,10 @@ func (h *ProfileHandler) ChangePassword(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Passwords do not match"})
 	}
 
+	if err := core.ValidatePassword(newPass, h.Cfg); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+
 	hash, err := core.HashPassword(newPass)
 	if err != nil {
 		slog.Error("Failed to hash new password", "error", err)

@@ -111,12 +111,12 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 	code := c.FormValue("totp_code")
 	pendingCookie, err := c.Cookie("rauth_2fa_pending")
 	if err != nil {
-		return c.Redirect(http.StatusFound, "/login")
+		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
 
 	username, err := core.TokenDB.Get(core.Ctx, "pending_2fa:"+pendingCookie.Value).Result()
 	if err != nil {
-		return c.Redirect(http.StatusFound, "/login")
+		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
 
 	userData, _ := core.UserDB.HGetAll(core.Ctx, "user:"+username).Result()
@@ -193,6 +193,10 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 	core.LogAudit("LOGIN_SUCCESS", username, clientIP, map[string]interface{}{"country": country})
 	
 	redirect := c.QueryParam("rd")
+	if redirect != "" && !h.Cfg.IsAllowedHost(redirect) {
+		slog.Warn("Unsafe redirect attempted", "host", redirect, "user", username)
+		redirect = "/"
+	}
 	if redirect == "" { redirect = "/" }
 	return c.Redirect(http.StatusFound, redirect)
 }
