@@ -11,7 +11,7 @@ type Config struct {
 	RedisHost                string
 	RedisPort                string
 	RedisPassword            string
-	CookieDomain             string
+	CookieDomains            []string
 	TokenValidityMinutes     int
 	AllowedHosts             []string
 	GeoApiHost               string
@@ -34,7 +34,7 @@ func LoadConfig() *Config {
 		RedisHost:            getEnv("REDIS_HOST", "rauth-auth-redis"),
 		RedisPort:            getEnv("REDIS_PORT", "6379"),
 		RedisPassword:        getEnv("REDIS_PASSWORD", ""),
-		CookieDomain:         getEnv("COOKIE_DOMAIN", "example.com"),
+		CookieDomains:        getEnvSlice("COOKIE_DOMAIN", []string{"example.com"}),
 		TokenValidityMinutes: getEnvInt("TOKEN_VALIDITY_MINUTES", 2880),
 		AllowedHosts:         getEnvSlice("ALLOWED_HOSTS", []string{"localhost", "127.0.0.1"}),
 		GeoApiHost:           getEnv("GEO_API_HOST", "rauth-geo-service"),
@@ -57,11 +57,26 @@ func (c *Config) IsAllowedHost(host string) bool {
 	if strings.Contains(host, ":") {
 		host = strings.Split(host, ":")[0]
 	}
+
+	// Check explicit allowed hosts
 	for _, h := range c.AllowedHosts {
 		if h == host {
 			return true
 		}
 	}
+
+	// Check if host is part of any cookie domain
+	for _, domain := range c.CookieDomains {
+		// Exact match
+		if host == domain {
+			return true
+		}
+		// Subdomain match (e.g., app.example.com for example.com)
+		if strings.HasSuffix(host, "."+domain) {
+			return true
+		}
+	}
+
 	return false
 }
 

@@ -127,7 +127,7 @@ func main() {
 			Name:     "X-rcloudauth-authtoken",
 			Value:    "",
 			Path:     "/",
-			Domain:   cfg.CookieDomain,
+			Domain:   cfg.CookieDomains[0],
 			Expires:  time.Now().Add(-1 * time.Hour),
 			HttpOnly: true,
 		}

@@ -85,8 +85,8 @@ RAuth is a lightweight, ultra-fast authentication proxy and user management syst
 | `INITIAL_PASSWORD`| Admin password | (Required) |
 | `INITIAL_EMAIL` | Admin email | `admin@local` |
 | `INITIAL_2FA_SECRET` | Admin 2FA secret (optional) | (None) |
-| `COOKIE_DOMAIN` | Domain for the auth cookie | `example.com` |
-| `ALLOWED_HOSTS` | Comma-separated allowed redirect hosts | `localhost,127.0.0.1` |
+| `COOKIE_DOMAIN` | Comma-separated domains for auth cookies. First is primary. | `example.com` |
+| `ALLOWED_HOSTS` | Additional allowed redirect hosts (subdomains of `COOKIE_DOMAIN` are auto-allowed) | `localhost,127.0.0.1` |
 | `PWD_MIN_LENGTH` | Minimum password length | `8` |
 | `PWD_REQUIRE_UPPER` | Require uppercase | `true` |
 | `PWD_REQUIRE_LOWER` | Require lowercase | `true` |
