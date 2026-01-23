@@ -64,13 +64,13 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 
 		}
 
-		data["token"] = k[25:] // Remove prefix
+				data["token"] = k[18:] // Remove prefix "X-rauth-authtoken="
 
-		data["ttl"] = fmt.Sprintf("%d", int(core.TokenDB.TTL(core.Ctx, k).Val().Seconds()))
+				data["ttl"] = fmt.Sprintf("%d", int(core.TokenDB.TTL(core.Ctx, k).Val().Seconds()))
 
-		sessions = append(sessions, data)
+				sessions = append(sessions, data)
 
-	}
+			}
 
 
 
