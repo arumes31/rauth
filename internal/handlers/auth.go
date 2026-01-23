@@ -193,6 +193,10 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 	core.LogAudit("LOGIN_SUCCESS", username, clientIP, map[string]interface{}{"country": country})
 	
 	redirect := c.QueryParam("rd")
+	if redirect != "" && !h.Cfg.IsAllowedHost(redirect) {
+		slog.Warn("Unsafe redirect attempted", "host", redirect, "user", username)
+		redirect = "/"
+	}
 	if redirect == "" { redirect = "/" }
 	return c.Redirect(http.StatusFound, redirect)
 }

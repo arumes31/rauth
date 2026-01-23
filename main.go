@@ -49,6 +49,10 @@ func main() {
 
 	e := echo.New()
 	e.HideBanner = true
+
+	// Security headers and hardening
+	e.Use(echoMiddleware.Secure())
+	e.Use(echoMiddleware.BodyLimit("1M"))
 	
 	// Structured logging middleware
 	e.Use(echoMiddleware.RequestLoggerWithConfig(echoMiddleware.RequestLoggerConfig{

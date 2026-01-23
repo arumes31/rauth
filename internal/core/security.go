@@ -7,9 +7,37 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"io"
+	"regexp"
+
 	"golang.org/x/crypto/bcrypt"
 )
+
+func ValidatePassword(password string) error {
+	if len(password) < 8 {
+		return fmt.Errorf("password must be at least 8 characters long")
+	}
+	var (
+		hasUpper   = regexp.MustCompile(`[A-Z]`).MatchString
+		hasLower   = regexp.MustCompile(`[a-z]`).MatchString
+		hasNumber  = regexp.MustCompile(`[0-9]`).MatchString
+		hasSpecial = regexp.MustCompile(`[!@#\$%\^&\*]`).MatchString
+	)
+	if !hasUpper(password) {
+		return fmt.Errorf("password must contain at least one uppercase letter")
+	}
+	if !hasLower(password) {
+		return fmt.Errorf("password must contain at least one lowercase letter")
+	}
+	if !hasNumber(password) {
+		return fmt.Errorf("password must contain at least one number")
+	}
+	if !hasSpecial(password) {
+		return fmt.Errorf("password must contain at least one special character")
+	}
+	return nil
+}
 
 func HashPassword(password string) (string, error) {
 	bytes, err := bcrypt.GenerateFromPassword([]byte(password), 12)

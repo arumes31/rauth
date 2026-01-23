@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"os"
+	"strings"
 )
 
 type Config struct {
@@ -27,6 +28,7 @@ func LoadConfig() *Config {
 		RedisPassword:        getEnv("REDIS_PASSWORD", ""),
 		CookieDomain:         getEnv("COOKIE_DOMAIN", "reitetschlaeger.com"),
 		TokenValidityMinutes: getEnvInt("TOKEN_VALIDITY_MINUTES", 2880),
+		AllowedHosts:         getEnvSlice("ALLOWED_HOSTS", []string{"localhost", "127.0.0.1"}),
 		GeoApiHost:           getEnv("GEO_API_HOST", "rauth-geo-service"),
 		GeoApiPort:           getEnv("GEO_API_PORT", "3000"),
 		InitialUser:          getEnv("INITIAL_USER", "admin"),
@@ -34,7 +36,29 @@ func LoadConfig() *Config {
 	}
 }
 
+func (c *Config) IsAllowedHost(host string) bool {
+	// Remove port if present
+	if strings.Contains(host, ":") {
+		host = strings.Split(host, ":")[0]
+	}
+	for _, h := range c.AllowedHosts {
+		if h == host {
+			return true
+		}
+	}
+	return false
+}
+
 func getEnv(key, fallback string) string {
+// ...
+}
+
+func getEnvSlice(key string, fallback []string) []string {
+	if value, ok := os.LookupEnv(key); ok {
+		return strings.Split(value, ",")
+	}
+	return fallback
+}
 	if value, ok := os.LookupEnv(key); ok {
 		return value
 	}

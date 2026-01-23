@@ -34,6 +34,17 @@ func AuthMiddleware(cfg *core.Config) echo.MiddlewareFunc {
 
 			c.Set("username", data["username"])
 			c.Set("token", token)
+
+			// Set headers for Nginx auth_request to forward to upstream
+			c.Response().Header().Set("X-Rauth-User", data["username"])
+			c.Response().Header().Set("X-Rauth-Groups", data["groups"])
+			
+			isAdmin := "0"
+			if userData, err := core.UserDB.HGetAll(core.Ctx, "user:"+data["username"]).Result(); err == nil {
+				isAdmin = userData["is_admin"]
+			}
+			c.Response().Header().Set("X-Rauth-Admin", isAdmin)
+
 			return next(c)
 		}
 	}
