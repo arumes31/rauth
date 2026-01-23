@@ -2,9 +2,9 @@ name: Go Security and Quality Scan
 
 on:
   push:
-    branches: [ main, test ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, test ]
+    branches: [ main ]
   schedule:
     - cron: '0 0 * * *' # Daily at midnight
 
