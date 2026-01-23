@@ -4,13 +4,11 @@ on:
   push:
     branches:
       - main
-      - test
     tags:
       - 'v*'
   pull_request:
     branches:
       - main
-      - test
   workflow_dispatch:
 
 concurrency:
