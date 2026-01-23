@@ -38,3 +38,66 @@ func TestPasswordHashing(t *testing.T) {
 		t.Error("Password check succeeded for wrong password")
 	}
 }
+
+// Fuzzing
+
+func FuzzValidatePassword(f *testing.F) {
+	cfg := &Config{
+		MinPasswordLength:     8,
+		RequirePasswordUpper:  true,
+		RequirePasswordLower:  true,
+		RequirePasswordNumber: true,
+		RequirePasswordSpecial: true,
+	}
+	f.Add("Password123!")
+	f.Add("short")
+	f.Add("NONUMBER!")
+	f.Fuzz(func(t *testing.T, password string) {
+		_ = ValidatePassword(password, cfg)
+	})
+}
+
+func FuzzDecryptToken(f *testing.F) {
+	key := "32byte-secret-key-for-testing-!!"
+	f.Add("some-random-invalid-base64")
+	f.Add("dmFsaWQ=") // valid base64 but not encrypted
+	f.Fuzz(func(t *testing.T, encryptedText string) {
+		_, _ = DecryptToken(encryptedText, key)
+	})
+}
+
+// Benchmarks
+
+func BenchmarkHashPassword(b *testing.B) {
+	password := "securepassword123"
+	for i := 0; i < b.N; i++ {
+		_, _ = HashPassword(password)
+	}
+}
+
+func BenchmarkCheckPasswordHash(b *testing.B) {
+	password := "securepassword123"
+	hash, _ := HashPassword(password)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = CheckPasswordHash(password, hash)
+	}
+}
+
+func BenchmarkEncryptToken(b *testing.B) {
+	key := "32byte-secret-key-for-testing-!!"
+	text := "standard-session-token-string"
+	for i := 0; i < b.N; i++ {
+		_, _ = EncryptToken(text, key)
+	}
+}
+
+func BenchmarkDecryptToken(b *testing.B) {
+	key := "32byte-secret-key-for-testing-!!"
+	text := "standard-session-token-string"
+	encrypted, _ := EncryptToken(text, key)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = DecryptToken(encrypted, key)
+	}
+}
