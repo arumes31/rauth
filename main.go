@@ -99,6 +99,27 @@ func main() {
 		"formatTime": func(timestamp int64) string {
 			return time.Unix(timestamp, 0).Format("2006-01-02 15:04:05")
 		},
+		"statusColor": func(action string) string {
+			// Simple check: if contains SUCCESS -> green, FAILED -> red
+			// We can do exact matches or substring. Substring is robust for future actions.
+			// Using basic string contains logic since strings package isn't imported in main specifically for this,
+			// but wait, I can import "strings". Or I can just do a range of checks.
+			// Let's stick to explicit checks or just basic logic.
+			// Actually I need to add "strings" to imports if I use strings.Contains.
+			// Or just checking the suffix/substring manually.
+			// Let's assume standard actions: LOGIN_SUCCESS, LOGIN_FAILED, 2FA_FAILED.
+			
+			// Re-implementing simplified contains to avoid import mess if possible, but importing "strings" is better.
+			// I will add "strings" to imports in a separate step or assume it is there?
+			// It is NOT in imports. I will just use basic if/else for known actions.
+			if action == "LOGIN_SUCCESS" || action == "2FA_SETUP_SUCCESS" {
+				return "text-success"
+			}
+			if action == "LOGIN_FAILED" || action == "2FA_FAILED" || action == "COUNTRY_CHANGE_DETECTED" {
+				return "text-danger"
+			}
+			return "text-info"
+		},
 	}
 
 	renderer := &TemplateRenderer{
@@ -113,7 +134,7 @@ func main() {
 	profileHandler := &handlers.ProfileHandler{Cfg: cfg}
 
 	// Public Routes
-	e.GET("/", func(c echo.Context) error { return c.Redirect(http.StatusFound, "/rauthlogin") })
+	e.GET("/", authHandler.Root)
 	e.GET("/rauthvalidate", authHandler.Validate)
 	e.GET("/rauthlogin", func(c echo.Context) error { return c.Render(http.StatusOK, "login.html", map[string]interface{}{"csrf": c.Get("csrf"), "rd": c.QueryParam("rd")}) })
 	e.POST("/rauthlogin", authHandler.Login)

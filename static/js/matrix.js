@@ -17,11 +17,15 @@ document.addEventListener('DOMContentLoaded', () => {
     let drops = [];
 
     function initDrops() {
-        columns = canvas.width / fontSize;
-        drops = Array(Math.floor(columns)).fill(1);
+        columns = Math.floor(canvas.width / fontSize);
+        drops = Array(columns).fill(1);
     }
     initDrops();
-    window.addEventListener('resize', initDrops);
+    
+    // Preload: random initial positions to avoid "starting from top" look
+    for (let i = 0; i < columns; i++) {
+        drops[i] = Math.floor(Math.random() * (canvas.height / fontSize));
+    }
 
     function draw() {
         ctx.fillStyle = 'rgba(10, 10, 10, 0.05)';
@@ -39,6 +43,11 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             drops[i]++;
         }
+    }
+
+    // Run draw multiple times before starting the interval to "warm up" the screen
+    for (let i = 0; i < 50; i++) {
+        draw();
     }
 
     setInterval(draw, 40);

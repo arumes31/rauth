@@ -15,7 +15,7 @@
             <a class="navbar-brand fs-3" href="#">RAuth</a>
             <div class="navbar-nav ms-auto align-items-center">
                 {{if .isAdmin}}
-                    <a class="nav-link small me-3" href="/rauthmgmt">
+                    <a class="btn btn-sm btn-outline-primary me-3" href="/rauthmgmt">
                         <i class="bi bi-speedometer2 me-1"></i> Dashboard
                     </a>
                 {{end}}
@@ -91,9 +91,14 @@
                                     {{range .logs}}
                                     <tr class="align-middle">
                                         <td class="ps-4 text-muted small">{{.Timestamp | formatTime}}</td>
-                                        <td><span class="text-info small fw-bold">{{.Action}}</span></td>
+                                        <td><span class="{{.Action | statusColor}} small fw-bold">{{.Action}}</span></td>
                                         <td class="pe-4">
-                                            <div class="extra-small text-muted"><i class="bi bi-hdd-network me-1"></i> {{.IP}}</div>
+                                            <div class="extra-small text-muted">
+                                                <i class="bi bi-hdd-network me-1"></i> {{.IP}}
+                                                {{if .Details.country}}
+                                                    <span class="ms-2 badge bg-secondary bg-opacity-25 text-secondary border border-secondary border-opacity-25">{{.Details.country}}</span>
+                                                {{end}}
+                                            </div>
                                         </td>
                                     </tr>
                                     {{end}}
