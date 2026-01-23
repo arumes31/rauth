@@ -3,6 +3,7 @@ package handlers
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"log/slog"
 	"net/http"
 	"rauth/internal/core"
 	"time"
@@ -31,7 +32,8 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 		return c.NoContent(http.StatusUnauthorized)
 	}
 
-	data, err := core.TokenDB.HGetAll(core.Ctx, "X-rcloudauth-authtoken="+token).Result()
+	redisKey := "X-rcloudauth-authtoken=" + token
+	data, err := core.TokenDB.HGetAll(core.Ctx, redisKey).Result()
 	if err != nil || len(data) == 0 || data["status"] != "valid" {
 		return c.NoContent(http.StatusUnauthorized)
 	}
@@ -40,7 +42,28 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 	currentCountry := core.GetCountryCode(clientIP)
 	if data["country"] != "unknown" && currentCountry != "unknown" && data["country"] != currentCountry {
 		core.LogAudit("COUNTRY_CHANGE_DETECTED", data["username"], clientIP, map[string]interface{}{"old": data["country"], "new": currentCountry})
+		// Expire instant if country changes
+		core.TokenDB.Del(core.Ctx, redisKey)
 		return c.NoContent(http.StatusUnauthorized)
+	}
+
+	// Refresh if IP is unchanged
+	if data["ip"] == clientIP {
+		validity := time.Duration(h.Cfg.TokenValidityMinutes) * time.Minute
+		core.TokenDB.Expire(core.Ctx, redisKey, validity)
+		
+		// Update cookie expiration
+		newCookie := &http.Cookie{
+			Name:     "X-rcloudauth-authtoken",
+			Value:    cookie.Value,
+			Path:     "/",
+			Domain:   h.Cfg.CookieDomain,
+			Expires:  time.Now().Add(validity),
+			HttpOnly: true,
+			Secure:   true,
+			SameSite: http.SameSiteLaxMode,
+		}
+		c.SetCookie(newCookie)
 	}
 
 	return c.NoContent(http.StatusOK)
@@ -122,21 +145,32 @@ func (h *AuthHandler) issueTempToken(username string) string {
 
 func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 	tokenBytes := make([]byte, 32)
-	rand.Read(tokenBytes)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		slog.Error("Failed to generate random token", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Internal Server Error")
+	}
 	token := hex.EncodeToString(tokenBytes)
 
-	encrypted, _ := core.EncryptToken(token, h.Cfg.ServerSecret)
+	encrypted, err := core.EncryptToken(token, h.Cfg.ServerSecret)
+	if err != nil {
+		slog.Error("Token encryption failed", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Internal Server Error")
+	}
 	clientIP := c.RealIP()
 	country := core.GetCountryCode(clientIP)
 
 	redisKey := "X-rcloudauth-authtoken=" + token
-	core.TokenDB.HSet(core.Ctx, redisKey, map[string]interface{}{
+	err = core.TokenDB.HSet(core.Ctx, redisKey, map[string]interface{}{
 		"status":     "valid",
 		"ip":         clientIP,
 		"username":   username,
 		"country":    country,
 		"created_at": time.Now().Unix(),
-	})
+	}).Err()
+	if err != nil {
+		slog.Error("Failed to store token in Redis", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Internal Server Error")
+	}
 	
 	validity := time.Duration(h.Cfg.TokenValidityMinutes) * time.Minute
 	core.TokenDB.Expire(core.Ctx, redisKey, validity)

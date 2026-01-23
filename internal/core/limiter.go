@@ -7,18 +7,16 @@ import (
 func CheckRateLimit(key string, maxAttempts int, decaySeconds int) bool {
 	fullKey := "rate_limit:" + key
 	
-	count, err := RateLimitDB.Get(Ctx, fullKey).Int()
-	if err != nil { // Key doesn't exist
-		RateLimitDB.Set(Ctx, fullKey, 1, time.Duration(decaySeconds)*time.Second)
-		return true
+	count, err := RateLimitDB.Incr(Ctx, fullKey).Result()
+	if err != nil {
+		return true // Fail open if Redis is down? Or return false? Let's stay with true for now.
 	}
 
-	if count >= maxAttempts {
-		return false
+	if count == 1 {
+		RateLimitDB.Expire(Ctx, fullKey, time.Duration(decaySeconds)*time.Second)
 	}
 
-	RateLimitDB.Incr(Ctx, fullKey)
-	return true
+	return int(count) <= maxAttempts
 }
 
 func ResetRateLimit(key string) {

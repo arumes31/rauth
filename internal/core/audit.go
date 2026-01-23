@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"log/slog"
 	"time"
 )
 
@@ -14,6 +15,8 @@ type AuditLog struct {
 }
 
 func LogAudit(action, username, ip string, details map[string]interface{}) {
+	slog.Info("audit log", "action", action, "username", username, "ip", ip, "details", details)
+
 	entry := AuditLog{
 		Timestamp: time.Now().Unix(),
 		Action:    action,

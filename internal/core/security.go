@@ -4,6 +4,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"io"
@@ -20,27 +21,29 @@ func CheckPasswordHash(password, hash string) bool {
 	return err == nil
 }
 
+func getAESKey(key string) []byte {
+	hash := sha256.Sum256([]byte(key))
+	return hash[:]
+}
+
 func EncryptToken(text string, key string) (string, error) {
-	block, err := aes.NewCipher([]byte(key))
+	block, err := aes.NewCipher(getAESKey(key))
 	if err != nil {
 		return "", err
 	}
 
-	plaintext := []byte(text)
-	// CBC mode IV must be block size
-	iv := make([]byte, aes.BlockSize)
-	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
 		return "", err
 	}
 
-	// Padding is required for CBC
-	plaintext = PKCS7Padding(plaintext, aes.BlockSize)
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", err
+	}
 
-	mode := cipher.NewCBCEncrypter(block, iv)
-	encrypted := make([]byte, len(plaintext))
-	mode.CryptBlocks(encrypted, plaintext)
-
-	return base64.StdEncoding.EncodeToString(append(iv, encrypted...)), nil
+	ciphertext := gcm.Seal(nonce, nonce, []byte(text), nil)
+	return base64.StdEncoding.EncodeToString(ciphertext), nil
 }
 
 func DecryptToken(encryptedText string, key string) (string, error) {
@@ -49,51 +52,26 @@ func DecryptToken(encryptedText string, key string) (string, error) {
 		return "", err
 	}
 
-	if len(data) < aes.BlockSize {
+	block, err := aes.NewCipher(getAESKey(key))
+	if err != nil {
+		return "", err
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+
+	nonceSize := gcm.NonceSize()
+	if len(data) < nonceSize {
 		return "", errors.New("ciphertext too short")
 	}
 
-	iv := data[:aes.BlockSize]
-	ciphertext := data[aes.BlockSize:]
-
-	block, err := aes.NewCipher([]byte(key))
+	nonce, ciphertext := data[:nonceSize], data[nonceSize:]
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
 		return "", err
 	}
 
-	if len(ciphertext)%aes.BlockSize != 0 {
-		return "", errors.New("ciphertext is not a multiple of the block size")
-	}
-
-	mode := cipher.NewCBCDecrypter(block, iv)
-	decrypted := make([]byte, len(ciphertext))
-	mode.CryptBlocks(decrypted, ciphertext)
-
-	decrypted, err = PKCS7Unpadding(decrypted)
-	if err != nil {
-		return "", err
-	}
-
-	return string(decrypted), nil
-}
-
-func PKCS7Padding(ciphertext []byte, blockSize int) []byte {
-	padding := blockSize - len(ciphertext)%blockSize
-	padtext := make([]byte, padding)
-	for i := range padtext {
-		padtext[i] = byte(padding)
-	}
-	return append(ciphertext, padtext...)
-}
-
-func PKCS7Unpadding(plantText []byte) ([]byte, error) {
-	length := len(plantText)
-	if length == 0 {
-		return nil, errors.New("invalid padding")
-	}
-	unpadding := int(plantText[length-1])
-	if length < unpadding {
-		return nil, errors.New("invalid padding")
-	}
-	return plantText[:(length - unpadding)], nil
+	return string(plaintext), nil
 }
