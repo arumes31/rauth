@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -33,10 +34,14 @@ func (t *TemplateRenderer) Render(w io.Writer, name string, data interface{}, c 
 }
 
 func main() {
+	// Initialize slog
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	slog.SetDefault(logger)
+
 	cfg := core.LoadConfig()
 
 	if err := core.InitRedis(cfg); err != nil {
-		fmt.Printf("Redis error: %v\n", err)
+		slog.Error("Redis initialization failed", "error", err)
 		os.Exit(1)
 	}
 
@@ -45,7 +50,39 @@ func main() {
 
 	e := echo.New()
 	e.HideBanner = true
-	e.Use(echoMiddleware.Logger())
+	
+	// Structured logging middleware
+	e.Use(echoMiddleware.RequestLoggerWithConfig(echoMiddleware.RequestLoggerConfig{
+		LogStatus:   true,
+		LogURI:      true,
+		LogMethod:   true,
+		LogRemoteIP: true,
+		LogLatency:  true,
+		LogError:    true,
+		HandleError: true,
+		LogValuesFunc: func(c echo.Context, v echoMiddleware.RequestLoggerValues) error {
+			if v.Error == nil {
+				slog.Info("request",
+					slog.String("ip", v.RemoteIP),
+					slog.String("method", v.Method),
+					slog.String("uri", v.URI),
+					slog.Int("status", v.Status),
+					slog.Duration("latency", v.Latency),
+				)
+			} else {
+				slog.Error("request error",
+					slog.String("ip", v.RemoteIP),
+					slog.String("method", v.Method),
+					slog.String("uri", v.URI),
+					slog.Int("status", v.Status),
+					slog.Duration("latency", v.Latency),
+					slog.String("err", v.Error.Error()),
+				)
+			}
+			return nil
+		},
+	}))
+	
 	e.Use(echoMiddleware.Recover())
 	
 	// CSRF Protection
@@ -123,12 +160,12 @@ func main() {
 
 func initializeSystem(cfg *core.Config) {
 	if cfg.InitialUser != "" && cfg.InitialPassword != "" {
-		fmt.Printf("Checking initial user: %s\n", cfg.InitialUser)
+		slog.Info("Checking initial user", "user", cfg.InitialUser)
 		err := core.CreateUser(cfg.InitialUser, cfg.InitialPassword, "admin@local", true)
 		if err == nil {
-			fmt.Println("Initial admin user created.")
+			slog.Info("Initial admin user created")
 		} else {
-			fmt.Println("Initial user already exists or error occurred.")
+			slog.Info("Initial user already exists or check failed", "error", err)
 		}
 	}
 }

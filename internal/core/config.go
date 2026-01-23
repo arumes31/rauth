@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"os"
 )
 
@@ -25,6 +26,7 @@ func LoadConfig() *Config {
 		RedisPort:            getEnv("REDIS_PORT", "6379"),
 		RedisPassword:        getEnv("REDIS_PASSWORD", ""),
 		CookieDomain:         getEnv("COOKIE_DOMAIN", "reitetschlaeger.com"),
+		TokenValidityMinutes: getEnvInt("TOKEN_VALIDITY_MINUTES", 60),
 		GeoApiHost:           getEnv("GEO_API_HOST", "rauth-geo-service"),
 		GeoApiPort:           getEnv("GEO_API_PORT", "3000"),
 		InitialUser:          getEnv("INITIAL_USER", "admin"),
@@ -35,6 +37,16 @@ func LoadConfig() *Config {
 func getEnv(key, fallback string) string {
 	if value, ok := os.LookupEnv(key); ok {
 		return value
+	}
+	return fallback
+}
+
+func getEnvInt(key string, fallback int) int {
+	if value, ok := os.LookupEnv(key); ok {
+		var i int
+		if _, err := fmt.Sscanf(value, "%d", &i); err == nil {
+			return i
+		}
 	}
 	return fallback
 }

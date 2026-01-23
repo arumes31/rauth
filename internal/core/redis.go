@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"time"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -15,29 +16,33 @@ var (
 )
 
 func InitRedis(cfg *Config) error {
-	UserDB = redis.NewClient(&redis.Options{
-		Addr:     fmt.Sprintf("%s:%s", cfg.RedisHost, cfg.RedisPort),
-		Password: cfg.RedisPassword,
-		DB:       0,
-	})
+	opts := &redis.Options{
+		Addr:         fmt.Sprintf("%s:%s", cfg.RedisHost, cfg.RedisPort),
+		Password:     cfg.RedisPassword,
+		DialTimeout:  5 * time.Second,
+		ReadTimeout:  3 * time.Second,
+		WriteTimeout: 3 * time.Second,
+		PoolSize:     20,
+		PoolTimeout:  30 * time.Second,
+	}
 
-	TokenDB = redis.NewClient(&redis.Options{
-		Addr:     fmt.Sprintf("%s:%s", cfg.RedisHost, cfg.RedisPort),
-		Password: cfg.RedisPassword,
-		DB:       1,
-	})
+	UserDB = redis.NewClient(copyOptions(opts, 0))
+	TokenDB = redis.NewClient(copyOptions(opts, 1))
+	RateLimitDB = redis.NewClient(copyOptions(opts, 2))
+	AuditDB = redis.NewClient(copyOptions(opts, 3))
 
-	RateLimitDB = redis.NewClient(&redis.Options{
-		Addr:     fmt.Sprintf("%s:%s", cfg.RedisHost, cfg.RedisPort),
-		Password: cfg.RedisPassword,
-		DB:       2,
-	})
+	// Ping all
+	for i, client := range []*redis.Client{UserDB, TokenDB, RateLimitDB, AuditDB} {
+		if err := client.Ping(Ctx).Err(); err != nil {
+			return fmt.Errorf("failed to connect to Redis DB %d: %w", i, err)
+		}
+	}
 
-	AuditDB = redis.NewClient(&redis.Options{
-		Addr:     fmt.Sprintf("%s:%s", cfg.RedisHost, cfg.RedisPort),
-		Password: cfg.RedisPassword,
-		DB:       3,
-	})
+	return nil
+}
 
-	return UserDB.Ping(Ctx).Err()
+func copyOptions(base *redis.Options, db int) *redis.Options {
+	clone := *base
+	clone.DB = db
+	return &clone
 }

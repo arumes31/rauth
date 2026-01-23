@@ -3,6 +3,7 @@ package handlers
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"log/slog"
 	"net/http"
 	"rauth/internal/core"
 	"time"
@@ -122,21 +123,32 @@ func (h *AuthHandler) issueTempToken(username string) string {
 
 func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 	tokenBytes := make([]byte, 32)
-	rand.Read(tokenBytes)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		slog.Error("Failed to generate random token", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Internal Server Error")
+	}
 	token := hex.EncodeToString(tokenBytes)
 
-	encrypted, _ := core.EncryptToken(token, h.Cfg.ServerSecret)
+	encrypted, err := core.EncryptToken(token, h.Cfg.ServerSecret)
+	if err != nil {
+		slog.Error("Token encryption failed", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Internal Server Error")
+	}
 	clientIP := c.RealIP()
 	country := core.GetCountryCode(clientIP)
 
 	redisKey := "X-rcloudauth-authtoken=" + token
-	core.TokenDB.HSet(core.Ctx, redisKey, map[string]interface{}{
+	err = core.TokenDB.HSet(core.Ctx, redisKey, map[string]interface{}{
 		"status":     "valid",
 		"ip":         clientIP,
 		"username":   username,
 		"country":    country,
 		"created_at": time.Now().Unix(),
-	})
+	}).Err()
+	if err != nil {
+		slog.Error("Failed to store token in Redis", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Internal Server Error")
+	}
 	
 	validity := time.Duration(h.Cfg.TokenValidityMinutes) * time.Minute
 	core.TokenDB.Expire(core.Ctx, redisKey, validity)
