@@ -310,6 +310,7 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 		"ip":         clientIP,
 		"username":   username,
 		"country":    country,
+		"user_agent": c.Request().UserAgent(),
 		"created_at": time.Now().Unix(),
 	}).Err()
 	if err != nil {

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+	"fmt"
 	"html/template"
 	"io"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"rauth/internal/core"
 	"rauth/internal/handlers"
 	"rauth/internal/middleware"
+	"strconv"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -98,6 +100,10 @@ func main() {
 	funcMap := template.FuncMap{
 		"formatTime": func(timestamp int64) string {
 			return time.Unix(timestamp, 0).Format("2006-01-02 15:04:05")
+		},
+		"formatSeconds": func(s string) string {
+			sec, _ := strconv.Atoi(s)
+			return fmt.Sprintf("%dm %ds", sec/60, sec%60)
 		},
 		"statusColor": func(action string) string {
 			// Simple check: if contains SUCCESS -> green, FAILED -> red
