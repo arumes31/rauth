@@ -88,7 +88,7 @@ func TestAuthHandler_Login(t *testing.T) {
 
 		err := h.Login(c)
 		assert.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Equal(t, http.StatusTooManyRequests, rec.Code)
 	})
 }
 

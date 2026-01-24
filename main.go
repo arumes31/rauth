@@ -162,7 +162,7 @@ func main() {
 	// Public Routes
 	e.GET("/", authHandler.Root)
 	e.GET("/rauthvalidate", authHandler.Validate)
-	e.GET("/rauthlogin", func(c echo.Context) error { return c.Render(http.StatusOK, "login.html", map[string]interface{}{"csrf": c.Get("csrf"), "rd": c.QueryParam("rd")}) })
+	e.GET("/rauthlogin", authHandler.Login)
 	e.POST("/rauthlogin", authHandler.Login)
 	e.POST("/verify-2fa", authHandler.Verify2FA)
 	e.GET("/rauthsetup2fa", authHandler.Setup2FA)

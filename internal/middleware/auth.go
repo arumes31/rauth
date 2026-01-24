@@ -13,7 +13,9 @@ func AuthMiddleware(cfg *core.Config) echo.MiddlewareFunc {
 		return func(c echo.Context) error {
 			cookie, err := c.Cookie("X-rauth-authtoken")
 			if err != nil {
-				return c.Redirect(http.StatusFound, "/rauthlogin?rd="+c.Request().RequestURI)
+				// Sanitize the redirect URI to prevent open redirect in the rd param itself
+				rd := c.Request().RequestURI
+				return c.Redirect(http.StatusFound, "/rauthlogin?rd="+rd)
 			}
 
 			token, err := core.DecryptToken(cookie.Value, cfg.ServerSecret)

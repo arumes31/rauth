@@ -85,8 +85,8 @@
                                 });
 
                                 if (finishResponse.ok) {
-                                    const redirect = new URLSearchParams(window.location.search).get('rd') || '/rauthprofile';
-                                    window.location.href = redirect;
+                                    const result = await finishResponse.json();
+                                    window.location.href = result.redirect || '/rauthprofile';
                                 } else {
                                     msg.className = "text-center extra-small mt-2 text-danger";
                                     msg.textContent = "Authentication failed";
