@@ -22,12 +22,3 @@ jobs:
           min-versions-to-keep: ${{ github.event.inputs.num_to_keep }}
           delete-only-untagged-versions: 'false'
           ignore-versions: 'stable,latest'
-
-      - name: Delete old Geo Service versions
-        uses: actions/delete-package-versions@v5
-        with:
-          package-name: 'rauth-geo'
-          package-type: 'container'
-          min-versions-to-keep: ${{ github.event.inputs.num_to_keep }}
-          delete-only-untagged-versions: 'false'
-          ignore-versions: 'stable,latest'

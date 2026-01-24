@@ -16,7 +16,7 @@ jobs:
 
     strategy:
       matrix:
-        image: [rauth-auth, rauth-geo]
+        image: [rauth-auth]
 
     steps:
       - name: Checkout code

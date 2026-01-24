@@ -23,9 +23,3 @@ jobs:
           docker pull ghcr.io/${{ github.repository_owner }}/rauth-auth:latest
           docker tag ghcr.io/${{ github.repository_owner }}/rauth-auth:latest ghcr.io/${{ github.repository_owner }}/rauth-auth:stable
           docker push ghcr.io/${{ github.repository_owner }}/rauth-auth:stable
-
-      - name: Promote Geo Service
-        run: |
-          docker pull ghcr.io/${{ github.repository_owner }}/rauth-geo:latest
-          docker tag ghcr.io/${{ github.repository_owner }}/rauth-geo:latest ghcr.io/${{ github.repository_owner }}/rauth-geo:stable
-          docker push ghcr.io/${{ github.repository_owner }}/rauth-geo:stable
