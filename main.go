@@ -172,7 +172,15 @@ func main() {
 	e.GET("/webauthn/login/begin", webauthnHandler.BeginLogin)
 	e.POST("/webauthn/login/finish", webauthnHandler.FinishLogin)
 
-	e.GET("/metrics", echo.WrapHandler(promhttp.Handler()))
+	e.GET("/metrics", echo.WrapHandler(promhttp.Handler()), func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			if cfg.IsIPAllowed(c.RealIP(), cfg.MetricsAllowedIPs) {
+				return next(c)
+			}
+			slog.Warn("Metrics access denied", "ip", c.RealIP())
+			return echo.NewHTTPError(http.StatusForbidden, "Access Denied")
+		}
+	})
 
 	// Protected Routes
 	protected := e.Group("")

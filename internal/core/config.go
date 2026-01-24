@@ -17,6 +17,7 @@ type Config struct {
 	GeoApiHost               string
 	GeoApiPort               string
 	MaxMindDBPath            string
+	MetricsAllowedIPs        []string
 	InitialUser              string
 	InitialPassword          string
 	InitialEmail             string
@@ -41,6 +42,7 @@ func LoadConfig() *Config {
 		GeoApiHost:           getEnv("GEO_API_HOST", "rauth-geo-service"),
 		GeoApiPort:           getEnv("GEO_API_PORT", "3000"),
 		MaxMindDBPath:        getEnv("MAXMIND_DB_PATH", "/app/geoip/GeoLite2-Country.mmdb"),
+		MetricsAllowedIPs:    getEnvSlice("METRICS_ALLOWED_IPS", []string{"127.0.0.1", "::1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10"}),
 		InitialUser:          getEnv("INITIAL_USER", "admin"),
 		InitialPassword:      getEnv("INITIAL_PASSWORD", ""),
 		InitialEmail:         getEnv("INITIAL_EMAIL", "admin@local"),
@@ -80,6 +82,29 @@ func (c *Config) IsAllowedHost(host string) bool {
 		}
 	}
 
+	return false
+}
+
+func (c *Config) IsIPAllowed(ipStr string, allowedList []string) bool {
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false
+	}
+
+	for _, allowed := range allowedList {
+		// Check if it's a CIDR
+		if strings.Contains(allowed, "/") {
+			_, ipNet, err := net.ParseCIDR(allowed)
+			if err == nil && ipNet.Contains(ip) {
+				return true
+			}
+		} else {
+			// Check for exact IP match
+			if allowed == ipStr {
+				return true
+			}
+		}
+	}
 	return false
 }
 
