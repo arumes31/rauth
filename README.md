@@ -1,4 +1,4 @@
-# RAuth: High-Performance Auth Proxy & Management
+# RAuth: High-Performance Auth Proxy & Identity Management
 
 <p align="center">
   <img src="https://img.shields.io/github/go-mod/go-version/arumes31/rauth?label=Go&logo=go&color=00ADD8" alt="Go Version">
@@ -13,150 +13,183 @@
   <a href="https://github.com/arumes31/rauth/actions/workflows/go-security.yml">
     <img src="https://github.com/arumes31/rauth/actions/workflows/go-security.yml/badge.svg?branch=test" alt="Security Scan">
   </a>
-  <a href="https://github.com/arumes31/rauth/actions/workflows/security.yml">
-    <img src="https://github.com/arumes31/rauth/actions/workflows/security.yml/badge.svg?branch=test" alt="Container Scan">
-  </a>
 </p>
 
 ---
 
-RAuth is a lightweight, ultra-fast authentication proxy and user management system written in **Go**. It is designed to sit behind an Nginx `auth_request` module to provide secure access control, 2FA, and audit logging for your web applications.
+RAuth is a lightweight, high-performance authentication proxy and user management system written in **Go**. It is specifically architected to provide a centralized, secure access control layer for self-hosted infrastructure via the Nginx `auth_request` module.
+
+RAuth eliminates the complexity of full-scale identity providers while maintaining enterprise-grade security standards like **Passkey (WebAuthn)** support, **AES-256-GCM** session encryption, and real-time **Prometheus** observability.
 
 ## 📖 Table of Contents
-- [🚀 Features](#-features)
-- [🛡️ Security Architecture](#️-security-architecture)
-- [🛠️ Technical Stack](#️-technical-stack)
-- [📦 Deployment](#-deployment)
-- [⚙️ Environment Variables](#️-environment-variables)
+- [🚀 Core Features](#-core-features)
+- [🛡️ Security Architecture](#-security-architecture)
+- [📦 Technical Stack](#-technical-stack)
+- [🔧 Nginx Integration](#-nginx-integration)
+- [📊 Monitoring & Observability](#-monitoring--observability)
+- [⚙️ Configuration](#-configuration)
+- [🚀 Deployment](#-deployment)
 - [💻 Development](#-development)
-- [✅ Production Checklist](#-production-checklist)
 
-## 🚀 Features
+---
 
-- **Blazing Fast**: Written in Go 1.24 for sub-millisecond authentication checks.
-- **Modern UI**: Clean, responsive dashboard using Bootstrap 5, featuring human-readable audit logs and session monitoring.
-- **Smart Session Management**:
-  - **2-Day Default Validity**: Configurable session lifetimes.
-  - **IP-Based Refresh**: Automatically extends sessions when accessed from the same IP address.
-  - **Multi-Device Support**: Concurrent sessions allowed across different devices.
-- **Structured Logging**: Built-in observability using Go's `slog` for structured, machine-readable logs.
-- **Zero-Dependency Container**: Minimal footprint using multi-stage Docker builds.
+## 🚀 Core Features
+
+### 🔐 Multi-Factor Authentication (MFA)
+*   **WebAuthn / Passkeys**: Modern, phishing-resistant authentication using hardware keys (YubiKey), TouchID, FaceID, or Windows Hello.
+*   **TOTP Support**: Compatible with Google Authenticator, Authy, and Bitwarden.
+*   **Enforced Setup**: New users are automatically guided through a secure MFA enrollment process.
+
+### 🌐 Smart Session Management
+*   **Sub-millisecond Validation**: Optimized Go backend with Redis caching for near-zero latency.
+*   **Geo-Fencing**: Built-in MaxMind integration. If a session is accessed from a new country, it is instantly invalidated to prevent session hijacking.
+*   **Device Awareness**: Logs and displays active sessions with User-Agent and IP metadata.
+*   **IP-Based Refresh**: Automatically extends session validity as long as the user remains on the same IP.
+
+### 🛠️ Administrative Control
+*   **User Management**: Create, delete, and manage users via a secure dashboard.
+*   **Credential Resets**: Force password changes or reset 2FA seeds for users.
+*   **Audit Logging**: Every sensitive action (logins, failures, admin changes) is captured in a structured, searchable audit feed.
+
+---
 
 ## 🛡️ Security Architecture
 
-- **AES-256-GCM Encryption**: High-standard authenticated encryption for tokens, ensuring both confidentiality and integrity.
-- **Instant Expiry on Country Change**: Automatically invalidates sessions if a geo-location change is detected between requests.
-- **TOTP (2FA)**: Native support for Time-based One-Time Passwords.
-- **Atomic Rate Limiting**: Redis-backed rate limiting to prevent brute-force attacks.
-- **CSRF Protection**: Robust protection on all state-changing forms.
-- **Geo-IP Caching**: High-performance in-memory cache for IP-to-country lookups.
+RAuth is built with a "Security-First" mindset:
 
-## 🛠️ Technical Stack
+1.  **Authenticated Encryption**: All session tokens stored in cookies are encrypted using **AES-256-GCM**. This provides both confidentiality and tamper-proof integrity.
+2.  **Brute-Force Protection**: Atomic Redis-backed rate limiting per IP and per username.
+3.  **Cross-Site Scripting (XSS)**: Strict Content Security Policy (CSP) and input sanitization.
+4.  **CSRF Protection**: All state-changing operations require a cryptographically secure synchronized token.
+5.  **Secure Cookies**: Cookies are strictly `HttpOnly`, `Secure`, and use `SameSite=Lax` to prevent client-side script access and CSRF.
+6.  **Minimal Attack Surface**: The runtime environment is a hardened Alpine container with no shell access and minimal binaries.
 
-- **Backend**: Go 1.24 (Echo Framework)
-- **Database**: Redis (Optimized with connection pooling and timeouts).
-- **Frontend**: Bootstrap 5 + Vanilla JS.
-- **CI/CD**: GitHub Actions with Docker Layer Caching, Gosec, golangci-lint, and Trivy.
+---
 
-## 📦 Deployment
+## 📦 Technical Stack
 
-### 1. Prerequisites
-- Docker & Docker Compose
-- A MaxMind License Key (for the GeoIP service)
+*   **Runtime**: [Go 1.25+](https://golang.org/) (High-concurrency, memory-safe)
+*   **Web Framework**: [Echo v4](https://echo.labstack.com/)
+*   **Identity Store**: [Redis 8.0+](https://redis.io/)
+*   **MFA Core**: [go-webauthn](https://github.com/go-webauthn/webauthn) & [pquerna/otp](https://github.com/pquerna/otp)
+*   **Geo-IP**: Native Go MMDB integration via [geoip2-golang](https://github.com/oschwald/geoip2-golang)
+*   **Monitoring**: [Prometheus Client](https://github.com/prometheus/client_golang)
+*   **Frontend**: Native Bootstrap 5 with a custom Glassmorphism "Matrix" theme.
 
-### 2. Quick Start
-1. Clone the repository.
-2. Create a `.env` file from the sanitized example:
-   ```bash
-   cp example.env .env
-   ```
-3. Run the stack:
-   ```bash
-   docker-compose up -d
-   ```
+---
 
-### 3. Using Pre-built GHCR Images
-Instead of building locally, you can use the pre-built images from the GitHub Container Registry. Create a `docker-compose.ghcr.yml` or update your existing one:
+## 🔧 Nginx Integration
 
-```yaml
-services:
-  rauth-auth-service:
-    image: ghcr.io/arumes31/rauth-auth:latest
-    container_name: rauth-auth-service
-    ports:
-      - "5980:80"
-    environment:
-      - REDIS_HOST=rauth-auth-redis
-      - SERVER_SECRET=${SERVER_SECRET}
-      # ... other environment variables
-    depends_on:
-      - rauth-auth-redis
+RAuth acts as an "Authorizer" for Nginx. When a request hits your proxy, Nginx performs a lightweight subrequest to RAuth to verify the user's session.
 
-  rauth-geo-service:
-    image: ghcr.io/arumes31/rauth-geo:latest
-    container_name: rauth-geo-service
-    environment:
-      - MAXMIND_LICENSE_KEY=${MAXMIND_LICENSE_KEY}
-      # ... other environment variables
+### Example Nginx Snippet
+
+```nginx
+# 1. Define the RAuth validation endpoint
+location = /rauth-verify {
+    internal;
+    proxy_pass http://rauth-auth-service/rauthvalidate;
+    proxy_pass_request_body off;
+    proxy_set_header Content-Length "";
+    proxy_set_header X-Original-URI $request_uri;
+    proxy_set_header X-Real-IP $remote_addr;
+}
+
+# 2. Protect your application
+location / {
+    auth_request /rauth-verify;
+    
+    # Propagate user identity to your backend
+    auth_request_set $user $upstream_http_x_rauth_user;
+    proxy_set_header X-User $user;
+
+    # Handle unauthorized users
+    error_page 401 = @error401;
+    
+    proxy_pass http://your-app-backend;
+}
+
+location @error401 {
+    return 302 https://auth.yourdomain.com/rauthlogin?rd=$scheme://$http_host$request_uri;
+}
 ```
 
-Run with:
-```bash
-docker-compose -f docker-compose.ghcr.yml up -d
-```
+---
 
-### 4. Nginx Integration
-RAuth utilizes the Nginx `auth_request` module to provide a centralized authentication layer. When a user accesses a protected service, Nginx intercepts the request and performs an internal subrequest to RAuth's validation endpoint. RAuth verifies the session token, enforces security policies (like geo-fencing), and validates the user's status. Based on the response, Nginx either permits access—propagating user identity headers to your backend—or triggers a redirect to the RAuth login portal.
+## 📊 Monitoring & Observability
 
-**Key configuration steps:**
-1.  Define a `/rauth-verify` location that proxies to RAuth's `/rauthvalidate`.
-2.  Use `auth_request /rauth-verify;` in your application's `location` block.
-3.  Handle `401` errors by redirecting to the RAuth login page.
+RAuth exposes real-time metrics in Prometheus format at `/metrics`. 
 
-Detailed configuration examples can be found in [nginx-proxy-example.conf](nginx-proxy-example.conf).
+### Security & Usage Metrics
+*   `rauth_login_success_total`: Cumulative count of successful logins.
+*   `rauth_login_failed_total`: Cumulative count of failed attempts (useful for alerting on brute-force).
+*   `rauth_active_sessions`: Gauge showing the current number of valid sessions in Redis.
+*   `rauth_rate_limit_hits_total`: Count of requests blocked by the internal throttler.
+*   `rauth_audit_logs_total`: Counter categorized by action (e.g., `USER_CHANGE_PASSWORD`, `ADMIN_DELETE_USER`).
 
-## ⚙️ Environment Variables
+### Access Control
+By default, the `/metrics` endpoint is restricted to:
+*   Localhost (`127.0.0.1`)
+*   Private Subnets (`10.0.0.0/8`, etc.)
+*   Tailscale IP ranges (`100.64.0.0/10`)
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `SERVER_SECRET` | Secret key for token encryption (min. 32 chars) | (Required) |
-| `TOKEN_VALIDITY_MINUTES` | Session validity duration | `2880` (2 days) |
-| `INITIAL_USER` | Admin username | `admin` |
-| `INITIAL_PASSWORD`| Admin password | (Required) |
-| `INITIAL_EMAIL` | Admin email | `admin@local` |
-| `INITIAL_2FA_SECRET` | Admin 2FA secret (optional) | (None) |
-| `COOKIE_DOMAIN` | Comma-separated domains for auth cookies. First is primary. | `example.com` |
-| `ALLOWED_HOSTS` | Additional allowed redirect hosts (subdomains of `COOKIE_DOMAIN` are auto-allowed) | `localhost,127.0.0.1` |
-| `PWD_MIN_LENGTH` | Minimum password length | `8` |
-| `PWD_REQUIRE_UPPER` | Require uppercase | `true` |
-| `PWD_REQUIRE_LOWER` | Require lowercase | `true` |
-| `PWD_REQUIRE_NUMBER` | Require number | `true` |
-| `PWD_REQUIRE_SPECIAL` | Require special char | `true` |
+---
+
+## ⚙️ Configuration
+
+RAuth is configured via Environment Variables.
+
+| Category | Variable | Description | Default |
+|:---|:---|:---|:---|
+| **Secret** | `SERVER_SECRET` | 32+ char key for AES encryption | **REQUIRED** |
+| **MaxMind**| `MAXMIND_ACCOUNT_ID` | Your Account ID for Geo-IP updates | **REQUIRED** |
+| **MaxMind**| `MAXMIND_LICENSE_KEY` | Your License Key for Geo-IP updates | **REQUIRED** |
+| **Redis**  | `REDIS_HOST` | Hostname of the Redis instance | `rauth-auth-redis` |
+| **Redis**  | `REDIS_PASSWORD` | Password for Redis auth | (None) |
+| **Auth**   | `COOKIE_DOMAIN` | Domain for the auth cookie | `example.com` |
+| **Auth**   | `TOKEN_VALIDITY` | Session duration in minutes | `2880` (2 days) |
+| **Security**| `METRICS_ALLOWED_IPS`| CIDR list for `/metrics` access | (Private + Tailscale) |
+| **Policy** | `PWD_MIN_LENGTH` | Minimum required password length | `8` |
+
+---
+
+## 🚀 Deployment
+
+### Quick Start with Docker Compose
+
+1.  **Clone & Prepare**:
+    ```bash
+    git clone https://github.com/arumes31/rauth.git
+    cd rauth
+    cp example.env .env
+    ```
+2.  **Configure**: Edit `.env` and provide your `SERVER_SECRET` and MaxMind credentials.
+3.  **Launch**:
+    ```bash
+    docker-compose up -d
+    ```
+
+RAuth will automatically initialize the primary admin user defined in your environment variables. Access the dashboard at `http://localhost:5980/rauthmgmt`.
+
+---
 
 ## 💻 Development
 
-### Running Tests Locally
+### Prerequisites
+*   Go 1.25+
+*   Redis (or [miniredis](https://github.com/alicebob/miniredis) for testing)
+
+### Testing
+We use a combination of unit tests, integration tests, and fuzzing to ensure core security logic remains robust.
 ```bash
 go test -v ./...
 ```
 
-### Local CI/CD Testing
-You can run GitHub Actions locally using [act](https://github.com/nektos/act):
+### Local CI/CD
+You can verify the entire pipeline (Linting, Security, Tests) locally using [act](https://github.com/nektos/act):
 ```bash
-act -j test -W .github/workflows/build.yml
+act -j test -W .github/workflows/tests.yml
 ```
-
-### Docker Build
-```bash
-docker-compose build --no-cache
-```
-
-## ✅ Production Checklist
-
-- [x] Use `HTTPS` only (secure cookies enabled).
-- [ ] Set a unique `SERVER_SECRET` (at least 32 characters).
-- [ ] Configure `ALLOWED_HOSTS` for strict redirection.
-- [ ] Update `INITIAL_PASSWORD` immediately after first login at `/rauthlogin`.
 
 ---
-Built with ❤️ for secure and fast self-hosting.
+Built with ❤️ for secure, fast, and private self-hosting.

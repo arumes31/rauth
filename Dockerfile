@@ -1,31 +1,37 @@
 # Build stage
 FROM golang:1.25-alpine AS builder
 
+# Add dependencies for build
+RUN apk add --no-cache ca-certificates tzdata
+
 WORKDIR /app
 
-# Copy mod file
-COPY go.mod ./
+COPY go.mod go.sum ./
+RUN go mod download
 
-# Copy source code
 COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -v -o rauth main.go
 
-# Tidy, download and build in one step to ensure go.sum is respected
-RUN go mod tidy && \
-    go mod download && \
-    CGO_ENABLED=0 GOOS=linux go build -v -o rauth main.go
-
-# Final Stage
+# Runtime stage
 FROM alpine:latest
 
+# Install runtime dependencies
 RUN apk --no-cache add ca-certificates tzdata
+
+# Copy geoipupdate binary from official image
+COPY --from=ghcr.io/maxmind/geoipupdate:latest /usr/bin/geoipupdate /usr/bin/geoipupdate
 
 WORKDIR /root/
 
-# Copy the binary from the builder stage
 COPY --from=builder /app/rauth .
+COPY --from=builder /app/templates ./templates
+COPY --from=builder /app/static ./static
+COPY entrypoint.sh .
+RUN chmod +x entrypoint.sh
 
-# Expose port
+# Create directory for GeoIP database
+RUN mkdir -p /app/geoip
+
 EXPOSE 80
 
-# Run the application
-CMD ["./rauth"]
+ENTRYPOINT ["./entrypoint.sh"]

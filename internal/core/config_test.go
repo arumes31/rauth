@@ -6,8 +6,11 @@ import (
 )
 
 func TestLoadConfig(t *testing.T) {
-	os.Setenv("SERVER_SECRET", "testsecret1234567890123456789012")
-	os.Setenv("INITIAL_USER", "tester")
+	_ = os.Setenv("SERVER_SECRET", "testsecret1234567890123456789012")
+	_ = os.Setenv("INITIAL_USER", "tester")
+	_ = os.Setenv("INITIAL_PASS", "TestPass123!")
+	_ = os.Setenv("AUTH_DOMAIN", "example.com")
+	_ = os.Setenv("REDIS_HOST", "localhost")
 
 	cfg := LoadConfig()
 
@@ -20,7 +23,7 @@ func TestLoadConfig(t *testing.T) {
 	}
 
 	// Test fallback
-	os.Unsetenv("REDIS_PORT")
+	_ = os.Unsetenv("REDIS_PORT")
 	cfg2 := LoadConfig()
 	if cfg2.RedisPort != "6379" {
 		t.Errorf("Expected default REDIS_PORT 6379, got %s", cfg2.RedisPort)
@@ -28,9 +31,9 @@ func TestLoadConfig(t *testing.T) {
 }
 
 func TestGetEnvHelpers(t *testing.T) {
-	os.Setenv("TEST_INT", "123")
-	os.Setenv("TEST_BOOL", "true")
-	os.Setenv("TEST_SLICE", "a,b,c")
+	_ = os.Setenv("TEST_INT", "123")
+	_ = os.Setenv("TEST_BOOL", "true")
+	_ = os.Setenv("TEST_SLICE", "a,b,c")
 
 	if v := getEnvInt("TEST_INT", 0); v != 123 {
 		t.Errorf("getEnvInt failed, got %d", v)

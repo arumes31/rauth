@@ -16,11 +16,16 @@ services:
       - TOKEN_VALIDITY_MINUTES=${TOKEN_VALIDITY_MINUTES:-2880}
       - COOKIE_DOMAIN=${COOKIE_DOMAIN}
       - ALLOWED_HOSTS=${ALLOWED_HOSTS}
-      - GEO_API_HOST=rauth-geo-service
-      - GEO_API_PORT=3000
       - SERVER_SECRET=${SERVER_SECRET}
+      - MAXMIND_ACCOUNT_ID=${MAXMIND_ACCOUNT_ID}
+      - MAXMIND_LICENSE_KEY=${MAXMIND_LICENSE_KEY}
+      - MAXMIND_DB_PATH=/app/geoip/GeoLite2-Country.mmdb
+      - GEOIP_EDITION_IDS=${GEOIP_EDITION_IDS:-GeoLite2-Country}
+      - GEOIP_DATABASE_DIRECTORY=/app/geoip
     depends_on:
       - rauth-auth-redis
+    volumes:
+      - ./geoip-data:/app/geoip
     networks:
       - auth-network
 
@@ -31,23 +36,6 @@ services:
     command: redis-server --requirepass ${REDIS_PASSWORD}
     volumes:
       - ./redis-data:/data
-    networks:
-      - auth-network
-
-  rauth-geo-service:
-    container_name: rauth-geo-service
-    build:
-      context: ./geo-service
-    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-arumes31}/rauth-geo:latest
-    environment:
-      - MAXMIND_ACCOUNT_ID=${MAXMIND_ACCOUNT_ID}
-      - MAXMIND_LICENSE_KEY=${MAXMIND_LICENSE_KEY}
-      - GEOIP_EDITION_IDS=${GEOIP_EDITION_IDS:-GeoLite2-Country}
-      - GEOIP_DATABASE_DIRECTORY=/srv/app/geoip
-    volumes:
-      - ./geoip-data:/srv/app/geoip
-    depends_on:
-      - rauth-auth-redis
     networks:
       - auth-network
 

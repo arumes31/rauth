@@ -77,6 +77,53 @@
                             {{end}}
                             <button type="submit" class="btn btn-primary w-100 py-2">Update Credentials</button>
                         </form>
+
+                        <hr class="my-4">
+                        
+                        <div class="mb-3">
+                            <h6 class="small fw-bold text-muted text-uppercase mb-3">Passwordless Access</h6>
+                            <button id="register-webauthn" class="btn btn-outline-danger btn-sm w-100 py-2">
+                                <i class="bi bi-key me-2"></i>Add Security Key (Passkey)
+                            </button>
+                            <div id="webauthn-message" class="extra-small mt-2"></div>
+                        </div>
+
+                        <script src="/static/js/simplewebauthn-browser.min.js"></script>
+                        <script>
+                            document.getElementById('register-webauthn').addEventListener('click', async () => {
+                                const { startRegistration } = SimpleWebAuthnBrowser;
+                                const msg = document.getElementById('webauthn-message');
+                                msg.className = "extra-small mt-2 text-primary";
+                                msg.textContent = "Requesting challenge from server...";
+                                
+                                try {
+                                    const response = await fetch('/webauthn/register/begin');
+                                    const optionsJSON = await response.json();
+                                    
+                                    msg.textContent = "Please touch your security key...";
+                                    const credential = await startRegistration({ optionsJSON });
+                                    
+                                    msg.textContent = "Verifying with server...";
+                                    const finishResponse = await fetch('/webauthn/register/finish', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify(credential)
+                                    });
+
+                                    if (finishResponse.ok) {
+                                        msg.className = "extra-small mt-2 text-success";
+                                        msg.textContent = "Success! Your security key is now active.";
+                                    } else {
+                                        const err = await finishResponse.json();
+                                        msg.className = "extra-small mt-2 text-danger";
+                                        msg.textContent = "Verification failed: " + (err.message || "Invalid response");
+                                    }
+                                } catch (e) {
+                                    msg.className = "extra-small mt-2 text-danger";
+                                    msg.textContent = "Error: " + e.message;
+                                }
+                            });
+                        </script>
                     </div>
                 </div>
             </div>
