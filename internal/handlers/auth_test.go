@@ -277,3 +277,50 @@ func TestAuthHandler_CompleteSetup2FA(t *testing.T) {
 		assert.Equal(t, secret, saved)
 	})
 }
+
+func TestAuthHandler_Logout(t *testing.T) {
+	cfg := &core.Config{CookieDomains: []string{"example.com"}}
+	h := &AuthHandler{Cfg: cfg}
+
+	t.Run("Logout placeholder", func(t *testing.T) {
+		// Placeholder for future logout test if moved to handler
+		assert.NotNil(t, h)
+	})
+}
+
+func TestAuthHandler_IssueToken_Redirect(t *testing.T) {
+	s := miniredis.RunT(t)
+	core.TokenDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
+	core.AuditDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
+
+	cfg := &core.Config{
+		ServerSecret: "32byte-secret-key-for-testing-!!",
+		CookieDomains: []string{"example.com"},
+		AllowedHosts: []string{"trusted.com"},
+	}
+	h := &AuthHandler{Cfg: cfg}
+	e := echo.New()
+
+	t.Run("Safe redirect", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/rauthlogin?rd=http://trusted.com/app", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := h.issueToken(c, "testuser")
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+		assert.Equal(t, "http://trusted.com/app", rec.Header().Get("Location"))
+	})
+
+	t.Run("Unsafe redirect", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/rauthlogin?rd=http://evil.com/phish", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := h.issueToken(c, "testuser")
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+		// Should fall back to root
+		assert.Equal(t, "/", rec.Header().Get("Location"))
+	})
+}

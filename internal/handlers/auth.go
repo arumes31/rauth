@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"rauth/internal/core"
 	"time"
 
@@ -312,9 +313,12 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 	core.LogAudit("LOGIN_SUCCESS", username, clientIP, map[string]interface{}{"country": country})
 	
 	redirect := c.QueryParam("rd")
-	if redirect != "" && !h.Cfg.IsAllowedHost(redirect) {
-		slog.Warn("Unsafe redirect attempted", "host", redirect, "user", username)
-		redirect = "/"
+	if redirect != "" {
+		parsedURL, err := url.Parse(redirect)
+		if err != nil || !h.Cfg.IsAllowedHost(parsedURL.Hostname()) {
+			slog.Warn("Unsafe redirect attempted", "host", redirect, "user", username)
+			redirect = "/"
+		}
 	}
 	if redirect == "" { redirect = "/rauthprofile" }
 	return c.Redirect(http.StatusFound, redirect)
