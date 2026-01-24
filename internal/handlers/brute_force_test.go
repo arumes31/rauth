@@ -64,6 +64,7 @@ func TestBruteForceProtection(t *testing.T) {
 	
 	t.Run("2FA Brute Force Protection (Currently Vulnerable)", func(t *testing.T) {
 		pendingToken := "brute-2fa-token"
+		encryptedToken, _ := core.EncryptToken(pendingToken, cfg.ServerSecret)
 		core.TokenDB.Set(core.Ctx, "pending_2fa:"+pendingToken, "bruteuser", 5*time.Minute)
 		core.UserDB.HSet(core.Ctx, "user:bruteuser", "2fa_secret", "JBSWY3DPEHPK3PXP")
 
@@ -75,7 +76,7 @@ func TestBruteForceProtection(t *testing.T) {
 			
 			c, rec := createTestContext(e, http.MethodPost, "/rauthlogin", f)
 			c.Request().Header.Set(echo.HeaderXRealIP, clientIP)
-			c.Request().AddCookie(&http.Cookie{Name: "rauth_2fa_pending", Value: pendingToken})
+			c.Request().AddCookie(&http.Cookie{Name: "rauth_2fa_pending", Value: encryptedToken})
 			
 			err := h.Login(c)
 			assert.NoError(t, err)

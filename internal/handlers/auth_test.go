@@ -165,6 +165,7 @@ func TestAuthHandler_CompleteSetup2FA(t *testing.T) {
 	// Setup pending user
 	username := "setupuser"
 	setupToken := "setup-token-abc"
+	encryptedToken, _ := core.EncryptToken(setupToken, cfg.ServerSecret)
 	secret := "JBSWY3DPEHPK3PXP" 
 	core.TokenDB.Set(core.Ctx, "pending_setup:"+setupToken, username, 10*time.Minute)
 	core.TokenDB.Set(core.Ctx, "pending_setup_secret:"+setupToken, secret, 5*time.Minute)
@@ -176,7 +177,7 @@ func TestAuthHandler_CompleteSetup2FA(t *testing.T) {
 		f.Set("totp_code", code)
 
 		c, rec := createTestContext(e, http.MethodPost, "/rauthsetup2fa", f)
-		c.Request().AddCookie(&http.Cookie{Name: "rauth_setup_pending", Value: setupToken})
+		c.Request().AddCookie(&http.Cookie{Name: "rauth_setup_pending", Value: encryptedToken})
 
 		err := h.CompleteSetup2FA(c)
 		assert.NoError(t, err)

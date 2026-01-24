@@ -72,6 +72,7 @@ func (c *Config) IsAllowedHost(host string) bool {
 			return true
 		}
 		// Subdomain match (e.g., app.example.com for example.com)
+		// Fix: Ensure we match a dot before the domain to avoid suffix abuse (e.g. evil-example.com)
 		if strings.HasSuffix(host, "."+domain) {
 			return true
 		}

@@ -147,6 +147,11 @@ func main() {
 	protected.Use(middleware.AuthMiddleware(cfg))
 	
 	protected.POST("/logout", func(c echo.Context) error {
+		// Get token from context (set by AuthMiddleware)
+		if token, ok := c.Get("token").(string); ok {
+			core.TokenDB.Del(core.Ctx, "X-rauth-authtoken="+token)
+		}
+
 		cookie := &http.Cookie{
 			Name:     "X-rauth-authtoken",
 			Value:    "",
@@ -154,6 +159,8 @@ func main() {
 			Domain:   cfg.CookieDomains[0],
 			Expires:  time.Now().Add(-1 * time.Hour),
 			HttpOnly: true,
+			Secure:   true,
+			SameSite: http.SameSiteLaxMode,
 		}
 		c.SetCookie(cookie)
 		return c.Redirect(http.StatusFound, "/rauthlogin")
