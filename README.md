@@ -75,15 +75,42 @@ RAuth is a lightweight, ultra-fast authentication proxy and user management syst
    docker-compose up -d
    ```
 
-### 3. Nginx Integration
-To protect your applications, configure Nginx using the `auth_request` module. See [nginx-proxy-example.conf](nginx-proxy-example.conf) for a complete example.
+### 3. Using Pre-built GHCR Images
+Instead of building locally, you can use the pre-built images from the GitHub Container Registry. Create a `docker-compose.ghcr.yml` or update your existing one:
 
-Key configuration steps:
-1.  Define a `/rauth-verify` location that proxies to RAuth's `/rauthvalidate`.
-2.  Use `auth_request /rauth-verify;` in your application's `location` block.
-3.  Handle `401` errors by redirecting to the RAuth login page.
+```yaml
+services:
+  rauth-auth-service:
+    image: ghcr.io/arumes31/rauth-auth:latest
+    container_name: rauth-auth-service
+    ports:
+      - "5980:80"
+    environment:
+      - REDIS_HOST=rauth-auth-redis
+      - SERVER_SECRET=${SERVER_SECRET}
+      # ... other environment variables
+    depends_on:
+      - rauth-auth-redis
 
-## âš™ï¸ Environment Variables
+  rauth-geo-service:
+    image: ghcr.io/arumes31/rauth-geo:latest
+    container_name: rauth-geo-service
+    environment:
+      - MAXMIND_LICENSE_KEY=${MAXMIND_LICENSE_KEY}
+      # ... other environment variables
+```
+
+Run with:
+```bash
+docker-compose -f docker-compose.ghcr.yml up -d
+```
+
+### 4. Nginx Integration
+RAuth utilizes the Nginx `auth_request` module to provide a centralized authentication layer. When a user accesses a protected service, Nginx intercepts the request and performs an internal subrequest to RAuth's validation endpoint. RAuth verifies the session token, enforces security policies (like geo-fencing), and validates the user's status. Based on the response, Nginx either permits access—propagating user identity headers to your backend—or triggers a redirect to the RAuth login portal.
+
+Detailed configuration examples can be found in [nginx-proxy-example.conf](nginx-proxy-example.conf).
+
+## ⚙️ Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
