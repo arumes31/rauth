@@ -27,6 +27,7 @@ services:
   rauth-auth-redis:
     image: redis:8.0-alpine
     container_name: rauth-auth-redis
+    hostname: rauth-auth-redis
     command: redis-server --requirepass ${REDIS_PASSWORD}
     volumes:
       - ./redis-data:/data
