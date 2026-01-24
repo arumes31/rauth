@@ -176,6 +176,8 @@ func main() {
 	admin.GET("", adminHandler.Dashboard)
 	admin.POST("/user/create", adminHandler.CreateUser)
 	admin.POST("/user/delete", adminHandler.DeleteUser)
+	admin.POST("/user/reset-2fa", adminHandler.ResetUser2FA)
+	admin.POST("/user/change-password", adminHandler.ChangeUserPassword)
 	admin.POST("/session/invalidate", adminHandler.InvalidateSession)
 
 	e.GET("/health", func(c echo.Context) error {

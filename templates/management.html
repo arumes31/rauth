@@ -130,11 +130,18 @@
                                             {{end}}
                                         </td>
                                         <td class="text-end pe-4">
-                                            <form method="POST" action="/rauthmgmt/user/delete">
-                                                <input type="hidden" name="csrf" value="{{$.csrf}}">
-                                                <input type="hidden" name="username" value="{{.Username}}">
-                                                <button type="submit" class="btn btn-sm btn-outline-danger border-0" title="Delete User"><i class="bi bi-person-x"></i></button>
-                                            </form>
+                                            <div class="btn-group">
+                                                <button class="btn btn-sm btn-outline-primary border-0" 
+                                                        onclick="openEditModal('{{.Username}}')" 
+                                                        title="Edit User">
+                                                    <i class="bi bi-pencil"></i>
+                                                </button>
+                                                <form method="POST" action="/rauthmgmt/user/delete" onsubmit="return confirm('Are you sure you want to delete this user?')">
+                                                    <input type="hidden" name="csrf" value="{{$.csrf}}">
+                                                    <input type="hidden" name="username" value="{{.Username}}">
+                                                    <button type="submit" class="btn btn-sm btn-outline-danger border-0" title="Delete User"><i class="bi bi-person-x"></i></button>
+                                                </form>
+                                            </div>
                                         </td>
                                     </tr>
                                     {{end}}
@@ -221,7 +228,68 @@
         </div>
     </div>
 
+    <!-- Edit User Modal -->
+    <div class="modal fade" id="editUserModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title fw-bold">Edit User: <span id="editModalUsername"></span></h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <!-- Change Password Section -->
+                    <form method="POST" action="/rauthmgmt/user/change-password" class="mb-4">
+                        <input type="hidden" name="csrf" value="{{.csrf}}">
+                        <input type="hidden" name="username" id="passwordUsernameInput">
+                        <label class="form-label small fw-bold text-muted">Change Password</label>
+                        <div class="input-group mb-3">
+                            <input type="password" name="new_password" class="form-control" placeholder="New Password" required>
+                            <button class="btn btn-outline-danger" type="submit">Update</button>
+                        </div>
+                    </form>
+
+                    <hr class="border-secondary opacity-25 my-4">
+
+                    <!-- Reset 2FA Section -->
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <label class="form-label small fw-bold text-muted mb-0">Two-Factor Authentication</label>
+                            <p class="extra-small text-muted mb-0">Clear the 2FA secret to allow user re-setup</p>
+                        </div>
+                        <form method="POST" action="/rauthmgmt/user/reset-2fa" onsubmit="return confirm('Reset 2FA for this user?')">
+                            <input type="hidden" name="csrf" value="{{.csrf}}">
+                            <input type="hidden" name="username" id="reset2faUsernameInput">
+                            <button type="submit" class="btn btn-sm btn-outline-warning">Reset 2FA</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="/static/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const editUserModal = new bootstrap.Modal(document.getElementById('editUserModal'));
+        
+        function openEditModal(username) {
+            document.getElementById('editModalUsername').textContent = username;
+            document.getElementById('passwordUsernameInput').value = username;
+            document.getElementById('reset2faUsernameInput').value = username;
+            editUserModal.show();
+        }
+
+        // Show success alert if redirected back with success param
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.has('success')) {
+            const success = urlParams.get('success');
+            let msg = "Action completed successfully";
+            if (success === '2fa_reset') msg = "Two-factor authentication has been reset.";
+            if (success === 'password_changed') msg = "User password has been updated.";
+            
+            // Basic toast or alert logic could go here
+            console.log(msg);
+        }
+    </script>
 </body>
 </html>
 {{end}}

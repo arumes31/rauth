@@ -7,6 +7,7 @@ import (
 	"rauth/internal/core"
 
 	"github.com/labstack/echo/v4"
+	"github.com/pquerna/otp/totp"
 )
 
 type ProfileHandler struct {
@@ -39,12 +40,13 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 	}
 
 	return c.Render(http.StatusOK, "profile.html", map[string]interface{}{
-		"username": username,
-		"email":    userData["email"],
-		"groups":   userData["groups"],
-		"isAdmin":  userData["is_admin"] == "1",
-		"logs":     logs,
-		"csrf":     c.Get("csrf"),
+		"username":  username,
+		"email":     userData["email"],
+		"groups":    userData["groups"],
+		"isAdmin":   userData["is_admin"] == "1",
+		"has2FA":    userData["2fa_secret"] != "",
+		"logs":      logs,
+		"csrf":      c.Get("csrf"),
 	})
 }
 
@@ -53,6 +55,7 @@ func (h *ProfileHandler) ChangePassword(c echo.Context) error {
 	current := c.FormValue("current_password")
 	newPass := c.FormValue("new_password")
 	confirm := c.FormValue("confirm_password")
+	otpCode := c.FormValue("otp_code")
 
 	userData, err := core.UserDB.HGetAll(core.Ctx, "user:"+username).Result()
 	if err != nil {
@@ -62,6 +65,16 @@ func (h *ProfileHandler) ChangePassword(c echo.Context) error {
 
 	if !core.CheckPasswordHash(current, userData["password"]) {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Current password incorrect"})
+	}
+
+	// 2FA Verification if enabled
+	if userData["2fa_secret"] != "" {
+		if otpCode == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "2FA code required"})
+		}
+		if !totp.Validate(otpCode, userData["2fa_secret"]) {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid 2FA code"})
+		}
 	}
 
 	if newPass != confirm {
