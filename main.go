@@ -98,7 +98,21 @@ func main() {
 	}))
 
 	funcMap := template.FuncMap{
-		"formatTime": func(timestamp int64) string {
+		"formatTime": func(input interface{}) string {
+			var timestamp int64
+			switch v := input.(type) {
+			case int64:
+				timestamp = v
+			case int:
+				timestamp = int64(v)
+			case string:
+				timestamp, _ = strconv.ParseInt(v, 10, 64)
+			default:
+				return "N/A"
+			}
+			if timestamp == 0 {
+				return "N/A"
+			}
 			return time.Unix(timestamp, 0).Format("2006-01-02 15:04:05")
 		},
 		"formatSeconds": func(s string) string {
