@@ -108,6 +108,11 @@ docker-compose -f docker-compose.ghcr.yml up -d
 ### 4. Nginx Integration
 RAuth utilizes the Nginx `auth_request` module to provide a centralized authentication layer. When a user accesses a protected service, Nginx intercepts the request and performs an internal subrequest to RAuth's validation endpoint. RAuth verifies the session token, enforces security policies (like geo-fencing), and validates the user's status. Based on the response, Nginx either permits access—propagating user identity headers to your backend—or triggers a redirect to the RAuth login portal.
 
+**Key configuration steps:**
+1.  Define a `/rauth-verify` location that proxies to RAuth's `/rauthvalidate`.
+2.  Use `auth_request /rauth-verify;` in your application's `location` block.
+3.  Handle `401` errors by redirecting to the RAuth login page.
+
 Detailed configuration examples can be found in [nginx-proxy-example.conf](nginx-proxy-example.conf).
 
 ## ⚙️ Environment Variables
