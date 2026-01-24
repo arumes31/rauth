@@ -76,7 +76,7 @@
                                             <div>{{index . "ip"}}</div>
                                             <div class="text-muted small"><i class="bi bi-globe me-1"></i> {{index . "country"}}</div>
                                         </td>
-                                        <td><span class="badge bg-light text-dark border">{{index . "ttl"}}s remaining</span></td>
+                                        <td><span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25">{{index . "ttl"}}s remaining</span></td>
                                         <td class="text-end pe-4">
                                             <form method="POST" action="/rauthmgmt/session/invalidate">
                                                 <input type="hidden" name="csrf" value="{{$.csrf}}">
@@ -102,7 +102,7 @@
                 <div class="card shadow-sm border-0">
                     <div class="card-header py-3 d-flex justify-content-between align-items-center">
                         <h6 class="mb-0 fw-bold">User Access Management</h6>
-                        <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#createUserModal">
+                        <button class="btn btn-sm btn-danger" data-bs-toggle="modal" data-bs-target="#createUserModal">
                             <i class="bi bi-person-plus me-1"></i> Add User
                         </button>
                     </div>
@@ -126,7 +126,7 @@
                                             {{if eq .IsAdmin "1"}}
                                             <span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25">Administrator</span>
                                             {{else}}
-                                            <span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25">User</span>
+                                            <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25">User</span>
                                             {{end}}
                                         </td>
                                         <td class="text-end pe-4">
@@ -214,7 +214,7 @@
                         </div>
                     </div>
                     <div class="modal-footer border-0 pt-0">
-                        <button type="submit" class="btn btn-primary w-100 py-2 fw-bold">Create Account</button>
+                        <button type="submit" class="btn btn-danger w-100 py-2 fw-bold">Create Account</button>
                     </div>
                 </form>
             </div>
