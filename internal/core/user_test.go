@@ -46,7 +46,10 @@ func TestUpdateUser(t *testing.T) {
 	UserDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
 
 	username := "updateuser"
-	CreateUser(username, "oldpass", "old@email.com", false, "")
+	err := CreateUser(username, "oldpass", "old@email.com", false, "")
+	if err != nil {
+		t.Fatalf("CreateUser failed: %v", err)
+	}
 
 	t.Run("Update email and group", func(t *testing.T) {
 		updates := map[string]interface{}{

@@ -94,7 +94,8 @@ func TestProfileHandler_ChangePassword(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 		
 		var resp map[string]string
-		json.Unmarshal(rec.Body.Bytes(), &resp)
+		err = json.Unmarshal(rec.Body.Bytes(), &resp)
+		assert.NoError(t, err)
 		assert.Contains(t, resp["error"], "incorrect")
 	})
 

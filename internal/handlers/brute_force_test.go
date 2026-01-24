@@ -37,7 +37,8 @@ func TestBruteForceProtection(t *testing.T) {
 			c, _ := createTestContext(e, http.MethodPost, "/rauthlogin", f)
 			c.Request().Header.Set(echo.HeaderXRealIP, clientIP)
 			
-			h.Login(c)
+			err := h.Login(c)
+			assert.NoError(t, err)
 			
 			if i >= 10 {
 				data := renderer.LastData.(map[string]interface{})
@@ -52,7 +53,8 @@ func TestBruteForceProtection(t *testing.T) {
 			c, rec := createTestContext(e, http.MethodGet, "/rauthvalidate", nil)
 			c.Request().Header.Set(echo.HeaderXRealIP, clientIP)
 			
-			h.Validate(c)
+			err := h.Validate(c)
+			assert.NoError(t, err)
 			
 			if i >= 100 {
 				assert.Equal(t, http.StatusTooManyRequests, rec.Code)
@@ -75,7 +77,8 @@ func TestBruteForceProtection(t *testing.T) {
 			c.Request().Header.Set(echo.HeaderXRealIP, clientIP)
 			c.Request().AddCookie(&http.Cookie{Name: "rauth_2fa_pending", Value: pendingToken})
 			
-			h.Login(c)
+			err := h.Login(c)
+			assert.NoError(t, err)
 			// If it returns 200 OK with data, it means it's not rate limited
 			assert.Equal(t, http.StatusOK, rec.Code) 
 		}
