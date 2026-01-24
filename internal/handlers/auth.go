@@ -67,6 +67,8 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 		return c.NoContent(http.StatusUnauthorized)
 	}
 
+	c.Response().Header().Set("X-RAuth-User", data["username"])
+
 	// Refresh if IP is unchanged
 	if data["ip"] == clientIP {
 		validity := time.Duration(h.Cfg.TokenValidityMinutes) * time.Minute
@@ -85,8 +87,6 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 		}
 		c.SetCookie(newCookie)
 	}
-
-	c.Response().Header().Set("X-RAuth-User", data["username"])
 
 	return c.NoContent(http.StatusOK)
 }

@@ -193,6 +193,48 @@ func TestAuthHandler_Validate(t *testing.T) {
 	})
 }
 
+func TestAuthHandler_Validate_Refresh(t *testing.T) {
+	s := miniredis.RunT(t)
+	core.TokenDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
+	core.RateLimitDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
+
+	cfg := &core.Config{
+		ServerSecret: "32byte-secret-key-for-testing-!!",
+		CookieDomains: []string{"example.com"},
+		TokenValidityMinutes: 10,
+	}
+	h := &AuthHandler{Cfg: cfg}
+	e := echo.New()
+
+	t.Run("Refresh token TTL", func(t *testing.T) {
+		token := "refresh-token"
+		encrypted, _ := core.EncryptToken(token, cfg.ServerSecret)
+		clientIP := "1.2.3.4"
+		
+		core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken="+token, map[string]interface{}{
+			"status": "valid",
+			"username": "refresher",
+			"ip": clientIP,
+			"country": "unknown",
+		})
+		core.TokenDB.Expire(core.Ctx, "X-rauth-authtoken="+token, 1*time.Minute)
+
+		req := httptest.NewRequest(http.MethodGet, "/rauthvalidate", nil)
+		req.Header.Set(echo.HeaderXRealIP, clientIP)
+		req.AddCookie(&http.Cookie{Name: "X-rauth-authtoken", Value: encrypted})
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := h.Validate(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		// Check TTL increased (should be around 10 minutes now)
+		ttl := core.TokenDB.TTL(core.Ctx, "X-rauth-authtoken="+token).Val()
+		assert.True(t, ttl > 9*time.Minute)
+	})
+}
+
 func TestAuthHandler_CompleteSetup2FA(t *testing.T) {
 	s := miniredis.RunT(t)
 	core.UserDB = redis.NewClient(&redis.Options{Addr: s.Addr()})

@@ -39,6 +39,38 @@ func TestPasswordHashing(t *testing.T) {
 	}
 }
 
+func TestValidatePasswordDetails(t *testing.T) {
+	cfg := &Config{
+		MinPasswordLength:      8,
+		RequirePasswordUpper:   true,
+		RequirePasswordLower:   true,
+		RequirePasswordNumber:  true,
+		RequirePasswordSpecial: true,
+	}
+
+	tests := []struct {
+		password string
+		valid    bool
+	}{
+		{"Valid123!", true},
+		{"short1!", false},
+		{"noupper123!", false},
+		{"NOLOWER123!", false},
+		{"NoNumber!", false},
+		{"NoSpecial123", false},
+	}
+
+	for _, tt := range tests {
+		err := ValidatePassword(tt.password, cfg)
+		if tt.valid && err != nil {
+			t.Errorf("Password %s should be valid but got error: %v", tt.password, err)
+		}
+		if !tt.valid && err == nil {
+			t.Errorf("Password %s should be invalid but got no error", tt.password)
+		}
+	}
+}
+
 // Fuzzing
 
 func FuzzValidatePassword(f *testing.F) {
