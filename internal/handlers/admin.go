@@ -196,60 +196,154 @@ func (h *AdminHandler) CreateUser(c echo.Context) error {
 
 func (h *AdminHandler) DeleteUser(c echo.Context) error {
 
+
+
 	target := c.FormValue("username")
+
+
+
+	if target == "" {
+
+
+
+		return echo.NewHTTPError(http.StatusBadRequest, "Username is required")
+
+
+
+	}
+
+
 
 	admin := c.Get("username").(string)
 
+
+
 	if target == admin {
+
+
 
 		return echo.NewHTTPError(http.StatusBadRequest, "Cannot delete yourself")
 
+
+
 	}
+
+
+
+
 
 
 
 	if err := core.DeleteUser(target); err != nil {
 
+
+
 		slog.Error("Failed to delete user", "user", target, "error", err)
+
+
 
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to delete user")
 
+
+
 	}
+
+
+
+
 
 
 
 	slog.Info("User deleted by admin", "admin", admin, "user", target)
 
+
+
 	core.LogAudit("ADMIN_DELETE_USER", admin, c.RealIP(), map[string]interface{}{"target": target})
+
+
 
 	return c.Redirect(http.StatusFound, "/rauthmgmt")
 
+
+
 }
+
+
+
+
 
 
 
 func (h *AdminHandler) InvalidateSession(c echo.Context) error {
 
+
+
 	token := c.FormValue("token")
 
-	admin := c.Get("username").(string)
 
-	
 
-	if err := core.TokenDB.Del(core.Ctx, "X-rauth-authtoken="+token).Err(); err != nil {
+	if token == "" {
 
-		slog.Error("Failed to invalidate session", "error", err)
 
-		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to invalidate session")
+
+		return echo.NewHTTPError(http.StatusBadRequest, "Token is required")
+
+
 
 	}
 
 
 
+	admin := c.Get("username").(string)
+
+
+
+	
+
+
+
+	if err := core.TokenDB.Del(core.Ctx, "X-rauth-authtoken="+token).Err(); err != nil {
+
+
+
+		slog.Error("Failed to invalidate session", "error", err)
+
+
+
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to invalidate session")
+
+
+
+	}
+
+
+
+
+
+
+
 	slog.Info("Session invalidated by admin", "admin", admin)
 
-	core.LogAudit("ADMIN_INVALIDATE_SESSION", admin, c.RealIP(), map[string]interface{}{"token": token[:8] + "..."})
+
+
+	logToken := token
+
+
+
+	if len(token) > 8 { logToken = token[:8] + "..." }
+
+
+
+	core.LogAudit("ADMIN_INVALIDATE_SESSION", admin, c.RealIP(), map[string]interface{}{"token": logToken})
+
+
 
 	return c.Redirect(http.StatusFound, "/rauthmgmt")
 
+
+
 }
+
+
+
+

@@ -17,8 +17,8 @@ func AuthMiddleware(cfg *core.Config) echo.MiddlewareFunc {
 			}
 
 			token, err := core.DecryptToken(cookie.Value, cfg.ServerSecret)
-			if err != nil {
-				slog.Warn("Failed to decrypt auth token", "ip", c.RealIP(), "error", err)
+			if err != nil || token == "" {
+				slog.Warn("Failed to decrypt auth token or token empty", "ip", c.RealIP(), "error", err)
 				return c.Redirect(http.StatusFound, "/rauthlogin")
 			}
 

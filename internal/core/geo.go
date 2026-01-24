@@ -24,6 +24,11 @@ func GetCountryCode(ip string) string {
 		return "Internal"
 	}
 	
+	// Validate IP to prevent SSRF/Injection
+	if net.ParseIP(ip) == nil {
+		return "unknown"
+	}
+	
 	// Check for Tailscale (CGNAT range 100.64.0.0/10)
 	// Using basic string prefix check for speed or net package if desired.
 	// 100.64.0.0/10 covers 100.64.0.0 to 100.127.255.255

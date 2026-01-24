@@ -49,7 +49,7 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 	}
 
 	token, err := core.DecryptToken(cookie.Value, h.Cfg.ServerSecret)
-	if err != nil {
+	if err != nil || token == "" {
 		return c.NoContent(http.StatusUnauthorized)
 	}
 
@@ -115,11 +115,14 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	if userData["2fa_secret"] != "" {
 		// Issue a temporary short-lived session for 2FA verification
 		tempToken := h.issueTempToken(username)
+		encrypted, _ := core.EncryptToken(tempToken, h.Cfg.ServerSecret)
 		cookie := &http.Cookie{
 			Name:     "rauth_2fa_pending",
-			Value:    tempToken,
+			Value:    encrypted,
 			Path:     "/",
 			HttpOnly: true,
+			Secure:   true,
+			SameSite: http.SameSiteLaxMode,
 			Expires:  time.Now().Add(5 * time.Minute),
 		}
 		c.SetCookie(cookie)
@@ -132,11 +135,14 @@ func (h *AuthHandler) Login(c echo.Context) error {
 
 	// Force 2FA Setup for new users (or users without 2FA)
 	setupToken := h.issueSetupToken(username)
+	encrypted, _ := core.EncryptToken(setupToken, h.Cfg.ServerSecret)
 	c.SetCookie(&http.Cookie{
 		Name:     "rauth_setup_pending",
-		Value:    setupToken,
+		Value:    encrypted,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
 		Expires:  time.Now().Add(10 * time.Minute),
 	})
 	return c.Redirect(http.StatusFound, "/rauthsetup2fa")
@@ -149,16 +155,21 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
 
-	username, err := core.TokenDB.Get(core.Ctx, "pending_2fa:"+pendingCookie.Value).Result()
+	pendingToken, err := core.DecryptToken(pendingCookie.Value, h.Cfg.ServerSecret)
+	if err != nil {
+		return c.Redirect(http.StatusFound, "/rauthlogin")
+	}
+
+	username, err := core.TokenDB.Get(core.Ctx, "pending_2fa:"+pendingToken).Result()
 	if err != nil {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
 
 	userData, _ := core.UserDB.HGetAll(core.Ctx, "user:"+username).Result()
 	if totp.Validate(code, userData["2fa_secret"]) {
-		core.TokenDB.Del(core.Ctx, "pending_2fa:"+pendingCookie.Value)
+		core.TokenDB.Del(core.Ctx, "pending_2fa:"+pendingToken)
 		// Clear pending cookie
-		c.SetCookie(&http.Cookie{Name: "rauth_2fa_pending", MaxAge: -1})
+		c.SetCookie(&http.Cookie{Name: "rauth_2fa_pending", MaxAge: -1, Path: "/", HttpOnly: true, Secure: true})
 		core.ResetRateLimit("login_ip:" + c.RealIP())
 		return h.issueToken(c, username)
 	}
@@ -176,7 +187,13 @@ func (h *AuthHandler) Setup2FA(c echo.Context) error {
 	if err != nil {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
-	username, err := core.TokenDB.Get(core.Ctx, "pending_setup:"+cookie.Value).Result()
+
+	setupToken, err := core.DecryptToken(cookie.Value, h.Cfg.ServerSecret)
+	if err != nil {
+		return c.Redirect(http.StatusFound, "/rauthlogin")
+	}
+
+	username, err := core.TokenDB.Get(core.Ctx, "pending_setup:"+setupToken).Result()
 	if err != nil {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
@@ -193,7 +210,7 @@ func (h *AuthHandler) Setup2FA(c echo.Context) error {
 	}
 
 	// Store secret temporarily
-	core.TokenDB.Set(core.Ctx, "pending_setup_secret:"+cookie.Value, key.Secret(), 5*time.Minute)
+	core.TokenDB.Set(core.Ctx, "pending_setup_secret:"+setupToken, key.Secret(), 5*time.Minute)
 
 	return c.Render(http.StatusOK, "setup_2fa.html", map[string]interface{}{
 		"secret": key.Secret(),
@@ -207,12 +224,17 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
 	
-	username, err := core.TokenDB.Get(core.Ctx, "pending_setup:"+cookie.Value).Result()
+	setupToken, err := core.DecryptToken(cookie.Value, h.Cfg.ServerSecret)
 	if err != nil {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
 
-	secret, err := core.TokenDB.Get(core.Ctx, "pending_setup_secret:"+cookie.Value).Result()
+	username, err := core.TokenDB.Get(core.Ctx, "pending_setup:"+setupToken).Result()
+	if err != nil {
+		return c.Redirect(http.StatusFound, "/rauthlogin")
+	}
+
+	secret, err := core.TokenDB.Get(core.Ctx, "pending_setup_secret:"+setupToken).Result()
 	if err != nil {
 		return c.Redirect(http.StatusFound, "/rauthsetup2fa")
 	}
@@ -228,9 +250,9 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 		}
 		
 		// Cleanup
-		core.TokenDB.Del(core.Ctx, "pending_setup:"+cookie.Value)
-		core.TokenDB.Del(core.Ctx, "pending_setup_secret:"+cookie.Value)
-		c.SetCookie(&http.Cookie{Name: "rauth_setup_pending", MaxAge: -1})
+		core.TokenDB.Del(core.Ctx, "pending_setup:"+setupToken)
+		core.TokenDB.Del(core.Ctx, "pending_setup_secret:"+setupToken)
+		c.SetCookie(&http.Cookie{Name: "rauth_setup_pending", MaxAge: -1, Path: "/", HttpOnly: true, Secure: true})
 
 		core.ResetRateLimit("login_ip:" + c.RealIP())
 		core.LogAudit("2FA_SETUP_SUCCESS", username, c.RealIP(), nil)

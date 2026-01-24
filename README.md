@@ -75,7 +75,15 @@ RAuth is a lightweight, ultra-fast authentication proxy and user management syst
    docker-compose up -d
    ```
 
-## ⚙️ Environment Variables
+### 3. Nginx Integration
+To protect your applications, configure Nginx using the `auth_request` module. See [nginx-proxy-example.conf](nginx-proxy-example.conf) for a complete example.
+
+Key configuration steps:
+1.  Define a `/rauth-verify` location that proxies to RAuth's `/rauthvalidate`.
+2.  Use `auth_request /rauth-verify;` in your application's `location` block.
+3.  Handle `401` errors by redirecting to the RAuth login page.
+
+## âš™ï¸ Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
