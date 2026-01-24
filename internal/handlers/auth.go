@@ -93,17 +93,23 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 }
 
 func (h *AuthHandler) Login(c echo.Context) error {
+	clientIP := c.RealIP()
+	slog.Debug("Login attempt", "ip", clientIP, "method", c.Request().Method)
+	if !core.CheckRateLimit("login_ip:"+clientIP, 10, 300) {
+		slog.Warn("Rate limit exceeded", "ip", clientIP)
+		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many attempts from this IP.", "csrf": c.Get("csrf")})
+	}
+
+	if c.Request().Method == http.MethodGet {
+		return c.Render(http.StatusOK, "login.html", map[string]interface{}{"csrf": c.Get("csrf"), "rd": c.QueryParam("rd")})
+	}
+
 	if c.FormValue("action") == "verify_2fa" {
 		return h.Verify2FA(c)
 	}
 
 	username := c.FormValue("username")
 	password := c.FormValue("password")
-	clientIP := c.RealIP()
-
-	if !core.CheckRateLimit("login_ip:"+clientIP, 10, 300) {
-		return c.Render(http.StatusOK, "login.html", map[string]interface{}{"error": "Too many attempts from this IP."})
-	}
 
 	userData, err := core.UserDB.HGetAll(core.Ctx, "user:"+username).Result()
 	if err != nil || len(userData) == 0 || !core.CheckPasswordHash(password, userData["password"]) {
@@ -340,9 +346,9 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 	redirect := c.QueryParam("rd")
 	if redirect != "" {
 		parsedURL, err := url.Parse(redirect)
-		if err != nil || !h.Cfg.IsAllowedHost(parsedURL.Hostname()) {
+		if err != nil || (parsedURL.IsAbs() && !h.Cfg.IsAllowedHost(parsedURL.Hostname())) {
 			slog.Warn("Unsafe redirect attempted", "host", redirect, "user", username)
-			redirect = "/"
+			redirect = "/rauthprofile"
 		}
 	}
 	if redirect == "" { redirect = "/rauthprofile" }

@@ -4,11 +4,6 @@ on:
   push:
     branches:
       - main
-    tags:
-      - 'v*'
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
 
 concurrency:
@@ -42,7 +37,6 @@ jobs:
     name: Build and Push
     needs: test
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: read
       packages: write
