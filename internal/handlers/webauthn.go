@@ -55,7 +55,9 @@ func (h *WebAuthnHandler) FinishRegistration(c echo.Context) error {
 	}
 
 	var sessionData webauthn.SessionData
-	json.Unmarshal([]byte(sessionJSON), &sessionData)
+	if err := json.Unmarshal([]byte(sessionJSON), &sessionData); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to parse session data")
+	}
 
 	credential, err := core.WebAuthnInstance.FinishRegistration(user, sessionData, c.Request())
 	if err != nil {
@@ -111,7 +113,9 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 	}
 
 	var sessionData webauthn.SessionData
-	json.Unmarshal([]byte(sessionJSON), &sessionData)
+	if err := json.Unmarshal([]byte(sessionJSON), &sessionData); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to parse session data")
+	}
 
 	_, err = core.WebAuthnInstance.FinishLogin(user, sessionData, c.Request())
 	if err != nil {
