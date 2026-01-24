@@ -356,3 +356,39 @@ func TestAuthHandler_IssueToken_Redirect(t *testing.T) {
 		assert.Equal(t, "/", rec.Header().Get("Location"))
 	})
 }
+
+func TestAuthHandler_CookieSecurity(t *testing.T) {
+	s := miniredis.RunT(t)
+	core.TokenDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
+	core.AuditDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
+
+	cfg := &core.Config{
+		ServerSecret: "32byte-secret-key-for-testing-!!",
+		CookieDomains: []string{"example.com"},
+	}
+	h := &AuthHandler{Cfg: cfg}
+	e := echo.New()
+
+	t.Run("Cookie attributes", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := h.issueToken(c, "testuser")
+		assert.NoError(t, err)
+
+		cookies := rec.Result().Cookies()
+		var authCookie *http.Cookie
+		for _, ck := range cookies {
+			if ck.Name == "X-rauth-authtoken" {
+				authCookie = ck
+				break
+			}
+		}
+
+		assert.NotNil(t, authCookie)
+		assert.True(t, authCookie.HttpOnly)
+		assert.True(t, authCookie.Secure)
+		assert.Equal(t, http.SameSiteLaxMode, authCookie.SameSite)
+	})
+}

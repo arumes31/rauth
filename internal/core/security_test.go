@@ -44,6 +44,21 @@ func TestDecryptTokenErrors(t *testing.T) {
 	})
 }
 
+func TestEncryptionLargeInput(t *testing.T) {
+	key := "12345678901234567890123456789012"
+	largeInput := make([]byte, 1024*1024) // 1MB
+	for i := range largeInput {
+		largeInput[i] = 'A'
+	}
+
+	encrypted, err := EncryptToken(string(largeInput), key)
+	assert.NoError(t, err)
+
+	decrypted, err := DecryptToken(encrypted, key)
+	assert.NoError(t, err)
+	assert.Equal(t, string(largeInput), decrypted)
+}
+
 func TestPasswordHashing(t *testing.T) {
 	password := "mypassword"
 	hash, err := HashPassword(password)
