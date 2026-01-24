@@ -21,7 +21,8 @@ func TestProfileHandler_Show(t *testing.T) {
 
 	h := &ProfileHandler{Cfg: &core.Config{}}
 	e := echo.New()
-	e.Renderer = &mockRenderer{}
+	renderer := &mockRenderer{}
+	e.Renderer = renderer
 
 	// Create test user
 	username := "profileuser"
@@ -39,6 +40,30 @@ func TestProfileHandler_Show(t *testing.T) {
 		err := h.Show(c)
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusOK, rec.Code)
+	})
+
+	t.Run("Logs are filtered by username", func(t *testing.T) {
+		// Log for this user
+		core.LogAudit("MY_ACTION", username, "1.1.1.1", nil)
+		// Log for another user
+		core.LogAudit("OTHER_ACTION", "otheruser", "2.2.2.2", nil)
+
+		req := httptest.NewRequest(http.MethodGet, "/rauthprofile", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		c.Set("username", username)
+
+		err := h.Show(c)
+		assert.NoError(t, err)
+		
+		data := renderer.LastData.(map[string]interface{})
+		logs := data["logs"].([]core.AuditLog)
+		
+		assert.NotEmpty(t, logs)
+		for _, log := range logs {
+			assert.Equal(t, username, log.Username)
+			assert.NotEqual(t, "otheruser", log.Username)
+		}
 	})
 }
 

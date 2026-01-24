@@ -117,6 +117,26 @@ func TestAdminHandler_CreateUser(t *testing.T) {
 		assert.True(t, ok)
 		assert.Equal(t, http.StatusBadRequest, he.Code)
 	})
+
+	t.Run("Create user - duplicate", func(t *testing.T) {
+		core.CreateUser("duplicate", "pass12345!", "test@test.com", false, "")
+
+		f := make(url.Values)
+		f.Set("new_username", "duplicate")
+		f.Set("new_password", "pass12345!")
+
+		req := httptest.NewRequest(http.MethodPost, "/rauthmgmt/user/create", strings.NewReader(f.Encode()))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		c.Set("username", "admin")
+
+		err := h.CreateUser(c)
+		assert.Error(t, err)
+		he, ok := err.(*echo.HTTPError)
+		assert.True(t, ok)
+		assert.Equal(t, http.StatusBadRequest, he.Code)
+	})
 }
 
 func TestAdminHandler_DeleteUser(t *testing.T) {

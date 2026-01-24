@@ -17,9 +17,12 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-type mockRenderer struct{}
+type mockRenderer struct {
+	LastData interface{}
+}
 
 func (m *mockRenderer) Render(w io.Writer, name string, data interface{}, c echo.Context) error {
+	m.LastData = data
 	return nil
 }
 

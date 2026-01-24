@@ -2,6 +2,7 @@ package core
 
 import (
 	"testing"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestEncryption(t *testing.T) {
@@ -21,6 +22,26 @@ func TestEncryption(t *testing.T) {
 	if decrypted != plaintext {
 		t.Errorf("Decrypted text mismatch. Got %s, want %s", decrypted, plaintext)
 	}
+}
+
+func TestDecryptTokenErrors(t *testing.T) {
+	key := "12345678901234567890123456789012"
+	
+	t.Run("Invalid base64", func(t *testing.T) {
+		_, err := DecryptToken("not-base64-!", key)
+		assert.Error(t, err)
+	})
+
+	t.Run("Wrong key size", func(t *testing.T) {
+		_, err := DecryptToken("some-data", "too-short")
+		assert.Error(t, err)
+	})
+
+	t.Run("Invalid ciphertext", func(t *testing.T) {
+		// Valid base64 but not a valid encrypted block
+		_, err := DecryptToken("YmFkLWRhdGE=", key)
+		assert.Error(t, err)
+	})
 }
 
 func TestPasswordHashing(t *testing.T) {
