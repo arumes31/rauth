@@ -25,7 +25,8 @@ func TestWebAuthnHandlers(t *testing.T) {
 		CookieDomains: []string{"localhost"},
 		ServerSecret:  "testsecret1234567890123456789012",
 	}
-	core.InitWebAuthn(cfg)
+	err := core.InitWebAuthn(cfg)
+	assert.NoError(t, err)
 
 	h := &WebAuthnHandler{Cfg: cfg}
 	e := echo.New()
@@ -74,7 +75,8 @@ func TestWebAuthnHandlers(t *testing.T) {
 	t.Run("BeginLogin_Success", func(t *testing.T) {
 		// Register a fake credential first
 		cred := &webauthn.Credential{ID: []byte("credID"), PublicKey: []byte("pubKey")}
-		core.SaveWebAuthnCredential("testuser", cred)
+		err := core.SaveWebAuthnCredential("testuser", cred)
+		assert.NoError(t, err)
 
 		req := httptest.NewRequest(http.MethodGet, "/webauthn/login/begin?username=testuser", nil)
 		rec := httptest.NewRecorder()
