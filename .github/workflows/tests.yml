@@ -20,6 +20,9 @@ jobs:
           go-version: '1.24'
           cache: true
 
+      - name: Tidy dependencies
+        run: go mod tidy
+
       - name: Verify dependencies
         run: go mod tidy && go mod verify
 
