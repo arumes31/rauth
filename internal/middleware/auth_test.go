@@ -54,7 +54,7 @@ func TestAuthMiddleware(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusOK, rec.Code)
 		assert.Equal(t, "testuser", c.Get("username"))
-		assert.Equal(t, "testuser", rec.Header().Get("X-Rauth-User"))
+		assert.Equal(t, "testuser", rec.Header().Get("X-RAuth-User"))
 	})
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"rauth/internal/core"
 	"time"
 
@@ -61,11 +62,13 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 	// Geo-check
 	currentCountry := core.GetCountryCode(clientIP)
 	if data["country"] != "unknown" && currentCountry != "unknown" && data["country"] != currentCountry {
-		core.LogAudit("COUNTRY_CHANGE_DETECTED", data["username"], clientIP, map[string]interface{}{"old": data["country"], "new": currentCountry})
+		core.LogAudit("COUNTRY_CHANGE_DETECTED", data["username"], clientIP, map[string]interface{}{"old": data["country"], "new": currentCountry, "current_ip": clientIP})
 		// Expire instant if country changes
 		core.TokenDB.Del(core.Ctx, redisKey)
 		return c.NoContent(http.StatusUnauthorized)
 	}
+
+	c.Response().Header().Set("X-RAuth-User", data["username"])
 
 	// Refresh if IP is unchanged
 	if data["ip"] == clientIP {
@@ -86,8 +89,6 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 		c.SetCookie(newCookie)
 	}
 
-	c.Response().Header().Set("X-RAuth-User", data["username"])
-
 	return c.NoContent(http.StatusOK)
 }
 
@@ -101,7 +102,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	clientIP := c.RealIP()
 
 	if !core.CheckRateLimit("login_ip:"+clientIP, 10, 300) {
-		return c.Render(http.StatusOK, "login.html", map[string]interface{}{"error": "Too many attempts."})
+		return c.Render(http.StatusOK, "login.html", map[string]interface{}{"error": "Too many attempts from this IP."})
 	}
 
 	userData, err := core.UserDB.HGetAll(core.Ctx, "user:"+username).Result()
@@ -312,9 +313,12 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 	core.LogAudit("LOGIN_SUCCESS", username, clientIP, map[string]interface{}{"country": country})
 	
 	redirect := c.QueryParam("rd")
-	if redirect != "" && !h.Cfg.IsAllowedHost(redirect) {
-		slog.Warn("Unsafe redirect attempted", "host", redirect, "user", username)
-		redirect = "/"
+	if redirect != "" {
+		parsedURL, err := url.Parse(redirect)
+		if err != nil || !h.Cfg.IsAllowedHost(parsedURL.Hostname()) {
+			slog.Warn("Unsafe redirect attempted", "host", redirect, "user", username)
+			redirect = "/"
+		}
 	}
 	if redirect == "" { redirect = "/rauthprofile" }
 	return c.Redirect(http.StatusFound, redirect)

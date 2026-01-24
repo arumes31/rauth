@@ -2,6 +2,7 @@ package core
 
 import (
 	"testing"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestEncryption(t *testing.T) {
@@ -23,6 +24,74 @@ func TestEncryption(t *testing.T) {
 	}
 }
 
+func TestDecryptTokenErrors(t *testing.T) {
+	key := "12345678901234567890123456789012"
+	
+	t.Run("Invalid base64", func(t *testing.T) {
+		_, err := DecryptToken("not-base64-!", key)
+		assert.Error(t, err)
+	})
+
+	t.Run("Wrong key size", func(t *testing.T) {
+		_, err := DecryptToken("some-data", "too-short")
+		assert.Error(t, err)
+	})
+
+	t.Run("Invalid ciphertext", func(t *testing.T) {
+		// Valid base64 but not a valid encrypted block
+		_, err := DecryptToken("YmFkLWRhdGE=", key)
+		assert.Error(t, err)
+	})
+}
+
+func TestEncryptionLargeInput(t *testing.T) {
+	key := "12345678901234567890123456789012"
+	largeInput := make([]byte, 1024*1024) // 1MB
+	for i := range largeInput {
+		largeInput[i] = 'A'
+	}
+
+	encrypted, err := EncryptToken(string(largeInput), key)
+	assert.NoError(t, err)
+
+	decrypted, err := DecryptToken(encrypted, key)
+	assert.NoError(t, err)
+	assert.Equal(t, string(largeInput), decrypted)
+}
+
+func TestValidatePasswordComplexity(t *testing.T) {
+	cfg := &Config{
+		MinPasswordLength:     8,
+		RequirePasswordUpper:   true,
+		RequirePasswordLower:   true,
+		RequirePasswordNumber:  true,
+		RequirePasswordSpecial: true,
+	}
+
+	tests := []struct {
+		name     string
+		password string
+		wantErr  bool
+	}{
+		{"Valid password", "Pass1234!", false},
+		{"Too short", "Pas1!", true},
+		{"Missing upper", "pass1234!", true},
+		{"Missing lower", "PASS1234!", true},
+		{"Missing number", "Password!", true},
+		{"Missing special", "Pass12345", true},
+		{"Only special and numbers", "!@#$%1234", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidatePassword(tt.password, cfg)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidatePassword() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestPasswordHashing(t *testing.T) {
 	password := "mypassword"
 	hash, err := HashPassword(password)
@@ -36,6 +105,38 @@ func TestPasswordHashing(t *testing.T) {
 
 	if CheckPasswordHash("wrongpassword", hash) {
 		t.Error("Password check succeeded for wrong password")
+	}
+}
+
+func TestValidatePasswordDetails(t *testing.T) {
+	cfg := &Config{
+		MinPasswordLength:      8,
+		RequirePasswordUpper:   true,
+		RequirePasswordLower:   true,
+		RequirePasswordNumber:  true,
+		RequirePasswordSpecial: true,
+	}
+
+	tests := []struct {
+		password string
+		valid    bool
+	}{
+		{"Valid123!", true},
+		{"short1!", false},
+		{"noupper123!", false},
+		{"NOLOWER123!", false},
+		{"NoNumber!", false},
+		{"NoSpecial123", false},
+	}
+
+	for _, tt := range tests {
+		err := ValidatePassword(tt.password, cfg)
+		if tt.valid && err != nil {
+			t.Errorf("Password %s should be valid but got error: %v", tt.password, err)
+		}
+		if !tt.valid && err == nil {
+			t.Errorf("Password %s should be invalid but got no error", tt.password)
+		}
 	}
 }
 

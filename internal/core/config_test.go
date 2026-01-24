@@ -27,6 +27,28 @@ func TestLoadConfig(t *testing.T) {
 	}
 }
 
+func TestGetEnvHelpers(t *testing.T) {
+	os.Setenv("TEST_INT", "123")
+	os.Setenv("TEST_BOOL", "true")
+	os.Setenv("TEST_SLICE", "a,b,c")
+
+	if v := getEnvInt("TEST_INT", 0); v != 123 {
+		t.Errorf("getEnvInt failed, got %d", v)
+	}
+	if v := getEnvBool("TEST_BOOL", false); v != true {
+		t.Errorf("getEnvBool failed")
+	}
+	vSlice := getEnvSlice("TEST_SLICE", []string{})
+	if len(vSlice) != 3 || vSlice[0] != "a" {
+		t.Errorf("getEnvSlice failed")
+	}
+
+	// Fallbacks
+	if v := getEnvInt("NONEXISTENT", 456); v != 456 {
+		t.Errorf("getEnvInt fallback failed")
+	}
+}
+
 func TestIsAllowedHost(t *testing.T) {
 	cfg := &Config{
 		CookieDomains: []string{"example.com", "other.org"},
