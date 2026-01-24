@@ -278,6 +278,35 @@ func TestAuthHandler_CompleteSetup2FA(t *testing.T) {
 	})
 }
 
+func TestAuthHandler_Setup2FA(t *testing.T) {
+	s := miniredis.RunT(t)
+	core.TokenDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
+
+	h := &AuthHandler{}
+	e := echo.New()
+	e.Renderer = &mockRenderer{}
+
+	username := "setupuser"
+	setupToken := "setup-token-123"
+	core.TokenDB.Set(core.Ctx, "pending_setup:"+setupToken, username, 10*time.Minute)
+
+	t.Run("Generate secret", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/rauthsetup2fa", nil)
+		req.AddCookie(&http.Cookie{Name: "rauth_setup_pending", Value: setupToken})
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := h.Setup2FA(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		// Verify secret exists in Redis
+		secret, err := core.TokenDB.Get(core.Ctx, "pending_setup_secret:"+setupToken).Result()
+		assert.NoError(t, err)
+		assert.NotEmpty(t, secret)
+	})
+}
+
 func TestAuthHandler_Logout(t *testing.T) {
 	cfg := &core.Config{CookieDomains: []string{"example.com"}}
 	h := &AuthHandler{Cfg: cfg}
