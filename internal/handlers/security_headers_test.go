@@ -6,26 +6,24 @@ import (
 	"testing"
 
 	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
+	echoMiddleware "github.com/labstack/echo/v4/middleware"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestSecurityHeaders(t *testing.T) {
+	setupHandlersTest(t)
 	e := echo.New()
-	e.Use(middleware.Secure())
+	e.Use(echoMiddleware.Secure())
 
 	e.GET("/test", func(c echo.Context) error {
-		return c.String(http.StatusOK, "OK")
+		return c.String(http.StatusOK, "ok")
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 
-	assert.Equal(t, http.StatusOK, rec.Code)
-	
-	// Check for standard security headers provided by echo.middleware.Secure
-	assert.NotEmpty(t, rec.Header().Get("X-Xss-Protection"))
-	assert.NotEmpty(t, rec.Header().Get("X-Content-Type-Options"))
-	assert.NotEmpty(t, rec.Header().Get("X-Frame-Options"))
+	assert.Equal(t, "1; mode=block", rec.Header().Get("X-Xss-Protection"))
+	assert.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"))
+	assert.Equal(t, "SAMEORIGIN", rec.Header().Get("X-Frame-Options"))
 }

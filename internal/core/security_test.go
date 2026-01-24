@@ -59,6 +59,39 @@ func TestEncryptionLargeInput(t *testing.T) {
 	assert.Equal(t, string(largeInput), decrypted)
 }
 
+func TestValidatePasswordComplexity(t *testing.T) {
+	cfg := &Config{
+		MinPasswordLength:     8,
+		RequirePasswordUpper:   true,
+		RequirePasswordLower:   true,
+		RequirePasswordNumber:  true,
+		RequirePasswordSpecial: true,
+	}
+
+	tests := []struct {
+		name     string
+		password string
+		wantErr  bool
+	}{
+		{"Valid password", "Pass1234!", false},
+		{"Too short", "Pas1!", true},
+		{"Missing upper", "pass1234!", true},
+		{"Missing lower", "PASS1234!", true},
+		{"Missing number", "Password!", true},
+		{"Missing special", "Pass12345", true},
+		{"Only special and numbers", "!@#$%1234", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidatePassword(tt.password, cfg)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidatePassword() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestPasswordHashing(t *testing.T) {
 	password := "mypassword"
 	hash, err := HashPassword(password)

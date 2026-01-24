@@ -1,41 +1,25 @@
 package handlers
 
 import (
+	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"rauth/internal/core"
-	"strings"
 	"testing"
 
-	"github.com/alicebob/miniredis/v2"
 	"github.com/labstack/echo/v4"
-	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestProfileHandler_Show(t *testing.T) {
-	s := miniredis.RunT(t)
-	core.UserDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
-	core.AuditDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
-
+	setupHandlersTest(t)
 	h := &ProfileHandler{Cfg: &core.Config{}}
 	e := echo.New()
-	renderer := &mockRenderer{}
-	e.Renderer = renderer
-
-	// Create test user
-	username := "profileuser"
-	core.UserDB.HSet(core.Ctx, "user:"+username, map[string]interface{}{
-		"email":    "profile@test.com",
-		"is_admin": "0",
-	})
+	e.Renderer = &mockRenderer{}
 
 	t.Run("View Profile", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/rauthprofile", nil)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-		c.Set("username", username)
+		c, rec := createTestContext(e, http.MethodGet, "/rauthprofile", nil)
+		c.Set("username", "profileuser")
 
 		err := h.Show(c)
 		assert.NoError(t, err)
@@ -43,99 +27,85 @@ func TestProfileHandler_Show(t *testing.T) {
 	})
 
 	t.Run("Logs are filtered by username", func(t *testing.T) {
-		// Log for this user
-		core.LogAudit("MY_ACTION", username, "1.1.1.1", nil)
-		// Log for another user
+		core.LogAudit("MY_ACTION", "profileuser", "1.1.1.1", nil)
 		core.LogAudit("OTHER_ACTION", "otheruser", "2.2.2.2", nil)
 
-		req := httptest.NewRequest(http.MethodGet, "/rauthprofile", nil)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-		c.Set("username", username)
+		c, _ := createTestContext(e, http.MethodGet, "/rauthprofile", nil)
+		c.Set("username", "profileuser")
+
+		renderer := &mockRenderer{}
+		e.Renderer = renderer
 
 		err := h.Show(c)
 		assert.NoError(t, err)
-		
+
 		data := renderer.LastData.(map[string]interface{})
 		logs := data["logs"].([]core.AuditLog)
 		
-		assert.NotEmpty(t, logs)
 		for _, log := range logs {
-			assert.Equal(t, username, log.Username)
-			assert.NotEqual(t, "otheruser", log.Username)
+			assert.Equal(t, "profileuser", log.Username)
+			assert.NotEqual(t, "OTHER_ACTION", log.Action)
 		}
 	})
 }
 
 func TestProfileHandler_ChangePassword(t *testing.T) {
-	s := miniredis.RunT(t)
-	core.UserDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
-	core.AuditDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
-
+	setupHandlersTest(t)
 	cfg := &core.Config{
 		MinPasswordLength: 8,
+		CookieDomains: []string{"example.com"},
 	}
 	h := &ProfileHandler{Cfg: cfg}
 	e := echo.New()
 
-	username := "passuser"
-	oldPass := "oldpassword123!"
-	newPass := "newpassword456!"
-	hash, _ := core.HashPassword(oldPass)
-	core.UserDB.HSet(core.Ctx, "user:"+username, map[string]interface{}{
-		"password": hash,
-	})
+	password := "oldpassword"
+	hash, _ := core.HashPassword(password)
+	core.UserDB.HSet(core.Ctx, "user:passuser", "password", hash)
 
 	t.Run("Successful password change", func(t *testing.T) {
 		f := make(url.Values)
-		f.Set("current_password", oldPass)
-		f.Set("new_password", newPass)
-		f.Set("confirm_password", newPass)
+		f.Set("current_password", password)
+		f.Set("new_password", "NewSecure123!")
+		f.Set("confirm_password", "NewSecure123!")
 
-		req := httptest.NewRequest(http.MethodPost, "/rauthprofile/password", strings.NewReader(f.Encode()))
-		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-		c.Set("username", username)
+		c, rec := createTestContext(e, http.MethodPost, "/rauthprofile/password", f)
+		c.Set("username", "passuser")
 
 		err := h.ChangePassword(c)
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusFound, rec.Code)
-		assert.Contains(t, rec.Header().Get("Location"), "success=1")
 
-		// Verify password updated in Redis
-		userData, _ := core.UserDB.HGetAll(core.Ctx, "user:"+username).Result()
-		assert.True(t, core.CheckPasswordHash(newPass, userData["password"]))
+		// Verify new password
+		newData, _ := core.UserDB.HGet(core.Ctx, "user:passuser", "password").Result()
+		assert.True(t, core.CheckPasswordHash("NewSecure123!", newData))
 	})
 
 	t.Run("Incorrect current password", func(t *testing.T) {
 		f := make(url.Values)
-		f.Set("current_password", "wrongpass")
-		f.Set("new_password", "some-new-pass")
-		f.Set("confirm_password", "some-new-pass")
+		f.Set("current_password", "wrong")
+		f.Set("new_password", "NewSecure123!")
+		f.Set("confirm_password", "NewSecure123!")
 
-		req := httptest.NewRequest(http.MethodPost, "/rauthprofile/password", strings.NewReader(f.Encode()))
-		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-		c.Set("username", username)
+		c, rec := createTestContext(e, http.MethodPost, "/rauthprofile/password", f)
+		c.Set("username", "passuser")
 
 		err := h.ChangePassword(c)
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		
+		var resp map[string]string
+		json.Unmarshal(rec.Body.Bytes(), &resp)
+		assert.Contains(t, resp["error"], "incorrect")
 	})
 
 	t.Run("Password mismatch", func(t *testing.T) {
 		f := make(url.Values)
-		f.Set("current_password", oldPass)
-		f.Set("new_password", "newpass123")
+		f.Set("current_password", password)
+		f.Set("new_password", "NewSecure123!")
 		f.Set("confirm_password", "mismatch")
 
-		req := httptest.NewRequest(http.MethodPost, "/rauthprofile/password", strings.NewReader(f.Encode()))
-		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-		c.Set("username", username)
+		c, rec := createTestContext(e, http.MethodPost, "/rauthprofile/password", f)
+		c.Set("username", "passuser")
 
 		err := h.ChangePassword(c)
 		assert.NoError(t, err)

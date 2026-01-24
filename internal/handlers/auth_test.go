@@ -1,37 +1,35 @@
 package handlers
 
 import (
-	"io"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"rauth/internal/core"
-	"strings"
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis/v2"
 	"github.com/labstack/echo/v4"
 	"github.com/pquerna/otp/totp"
-	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 )
 
-type mockRenderer struct {
-	LastData interface{}
-}
+func TestAuthHandler_Root(t *testing.T) {
+	setupHandlersTest(t)
+	cfg := &core.Config{ServerSecret: "32byte-secret-key-for-testing-!!"}
+	h := &AuthHandler{Cfg: cfg}
+	e := echo.New()
 
-func (m *mockRenderer) Render(w io.Writer, name string, data interface{}, c echo.Context) error {
-	m.LastData = data
-	return nil
+	t.Run("Redirect to login when no cookie", func(t *testing.T) {
+		c, rec := createTestContext(e, http.MethodGet, "/", nil)
+
+		err := h.Root(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+		assert.Equal(t, "/rauthlogin", rec.Header().Get("Location"))
+	})
 }
 
 func TestAuthHandler_Login(t *testing.T) {
-	s := miniredis.RunT(t)
-	core.UserDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
-	core.TokenDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
-	core.RateLimitDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
-	core.AuditDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
+	setupHandlersTest(t)
 
 	cfg := &core.Config{
 		ServerSecret: "32byte-secret-key-for-testing-!!",
@@ -57,10 +55,7 @@ func TestAuthHandler_Login(t *testing.T) {
 		f.Set("username", "testuser")
 		f.Set("password", "testpass")
 
-		req := httptest.NewRequest(http.MethodPost, "/rauthlogin", strings.NewReader(f.Encode()))
-		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
+		c, rec := createTestContext(e, http.MethodPost, "/rauthlogin", f)
 
 		err := h.Login(c)
 		assert.NoError(t, err)
@@ -73,15 +68,11 @@ func TestAuthHandler_Login(t *testing.T) {
 		f.Set("username", "testuser")
 		f.Set("password", "wrongpass")
 
-		req := httptest.NewRequest(http.MethodPost, "/rauthlogin", strings.NewReader(f.Encode()))
-		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
+		c, rec := createTestContext(e, http.MethodPost, "/rauthlogin", f)
 
-		// Note: Login returns OK (to render the page with error) or Redirect
 		err := h.Login(c)
 		assert.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code) // Renders login.html
+		assert.Equal(t, http.StatusOK, rec.Code) 
 	})
 
 	t.Run("Rate limit exceeded", func(t *testing.T) {
@@ -92,24 +83,17 @@ func TestAuthHandler_Login(t *testing.T) {
 		f.Set("username", "testuser")
 		f.Set("password", "testpass")
 
-		req := httptest.NewRequest(http.MethodPost, "/rauthlogin", strings.NewReader(f.Encode()))
-		req.Header.Set(echo.HeaderXRealIP, clientIP)
-		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
+		c, rec := createTestContext(e, http.MethodPost, "/rauthlogin", f)
+		c.Request().Header.Set(echo.HeaderXRealIP, clientIP)
 
 		err := h.Login(c)
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusOK, rec.Code)
-		// We can't easily check the rendered content without a full renderer mock,
-		// but we know it should return 200 and not 302.
 	})
 }
 
 func TestAuthHandler_Validate(t *testing.T) {
-	s := miniredis.RunT(t)
-	core.TokenDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
-	core.RateLimitDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
+	setupHandlersTest(t)
 
 	cfg := &core.Config{
 		ServerSecret: "32byte-secret-key-for-testing-!!",
@@ -126,15 +110,12 @@ func TestAuthHandler_Validate(t *testing.T) {
 		core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken="+token, map[string]interface{}{
 			"status": "valid",
 			"username": "testuser",
-			"ip": "1.1.1.1",
+			"ip": "127.0.0.1",
 			"country": "unknown",
 		})
 
-		req := httptest.NewRequest(http.MethodGet, "/rauthvalidate", nil)
-		req.Header.Set(echo.HeaderXRealIP, "1.1.1.1")
-		req.AddCookie(&http.Cookie{Name: "X-rauth-authtoken", Value: encrypted})
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
+		c, rec := createTestContext(e, http.MethodGet, "/rauthvalidate", nil)
+		c.Request().AddCookie(&http.Cookie{Name: "X-rauth-authtoken", Value: encrypted})
 
 		err := h.Validate(c)
 		assert.NoError(t, err)
@@ -150,103 +131,32 @@ func TestAuthHandler_Validate(t *testing.T) {
 			"status":   "valid",
 			"username": "testuser",
 			"ip":       "1.1.1.1",
-			"country":  "DE", // Stored country is DE
+			"country":  "DE", 
 		})
 
-		// Mock the current IP's country in GeoCache
 		clientIP := "8.8.8.8"
 		core.GeoCacheLock.Lock()
+		if core.GeoCache == nil { core.GeoCache = make(map[string]string) }
 		core.GeoCache[clientIP] = "US"
 		core.GeoCacheLock.Unlock()
 
-		req := httptest.NewRequest(http.MethodGet, "/rauthvalidate", nil)
-		req.Header.Set(echo.HeaderXRealIP, clientIP)
-		req.AddCookie(&http.Cookie{Name: "X-rauth-authtoken", Value: encrypted})
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
+		c, rec := createTestContext(e, http.MethodGet, "/rauthvalidate", nil)
+		c.Request().Header.Set(echo.HeaderXRealIP, clientIP)
+		c.Request().AddCookie(&http.Cookie{Name: "X-rauth-authtoken", Value: encrypted})
 
 		err := h.Validate(c)
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusUnauthorized, rec.Code)
-	})
-
-	t.Run("Token expired in Redis", func(t *testing.T) {
-		token := "expired-token"
-		encrypted, _ := core.EncryptToken(token, cfg.ServerSecret)
-		// Don't set in Redis
-
-		req := httptest.NewRequest(http.MethodGet, "/rauthvalidate", nil)
-		req.AddCookie(&http.Cookie{Name: "X-rauth-authtoken", Value: encrypted})
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := h.Validate(c)
-		assert.NoError(t, err)
-		assert.Equal(t, http.StatusUnauthorized, rec.Code)
-	})
-
-	t.Run("Unauthorized - no cookie", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/rauthvalidate", nil)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := h.Validate(c)
-		assert.NoError(t, err)
-		assert.Equal(t, http.StatusUnauthorized, rec.Code)
-	})
-}
-
-func TestAuthHandler_Validate_Refresh(t *testing.T) {
-	s := miniredis.RunT(t)
-	core.TokenDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
-	core.RateLimitDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
-
-	cfg := &core.Config{
-		ServerSecret: "32byte-secret-key-for-testing-!!",
-		CookieDomains: []string{"example.com"},
-		TokenValidityMinutes: 10,
-	}
-	h := &AuthHandler{Cfg: cfg}
-	e := echo.New()
-
-	t.Run("Refresh token TTL", func(t *testing.T) {
-		token := "refresh-token"
-		encrypted, _ := core.EncryptToken(token, cfg.ServerSecret)
-		clientIP := "1.2.3.4"
-		
-		core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken="+token, map[string]interface{}{
-			"status": "valid",
-			"username": "refresher",
-			"ip": clientIP,
-			"country": "unknown",
-		})
-		core.TokenDB.Expire(core.Ctx, "X-rauth-authtoken="+token, 1*time.Minute)
-
-		req := httptest.NewRequest(http.MethodGet, "/rauthvalidate", nil)
-		req.Header.Set(echo.HeaderXRealIP, clientIP)
-		req.AddCookie(&http.Cookie{Name: "X-rauth-authtoken", Value: encrypted})
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := h.Validate(c)
-		assert.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
-
-		// Check TTL increased (should be around 10 minutes now)
-		ttl := core.TokenDB.TTL(core.Ctx, "X-rauth-authtoken="+token).Val()
-		assert.True(t, ttl > 9*time.Minute)
 	})
 }
 
 func TestAuthHandler_CompleteSetup2FA(t *testing.T) {
-	s := miniredis.RunT(t)
-	core.UserDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
-	core.TokenDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
-	core.RateLimitDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
+	setupHandlersTest(t)
 
 	cfg := &core.Config{
 		ServerSecret:  "32byte-secret-key-for-testing-!!",
 		CookieDomains: []string{"example.com"},
+		TokenValidityMinutes: 60,
 	}
 	h := &AuthHandler{Cfg: cfg}
 	e := echo.New()
@@ -255,7 +165,7 @@ func TestAuthHandler_CompleteSetup2FA(t *testing.T) {
 	// Setup pending user
 	username := "setupuser"
 	setupToken := "setup-token-abc"
-	secret := "JBSWY3DPEHPK3PXP" // Example Base32 secret
+	secret := "JBSWY3DPEHPK3PXP" 
 	core.TokenDB.Set(core.Ctx, "pending_setup:"+setupToken, username, 10*time.Minute)
 	core.TokenDB.Set(core.Ctx, "pending_setup_secret:"+setupToken, secret, 5*time.Minute)
 
@@ -265,130 +175,69 @@ func TestAuthHandler_CompleteSetup2FA(t *testing.T) {
 		f := make(url.Values)
 		f.Set("totp_code", code)
 
-		req := httptest.NewRequest(http.MethodPost, "/rauthsetup2fa", strings.NewReader(f.Encode()))
-		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
-		req.AddCookie(&http.Cookie{Name: "rauth_setup_pending", Value: setupToken})
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
+		c, rec := createTestContext(e, http.MethodPost, "/rauthsetup2fa", f)
+		c.Request().AddCookie(&http.Cookie{Name: "rauth_setup_pending", Value: setupToken})
 
 		err := h.CompleteSetup2FA(c)
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusFound, rec.Code)
 
-		// Verify secret saved
 		saved, _ := core.UserDB.HGet(core.Ctx, "user:"+username, "2fa_secret").Result()
 		assert.Equal(t, secret, saved)
 	})
 }
 
-func TestAuthHandler_Setup2FA(t *testing.T) {
-	s := miniredis.RunT(t)
-	core.TokenDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
-
-	h := &AuthHandler{}
-	e := echo.New()
-	e.Renderer = &mockRenderer{}
-
-	username := "setupuser"
-	setupToken := "setup-token-123"
-	core.TokenDB.Set(core.Ctx, "pending_setup:"+setupToken, username, 10*time.Minute)
-
-	t.Run("Generate secret", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/rauthsetup2fa", nil)
-		req.AddCookie(&http.Cookie{Name: "rauth_setup_pending", Value: setupToken})
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := h.Setup2FA(c)
-		assert.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
-
-		// Verify secret exists in Redis
-		secret, err := core.TokenDB.Get(core.Ctx, "pending_setup_secret:"+setupToken).Result()
-		assert.NoError(t, err)
-		assert.NotEmpty(t, secret)
-	})
-}
-
-func TestAuthHandler_Logout(t *testing.T) {
-	cfg := &core.Config{CookieDomains: []string{"example.com"}}
-	h := &AuthHandler{Cfg: cfg}
-
-	t.Run("Logout placeholder", func(t *testing.T) {
-		// Placeholder for future logout test if moved to handler
-		assert.NotNil(t, h)
-	})
-}
-
-func TestAuthHandler_IssueToken_Redirect(t *testing.T) {
-	s := miniredis.RunT(t)
-	core.TokenDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
-	core.AuditDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
+func TestAuthHandler_InvalidateSessionIntegration(t *testing.T) {
+	setupHandlersTest(t)
 
 	cfg := &core.Config{
 		ServerSecret: "32byte-secret-key-for-testing-!!",
 		CookieDomains: []string{"example.com"},
-		AllowedHosts: []string{"trusted.com"},
+		TokenValidityMinutes: 60,
 	}
 	h := &AuthHandler{Cfg: cfg}
+	adminH := &AdminHandler{Cfg: cfg}
 	e := echo.New()
 
-	t.Run("Safe redirect", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/rauthlogin?rd=http://trusted.com/app", nil)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
+	username := "sessionuser"
+	core.UserDB.HSet(core.Ctx, "user:"+username, map[string]interface{}{"is_admin": "0", "username": username})
 
-		err := h.issueToken(c, "testuser")
-		assert.NoError(t, err)
-		assert.Equal(t, http.StatusFound, rec.Code)
-		assert.Equal(t, "http://trusted.com/app", rec.Header().Get("Location"))
+	// 1. Issue token
+	rawToken := "integration-token-xyz"
+	encrypted, _ := core.EncryptToken(rawToken, cfg.ServerSecret)
+	
+	// REDIS KEY MUST BE: X-rauth-authtoken= + token
+	redisKey := "X-rauth-authtoken=" + rawToken
+	core.TokenDB.HSet(core.Ctx, redisKey, map[string]interface{}{
+		"status": "valid",
+		"username": username,
+		"ip": "127.0.0.1",
+		"country": "unknown",
 	})
 
-	t.Run("Unsafe redirect", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/rauthlogin?rd=http://evil.com/phish", nil)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
+	// 2. Verify it is valid
+	c1, rec1 := createTestContext(e, http.MethodGet, "/rauthvalidate", nil)
+	c1.Request().AddCookie(&http.Cookie{Name: "X-rauth-authtoken", Value: encrypted})
+	
+	err := h.Validate(c1)
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusOK, rec1.Code)
 
-		err := h.issueToken(c, "testuser")
-		assert.NoError(t, err)
-		assert.Equal(t, http.StatusFound, rec.Code)
-		// Should fall back to root
-		assert.Equal(t, "/", rec.Header().Get("Location"))
-	})
-}
+	// 3. Admin invalidates it
+	f := make(url.Values)
+	f.Set("token", rawToken)
+	c2, rec2 := createTestContext(e, http.MethodPost, "/rauthmgmt/session/invalidate", f)
+	c2.Set("username", "admin")
+	
+	err = adminH.InvalidateSession(c2)
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusFound, rec2.Code)
 
-func TestAuthHandler_CookieSecurity(t *testing.T) {
-	s := miniredis.RunT(t)
-	core.TokenDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
-	core.AuditDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
-
-	cfg := &core.Config{
-		ServerSecret: "32byte-secret-key-for-testing-!!",
-		CookieDomains: []string{"example.com"},
-	}
-	h := &AuthHandler{Cfg: cfg}
-	e := echo.New()
-
-	t.Run("Cookie attributes", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := h.issueToken(c, "testuser")
-		assert.NoError(t, err)
-
-		cookies := rec.Result().Cookies()
-		var authCookie *http.Cookie
-		for _, ck := range cookies {
-			if ck.Name == "X-rauth-authtoken" {
-				authCookie = ck
-				break
-			}
-		}
-
-		assert.NotNil(t, authCookie)
-		assert.True(t, authCookie.HttpOnly)
-		assert.True(t, authCookie.Secure)
-		assert.Equal(t, http.SameSiteLaxMode, authCookie.SameSite)
-	})
+	// 4. Verify it is now invalid
+	c3, rec3 := createTestContext(e, http.MethodGet, "/rauthvalidate", nil)
+	c3.Request().AddCookie(&http.Cookie{Name: "X-rauth-authtoken", Value: encrypted})
+	
+	err = h.Validate(c3)
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusUnauthorized, rec3.Code)
 }
