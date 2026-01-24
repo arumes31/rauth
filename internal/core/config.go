@@ -16,6 +16,7 @@ type Config struct {
 	AllowedHosts             []string
 	GeoApiHost               string
 	GeoApiPort               string
+	MaxMindDBPath            string
 	InitialUser              string
 	InitialPassword          string
 	InitialEmail             string
@@ -39,6 +40,7 @@ func LoadConfig() *Config {
 		AllowedHosts:         getEnvSlice("ALLOWED_HOSTS", []string{"localhost", "127.0.0.1"}),
 		GeoApiHost:           getEnv("GEO_API_HOST", "rauth-geo-service"),
 		GeoApiPort:           getEnv("GEO_API_PORT", "3000"),
+		MaxMindDBPath:        getEnv("MAXMIND_DB_PATH", "/app/geoip/GeoLite2-Country.mmdb"),
 		InitialUser:          getEnv("INITIAL_USER", "admin"),
 		InitialPassword:      getEnv("INITIAL_PASSWORD", ""),
 		InitialEmail:         getEnv("INITIAL_EMAIL", "admin@local"),

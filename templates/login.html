@@ -50,7 +50,54 @@
                             <input type="password" class="form-control border-start-0 ps-0" name="password" placeholder="••••••••" required>
                         </div>
                     </div>
-                    <button type="submit" class="btn btn-primary w-100 py-2">Sign In</button>
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary btn-glitch py-3">Access System</button>
+                        
+                        <button type="button" id="webauthn-login" class="btn btn-outline-danger py-2 mt-2">
+                            <i class="bi bi-shield-lock me-2"></i>Use Security Key
+                        </button>
+                    </div>
+                    <div id="webauthn-msg" class="text-center extra-small mt-2"></div>
+
+                    <script src="/static/js/simplewebauthn-browser.min.js"></script>
+                    <script>
+                        document.getElementById('webauthn-login').addEventListener('click', async () => {
+                            const { startAuthentication } = SimpleWebAuthnBrowser;
+                            const username = document.querySelector('input[name="username"]').value;
+                            const msg = document.getElementById('webauthn-msg');
+                            if (!username) {
+                                msg.className = "text-center extra-small mt-2 text-danger";
+                                msg.textContent = "Enter username first";
+                                return;
+                            }
+
+                            try {
+                                const response = await fetch('/webauthn/login/begin?username=' + username);
+                                if (!response.ok) throw new Error("Could not start login");
+                                const optionsJSON = await response.json();
+
+                                const assertion = await startAuthentication({ optionsJSON });
+
+                                const finishResponse = await fetch('/webauthn/login/finish?username=' + username, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify(assertion)
+                                });
+
+                                if (finishResponse.ok) {
+                                    const redirect = new URLSearchParams(window.location.search).get('rd') || '/rauthprofile';
+                                    window.location.href = redirect;
+                                } else {
+                                    msg.className = "text-center extra-small mt-2 text-danger";
+                                    msg.textContent = "Authentication failed";
+                                }
+                            } catch (e) {
+                                msg.className = "text-center extra-small mt-2 text-danger";
+                                msg.textContent = "Error: " + e.message;
+                            }
+                        });
+                    </script>
+
                 {{end}}
             </form>
             

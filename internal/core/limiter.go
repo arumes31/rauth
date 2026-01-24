@@ -16,7 +16,12 @@ func CheckRateLimit(key string, maxAttempts int, decaySeconds int) bool {
 		RateLimitDB.Expire(Ctx, fullKey, time.Duration(decaySeconds)*time.Second)
 	}
 
-	return int(count) <= maxAttempts
+	if int(count) > maxAttempts {
+		RateLimitHitsTotal.WithLabelValues(key).Inc()
+		return false
+	}
+
+	return true
 }
 
 func ResetRateLimit(key string) {

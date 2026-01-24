@@ -17,6 +17,9 @@ type AuditLog struct {
 func LogAudit(action, username, ip string, details map[string]interface{}) {
 	slog.Info("audit log", "action", action, "username", username, "ip", ip, "details", details)
 
+	// Increment metrics
+	AuditLogsTotal.WithLabelValues(action).Inc()
+
 	entry := AuditLog{
 		Timestamp: time.Now().Unix(),
 		Action:    action,

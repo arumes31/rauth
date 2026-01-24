@@ -18,6 +18,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	echoMiddleware "github.com/labstack/echo/v4/middleware"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 //go:embed static/*
@@ -44,6 +45,10 @@ func main() {
 	if err := core.InitRedis(cfg); err != nil {
 		slog.Error("Redis initialization failed", "error", err)
 		os.Exit(1)
+	}
+
+	if err := core.InitWebAuthn(cfg); err != nil {
+		slog.Error("WebAuthn initialization failed", "error", err)
 	}
 
 	// Startup Initialization
@@ -152,6 +157,7 @@ func main() {
 	authHandler := &handlers.AuthHandler{Cfg: cfg}
 	adminHandler := &handlers.AdminHandler{Cfg: cfg}
 	profileHandler := &handlers.ProfileHandler{Cfg: cfg}
+	webauthnHandler := &handlers.WebAuthnHandler{Cfg: cfg}
 
 	// Public Routes
 	e.GET("/", authHandler.Root)
@@ -162,9 +168,20 @@ func main() {
 	e.GET("/rauthsetup2fa", authHandler.Setup2FA)
 	e.POST("/rauthsetup2fa", authHandler.CompleteSetup2FA)
 
+	// WebAuthn Public Login
+	e.GET("/webauthn/login/begin", webauthnHandler.BeginLogin)
+	e.POST("/webauthn/login/finish", webauthnHandler.FinishLogin)
+
+	e.GET("/metrics", echo.WrapHandler(promhttp.Handler()))
+
 	// Protected Routes
 	protected := e.Group("")
 	protected.Use(middleware.AuthMiddleware(cfg))
+
+	// WebAuthn Protected Registration
+	protected.GET("/webauthn/register/begin", webauthnHandler.BeginRegistration)
+	protected.POST("/webauthn/register/finish", webauthnHandler.FinishRegistration)
+
 	
 	protected.POST("/logout", func(c echo.Context) error {
 		// Get token from context (set by AuthMiddleware)
@@ -230,4 +247,15 @@ func initializeSystem(cfg *core.Config) {
 			slog.Info("Initial user already exists or check failed", "error", err)
 		}
 	}
+
+	// Background metrics updater
+	go func() {
+		for {
+			// Count active sessions
+			if keys, err := core.TokenDB.Keys(core.Ctx, "X-rauth-authtoken=*").Result(); err == nil {
+				core.ActiveSessionsGauge.Set(float64(len(keys)))
+			}
+			time.Sleep(1 * time.Minute)
+		}
+	}()
 }

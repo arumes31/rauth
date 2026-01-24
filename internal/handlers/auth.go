@@ -108,6 +108,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	userData, err := core.UserDB.HGetAll(core.Ctx, "user:"+username).Result()
 	if err != nil || len(userData) == 0 || !core.CheckPasswordHash(password, userData["password"]) {
 		core.LogAudit("LOGIN_FAILED", username, clientIP, nil)
+		core.LoginFailedTotal.Inc()
 		return c.Render(http.StatusOK, "login.html", map[string]interface{}{"error": "Invalid credentials", "csrf": c.Get("csrf")})
 	}
 
@@ -334,6 +335,7 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 	c.SetCookie(cookie)
 
 	core.LogAudit("LOGIN_SUCCESS", username, clientIP, map[string]interface{}{"country": country})
+	core.LoginSuccessTotal.Inc()
 	
 	redirect := c.QueryParam("rd")
 	if redirect != "" {
