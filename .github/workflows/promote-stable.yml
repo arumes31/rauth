@@ -1,0 +1,31 @@
+name: Promote Latest to Stable
+
+on:
+  workflow_dispatch:
+
+jobs:
+  promote:
+    name: Tag Latest as Stable
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+
+    steps:
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Promote Auth Service
+        run: |
+          docker pull ghcr.io/${{ github.repository_owner }}/rauth-auth:latest
+          docker tag ghcr.io/${{ github.repository_owner }}/rauth-auth:latest ghcr.io/${{ github.repository_owner }}/rauth-auth:stable
+          docker push ghcr.io/${{ github.repository_owner }}/rauth-auth:stable
+
+      - name: Promote Geo Service
+        run: |
+          docker pull ghcr.io/${{ github.repository_owner }}/rauth-geo:latest
+          docker tag ghcr.io/${{ github.repository_owner }}/rauth-geo:latest ghcr.io/${{ github.repository_owner }}/rauth-geo:stable
+          docker push ghcr.io/${{ github.repository_owner }}/rauth-geo:stable
