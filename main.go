@@ -15,7 +15,6 @@ import (
 	"rauth/internal/handlers"
 	"rauth/internal/middleware"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
