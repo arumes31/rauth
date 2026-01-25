@@ -185,6 +185,12 @@ func (h *ProfileHandler) ChangePassword(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to update password")
 	}
 
+	// Send notification email
+	userRecord, _ := core.GetUser(username)
+	if userRecord.Email != "" {
+		go core.SendPasswordChangeNotification(userRecord.Email, username, c.RealIP())
+	}
+
 	// Security Hardening: Invalidate all other sessions
 	core.InvalidateUserSessions(username)
 

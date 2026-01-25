@@ -168,6 +168,25 @@ func (h *AdminHandler) ChangeUserPassword(c echo.Context) error {
 	return c.Redirect(http.StatusFound, "/rauthmgmt?success=password_changed")
 }
 
+func (h *AdminHandler) UpdateUserEmail(c echo.Context) error {
+	target := c.FormValue("username")
+	newEmail := strings.TrimSpace(c.FormValue("new_email"))
+
+	if target == "" || newEmail == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "Username and email are required")
+	}
+
+	admin := c.Get("username").(string)
+	if err := core.UpdateUser(target, map[string]interface{}{"email": newEmail}); err != nil {
+		slog.Error("Failed to update user email in Redis", "user", target, "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to update email")
+	}
+
+	slog.Info("User email updated by admin", "admin", admin, "user", target, "email", newEmail)
+	core.LogAudit("ADMIN_UPDATE_EMAIL", admin, c.RealIP(), map[string]interface{}{"target": target, "email": newEmail})
+	return c.Redirect(http.StatusFound, "/rauthmgmt?success=email_updated")
+}
+
 func (h *AdminHandler) InvalidateSession(c echo.Context) error {
 	token := c.FormValue("token")
 	if token == "" {

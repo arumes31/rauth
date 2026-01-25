@@ -150,7 +150,7 @@
                                         <td class="text-end pe-4">
                                             <div class="btn-group">
                                                 <button class="btn btn-sm btn-outline-primary border-0" 
-                                                        onclick="openEditModal('{{.Username}}')" 
+                                                        onclick="openEditModal('{{.Username}}', '{{.Email}}')" 
                                                         title="Edit User">
                                                     <i class="bi bi-pencil"></i>
                                                 </button>
@@ -260,6 +260,19 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body p-4">
+                    <!-- Update Email Section -->
+                    <form method="POST" action="/rauthmgmt/user/update-email" class="mb-4">
+                        <input type="hidden" name="csrf" value="{{.csrf}}">
+                        <input type="hidden" name="username" id="emailUsernameInput">
+                        <label class="form-label small fw-bold text-muted">Update Email Address</label>
+                        <div class="input-group mb-3">
+                            <input type="email" name="new_email" id="emailInput" class="form-control" placeholder="new.email@example.com" required>
+                            <button class="btn btn-outline-danger" type="submit">Save</button>
+                        </div>
+                    </form>
+
+                    <hr class="border-secondary opacity-25 my-4">
+
                     <!-- Change Password Section -->
                     <form method="POST" action="/rauthmgmt/user/change-password" class="mb-4">
                         <input type="hidden" name="csrf" value="{{.csrf}}">
@@ -294,9 +307,11 @@
     <script>
         const editUserModal = new bootstrap.Modal(document.getElementById('editUserModal'));
         
-        function openEditModal(username) {
+        function openEditModal(username, email) {
             document.getElementById('editModalUsername').textContent = username;
             document.getElementById('passwordUsernameInput').value = username;
+            document.getElementById('emailUsernameInput').value = username;
+            document.getElementById('emailInput').value = email;
             document.getElementById('reset2faUsernameInput').value = username;
             editUserModal.show();
         }
@@ -308,6 +323,7 @@
             let msg = "Action completed successfully";
             if (success === '2fa_reset') msg = "Two-factor authentication has been reset.";
             if (success === 'password_changed') msg = "User password has been updated.";
+            if (success === 'email_updated') msg = "User email address has been updated.";
             
             // Basic toast or alert logic could go here
             console.log(msg);
