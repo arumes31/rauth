@@ -79,6 +79,11 @@ func GetCountryCode(ipStr string) string {
 	return countryCode
 }
 
+func GetGeoReaderStatus() bool {
+	InitGeoReader()
+	return geoReader != nil
+}
+
 func IsPrivateIP(ipStr string) bool {
 	ip := net.ParseIP(ipStr)
 	if ip == nil {

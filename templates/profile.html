@@ -182,6 +182,12 @@
                 <div class="card mb-4">
                     <div class="card-header border-0 d-flex justify-content-between align-items-center">
                         <h6 class="mb-0">Active Sessions</h6>
+                        <form method="POST" action="/rauthprofile/session/terminate-others" onsubmit="return confirm('Terminate all other active sessions?');">
+                            <input type="hidden" name="csrf" value="{{.csrf}}">
+                            <button type="submit" class="btn btn-sm btn-outline-danger">
+                                <i class="bi bi-shield-slash me-1"></i> Logout from all other devices
+                            </button>
+                        </form>
                     </div>
                     <div class="card-body p-0">
                         <div class="table-responsive">
@@ -199,9 +205,9 @@
                                         <td class="ps-4">
                                             <div class="small fw-bold">
                                                 {{if eq .is_current "1"}}<span class="badge bg-primary me-2">Current</span>{{end}}
-                                                {{.user_agent}}
+                                                {{.friendly_ua}}
                                             </div>
-                                            <div class="extra-small text-muted">
+                                            <div class="extra-small text-muted" title="{{.user_agent}}">
                                                 <i class="bi bi-geo-alt me-1"></i> {{.ip}} 
                                                 <span class="ms-1 badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25">{{.country}}</span>
                                             </div>

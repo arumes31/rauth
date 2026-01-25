@@ -13,7 +13,9 @@ var (
 	TokenDB      *redis.Client
 	RateLimitDB  *redis.Client
 	AuditDB      *redis.Client
+	InviteDB     *redis.Client
 	ServerSecret string
+	StartTime    = time.Now()
 )
 
 func InitRedis(cfg *Config) error {
@@ -32,9 +34,10 @@ func InitRedis(cfg *Config) error {
 	TokenDB = redis.NewClient(copyOptions(opts, 1))
 	RateLimitDB = redis.NewClient(copyOptions(opts, 2))
 	AuditDB = redis.NewClient(copyOptions(opts, 3))
+	InviteDB = redis.NewClient(copyOptions(opts, 4))
 
 	// Ping all
-	for i, client := range []*redis.Client{UserDB, TokenDB, RateLimitDB, AuditDB} {
+	for i, client := range []*redis.Client{UserDB, TokenDB, RateLimitDB, AuditDB, InviteDB} {
 		if err := client.Ping(Ctx).Err(); err != nil {
 			return fmt.Errorf("failed to connect to Redis DB %d: %w", i, err)
 		}
@@ -50,6 +53,24 @@ func InvalidateUserSessions(username string) {
 	}
 
 	for _, k := range keys {
+		data, err := TokenDB.HGetAll(Ctx, k).Result()
+		if err == nil && data["username"] == username {
+			TokenDB.Del(Ctx, k)
+		}
+	}
+}
+
+func InvalidateOtherUserSessions(username, currentToken string) {
+	keys, err := TokenDB.Keys(Ctx, "X-rauth-authtoken=*").Result()
+	if err != nil {
+		return
+	}
+
+	for _, k := range keys {
+		token := k[18:] // Remove prefix "X-rauth-authtoken="
+		if token == currentToken {
+			continue
+		}
 		data, err := TokenDB.HGetAll(Ctx, k).Result()
 		if err == nil && data["username"] == username {
 			TokenDB.Del(Ctx, k)

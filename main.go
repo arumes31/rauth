@@ -210,6 +210,8 @@ func main() {
 	adminHandler := &handlers.AdminHandler{Cfg: cfg}
 	profileHandler := &handlers.ProfileHandler{Cfg: cfg}
 	webauthnHandler := &handlers.WebAuthnHandler{Cfg: cfg}
+	healthHandler := &handlers.HealthHandler{Cfg: cfg}
+	inviteHandler := &handlers.InviteHandler{Cfg: cfg}
 
 	// Public Routes
 	e.GET("/", authHandler.Root)
@@ -219,6 +221,10 @@ func main() {
 	e.POST("/verify-2fa", authHandler.Verify2FA)
 	e.GET("/rauthsetup2fa", authHandler.Setup2FA)
 	e.POST("/rauthsetup2fa", authHandler.CompleteSetup2FA)
+	e.GET("/rauthredeem", inviteHandler.RedeemPage)
+	e.POST("/rauthredeem", inviteHandler.Redeem)
+
+	e.GET("/health", healthHandler.Check)
 
 	// WebAuthn Public Login
 	e.GET("/webauthn/login/begin", webauthnHandler.BeginLogin)
@@ -267,6 +273,7 @@ func main() {
 	protected.GET("/rauthprofile", profileHandler.Show)
 	protected.POST("/rauthprofile/password", profileHandler.ChangePassword)
 	protected.POST("/rauthprofile/session/terminate", profileHandler.TerminateSession)
+	protected.POST("/rauthprofile/session/terminate-others", profileHandler.TerminateAllOtherSessions)
 	protected.POST("/rauthprofile/passkey/rename", profileHandler.RenamePasskey)
 	protected.POST("/rauthprofile/passkey/revoke", profileHandler.RevokePasskey)
 	protected.POST("/rauthprofile/disable-totp", profileHandler.DisableTOTP)
@@ -281,6 +288,7 @@ func main() {
 	admin.POST("/user/change-password", adminHandler.ChangeUserPassword)
 	admin.POST("/user/update-email", adminHandler.UpdateUserEmail)
 	admin.POST("/session/invalidate", adminHandler.InvalidateSession)
+	admin.POST("/invite/create", inviteHandler.Create)
 
 	e.GET("/health", func(c echo.Context) error {
 		return c.JSON(http.StatusOK, map[string]string{"status": "OK"})
