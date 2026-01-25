@@ -3,6 +3,7 @@ package handlers
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -114,7 +115,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	slog.Debug("Login attempt", "ip", clientIP, "method", c.Request().Method)
 	if !core.CheckRateLimit("login_ip:"+clientIP, 10, 300) {
 		slog.Warn("Rate limit exceeded", "ip", clientIP)
-		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many attempts from this IP.", "csrf": c.Get("csrf")})
+		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": fmt.Sprintf("Too many attempts from this IP (%s).", clientIP), "csrf": c.Get("csrf")})
 	}
 
 	if c.Request().Method == http.MethodGet {
@@ -125,7 +126,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 		return h.Verify2FA(c)
 	}
 
-	username := c.FormValue("username")
+	username := strings.TrimSpace(c.FormValue("username"))
 	password := c.FormValue("password")
 
 	userData, err := core.UserDB.HGetAll(core.Ctx, "user:"+username).Result()
@@ -192,7 +193,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 func (h *AuthHandler) Verify2FA(c echo.Context) error {
 	clientIP := c.RealIP()
 	if !core.CheckRateLimit("login_ip:"+clientIP, 10, 300) {
-		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many attempts. Please try again later.", "csrf": c.Get("csrf"), "display2fa": true})
+		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": fmt.Sprintf("Too many attempts from this IP (%s). Please try again later.", clientIP), "csrf": c.Get("csrf"), "display2fa": true})
 	}
 
 	code := c.FormValue("totp_code")
@@ -269,7 +270,7 @@ func (h *AuthHandler) Setup2FA(c echo.Context) error {
 func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 	clientIP := c.RealIP()
 	if !core.CheckRateLimit("login_ip:"+clientIP, 10, 300) {
-		return c.Render(http.StatusTooManyRequests, "setup_2fa.html", map[string]interface{}{"error": "Too many attempts. Please try again later.", "csrf": c.Get("csrf")})
+		return c.Render(http.StatusTooManyRequests, "setup_2fa.html", map[string]interface{}{"error": fmt.Sprintf("Too many attempts from this IP (%s). Please try again later.", clientIP), "csrf": c.Get("csrf")})
 	}
 
 	cookie, err := c.Cookie("rauth_setup_pending")

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"rauth/internal/core"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 )
@@ -62,7 +63,7 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 }
 
 func (h *AdminHandler) CreateUser(c echo.Context) error {
-	user := c.FormValue("new_username")
+	user := strings.TrimSpace(c.FormValue("new_username"))
 	pass := c.FormValue("new_password")
 	email := c.FormValue("new_email")
 	isAdmin := c.FormValue("is_admin") == "on"
