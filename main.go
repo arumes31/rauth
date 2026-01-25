@@ -116,7 +116,10 @@ func main() {
 			errorData["Message"] = "The identity you are looking for does not exist or has moved to another dimension."
 			errorData["Icon"] = "bi-exclamation-octagon"
 			errorData["Color"] = "danger"
-			_ = c.Render(http.StatusNotFound, "404.html", nil) // Keep specific 404 for now or migrate to generic
+			// Use the specific 404 template if desired, otherwise use generic error.html
+			if renderErr := c.Render(http.StatusNotFound, "404.html", errorData); renderErr != nil {
+				slog.Error("Failed to render 404 page", "error", renderErr)
+			}
 			return
 		case http.StatusForbidden:
 			errorData["Title"] = "Access Forbidden"
