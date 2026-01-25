@@ -4,15 +4,25 @@
   <img src="https://img.shields.io/github/go-mod/go-version/arumes31/rauth?label=Go&logo=go&color=00ADD8" alt="Go Version">
   <img src="https://img.shields.io/github/license/arumes31/rauth?label=License&color=blue" alt="License">
   <img src="https://img.shields.io/github/last-commit/arumes31/rauth/main?color=green" alt="Last Commit">
+  <img src="https://img.shields.io/github/repo-size/arumes31/rauth" alt="Repo Size">
 </p>
 
 <p align="center">
+  <a href="https://github.com/arumes31/rauth/actions/workflows/tests.yml">
+    <img src="https://github.com/arumes31/rauth/actions/workflows/tests.yml/badge.svg?branch=test" alt="Tests Status">
+  </a>
   <a href="https://github.com/arumes31/rauth/actions/workflows/build.yml">
     <img src="https://github.com/arumes31/rauth/actions/workflows/build.yml/badge.svg?branch=test" alt="Build Status">
   </a>
   <a href="https://github.com/arumes31/rauth/actions/workflows/go-security.yml">
     <img src="https://github.com/arumes31/rauth/actions/workflows/go-security.yml/badge.svg?branch=test" alt="Security Scan">
   </a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/github/stars/arumes31/rauth?style=social" alt="Stars">
+  <img src="https://img.shields.io/github/forks/arumes31/rauth?style=social" alt="Forks">
+  <img src="https://img.shields.io/github/issues/arumes31/rauth" alt="Issues">
 </p>
 
 ---
