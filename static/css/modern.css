@@ -8,6 +8,12 @@
     --warning: #eab308;
     --info: #06b6d4;
     
+    /* Bootstrap Overrides */
+    --bs-primary: #ef4444;
+    --bs-primary-rgb: 239, 68, 68;
+    --bs-danger: #b91c1c;
+    --bs-danger-rgb: 185, 28, 28;
+    
     --text-main: #fef2f2;     /* Red-50 */
     --text-muted: #fca5a5;    /* Red-300 (muted text) */
     
@@ -17,6 +23,11 @@
     --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
     
     --radius: 4px; /* More angular/tech feel */
+}
+
+hr {
+    border-color: var(--glass-border);
+    opacity: 0.5;
 }
 
 body {
@@ -62,9 +73,14 @@ body {
 }
 
 .card-header {
-    background: transparent;
+    background: rgba(239, 68, 68, 0.05);
     border-bottom: 1px solid var(--glass-border);
     padding: 1.5rem;
+    color: var(--primary);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-size: 0.85rem;
+    font-weight: 700;
 }
 
 .card-body {
@@ -277,6 +293,17 @@ body {
 
 .table-hover tbody tr:hover {
     background-color: rgba(239, 68, 68, 0.1);
+}
+
+/* List Groups */
+.list-group-item {
+    background-color: transparent;
+    color: var(--text-main);
+    border-color: var(--glass-border);
+}
+
+.list-group-item:hover {
+    background-color: rgba(239, 68, 68, 0.05);
 }
 
 /* Tabs */
