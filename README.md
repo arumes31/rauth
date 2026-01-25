@@ -177,22 +177,33 @@ RAuth is configured via Environment Variables.
 | Category | Variable | Description | Default |
 |:---|:---|:---|:---|
 | **Secret** | `SERVER_SECRET` | 32+ char key for AES encryption | **REQUIRED** |
-| **MaxMind**| `MAXMIND_ACCOUNT_ID` | Your Account ID for Geo-IP updates | **REQUIRED** |
-| **MaxMind**| `MAXMIND_LICENSE_KEY` | Your License Key for Geo-IP updates | **REQUIRED** |
+| **Admin**  | `INITIAL_USER` | Initial admin username | `admin` |
+| **Admin**  | `INITIAL_PASSWORD` | Initial admin password | (None) |
+| **Admin**  | `INITIAL_EMAIL` | Initial admin email address | `admin@example.com` |
+| **Admin**  | `INITIAL_2FA_SECRET` | Optional: Pre-set Base32 2FA secret | (None) |
+| **Redis**  | `REDIS_HOST` | Hostname of the Redis instance | `rauth-auth-redis` |
+| **Redis**  | `REDIS_PASSWORD` | Password for Redis auth | (None) |
+| **Auth**   | `COOKIE_DOMAIN` | Domain for the auth cookie | `example.com` |
+| **Auth**   | `TOKEN_VALIDITY_MINUTES`| Session duration in minutes | `2880` (2 days) |
+| **Auth**   | `ALLOWED_HOSTS` | Redirect whitelist (Comma-separated) | `localhost,example.com` |
+| **WebAuthn**| `WEBAUTHN_ORIGINS`| Allowed origins for Passkeys (Comma-separated)| (Auto-generated) |
+| **URL**    | `PUBLIC_URL` | Base URL for email links (e.g., `https://auth.example.com`) | `http://localhost:5980` |
+| **Network**| `AUTH_PORT` | Port to expose the auth service | `5980` |
+| **Policy** | `PWD_MIN_LENGTH` | Minimum required password length | `8` |
+| **Policy** | `PWD_REQUIRE_UPPER` | Require uppercase in passwords | `true` |
+| **Policy** | `PWD_REQUIRE_LOWER` | Require lowercase in passwords | `true` |
+| **Policy** | `PWD_REQUIRE_NUMBER` | Require numbers in passwords | `true` |
+| **Policy** | `PWD_REQUIRE_SPECIAL`| Require special chars in passwords | `true` |
+| **Security**| `METRICS_ALLOWED_IPS`| CIDR list for `/metrics` access | (Private + Tailscale) |
+| **Geo-IP** | `MAXMIND_ACCOUNT_ID` | Your Account ID for Geo-IP updates | **REQUIRED** |
+| **Geo-IP** | `MAXMIND_LICENSE_KEY` | Your License Key for Geo-IP updates | **REQUIRED** |
+| **Geo-IP** | `GEOIP_EDITION_IDS` | Databases to download | `GeoLite2-Country` |
 | **Email**  | `SMTP_HOST` | SMTP server hostname | (None) |
 | **Email**  | `SMTP_PORT` | SMTP server port (e.g., 587) | (None) |
 | **Email**  | `SMTP_USER` | SMTP username | (None) |
 | **Email**  | `SMTP_PASS` | SMTP password | (None) |
 | **Email**  | `SMTP_FROM` | Sender email address | (None) |
-| **URL**    | `PUBLIC_URL` | Base URL for email links (e.g., `https://auth.example.com`) | `http://localhost:5980` |
-| **Redis**  | `REDIS_HOST` | Hostname of the Redis instance | `rauth-auth-redis` |
-| **Redis**  | `REDIS_PASSWORD` | Password for Redis auth | (None) |
-| **Auth**   | `COOKIE_DOMAIN` | Domain for the auth cookie | `example.com` |
-| **Auth**   | `TOKEN_VALIDITY` | Session duration in minutes | `2880` (2 days) |
-| **WebAuthn**| `WEBAUTHN_ORIGINS`| Allowed origins for Passkeys (Comma-separated)| (Auto-generated) |
 | **Regional**| `TZ` | Container Timezone (e.g., `Europe/Berlin`) | `UTC` |
-| **Security**| `METRICS_ALLOWED_IPS`| CIDR list for `/metrics` access | (Private + Tailscale) |
-| **Policy** | `PWD_MIN_LENGTH` | Minimum required password length | `8` |
 
 ---
 
