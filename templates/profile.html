@@ -99,6 +99,7 @@
                                 try {
                                     const response = await fetch('/webauthn/register/begin');
                                     const optionsJSON = await response.json();
+                                    console.log("WebAuthn Registration Options:", optionsJSON);
                                     
                                     msg.textContent = "Please touch your security key...";
                                     const credential = await startRegistration({ optionsJSON });

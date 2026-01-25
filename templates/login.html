@@ -10,6 +10,11 @@
     <link href="/static/css/modern.css" rel="stylesheet">
 </head>
 <body class="d-flex align-items-center justify-content-center vh-100">
+    <div class="position-fixed top-0 end-0 p-3" style="z-index: 1000;">
+        <button id="toggle-animations" class="btn btn-sm btn-outline-secondary opacity-50 hover-opacity-100 transition-all">
+            <i class="bi bi-cpu me-1"></i> <span id="anim-text">Disable Animations</span>
+        </button>
+    </div>
     <canvas id="matrix-bg"></canvas>
     <div class="card animate-fade-in shadow-lg" style="width: 100%; max-width: 420px; z-index: 1;">
         <div class="card-header text-center pt-5 pb-4 border-0">
@@ -109,6 +114,49 @@
         </div>
     </div>
     <script src="/static/js/matrix.js"></script>
+    <script>
+        (function() {
+            const btn = document.getElementById('toggle-animations');
+            const text = document.getElementById('anim-text');
+            const canvas = document.getElementById('matrix-bg');
+            
+            function setCookie(name, value, days) {
+                const expires = new Date(Date.now() + days * 864e5).toUTCString();
+                document.cookie = name + '=' + encodeURIComponent(value) + '; expires=' + expires + '; path=/; SameSite=Lax';
+            }
+
+            function getCookie(name) {
+                return document.cookie.split('; ').reduce((r, v) => {
+                    const parts = v.split('=');
+                    return parts[0] === name ? decodeURIComponent(parts[1]) : r;
+                }, '');
+            }
+
+            function applyPreference(disabled) {
+                if (disabled === 'true') {
+                    document.body.classList.add('no-animations');
+                    text.textContent = 'Enable Animations';
+                    if (canvas) canvas.style.display = 'none';
+                } else {
+                    document.body.classList.remove('no-animations');
+                    text.textContent = 'Disable Animations';
+                    if (canvas) canvas.style.display = 'block';
+                }
+            }
+
+            const currentPref = getCookie('rauth_no_anim');
+            applyPreference(currentPref);
+
+            btn.addEventListener('click', () => {
+                const isNowDisabled = !document.body.classList.contains('no-animations');
+                setCookie('rauth_no_anim', isNowDisabled, 365);
+                applyPreference(isNowDisabled.toString());
+                if (!isNowDisabled && typeof initMatrix === 'function') {
+                    initMatrix(); // Restart matrix if it was disabled
+                }
+            });
+        })();
+    </script>
 </body>
 </html>
 {{end}}

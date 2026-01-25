@@ -38,10 +38,14 @@ var WebAuthnInstance *webauthn.WebAuthn
 
 func InitWebAuthn(cfg *Config) error {
 	var err error
+	origins := []string{fmt.Sprintf("https://%s", cfg.CookieDomains[0])}
+	// Add common local dev origins
+	origins = append(origins, "http://localhost:5980", "http://127.0.0.1:5980", "http://localhost", "http://127.0.0.1")
+	
 	WebAuthnInstance, err = webauthn.New(&webauthn.Config{
 		RPDisplayName: "RAuth",
 		RPID:          cfg.CookieDomains[0],
-		RPOrigins:     []string{fmt.Sprintf("https://%s", cfg.CookieDomains[0])},
+		RPOrigins:     origins,
 	})
 	return err
 }
