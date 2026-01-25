@@ -10,6 +10,60 @@
     <link href="/static/css/modern.css" rel="stylesheet">
 </head>
 <body class="bg-light-animated">
+            <div class="scanlines"></div>
+            
+            <!-- Audit Detail Modal -->
+            <div class="modal fade" id="auditDetailModal" tabindex="-1">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content border-0 shadow-lg">
+                        <div class="modal-header border-0 pb-0">
+                            <h5 class="modal-title fw-bold text-primary">EVENT METADATA</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body p-4">
+                            <div id="auditDetailContent" class="bg-black p-3 rounded border border-secondary border-opacity-25 extra-small">
+                                <!-- JSON data injected here -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        
+            <!-- Command Palette Modal -->
+        
+        <div class="modal fade" id="commandPalette" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content command-palette">
+                    <div class="modal-body p-0">
+                        <input type="text" id="commandInput" class="form-control command-input" placeholder="Type a command (e.g., 'sessions', 'audit', 'new user')..." autocomplete="off">
+                        <div id="commandResults" class="py-2">
+                            <!-- Options will be injected here -->
+                        </div>
+                    </div>
+                    <div class="modal-footer border-0 p-2 opacity-50 small">
+                        <span class="me-3"><kbd>↑↓</kbd> to navigate</span>
+                        <span class="me-3"><kbd>Enter</kbd> to select</span>
+                        <span><kbd>Esc</kbd> to close</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    
+        <!-- Toast Container -->
+    
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="successToast" class="toast matrix-toast" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="toast-header bg-transparent border-0 text-primary">
+                <i class="bi bi-shield-check me-2"></i>
+                <strong class="me-auto">SECURE OPS NOTIFICATION</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+            <div class="toast-body small fw-bold" id="toastMessage">
+                Administrative operation successful.
+            </div>
+        </div>
+    </div>
+
     <nav class="navbar navbar-expand-lg sticky-top">
         <div class="container">
             <a class="navbar-brand fs-3" href="#">RAuth</a>
@@ -76,8 +130,13 @@
                                     {{range .sessions}}
                                     <tr class="align-middle">
                                         <td class="ps-4">
-                                            <div class="fw-bold">{{index . "username"}}</div>
-                                            <div class="extra-small text-muted">{{index . "ip"}}</div>
+                                            <div class="d-flex align-items-center">
+                                                <img data-identicon="{{index . "username"}}" class="identicon rounded me-3" width="32" height="32">
+                                                <div>
+                                                    <div class="fw-bold text-primary">{{index . "username"}}</div>
+                                                    <div class="extra-small text-muted">{{index . "ip"}}</div>
+                                                </div>
+                                            </div>
                                         </td>
                                         <td>
                                             <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25">
@@ -85,8 +144,13 @@
                                             </span>
                                         </td>
                                         <td>
-                                            <div class="extra-small text-truncate text-muted" style="max-width: 250px;" title="{{index . "user_agent"}}">
-                                                {{index . "user_agent"}}
+                                            <div class="d-flex align-items-center">
+                                                <div class="fs-5 me-2 text-primary opacity-50">
+                                                    <i class="bi {{index . "device_icon"}}"></i>
+                                                </div>
+                                                <div class="extra-small text-truncate text-muted" style="max-width: 200px;" title="{{index . "user_agent"}}">
+                                                    {{index . "friendly_ua"}}
+                                                </div>
                                             </div>
                                         </td>
                                         <td class="text-muted small">
@@ -143,7 +207,12 @@
                                 <tbody>
                                     {{range .users}}
                                     <tr class="align-middle">
-                                        <td class="ps-4"><strong>{{.Username}}</strong></td>
+                                        <td class="ps-4">
+                                            <div class="d-flex align-items-center">
+                                                <img data-identicon="{{.Username}}" class="identicon rounded me-3" width="32" height="32">
+                                                <strong>{{.Username}}</strong>
+                                            </div>
+                                        </td>
                                         <td>{{.Email}}</td>
                                         <td>
                                             {{if eq .IsAdmin "1"}}
@@ -178,6 +247,44 @@
             <!-- Audit Tab -->
             <div class="tab-pane fade" id="audit" role="tabpanel">
                 ... (keep existing content or just target the end of it)
+            </div>
+
+            <!-- Invitations Tab -->
+            <div class="tab-pane fade" id="invites" role="tabpanel">
+                <div class="card shadow-sm border-0">
+                    <div class="card-header py-3">
+                        <h6 class="mb-0 fw-bold">Secure Invitation System</h6>
+                    </div>
+                    <div class="card-body p-4">
+                        <p class="text-muted small mb-4">
+                            Instead of creating a password for the user, generate a secure invitation link. 
+                            The user will be able to set their own username and password upon redemption.
+                        </p>
+                        <form id="inviteForm" class="row g-3">
+                            <input type="hidden" name="csrf" value="{{.csrf}}">
+                            <div class="col-md-8">
+                                <label class="form-label small fw-bold text-muted">Recipient Email Address</label>
+                                <input type="email" name="email" id="inviteEmail" class="form-control" placeholder="user@example.com" required>
+                            </div>
+                            <div class="col-md-4 d-flex align-items-end">
+                                <button type="submit" class="btn btn-danger w-100 py-2 fw-bold">Generate Link</button>
+                            </div>
+                        </form>
+
+                        <div id="inviteResult" class="mt-4 d-none">
+                            <label class="form-label small fw-bold text-success">Invitation Link Generated</label>
+                            <div class="input-group">
+                                <input type="text" id="inviteUrl" class="form-control bg-light" readonly>
+                                <button class="btn btn-outline-success" type="button" onclick="copyInviteUrl()">
+                                    <i class="bi bi-clipboard me-1"></i> Copy
+                                </button>
+                            </div>
+                            <div class="extra-small text-muted mt-2">
+                                <i class="bi bi-info-circle me-1"></i> This link will expire in 24 hours.
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Invitations Tab -->
@@ -321,17 +428,203 @@
             editUserModal.show();
         }
 
-        // Show success alert if redirected back with success param
-        const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.has('success')) {
-            const success = urlParams.get('success');
-            let msg = "Action completed successfully";
-            if (success === '2fa_reset') msg = "Two-factor authentication has been reset.";
-            if (success === 'password_changed') msg = "User password has been updated.";
-            if (success === 'email_updated') msg = "User email address has been updated.";
+        // Identicon Generator
+        function generateIdenticon(str, size = 40) {
+            let hash = 0;
+            for (let i = 0; i < str.length; i++) {
+                hash = str.charCodeAt(i) + ((hash << 5) - hash);
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            const color = `hsl(${Math.abs(hash % 360)}, 70%, 50%)`;
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, size, size);
+            ctx.fillStyle = color;
+            const pixels = 5;
+            const cellSize = size / pixels;
+            for (let i = 0; i < pixels; i++) {
+                for (let j = 0; j < pixels; j++) {
+                    const bit = (Math.abs(hash) >> (i * pixels + j)) & 1;
+                    if (bit) {
+                        ctx.fillRect(i * cellSize, j * cellSize, cellSize, cellSize);
+                        ctx.fillRect((pixels - 1 - i) * cellSize, j * cellSize, cellSize, cellSize);
+                    }
+                }
+            }
+            return canvas.toDataURL();
+        }
+
+        // Apply identicons and handle audit clicks on load
+        window.addEventListener('load', () => {
+            document.querySelectorAll('[data-identicon]').forEach(el => {
+                el.src = generateIdenticon(el.getAttribute('data-identicon'), 48);
+            });
             
-            // Basic toast or alert logic could go here
-            console.log(msg);
+            // Re-apply on search/tab change if needed
+            const observer = new MutationObserver(() => {
+                document.querySelectorAll('[data-identicon]:not([src])').forEach(el => {
+                    el.src = generateIdenticon(el.getAttribute('data-identicon'), 48);
+                });
+            });
+            observer.observe(document.body, { childList: true, subtree: true });
+        });
+
+        // Audit Detail Logic
+        const auditModal = new bootstrap.Modal(document.getElementById('auditDetailModal'));
+        function showAuditDetail(detailsJson) {
+            document.getElementById('auditDetailContent').innerHTML = `<pre class="mb-0 text-success">${JSON.stringify(detailsJson, null, 2)}</pre>`;
+            auditModal.show();
+        }
+
+        // Command Palette Logic
+        const commands = [
+            { name: 'Monitor: Active Sessions', cmd: 'sessions', action: () => document.getElementById('sessions-tab').click() },
+            { name: 'Directory: User Management', cmd: 'users', action: () => document.getElementById('users-tab').click() },
+            { name: 'Security: Audit Logs', cmd: 'audit', action: () => document.getElementById('audit-tab').click() },
+            { name: 'Access: Invitations', cmd: 'invites', action: () => document.getElementById('invites-tab').click() },
+            { name: 'Action: Create New User', cmd: 'new', action: () => new bootstrap.Modal(document.getElementById('createUserModal')).show() },
+            { name: 'Nav: My Profile', cmd: 'profile', action: () => window.location.href = '/rauthprofile' },
+            { name: 'Nav: Logout', cmd: 'logout', action: () => document.querySelector('form[action="/logout"]').submit() }
+        ];
+
+        let currentFocus = -1;
+        const cpModalElement = document.getElementById('commandPalette');
+        const cpModal = new bootstrap.Modal(cpModalElement);
+
+        document.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+                e.preventDefault();
+                cpModal.show();
+            }
+            if (e.key === '/') {
+                if (document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
+                    e.preventDefault();
+                    cpModal.show();
+                }
+            }
+        });
+
+        cpModalElement.addEventListener('shown.bs.modal', () => {
+            document.getElementById('commandInput').focus();
+            renderCommands('');
+        });
+
+        document.getElementById('commandInput').addEventListener('input', (e) => {
+            renderCommands(e.target.value);
+        });
+
+        document.getElementById('commandInput').addEventListener('keydown', (e) => {
+            const items = document.querySelectorAll('.command-option');
+            if (e.key === 'ArrowDown') {
+                currentFocus++;
+                addActive(items);
+            } else if (e.key === 'ArrowUp') {
+                currentFocus--;
+                addActive(items);
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                if (currentFocus > -1 && items[currentFocus]) {
+                    items[currentFocus].click();
+                }
+            }
+        });
+
+        function renderCommands(filter) {
+            const results = document.getElementById('commandResults');
+            results.innerHTML = '';
+            const filtered = commands.filter(c => c.name.toLowerCase().includes(filter.toLowerCase()) || c.cmd.includes(filter.toLowerCase()));
+            
+            filtered.forEach((c, idx) => {
+                const div = document.createElement('div');
+                div.className = 'command-option d-flex justify-content-between align-items-center';
+                div.innerHTML = `<span><i class="bi bi-chevron-right me-2 opacity-50"></i>${c.name}</span> <span class="command-shortcut">/${c.cmd}</span>`;
+                div.onclick = () => {
+                    c.action();
+                    cpModal.hide();
+                };
+                results.appendChild(div);
+            });
+            currentFocus = -1;
+        }
+
+        function addActive(items) {
+            if (!items) return false;
+            items.forEach(i => i.classList.remove('active'));
+            if (currentFocus >= items.length) currentFocus = 0;
+            if (currentFocus < 0) currentFocus = items.length - 1;
+            items[currentFocus].classList.add('active');
+            items[currentFocus].scrollIntoView({ block: 'nearest' });
+        }
+
+        // Handle success messages
+        window.addEventListener('load', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.has('success')) {
+                const success = urlParams.get('success');
+                const messages = {
+                    '2fa_reset': 'Two-factor authentication has been reset for the user.',
+                    'password_changed': 'User password has been updated successfully.',
+                    'email_updated': 'User email address has been updated.',
+                    'user_created': 'New identity created in the system.',
+                    'user_deleted': 'User has been purged from the directory.'
+                };
+                
+                const msg = messages[success] || 'Administrative action completed.';
+                document.getElementById('toastMessage').textContent = msg;
+                const toast = new bootstrap.Toast(document.getElementById('successToast'));
+                toast.show();
+                
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+        });
+
+        document.getElementById('inviteForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            try {
+                const response = await fetch('/rauthmgmt/invite/create', {
+                    method: 'POST',
+                    body: formData
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    document.getElementById('inviteUrl').value = data.url;
+                    document.getElementById('inviteResult').classList.remove('d-none');
+                } else {
+                    alert("Failed to generate invitation link.");
+                }
+            } catch (err) {
+                console.error(err);
+                alert("An error occurred.");
+            }
+        }
+
+        // Audit Search Logic
+        document.getElementById('auditSearch').addEventListener('input', (e) => {
+            const term = e.target.value.toLowerCase();
+            const rows = document.querySelectorAll('.audit-row');
+            rows.forEach(row => {
+                const text = row.innerText.toLowerCase();
+                row.style.display = text.includes(term) ? '' : 'none';
+            });
+        });
+
+        function copyInviteUrl() {
+            const urlInput = document.getElementById('inviteUrl');
+            urlInput.select();
+            urlInput.setSelectionRange(0, 99999);
+            navigator.clipboard.writeText(urlInput.value);
+            
+            const btn = event.currentTarget;
+            const originalHtml = btn.innerHTML;
+            btn.innerHTML = '<i class="bi bi-check2"></i> Copied!';
+            btn.className = "btn btn-success";
+            setTimeout(() => {
+                btn.innerHTML = originalHtml;
+                btn.className = "btn btn-outline-success";
+            }, 2000);
         }
 
         document.getElementById('inviteForm').addEventListener('submit', async (e) => {

@@ -35,6 +35,8 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 		}
 		data["token"] = k[18:] // Remove prefix "X-rauth-authtoken="
 		data["ttl"] = fmt.Sprintf("%d", int(core.TokenDB.TTL(core.Ctx, k).Val().Seconds()))
+		data["friendly_ua"] = core.FormatUserAgent(data["user_agent"])
+		data["device_icon"] = core.GetDeviceIcon(data["user_agent"])
 		sessions = append(sessions, data)
 	}
 
@@ -88,7 +90,7 @@ func (h *AdminHandler) CreateUser(c echo.Context) error {
 
 	slog.Info("User created by admin", "admin", c.Get("username"), "user", user)
 	core.LogAudit("ADMIN_CREATE_USER", c.Get("username").(string), c.RealIP(), map[string]interface{}{"target": user})
-	return c.Redirect(http.StatusFound, "/rauthmgmt")
+	return c.Redirect(http.StatusFound, "/rauthmgmt?success=user_created")
 }
 
 func (h *AdminHandler) DeleteUser(c echo.Context) error {
@@ -109,7 +111,7 @@ func (h *AdminHandler) DeleteUser(c echo.Context) error {
 
 	slog.Info("User deleted by admin", "admin", admin, "user", target)
 	core.LogAudit("ADMIN_DELETE_USER", admin, c.RealIP(), map[string]interface{}{"target": target})
-	return c.Redirect(http.StatusFound, "/rauthmgmt")
+	return c.Redirect(http.StatusFound, "/rauthmgmt?success=user_deleted")
 }
 
 func (h *AdminHandler) ResetUser2FA(c echo.Context) error {
@@ -204,9 +206,16 @@ func (h *AdminHandler) InvalidateSession(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to invalidate session")
 	}
 
-	slog.Info("Session invalidated by admin", "admin", admin)
-	logToken := token
-	if len(token) > 8 { logToken = token[:8] + "..." }
-	core.LogAudit("ADMIN_INVALIDATE_SESSION", admin, c.RealIP(), map[string]interface{}{"token": logToken})
-	return c.Redirect(http.StatusFound, "/rauthmgmt")
-}
+		slog.Info("Session invalidated by admin", "admin", admin)
+
+		logToken := token
+
+		if len(token) > 8 { logToken = token[:8] + "..." }
+
+		core.LogAudit("ADMIN_INVALIDATE_SESSION", admin, c.RealIP(), map[string]interface{}{"token": logToken})
+
+		return c.Redirect(http.StatusFound, "/rauthmgmt?success=session_terminated")
+
+	}
+
+	

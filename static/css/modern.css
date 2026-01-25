@@ -355,6 +355,149 @@ body {
     border-radius: 4px;
 }
 
+/* Scanline Overlay */
+.scanlines {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+        rgba(18, 16, 16, 0) 50%,
+        rgba(0, 0, 0, 0.1) 50%
+    ), linear-gradient(
+        90deg,
+        rgba(255, 0, 0, 0.03),
+        rgba(0, 255, 0, 0.01),
+        rgba(0, 0, 255, 0.03)
+    );
+    background-size: 100% 3px, 3px 100%;
+    pointer-events: none;
+    z-index: 9999;
+    opacity: 0.3;
+}
+
+/* Matrix Toast */
+.matrix-toast {
+    background: var(--glass-bg) !important;
+    backdrop-filter: blur(15px);
+    border: 1px solid var(--primary) !important;
+    color: var(--primary) !important;
+    font-family: 'Courier New', monospace;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    box-shadow: 0 0 15px rgba(239, 68, 68, 0.3);
+}
+
+.matrix-toast .btn-close {
+    filter: invert(1) sepia(1) saturate(5) hue-rotate(-45deg);
+}
+
+@keyframes pulse-red {
+    0% { opacity: 0.4; }
+    50% { opacity: 1; text-shadow: 0 0 10px var(--primary); }
+    100% { opacity: 0.4; }
+}
+
+.animate-pulse-red {
+    animation: pulse-red 2s infinite;
+}
+
+/* Command Palette */
+.command-palette {
+    background: rgba(10, 0, 0, 0.95) !important;
+    border: 1px solid var(--primary) !important;
+    box-shadow: 0 0 30px rgba(239, 68, 68, 0.4) !important;
+    border-radius: 4px;
+}
+
+.command-input {
+    background: transparent !important;
+    border: none !important;
+    border-bottom: 1px solid var(--glass-border) !important;
+    color: var(--primary) !important;
+    font-size: 1.2rem;
+    padding: 1rem;
+    outline: none;
+}
+
+.command-option {
+    padding: 0.75rem 1rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    border-left: 3px solid transparent;
+}
+
+.command-option:hover, .command-option.active {
+    background: rgba(239, 68, 68, 0.1);
+    border-left-color: var(--primary);
+    color: var(--primary);
+}
+
+.command-shortcut {
+    font-size: 0.7rem;
+    opacity: 0.5;
+    background: rgba(239, 68, 68, 0.1);
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+
+/* Security Checklist */
+.checklist-item {
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.checklist-item:last-child {
+    border-bottom: none;
+}
+
+.checklist-icon {
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    margin-right: 12px;
+    font-size: 0.8rem;
+}
+
+.checklist-done {
+    background: rgba(34, 197, 94, 0.2);
+    color: var(--success);
+    border: 1px solid rgba(34, 197, 94, 0.4);
+}
+
+.checklist-todo {
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--primary);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+/* Identicon */
+.identicon {
+    image-rendering: pixelated;
+    border: 1px solid var(--glass-border);
+    padding: 2px;
+    background: rgba(0,0,0,0.3);
+}
+
+/* Error Glitch */
+.glitch-text {
+    position: relative;
+    animation: glitch-text-anim 3s infinite linear alternate-reverse;
+}
+
+@keyframes glitch-text-anim {
+    0% { transform: skew(0deg); }
+    20% { transform: skew(0deg); }
+    21% { transform: skew(10deg); filter: blur(1px); }
+    22% { transform: skew(-10deg); }
+    23% { transform: skew(0deg); filter: blur(0); }
+    100% { transform: skew(0deg); }
+}
+
 .animate-fade-in {
     animation: fadeIn 0.5s ease-out;
 }

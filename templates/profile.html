@@ -10,6 +10,58 @@
     <link href="/static/css/modern.css" rel="stylesheet">
 </head>
 <body class="bg-light-animated">
+    <div class="scanlines"></div>
+    
+    <!-- Audit Detail Modal -->
+    <div class="modal fade" id="auditDetailModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title fw-bold text-primary">EVENT METADATA</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div id="auditDetailContent" class="bg-black p-3 rounded border border-secondary border-opacity-25 extra-small">
+                        <!-- JSON data injected here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Command Palette Modal -->
+    <div class="modal fade" id="commandPalette" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content command-palette">
+                <div class="modal-body p-0">
+                    <input type="text" id="commandInput" class="form-control command-input" placeholder="Type a command (e.g., 'password', 'sessions', 'logout')..." autocomplete="off">
+                    <div id="commandResults" class="py-2">
+                        <!-- Options will be injected here -->
+                    </div>
+                </div>
+                <div class="modal-footer border-0 p-2 opacity-50 small">
+                    <span class="me-3"><kbd>↑↓</kbd> to navigate</span>
+                    <span class="me-3"><kbd>Enter</kbd> to select</span>
+                    <span><kbd>Esc</kbd> to close</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="successToast" class="toast matrix-toast" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="toast-header bg-transparent border-0 text-primary">
+                <i class="bi bi-shield-check me-2"></i>
+                <strong class="me-auto">SYSTEM NOTIFICATION</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+            <div class="toast-body small fw-bold" id="toastMessage">
+                Operation completed successfully.
+            </div>
+        </div>
+    </div>
+
     <nav class="navbar navbar-expand-lg sticky-top">
         <div class="container">
             <a class="navbar-brand fs-3" href="#">RAuth</a>
@@ -34,15 +86,45 @@
             <div class="col-lg-4">
                 <div class="card mb-4">
                     <div class="card-body p-4 text-center">
-                        <div class="display-1 text-primary mb-3">
-                            <i class="bi bi-person-badge"></i>
+                        <div class="mb-3">
+                            <img data-identicon="{{.username}}" class="identicon rounded-circle shadow-lg" width="120" height="120">
                         </div>
-                        <h4 class="mb-1">{{.username}}</h4>
+                        <h4 class="mb-1 text-primary">{{.username}}</h4>
                         <p class="text-muted small">{{.email}}</p>
                         <div class="d-flex justify-content-center mt-3">
                             <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 px-3">
                                 {{.groups}}
                             </span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mb-4">
+                    <div class="card-header border-0 pb-0">
+                        <h6 class="mb-0">Security Posture</h6>
+                    </div>
+                    <div class="card-body p-4">
+                        <div class="checklist-item d-flex align-items-center">
+                            <div class="checklist-icon checklist-done"><i class="bi bi-check-lg"></i></div>
+                            <div class="small fw-bold">Password Set</div>
+                        </div>
+                        <div class="checklist-item d-flex align-items-center">
+                            <div class="checklist-icon {{if .has2FA}}checklist-done{{else}}checklist-todo{{end}}">
+                                {{if .has2FA}}<i class="bi bi-check-lg"></i>{{else}}<i class="bi bi-shield-slash"></i>{{end}}
+                            </div>
+                            <div class="small fw-bold">Two-Factor Auth (TOTP)</div>
+                        </div>
+                        <div class="checklist-item d-flex align-items-center">
+                            <div class="checklist-icon {{if .passkeys}}checklist-done{{else}}checklist-todo{{end}}">
+                                {{if .passkeys}}<i class="bi bi-check-lg"></i>{{else}}<i class="bi bi-key"></i>{{end}}
+                            </div>
+                            <div class="small fw-bold">Security Key / Passkey</div>
+                        </div>
+                        <div class="mt-3 p-2 bg-primary bg-opacity-10 border border-primary border-opacity-25 rounded text-center">
+                            <div class="extra-small text-uppercase fw-bold text-primary mb-1">Account Hardening</div>
+                            <div class="progress" style="height: 6px; background: rgba(0,0,0,0.3);">
+                                <div class="progress-bar bg-primary" role="progressbar" style="width: {{if and .has2FA .passkeys}}100%{{else if or .has2FA .passkeys}}66%{{else}}33%{{end}}"></div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -60,7 +142,11 @@
                             </div>
                             <div class="mb-3">
                                 <label class="form-label text-muted small fw-bold">New Password</label>
-                                <input type="password" name="new_password" class="form-control" required>
+                                <input type="password" name="new_password" id="new_password" class="form-control" required oninput="checkStrength(this.value)">
+                                <div class="progress mt-2" style="height: 4px; background: rgba(239, 68, 68, 0.1);">
+                                    <div id="strength-bar" class="progress-bar" role="progressbar" style="width: 0%"></div>
+                                </div>
+                                <div id="strength-text" class="extra-small mt-1 text-muted text-uppercase fw-bold" style="letter-spacing: 1px;">Entropy: None</div>
                             </div>
                             <div class="mb-3">
                                 <label class="form-label text-muted small fw-bold">Verify Password</label>
@@ -250,15 +336,18 @@
                                 </thead>
                                 <tbody>
                                     {{range .logs}}
-                                    <tr class="align-middle">
+                                    <tr class="align-middle" style="cursor: pointer;" onclick='showAuditDetail({{.Details | marshal}})'>
                                         <td class="ps-4 text-muted small">{{.Timestamp | formatTime}}</td>
                                         <td><span class="{{.Action | statusColor}} small fw-bold">{{.Action}}</span></td>
                                         <td class="pe-4">
-                                            <div class="extra-small text-muted">
-                                                <i class="bi bi-hdd-network me-1"></i> {{.IP}}
-                                                {{if .Details.country}}
-                                                    <span class="ms-2 badge bg-secondary bg-opacity-25 text-secondary border border-secondary border-opacity-25">{{.Details.country}}</span>
-                                                {{end}}
+                                            <div class="d-flex align-items-center">
+                                                <img data-identicon="{{.Username}}" class="identicon rounded me-2" width="20" height="20">
+                                                <div class="extra-small text-muted">
+                                                    <i class="bi bi-hdd-network me-1"></i> {{.IP}}
+                                                    {{if .Details.country}}
+                                                        <span class="ms-2 badge bg-secondary bg-opacity-25 text-secondary border border-secondary border-opacity-25">{{.Details.country}}</span>
+                                                    {{end}}
+                                                </div>
                                             </div>
                                         </td>
                                     </tr>
@@ -272,6 +361,176 @@
         </div>
     </div>
     <script src="/static/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Identicon Generator
+        function generateIdenticon(str, size = 40) {
+            let hash = 0;
+            for (let i = 0; i < str.length; i++) {
+                hash = str.charCodeAt(i) + ((hash << 5) - hash);
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            const color = `hsl(${Math.abs(hash % 360)}, 70%, 50%)`;
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, size, size);
+            ctx.fillStyle = color;
+            const pixels = 5;
+            const cellSize = size / pixels;
+            for (let i = 0; i < pixels; i++) {
+                for (let j = 0; j < pixels; j++) {
+                    const bit = (Math.abs(hash) >> (i * pixels + j)) & 1;
+                    if (bit) {
+                        ctx.fillRect(i * cellSize, j * cellSize, cellSize, cellSize);
+                        ctx.fillRect((pixels - 1 - i) * cellSize, j * cellSize, cellSize, cellSize);
+                    }
+                }
+            }
+            return canvas.toDataURL();
+        }
+
+        // Audit Detail Logic
+        const auditModal = new bootstrap.Modal(document.getElementById('auditDetailModal'));
+        function showAuditDetail(detailsJson) {
+            document.getElementById('auditDetailContent').innerHTML = `<pre class="mb-0 text-success">${JSON.stringify(detailsJson, null, 2)}</pre>`;
+            auditModal.show();
+        }
+
+        // Command Palette Logic
+        const commands = [
+            { name: 'Security: Change Password', cmd: 'password', action: () => document.getElementsByName('current_password')[0].focus() },
+            { name: 'Security: Add Passkey', cmd: 'passkey', action: () => document.getElementById('register-webauthn').click() },
+            { name: 'Monitor: Active Sessions', cmd: 'sessions', action: () => document.querySelector('.col-lg-8 .card:first-child').scrollIntoView() },
+            { name: 'History: Audit Feed', cmd: 'audit', action: () => document.querySelector('.col-lg-8 .card:last-child').scrollIntoView() },
+            { name: 'Nav: Dashboard', cmd: 'admin', action: () => window.location.href = '/rauthmgmt' },
+            { name: 'Nav: Logout', cmd: 'logout', action: () => document.querySelector('form[action="/logout"]').submit() }
+        ];
+
+        let currentFocus = -1;
+        const cpModalElement = document.getElementById('commandPalette');
+        const cpModal = new bootstrap.Modal(cpModalElement);
+
+        document.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+                e.preventDefault();
+                cpModal.show();
+            }
+            if (e.key === '/') {
+                if (document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
+                    e.preventDefault();
+                    cpModal.show();
+                }
+            }
+        });
+
+        cpModalElement.addEventListener('shown.bs.modal', () => {
+            document.getElementById('commandInput').focus();
+            renderCommands('');
+        });
+
+        document.getElementById('commandInput').addEventListener('input', (e) => {
+            renderCommands(e.target.value);
+        });
+
+        document.getElementById('commandInput').addEventListener('keydown', (e) => {
+            const items = document.querySelectorAll('.command-option');
+            if (e.key === 'ArrowDown') {
+                currentFocus++;
+                addActive(items);
+            } else if (e.key === 'ArrowUp') {
+                currentFocus--;
+                addActive(items);
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                if (currentFocus > -1 && items[currentFocus]) {
+                    items[currentFocus].click();
+                }
+            }
+        });
+
+        function renderCommands(filter) {
+            const results = document.getElementById('commandResults');
+            results.innerHTML = '';
+            const filtered = commands.filter(c => c.name.toLowerCase().includes(filter.toLowerCase()) || c.cmd.includes(filter.toLowerCase()));
+            
+            filtered.forEach((c, idx) => {
+                const div = document.createElement('div');
+                div.className = 'command-option d-flex justify-content-between align-items-center';
+                div.innerHTML = `<span><i class="bi bi-chevron-right me-2 opacity-50"></i>${c.name}</span> <span class="command-shortcut">/${c.cmd}</span>`;
+                div.onclick = () => {
+                    c.action();
+                    cpModal.hide();
+                };
+                results.appendChild(div);
+            });
+            currentFocus = -1;
+        }
+
+        function addActive(items) {
+            if (!items) return false;
+            items.forEach(i => i.classList.remove('active'));
+            if (currentFocus >= items.length) currentFocus = 0;
+            if (currentFocus < 0) currentFocus = items.length - 1;
+            items[currentFocus].classList.add('active');
+            items[currentFocus].scrollIntoView({ block: 'nearest' });
+        }
+
+        // Handle success messages
+        window.addEventListener('load', () => {
+            // Apply identicons
+            document.querySelectorAll('[data-identicon]').forEach(el => {
+                el.src = generateIdenticon(el.getAttribute('data-identicon'), 120);
+            });
+
+            const params = new URLSearchParams(window.location.search);
+            const success = params.get('success');
+            if (success) {
+                const messages = {
+                    'sessions_terminated': 'All other active sessions have been terminated.',
+                    'session_terminated': 'The selected session has been terminated.',
+                    'password_changed': 'Credentials updated successfully.',
+                    'totp_disabled': 'Two-factor authentication has been disabled.',
+                    'passkey_renamed': 'Security key nickname updated.',
+                    'passkey_revoked': 'Security key has been revoked.'
+                };
+                
+                const msg = messages[success] || 'Operation successful.';
+                document.getElementById('toastMessage').textContent = msg;
+                const toast = new bootstrap.Toast(document.getElementById('successToast'));
+                toast.show();
+                
+                // Clean up URL
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+        });
+
+        function checkStrength(p) {
+            let s = 0;
+            if (p.length > 7) s++;
+            if (/[A-Z]/.test(p)) s++;
+            if (/[0-9]/.test(p)) s++;
+            if (/[^A-Za-z0-9]/.test(p)) s++;
+            if (p.length > 12) s++;
+
+            const bar = document.getElementById('strength-bar');
+            const text = document.getElementById('strength-text');
+            const colors = ['#dc2626', '#ea580c', '#eab308', '#84cc16', '#22c55e'];
+            const labels = ['Weak', 'Fair', 'Good', 'Strong', 'Excellent'];
+
+            const score = Math.min(s, 5);
+            if (p.length === 0) {
+                bar.style.width = '0%';
+                text.textContent = 'Entropy: None';
+                text.className = 'extra-small mt-1 text-muted text-uppercase fw-bold';
+            } else {
+                bar.style.width = (score * 20) + '%';
+                bar.style.backgroundColor = colors[score-1] || colors[0];
+                text.textContent = 'Entropy: ' + (labels[score-1] || labels[0]);
+                text.style.color = colors[score-1] || colors[0];
+            }
+        }
+    </script>
 </body>
 </html>
 {{end}}
