@@ -23,6 +23,7 @@ type Config struct {
 	InitialPassword          string
 	InitialEmail             string
 	Initial2FASecret         string
+	WebAuthnOrigins          []string
 	// Password Policy
 	MinPasswordLength    int
 	RequirePasswordUpper  bool
@@ -48,6 +49,7 @@ func LoadConfig() *Config {
 		InitialPassword:      getEnv("INITIAL_PASSWORD", ""),
 		InitialEmail:         getEnv("INITIAL_EMAIL", "admin@local"),
 		Initial2FASecret:     getEnv("INITIAL_2FA_SECRET", ""),
+		WebAuthnOrigins:      getEnvSlice("WEBAUTHN_ORIGINS", []string{}),
 		// Password Policy Defaults
 		MinPasswordLength:     getEnvInt("PWD_MIN_LENGTH", 8),
 		RequirePasswordUpper:  getEnvBool("PWD_REQUIRE_UPPER", true),

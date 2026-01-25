@@ -38,9 +38,39 @@ var WebAuthnInstance *webauthn.WebAuthn
 
 func InitWebAuthn(cfg *Config) error {
 	var err error
-	origins := []string{fmt.Sprintf("https://%s", cfg.CookieDomains[0])}
-	// Add common local dev origins
-	origins = append(origins, "http://localhost:5980", "http://127.0.0.1:5980", "http://localhost", "http://127.0.0.1")
+	
+	// Collect origins
+	originMap := make(map[string]bool)
+	
+	if len(cfg.WebAuthnOrigins) > 0 {
+		for _, o := range cfg.WebAuthnOrigins {
+			originMap[o] = true
+		}
+	} else {
+		// Generate defaults from CookieDomains and AllowedHosts
+		for _, domain := range cfg.CookieDomains {
+			originMap[fmt.Sprintf("https://%s", domain)] = true
+			originMap[fmt.Sprintf("http://%s", domain)] = true
+			originMap[fmt.Sprintf("https://%s:5980", domain)] = true
+			originMap[fmt.Sprintf("http://%s:5980", domain)] = true
+		}
+		for _, host := range cfg.AllowedHosts {
+			originMap[fmt.Sprintf("https://%s", host)] = true
+			originMap[fmt.Sprintf("http://%s", host)] = true
+			originMap[fmt.Sprintf("https://%s:5980", host)] = true
+			originMap[fmt.Sprintf("http://%s:5980", host)] = true
+		}
+		// Always include standard local dev
+		originMap["http://localhost:5980"] = true
+		originMap["http://127.0.0.1:5980"] = true
+		originMap["http://localhost"] = true
+		originMap["http://127.0.0.1"] = true
+	}
+
+	origins := make([]string, 0, len(originMap))
+	for o := range originMap {
+		origins = append(origins, o)
+	}
 	
 	WebAuthnInstance, err = webauthn.New(&webauthn.Config{
 		RPDisplayName: "RAuth",
