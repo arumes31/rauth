@@ -52,6 +52,7 @@ RAuth eliminates the complexity of full-scale identity providers while maintaini
 *   **User Management**: Create, delete, and manage users via a secure dashboard.
 *   **Credential Resets**: Force password changes or reset 2FA seeds for users.
 *   **Audit Logging**: Every sensitive action (logins, failures, admin changes) is captured in a structured, searchable audit feed.
+*   **Email Notifications**: Automated, security-themed HTML alerts for logins, password changes, 2FA modifications, and account creation.
 
 ---
 
@@ -66,6 +67,7 @@ RAuth is built with a "Security-First" mindset:
 5.  **Hardened CSRF & CSP**: Strictly configured CSRF cookies (HTTPOnly, Secure, SameSite=Lax) and a robust Content Security Policy (CSP).
 6.  **Clone Detection**: WebAuthn signature counter persistence allows the detection of cloned or tampered hardware security keys.
 7.  **Hardened Redirects**: Built-in protection against Open Redirects, including protocol-relative URL bypasses.
+8.  **Injection-Safe Emails**: All automated emails are hardened against Header (CRLF) Injection and HTML/XSS attacks.
 
 ---
 
@@ -147,6 +149,12 @@ RAuth is configured via Environment Variables.
 | **Secret** | `SERVER_SECRET` | 32+ char key for AES encryption | **REQUIRED** |
 | **MaxMind**| `MAXMIND_ACCOUNT_ID` | Your Account ID for Geo-IP updates | **REQUIRED** |
 | **MaxMind**| `MAXMIND_LICENSE_KEY` | Your License Key for Geo-IP updates | **REQUIRED** |
+| **Email**  | `SMTP_HOST` | SMTP server hostname | (None) |
+| **Email**  | `SMTP_PORT` | SMTP server port (e.g., 587) | (None) |
+| **Email**  | `SMTP_USER` | SMTP username | (None) |
+| **Email**  | `SMTP_PASS` | SMTP password | (None) |
+| **Email**  | `SMTP_FROM` | Sender email address | (None) |
+| **URL**    | `PUBLIC_URL` | Base URL for email links (e.g., `https://auth.example.com`) | `http://localhost:5980` |
 | **Redis**  | `REDIS_HOST` | Hostname of the Redis instance | `rauth-auth-redis` |
 | **Redis**  | `REDIS_PASSWORD` | Password for Redis auth | (None) |
 | **Auth**   | `COOKIE_DOMAIN` | Domain for the auth cookie | `example.com` |
