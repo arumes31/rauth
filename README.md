@@ -2,7 +2,6 @@
 
 <p align="center">
   <img src="https://img.shields.io/github/go-mod/go-version/arumes31/rauth?label=Go&logo=go&color=00ADD8" alt="Go Version">
-  <a href="https://goreportcard.com/report/github.com/arumes31/rauth"><img src="https://goreportcard.com/badge/github.com/arumes31/rauth" alt="Go Report Card"></a>
   <img src="https://img.shields.io/github/license/arumes31/rauth?label=License&color=blue" alt="License">
   <img src="https://img.shields.io/github/last-commit/arumes31/rauth/main?color=green" alt="Last Commit">
   <img src="https://img.shields.io/github/repo-size/arumes31/rauth" alt="Repo Size">
