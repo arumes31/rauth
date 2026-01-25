@@ -114,3 +114,38 @@ func SendPasswordChangeNotification(email, username, ip string) {
 	_ = SendEmail(email, subject, body)
 }
 
+func SendAccountCreatedNotification(email, username string) {
+	subject := "[RAuth] Welcome: Your Account is Ready"
+	body := fmt.Sprintf(`
+		<h2>Welcome to RAuth</h2>
+		<p>Hello <strong>%s</strong>,</p>
+		<p>An administrator has created an account for you on the RAuth Authentication Proxy.</p>
+		<p>You can now log in using your provided credentials at the link below.</p>
+		<a href="%s/rauthlogin" class="btn">Login to RAuth</a>
+		<p style="margin-top: 20px; font-size: 13px; color: #666;">
+			Note: For your security, please change your password and set up 2FA after your first login.
+		</p>
+	`, username, LoadConfig().PublicURL)
+	
+	_ = SendEmail(email, subject, body)
+}
+
+func Send2FAModifiedNotification(email, username, action, ip string) {
+	subject := fmt.Sprintf("[RAuth] Security Alert: 2FA %s", action)
+	body := fmt.Sprintf(`
+		<h2>Two-Factor Authentication %s</h2>
+		<p>Hello <strong>%s</strong>,</p>
+		<p>A change was made to your security settings: <strong>Two-Factor Authentication was %s</strong>.</p>
+		<div class="details">
+			<div><strong>Action:</strong> %s</div>
+			<div><strong>IP Address:</strong> %s</div>
+			<div><strong>Time:</strong> %s</div>
+		</div>
+		<div class="alert alert-warning">
+			<strong>Wasn't you?</strong> If you did not authorize this change, your account may be compromised. Please contact your administrator immediately.
+		</div>
+	`, action, username, action, action, ip, time.Now().Format("Jan 02, 2006 15:04:05 MST"))
+	
+	_ = SendEmail(email, subject, body)
+}
+

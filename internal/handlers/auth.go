@@ -309,6 +309,12 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 		core.TokenDB.Del(core.Ctx, "pending_setup_secret:"+setupToken)
 		c.SetCookie(&http.Cookie{Name: "rauth_setup_pending", MaxAge: -1, Path: "/", HttpOnly: true, Secure: true})
 
+		// Send notification email
+		userRecord, _ := core.GetUser(username)
+		if userRecord.Email != "" {
+			go core.Send2FAModifiedNotification(userRecord.Email, username, "Enabled", c.RealIP())
+		}
+
 		core.ResetRateLimit("login_ip:" + c.RealIP())
 		core.LogAudit("2FA_SETUP_SUCCESS", username, c.RealIP(), nil)
 		return h.issueToken(c, username)
