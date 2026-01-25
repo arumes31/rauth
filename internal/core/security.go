@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"strings"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -102,4 +103,31 @@ func DecryptToken(encryptedText string, key string) (string, error) {
 	}
 
 	return string(plaintext), nil
+}
+
+func GenerateRandomString(n int) string {
+	b := make([]byte, n)
+	if _, err := io.ReadFull(rand.Reader, b); err != nil {
+		return ""
+	}
+	return base64.URLEncoding.EncodeToString(b)
+}
+
+func Encrypt2FASecret(secret string, key string) string {
+	if secret == "" { return "" }
+	encrypted, err := EncryptToken(secret, key)
+	if err != nil { return secret } // Fallback to plain if encryption fails (should not happen)
+	return "enc:" + encrypted
+}
+
+func Decrypt2FASecret(secret string, key string) string {
+	if secret == "" { return "" }
+	if !strings.HasPrefix(secret, "enc:") {
+		return secret // Already plain
+	}
+	decrypted, err := DecryptToken(secret[4:], key)
+	if err != nil {
+		return secret // Fallback to plain/as-is if decryption fails
+	}
+	return decrypted
 }

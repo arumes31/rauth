@@ -65,6 +65,8 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 		}
 	}
 
+	passkeys := core.GetStoredCredentials(username)
+
 	return c.Render(http.StatusOK, "profile.html", map[string]interface{}{
 		"username":  username,
 		"email":     userData["email"],
@@ -73,8 +75,42 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 		"has2FA":    userData["2fa_secret"] != "",
 		"sessions":  sessions,
 		"logs":      logs,
+		"passkeys":  passkeys,
 		"csrf":      c.Get("csrf"),
 	})
+}
+
+func (h *ProfileHandler) RenamePasskey(c echo.Context) error {
+	username := c.Get("username").(string)
+	credID := c.FormValue("id")
+	nickname := c.FormValue("nickname")
+
+	if credID == "" || nickname == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "ID and Nickname are required")
+	}
+
+	if err := core.UpdateWebAuthnNickname(username, credID, nickname); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to rename passkey")
+	}
+
+	core.LogAudit("PASSKEY_RENAME", username, c.RealIP(), map[string]interface{}{"nickname": nickname})
+	return c.Redirect(http.StatusFound, "/rauthprofile")
+}
+
+func (h *ProfileHandler) RevokePasskey(c echo.Context) error {
+	username := c.Get("username").(string)
+	credID := c.FormValue("id")
+
+	if credID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "ID is required")
+	}
+
+	if err := core.DeleteWebAuthnCredential(username, credID); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to revoke passkey")
+	}
+
+	core.LogAudit("PASSKEY_REVOKE", username, c.RealIP(), nil)
+	return c.Redirect(http.StatusFound, "/rauthprofile")
 }
 
 func (h *ProfileHandler) TerminateSession(c echo.Context) error {
@@ -124,7 +160,8 @@ func (h *ProfileHandler) ChangePassword(c echo.Context) error {
 		if otpCode == "" {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "2FA code required"})
 		}
-		if !totp.Validate(otpCode, userData["2fa_secret"]) {
+		secret := core.Decrypt2FASecret(userData["2fa_secret"], h.Cfg.ServerSecret)
+		if !totp.Validate(otpCode, secret) {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid 2FA code"})
 		}
 	}
@@ -147,6 +184,9 @@ func (h *ProfileHandler) ChangePassword(c echo.Context) error {
 		slog.Error("Failed to update user password in Redis", "user", username, "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to update password")
 	}
+
+	// Security Hardening: Invalidate all other sessions
+	core.InvalidateUserSessions(username)
 
 	slog.Info("Password changed by user", "user", username)
 	core.LogAudit("USER_CHANGE_PASSWORD", username, c.RealIP(), nil)

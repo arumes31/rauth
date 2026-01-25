@@ -37,6 +37,7 @@ RAuth eliminates the complexity of full-scale identity providers while maintaini
 
 ### 🔐 Multi-Factor Authentication (MFA)
 *   **WebAuthn / Passkeys**: Modern, phishing-resistant authentication using hardware keys (YubiKey), TouchID, FaceID, or Windows Hello.
+*   **User-Nameless Login**: Support for Discoverable Credentials (Resident Keys). Users can authenticate without typing a username; the server identifies them via their secure hardware key.
 *   **TOTP Support**: Compatible with Google Authenticator, Authy, and Bitwarden.
 *   **Enforced Setup**: New users are automatically guided through a secure MFA enrollment process.
 
@@ -44,6 +45,7 @@ RAuth eliminates the complexity of full-scale identity providers while maintaini
 *   **Sub-millisecond Validation**: Optimized Go backend with Redis caching for near-zero latency.
 *   **Geo-Fencing**: Built-in MaxMind integration. If a session is accessed from a new country, it is instantly invalidated to prevent session hijacking.
 *   **Device Awareness**: Logs and displays active sessions with User-Agent and IP metadata.
+*   **System-Wide Invalidation**: Every password change or 2FA reset automatically terminates all other active sessions for that account.
 *   **IP-Based Refresh**: Automatically extends session validity as long as the user remains on the same IP.
 
 ### 🛠️ Administrative Control
@@ -57,18 +59,19 @@ RAuth eliminates the complexity of full-scale identity providers while maintaini
 
 RAuth is built with a "Security-First" mindset:
 
-1.  **Authenticated Encryption**: All session tokens stored in cookies are encrypted using **AES-256-GCM**. This provides both confidentiality and tamper-proof integrity.
-2.  **Brute-Force Protection**: Atomic Redis-backed rate limiting per IP and per username.
-3.  **Cross-Site Scripting (XSS)**: Strict Content Security Policy (CSP) and input sanitization.
-4.  **CSRF Protection**: All state-changing operations require a cryptographically secure synchronized token.
-5.  **Secure Cookies**: Cookies are strictly `HttpOnly`, `Secure`, and use `SameSite=Lax` to prevent client-side script access and CSRF.
-6.  **Minimal Attack Surface**: The runtime environment is a hardened Alpine container with no shell access and minimal binaries.
+1.  **Authenticated Encryption**: All session tokens stored in cookies are encrypted using **AES-256-GCM**.
+2.  **At-Rest Secret Encryption**: User TOTP secrets are encrypted with the `SERVER_SECRET` before being stored in Redis, protecting against database exposure.
+3.  **Enumeration Mitigation**: Uniform response times for login attempts via dummy password hashing, preventing username enumeration through timing attacks.
+4.  **Brute-Force Protection**: Atomic Redis-backed rate limiting per IP and per username, covering both password and MFA/Passkey endpoints.
+5.  **Hardened CSRF & CSP**: Strictly configured CSRF cookies (HTTPOnly, Secure, SameSite=Lax) and a robust Content Security Policy (CSP).
+6.  **Clone Detection**: WebAuthn signature counter persistence allows the detection of cloned or tampered hardware security keys.
+7.  **Hardened Redirects**: Built-in protection against Open Redirects, including protocol-relative URL bypasses.
 
 ---
 
 ## 📦 Technical Stack
 
-*   **Runtime**: [Go 1.25+](https://golang.org/) (High-concurrency, memory-safe)
+*   **Runtime**: [Go 1.24+](https://golang.org/) (High-concurrency, memory-safe)
 *   **Web Framework**: [Echo v4](https://echo.labstack.com/)
 *   **Identity Store**: [Redis 8.0+](https://redis.io/)
 *   **MFA Core**: [go-webauthn](https://github.com/go-webauthn/webauthn) & [pquerna/otp](https://github.com/pquerna/otp)
@@ -148,6 +151,8 @@ RAuth is configured via Environment Variables.
 | **Redis**  | `REDIS_PASSWORD` | Password for Redis auth | (None) |
 | **Auth**   | `COOKIE_DOMAIN` | Domain for the auth cookie | `example.com` |
 | **Auth**   | `TOKEN_VALIDITY` | Session duration in minutes | `2880` (2 days) |
+| **WebAuthn**| `WEBAUTHN_ORIGINS`| Allowed origins for Passkeys (Comma-separated)| (Auto-generated) |
+| **Regional**| `TZ` | Container Timezone (e.g., `Europe/Berlin`) | `UTC` |
 | **Security**| `METRICS_ALLOWED_IPS`| CIDR list for `/metrics` access | (Private + Tailscale) |
 | **Policy** | `PWD_MIN_LENGTH` | Minimum required password length | `8` |
 
@@ -176,7 +181,7 @@ RAuth will automatically initialize the primary admin user defined in your envir
 ## 💻 Development
 
 ### Prerequisites
-*   Go 1.25+
+*   Go 1.24+
 *   Redis (or [miniredis](https://github.com/alicebob/miniredis) for testing)
 
 ### Testing

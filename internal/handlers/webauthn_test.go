@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
-	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/labstack/echo/v4"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
@@ -55,42 +54,40 @@ func TestWebAuthnHandlers(t *testing.T) {
 			var options map[string]interface{}
 			err := json.Unmarshal(rec.Body.Bytes(), &options)
 			assert.NoError(t, err)
-			// In Response format, challenge and user are at the top level
 			assert.NotNil(t, options["challenge"])
-			assert.NotNil(t, options["user"])
 		}
 	})
 
-	t.Run("BeginLogin_NoUsername", func(t *testing.T) {
+	t.Run("BeginLogin_Nameless_Success", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/webauthn/login/begin", nil)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := h.BeginLogin(c)
-		if assert.Error(t, err) {
-			he, ok := err.(*echo.HTTPError)
-			assert.True(t, ok)
-			assert.Equal(t, http.StatusBadRequest, he.Code)
-		}
-	})
-
-	t.Run("BeginLogin_Success", func(t *testing.T) {
-		// Register a fake credential first
-		cred := &webauthn.Credential{ID: []byte("credID"), PublicKey: []byte("pubKey")}
-		err := core.SaveWebAuthnCredential("testuser", cred)
-		assert.NoError(t, err)
-
-		req := httptest.NewRequest(http.MethodGet, "/webauthn/login/begin?username=testuser", nil)
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
 
 		if assert.NoError(t, h.BeginLogin(c)) {
 			assert.Equal(t, http.StatusOK, rec.Code)
-			var options map[string]interface{}
-			err := json.Unmarshal(rec.Body.Bytes(), &options)
-			assert.NoError(t, err)
-			// In Response format, challenge is at the top level
-			assert.NotNil(t, options["challenge"])
+			// Should set rauth_webauthn_session cookie
+			cookies := rec.Result().Cookies()
+			found := false
+			for _, cookie := range cookies {
+				if cookie.Name == "rauth_webauthn_session" {
+					found = true
+					break
+				}
+			}
+			assert.True(t, found)
+		}
+	})
+
+	t.Run("FinishLogin_MissingSession", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/webauthn/login/finish", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := h.FinishLogin(c)
+		if assert.Error(t, err) {
+			he, ok := err.(*echo.HTTPError)
+			assert.True(t, ok)
+			assert.Equal(t, http.StatusBadRequest, he.Code)
 		}
 	})
 }

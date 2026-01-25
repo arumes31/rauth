@@ -97,9 +97,12 @@ func main() {
 	
 	// CSRF Protection
 	e.Use(echoMiddleware.CSRFWithConfig(echoMiddleware.CSRFConfig{
-		TokenLookup: "form:csrf", // Look for 'csrf' field in forms
-		CookieName:  "_csrf",
-		CookiePath:  "/",
+		TokenLookup:    "header:X-CSRF-Token,form:csrf",
+		CookieName:     "_csrf",
+		CookiePath:     "/",
+		CookieHTTPOnly: true,
+		CookieSecure:   true,
+		CookieSameSite: http.SameSiteLaxMode,
 	}))
 
 	funcMap := template.FuncMap{
@@ -215,6 +218,8 @@ func main() {
 	protected.GET("/rauthprofile", profileHandler.Show)
 	protected.POST("/rauthprofile/password", profileHandler.ChangePassword)
 	protected.POST("/rauthprofile/session/terminate", profileHandler.TerminateSession)
+	protected.POST("/rauthprofile/passkey/rename", profileHandler.RenamePasskey)
+	protected.POST("/rauthprofile/passkey/revoke", profileHandler.RevokePasskey)
 
 	// Admin Routes
 	admin := protected.Group("/rauthmgmt")

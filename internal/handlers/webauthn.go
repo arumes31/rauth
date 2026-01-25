@@ -7,6 +7,7 @@ import (
 	"rauth/internal/core"
 	"time"
 
+	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/labstack/echo/v4"
 )
@@ -40,6 +41,11 @@ func (h *WebAuthnHandler) BeginRegistration(c echo.Context) error {
 }
 
 func (h *WebAuthnHandler) FinishRegistration(c echo.Context) error {
+	clientIP := c.RealIP()
+	if !core.CheckRateLimit("reg_ip:"+clientIP, 10, 300) {
+		return echo.NewHTTPError(http.StatusTooManyRequests, "Too many registration attempts")
+	}
+
 	username, ok := c.Get("username").(string)
 	if !ok {
 		return echo.NewHTTPError(http.StatusUnauthorized)
@@ -79,72 +85,108 @@ func (h *WebAuthnHandler) FinishRegistration(c echo.Context) error {
 
 func (h *WebAuthnHandler) BeginLogin(c echo.Context) error {
 	username := c.QueryParam("username")
-	if username == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "Username required")
+	var options *protocol.CredentialAssertion
+	var sessionData *webauthn.SessionData
+	var err error
+
+	if username != "" {
+		user := &core.WebAuthnUser{
+			ID:          []byte(username),
+			DisplayName: username,
+			Credentials: core.GetWebAuthnCredentials(username),
+		}
+		options, sessionData, err = core.WebAuthnInstance.BeginLogin(user)
+	} else {
+		// Nameless login
+		options, sessionData, err = core.WebAuthnInstance.BeginDiscoverableLogin()
 	}
 
-	user := &core.WebAuthnUser{
-		ID:          []byte(username),
-		DisplayName: username,
-		Credentials: core.GetWebAuthnCredentials(username),
-	}
-
-	options, sessionData, err := core.WebAuthnInstance.BeginLogin(user)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
 	sessionJSON, _ := json.Marshal(sessionData)
-	core.TokenDB.Set(core.Ctx, "webauthn_login:"+username, sessionJSON, 5*time.Minute)
+	
+	sessionID := core.GenerateRandomString(32)
+	redisKey := "webauthn_login_session:" + sessionID
+	core.TokenDB.Set(core.Ctx, redisKey, sessionJSON, 5*time.Minute)
+
+	cookie := &http.Cookie{
+		Name:     "rauth_webauthn_session",
+		Value:    sessionID,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+		Expires:  time.Now().Add(5 * time.Minute),
+	}
+	c.SetCookie(cookie)
 
 	return c.JSON(http.StatusOK, options.Response)
 }
 
 func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
-	username := c.QueryParam("username")
-	if username == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "Username required")
+	clientIP := c.RealIP()
+	if !core.CheckRateLimit("login_ip:"+clientIP, 10, 300) {
+		return echo.NewHTTPError(http.StatusTooManyRequests, "Too many login attempts")
 	}
 
-	user := &core.WebAuthnUser{
-		ID:          []byte(username),
-		DisplayName: username,
-		Credentials: core.GetWebAuthnCredentials(username),
+	cookie, err := c.Cookie("rauth_webauthn_session")
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "Missing WebAuthn session")
 	}
+	sessionID := cookie.Value
+	redisKey := "webauthn_login_session:" + sessionID
 
-	redisKey := "webauthn_login:" + username
 	sessionJSON, err := core.TokenDB.Get(core.Ctx, redisKey).Result()
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "Session expired")
 	}
-	// Delete immediately to prevent replay
 	core.TokenDB.Del(core.Ctx, redisKey)
+	c.SetCookie(&http.Cookie{Name: "rauth_webauthn_session", MaxAge: -1, Path: "/"})
 
 	var sessionData webauthn.SessionData
 	if err := json.Unmarshal([]byte(sessionJSON), &sessionData); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to parse session data")
 	}
 
-	_, err = core.WebAuthnInstance.FinishLogin(user, sessionData, c.Request())
+	parsedResponse, err := protocol.ParseCredentialRequestResponse(c.Request())
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "Failed to parse response")
+	}
+
+	// Identify user from UserHandle (which we store as the username string)
+	username := string(parsedResponse.Response.UserHandle)
+	if username == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "Credential did not provide user information")
+	}
+
+	user := &core.WebAuthnUser{
+		ID:          []byte(username),
+		DisplayName: username,
+		Credentials: core.GetWebAuthnCredentials(username),
+	}
+
+	credential, err := core.WebAuthnInstance.FinishLogin(user, sessionData, c.Request())
 	if err != nil {
 		return echo.NewHTTPError(http.StatusUnauthorized, err.Error())
 	}
 
-	core.TokenDB.Del(core.Ctx, "webauthn_login:"+username)
+	core.UpdateWebAuthnCredential(username, credential)
 	
 	// Create actual auth session
 	authHandler := &AuthHandler{Cfg: h.Cfg}
-	
-	// Temporarily capture the redirect
 	rec := httptest.NewRecorder()
 	e := echo.New()
 	req := c.Request()
 	ctx := e.NewContext(req, rec)
-	ctx.Set("username", username) // Simulating login status for issueToken
 	
-	if err := authHandler.issueToken(c, username); err != nil {
+	if err := authHandler.issueToken(ctx, username); err != nil {
 		return err
 	}
 
-	return c.JSON(http.StatusOK, map[string]string{"status": "success", "redirect": c.Response().Header().Get("Location")})
+	return c.JSON(http.StatusOK, map[string]string{
+		"status":   "success", 
+		"redirect": rec.Header().Get("Location"),
+	})
 }

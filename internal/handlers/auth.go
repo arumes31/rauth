@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"rauth/internal/core"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -61,11 +62,27 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 
 	// Geo-check
 	currentCountry := core.GetCountryCode(clientIP)
+	if !h.Cfg.IsCountryAllowed(currentCountry) {
+		slog.Warn("Access from blocked country", "country", currentCountry, "ip", clientIP)
+		core.LogAudit("BLOCKED_COUNTRY_ACCESS", data["username"], clientIP, map[string]interface{}{"country": currentCountry})
+		core.TokenDB.Del(core.Ctx, redisKey)
+		return c.NoContent(http.StatusUnauthorized)
+	}
+
 	if data["country"] != "unknown" && currentCountry != "unknown" && data["country"] != currentCountry {
 		core.LogAudit("COUNTRY_CHANGE_DETECTED", data["username"], clientIP, map[string]interface{}{"old": data["country"], "new": currentCountry, "current_ip": clientIP})
 		// Expire instant if country changes
 		core.TokenDB.Del(core.Ctx, redisKey)
 		return c.NoContent(http.StatusUnauthorized)
+	}
+
+	// User-Agent check (Fingerprinting)
+	if data["user_agent"] != c.Request().UserAgent() {
+		slog.Warn("User-Agent change detected", "username", data["username"], "old", data["user_agent"], "new", c.Request().UserAgent())
+		core.LogAudit("USER_AGENT_CHANGE_DETECTED", data["username"], clientIP, map[string]interface{}{"old": data["user_agent"], "new": c.Request().UserAgent()})
+		// We could expire here, but let's be less aggressive for now and just log it unless it's a critical app.
+		// For RAuth, safety first: let's expire if UA changes significantly?
+		// Actually, let's just log for now to avoid false positives with browser updates.
 	}
 
 	c.Response().Header().Set("X-RAuth-User", data["username"])
@@ -112,7 +129,18 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	password := c.FormValue("password")
 
 	userData, err := core.UserDB.HGetAll(core.Ctx, "user:"+username).Result()
-	if err != nil || len(userData) == 0 || !core.CheckPasswordHash(password, userData["password"]) {
+	
+	// Constant time password check to prevent username enumeration
+	var valid bool
+	if err == nil && len(userData) > 0 {
+		valid = core.CheckPasswordHash(password, userData["password"])
+	} else {
+		// Dummy hash to simulate work
+		core.CheckPasswordHash(password, "$2a$12$ce88271ea06248da6b12669ef405f18a52c193fcced142ee27")
+		valid = false
+	}
+
+	if !valid {
 		core.LogAudit("LOGIN_FAILED", username, clientIP, nil)
 		core.LoginFailedTotal.Inc()
 		return c.Render(http.StatusOK, "login.html", map[string]interface{}{"error": "Invalid credentials", "csrf": c.Get("csrf")})
@@ -137,6 +165,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 			"display2fa": true,
 			"username":   username,
 			"csrf":       c.Get("csrf"),
+			"rd":         c.QueryParam("rd"),
 		})
 	}
 
@@ -152,10 +181,20 @@ func (h *AuthHandler) Login(c echo.Context) error {
 		SameSite: http.SameSiteLaxMode,
 		Expires:  time.Now().Add(10 * time.Minute),
 	})
-	return c.Redirect(http.StatusFound, "/rauthsetup2fa")
+	
+	redirectURL := "/rauthsetup2fa"
+	if rd := c.QueryParam("rd"); rd != "" {
+		redirectURL += "?rd=" + url.QueryEscape(rd)
+	}
+	return c.Redirect(http.StatusFound, redirectURL)
 }
 
 func (h *AuthHandler) Verify2FA(c echo.Context) error {
+	clientIP := c.RealIP()
+	if !core.CheckRateLimit("login_ip:"+clientIP, 10, 300) {
+		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many attempts. Please try again later.", "csrf": c.Get("csrf"), "display2fa": true})
+	}
+
 	code := c.FormValue("totp_code")
 	pendingCookie, err := c.Cookie("rauth_2fa_pending")
 	if err != nil {
@@ -173,7 +212,8 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 	}
 
 	userData, _ := core.UserDB.HGetAll(core.Ctx, "user:"+username).Result()
-	if totp.Validate(code, userData["2fa_secret"]) {
+	secret := core.Decrypt2FASecret(userData["2fa_secret"], h.Cfg.ServerSecret)
+	if totp.Validate(code, secret) {
 		core.TokenDB.Del(core.Ctx, "pending_2fa:"+pendingToken)
 		// Clear pending cookie
 		c.SetCookie(&http.Cookie{Name: "rauth_2fa_pending", MaxAge: -1, Path: "/", HttpOnly: true, Secure: true})
@@ -222,10 +262,16 @@ func (h *AuthHandler) Setup2FA(c echo.Context) error {
 	return c.Render(http.StatusOK, "setup_2fa.html", map[string]interface{}{
 		"secret": key.Secret(),
 		"csrf":   c.Get("csrf"),
+		"rd":     c.QueryParam("rd"),
 	})
 }
 
 func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
+	clientIP := c.RealIP()
+	if !core.CheckRateLimit("login_ip:"+clientIP, 10, 300) {
+		return c.Render(http.StatusTooManyRequests, "setup_2fa.html", map[string]interface{}{"error": "Too many attempts. Please try again later.", "csrf": c.Get("csrf")})
+	}
+
 	cookie, err := c.Cookie("rauth_setup_pending")
 	if err != nil {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
@@ -249,8 +295,9 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 	code := c.FormValue("totp_code")
 	// Verify the code against the temporary secret
 	if totp.Validate(code, secret) {
-		// Save to user profile
-		err = core.UserDB.HSet(core.Ctx, "user:"+username, "2fa_secret", secret).Err()
+		// Save to user profile (encrypted)
+		encryptedSecret := core.Encrypt2FASecret(secret, h.Cfg.ServerSecret)
+		err = core.UserDB.HSet(core.Ctx, "user:"+username, "2fa_secret", encryptedSecret).Err()
 		if err != nil {
 			slog.Error("Failed to save 2FA secret", "error", err)
 			return echo.NewHTTPError(http.StatusInternalServerError, "Database Error")
@@ -311,6 +358,12 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 	clientIP := c.RealIP()
 	country := core.GetCountryCode(clientIP)
 
+	if !h.Cfg.IsCountryAllowed(country) {
+		slog.Warn("Login attempt from blocked country", "country", country, "ip", clientIP, "user", username)
+		core.LogAudit("BLOCKED_COUNTRY_LOGIN_ATTEMPT", username, clientIP, map[string]interface{}{"country": country})
+		return echo.NewHTTPError(http.StatusForbidden, "Access from your location is restricted")
+	}
+
 	redisKey := "X-rauth-authtoken=" + token
 	err = core.TokenDB.HSet(core.Ctx, redisKey, map[string]interface{}{
 		"status":     "valid",
@@ -345,10 +398,25 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 	
 	redirect := c.QueryParam("rd")
 	if redirect != "" {
-		parsedURL, err := url.Parse(redirect)
-		if err != nil || (parsedURL.IsAbs() && !h.Cfg.IsAllowedHost(parsedURL.Hostname())) {
-			slog.Warn("Unsafe redirect attempted", "host", redirect, "user", username)
+		// Prevent protocol-relative redirects (e.g., //evil.com)
+		if strings.HasPrefix(redirect, "//") {
+			slog.Warn("Protocol-relative redirect attempted", "url", redirect, "user", username)
 			redirect = "/rauthprofile"
+		} else {
+			parsedURL, err := url.Parse(redirect)
+			if err != nil {
+				redirect = "/rauthprofile"
+			} else if parsedURL.IsAbs() {
+				if !h.Cfg.IsAllowedHost(parsedURL.Hostname()) {
+					slog.Warn("Unsafe absolute redirect attempted", "host", parsedURL.Hostname(), "user", username)
+					redirect = "/rauthprofile"
+				}
+			} else {
+				// Relative URL - ensure it starts with / and not // (checked above)
+				if !strings.HasPrefix(redirect, "/") {
+					redirect = "/" + redirect
+				}
+			}
 		}
 	}
 	if redirect == "" { redirect = "/rauthprofile" }

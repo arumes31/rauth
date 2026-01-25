@@ -13,9 +13,11 @@ var (
 	TokenDB      *redis.Client
 	RateLimitDB  *redis.Client
 	AuditDB      *redis.Client
+	ServerSecret string
 )
 
 func InitRedis(cfg *Config) error {
+	ServerSecret = cfg.ServerSecret
 	opts := &redis.Options{
 		Addr:         fmt.Sprintf("%s:%s", cfg.RedisHost, cfg.RedisPort),
 		Password:     cfg.RedisPassword,
@@ -39,6 +41,20 @@ func InitRedis(cfg *Config) error {
 	}
 
 	return nil
+}
+
+func InvalidateUserSessions(username string) {
+	keys, err := TokenDB.Keys(Ctx, "X-rauth-authtoken=*").Result()
+	if err != nil {
+		return
+	}
+
+	for _, k := range keys {
+		data, err := TokenDB.HGetAll(Ctx, k).Result()
+		if err == nil && data["username"] == username {
+			TokenDB.Del(Ctx, k)
+		}
+	}
 }
 
 func copyOptions(base *redis.Options, db int) *redis.Options {

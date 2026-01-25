@@ -70,22 +70,39 @@
                             const { startAuthentication } = SimpleWebAuthnBrowser;
                             const username = document.querySelector('input[name="username"]').value;
                             const msg = document.getElementById('webauthn-msg');
-                            if (!username) {
-                                msg.className = "text-center extra-small mt-2 text-danger";
-                                msg.textContent = "Enter username first";
-                                return;
-                            }
+                            const urlParams = new URLSearchParams(window.location.search);
+                            const rd = urlParams.get('rd');
+
+                            msg.className = "text-center extra-small mt-2 text-info";
+                            msg.textContent = "Checking for passkeys...";
 
                             try {
-                                const response = await fetch('/webauthn/login/begin?username=' + username);
+                                // For nameless login, we don't send a username
+                                let beginUrl = '/webauthn/login/begin';
+                                if (username) {
+                                    beginUrl += '?username=' + encodeURIComponent(username);
+                                }
+                                
+                                const response = await fetch(beginUrl);
                                 if (!response.ok) throw new Error("Could not start login");
                                 const optionsJSON = await response.json();
 
                                 const assertion = await startAuthentication({ optionsJSON });
 
-                                const finishResponse = await fetch('/webauthn/login/finish?username=' + username, {
+                                let finishUrl = '/webauthn/login/finish';
+                                const finishParams = new URLSearchParams();
+                                if (username) finishParams.append('username', username);
+                                if (rd) finishParams.append('rd', rd);
+                                
+                                const queryString = finishParams.toString();
+                                if (queryString) finishUrl += '?' + queryString;
+
+                                const finishResponse = await fetch(finishUrl, {
                                     method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
+                                    headers: { 
+                                        'Content-Type': 'application/json',
+                                        'X-CSRF-Token': '{{.csrf}}'
+                                    },
                                     body: JSON.stringify(assertion)
                                 });
 
@@ -93,8 +110,9 @@
                                     const result = await finishResponse.json();
                                     window.location.href = result.redirect || '/rauthprofile';
                                 } else {
+                                    const errorData = await finishResponse.json();
                                     msg.className = "text-center extra-small mt-2 text-danger";
-                                    msg.textContent = "Authentication failed";
+                                    msg.textContent = errorData.message || "Authentication failed";
                                 }
                             } catch (e) {
                                 msg.className = "text-center extra-small mt-2 text-danger";
