@@ -95,6 +95,25 @@ func main() {
 	
 	e.Use(echoMiddleware.Recover())
 	
+	// Custom HTTP Error Handler
+	e.HTTPErrorHandler = func(err error, c echo.Context) {
+		code := http.StatusInternalServerError
+		if he, ok := err.(*echo.HTTPError); ok {
+			code = he.Code
+		}
+		
+		if code == http.StatusNotFound {
+			if renderErr := c.Render(http.StatusNotFound, "404.html", map[string]interface{}{
+				"csrf": c.Get("csrf"), // Might be needed for the back button form if any
+			}); renderErr != nil {
+				slog.Error("Failed to render 404 page", "error", renderErr)
+			}
+			return
+		}
+		
+		e.DefaultHTTPErrorHandler(err, c)
+	}
+	
 	// CSRF Protection
 	e.Use(echoMiddleware.CSRFWithConfig(echoMiddleware.CSRFConfig{
 		TokenLookup:    "header:X-CSRF-Token,form:csrf",
