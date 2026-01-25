@@ -5,7 +5,6 @@
   <img src="https://img.shields.io/github/license/arumes31/rauth?label=License&color=blue" alt="License">
   <img src="https://img.shields.io/github/last-commit/arumes31/rauth/main?color=green" alt="Last Commit">
   <img src="https://img.shields.io/github/repo-size/arumes31/rauth" alt="Repo Size">
-  <img src="https://img.shields.io/ghcr/size/arumes31/rauth-auth?color=blue&label=image%20size&logo=docker" alt="Docker Image Size">
 </p>
 
 <p align="center">
