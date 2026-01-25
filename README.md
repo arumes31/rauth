@@ -180,6 +180,20 @@ By default, the `/metrics` endpoint is restricted to:
 
 ---
 
+## 📊 Screenshots
+
+<img width="1013" height="1004" alt="grafik" src="https://github.com/user-attachments/assets/6fa18ab8-98fc-457d-821c-a6496f769d38" />
+<img width="1522" height="1237" alt="grafik" src="https://github.com/user-attachments/assets/0887e100-f21c-4a97-8b91-cc56f0bac358" />
+<img width="465" height="1015" alt="grafik" src="https://github.com/user-attachments/assets/0ccbc5da-6ac3-4883-ab4b-949296e01025" />
+<img width="1424" height="547" alt="grafik" src="https://github.com/user-attachments/assets/5031feb7-d2d6-4ea4-b32e-1293ada41399" />
+<img width="1440" height="747" alt="grafik" src="https://github.com/user-attachments/assets/3fc67177-9190-495b-99f4-44a72a8acdc3" />
+<img width="1498" height="1213" alt="grafik" src="https://github.com/user-attachments/assets/7eb5898b-7bbb-4094-87a2-555cea9cafc4" />
+<img width="1423" height="484" alt="grafik" src="https://github.com/user-attachments/assets/af946f2f-a1aa-419d-be78-0e33635f4063" />
+
+
+
+---
+
 ## ⚙️ Configuration
 
 RAuth is configured via Environment Variables.
