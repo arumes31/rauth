@@ -23,7 +23,7 @@ func TestCustomNotFoundHandler(t *testing.T) {
 		}
 		
 		if code == http.StatusNotFound {
-			_ = c.Render(http.StatusNotFound, "404.html", nil)
+			_ = c.Render(http.StatusNotFound, "error.html", nil)
 			return
 		}
 		e.DefaultHTTPErrorHandler(err, c)
