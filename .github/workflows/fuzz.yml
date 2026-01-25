@@ -1,0 +1,17 @@
+name: continuous-fuzzing
+on:
+  push:
+    branches: [ main, test ]
+  pull_request:
+    branches: [ main, test ]
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - name: Fuzz Security Core
+        run: go test -fuzz=FuzzDecryptToken -fuzztime=5m ./internal/core
