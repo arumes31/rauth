@@ -129,12 +129,12 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	username := strings.TrimSpace(c.FormValue("username"))
 	password := c.FormValue("password")
 
-	userData, err := core.UserDB.HGetAll(core.Ctx, "user:"+username).Result()
+	userRecord, err := core.GetUser(username)
 	
 	// Constant time password check to prevent username enumeration
 	var valid bool
-	if err == nil && len(userData) > 0 {
-		valid = core.CheckPasswordHash(password, userData["password"])
+	if err == nil {
+		valid = core.CheckPasswordHash(password, userRecord.Password)
 	} else {
 		// Dummy hash to simulate work
 		core.CheckPasswordHash(password, "$2a$12$ce88271ea06248da6b12669ef405f18a52c193fcced142ee27")
@@ -148,7 +148,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	}
 
 	// Check if 2FA is enabled
-	if userData["2fa_secret"] != "" {
+	if userRecord.TwoFactor != "" {
 		// Issue a temporary short-lived session for 2FA verification
 		tempToken := h.issueTempToken(username)
 		encrypted, _ := core.EncryptToken(tempToken, h.Cfg.ServerSecret)
@@ -212,8 +212,8 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
 
-	userData, _ := core.UserDB.HGetAll(core.Ctx, "user:"+username).Result()
-	secret := core.Decrypt2FASecret(userData["2fa_secret"], h.Cfg.ServerSecret)
+	userRecord, _ := core.GetUser(username)
+	secret := core.Decrypt2FASecret(userRecord.TwoFactor, h.Cfg.ServerSecret)
 	if totp.Validate(code, secret) {
 		core.TokenDB.Del(core.Ctx, "pending_2fa:"+pendingToken)
 		// Clear pending cookie

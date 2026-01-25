@@ -41,6 +41,14 @@ func (u *WebAuthnUser) WebAuthnCredentials() []webauthn.Credential {
 	return u.Credentials
 }
 
+func NewWebAuthnUser(user User) *WebAuthnUser {
+	return &WebAuthnUser{
+		ID:          []byte(user.UID),
+		DisplayName: user.Username,
+		Credentials: GetWebAuthnCredentials(user.Username),
+	}
+}
+
 type StoredCredential struct {
 	webauthn.Credential
 	Nickname  string `json:"nickname"`
@@ -138,6 +146,23 @@ func GetStoredCredentials(username string) []StoredCredential {
 		}
 	}
 	return creds
+}
+
+func UpdateWebAuthnSignCount(username string, credID []byte, newCount uint32) {
+	key := "user:" + username + ":webauthn_creds"
+	results, _ := UserDB.LRange(Ctx, key, 0, -1).Result()
+	for i, r := range results {
+		var c StoredCredential
+		if err := json.Unmarshal([]byte(r), &c); err == nil {
+			if string(c.ID) == string(credID) {
+				c.Authenticator.SignCount = newCount
+				c.LastUsed = time.Now().Unix()
+				data, _ := json.Marshal(c)
+				UserDB.LSet(Ctx, key, int64(i), data)
+				return
+			}
+		}
+	}
 }
 
 func DeleteWebAuthnCredential(username string, credID string) error {
