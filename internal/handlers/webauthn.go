@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"rauth/internal/core"
@@ -152,7 +153,8 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 
 	parsedResponse, err := protocol.ParseCredentialRequestResponse(c.Request())
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "Failed to parse response")
+		slog.Error("WebAuthn parse assertion failed", "error", err)
+		return echo.NewHTTPError(http.StatusBadRequest, "Failed to parse assertion: "+err.Error())
 	}
 
 	// Identify user from UserHandle (which we store as the username string)
@@ -167,8 +169,9 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 		Credentials: core.GetWebAuthnCredentials(username),
 	}
 
-	credential, err := core.WebAuthnInstance.FinishLogin(user, sessionData, c.Request())
+	credential, err := core.WebAuthnInstance.ValidateLogin(user, sessionData, parsedResponse)
 	if err != nil {
+		slog.Warn("WebAuthn login validation failed", "user", username, "error", err)
 		return echo.NewHTTPError(http.StatusUnauthorized, err.Error())
 	}
 
