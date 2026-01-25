@@ -94,6 +94,15 @@
                                             </span>
                                         </td>
                                         <td class="text-end pe-4">
+                                            <form method="POST" action="/rauthmgmt/session/invalidate" onsubmit="return confirm('Invalidate this session?')">
+                                                <input type="hidden" name="csrf" value="{{$.csrf}}">
+                                                <input type="hidden" name="token" value="{{index . "token"}}">
+                                                <button type="submit" class="btn btn-sm btn-outline-danger border-0" title="Terminate Session">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
+                                            </form>
+                                        </td>
+                                    </tr>
                                     {{else}}
                                     <tr>
                                         <td colspan="4" class="text-center py-5 text-muted">No active sessions found</td>

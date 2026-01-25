@@ -129,6 +129,55 @@
             </div>
 
             <div class="col-lg-8">
+                <div class="card mb-4">
+                    <div class="card-header border-0 d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0">Active Sessions</h6>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0">
+                                <thead>
+                                    <tr>
+                                        <th class="ps-4">Device / Location</th>
+                                        <th>Started</th>
+                                        <th class="text-end pe-4">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {{range .sessions}}
+                                    <tr class="align-middle {{if eq .is_current "1"}}bg-primary bg-opacity-10{{end}}">
+                                        <td class="ps-4">
+                                            <div class="small fw-bold">
+                                                {{if eq .is_current "1"}}<span class="badge bg-primary me-2">Current</span>{{end}}
+                                                {{.user_agent}}
+                                            </div>
+                                            <div class="extra-small text-muted">
+                                                <i class="bi bi-geo-alt me-1"></i> {{.ip}} 
+                                                <span class="ms-1 badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25">{{.country}}</span>
+                                            </div>
+                                        </td>
+                                        <td class="text-muted small">
+                                            {{.created_at | formatTime}}
+                                        </td>
+                                        <td class="text-end pe-4">
+                                            {{if ne .is_current "1"}}
+                                            <form method="POST" action="/rauthprofile/session/terminate">
+                                                <input type="hidden" name="csrf" value="{{$.csrf}}">
+                                                <input type="hidden" name="token" value="{{.token}}">
+                                                <button type="submit" class="btn btn-sm btn-link text-danger p-0" title="Logout this device">
+                                                    <i class="bi bi-x-circle fs-5"></i>
+                                                </button>
+                                            </form>
+                                            {{end}}
+                                        </td>
+                                    </tr>
+                                    {{end}}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="card">
                     <div class="card-header border-0 d-flex justify-content-between align-items-center">
                         <h6 class="mb-0">My Security Activity Feed</h6>
