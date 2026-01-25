@@ -38,6 +38,7 @@ RAuth eliminates the complexity of full-scale identity providers while maintaini
 - [📦 Technical Stack](#-technical-stack)
 - [🔧 Nginx Integration](#-nginx-integration)
 - [📊 Monitoring & Observability](#-monitoring--observability)
+- [📊 Screenshots](#-screenshots)
 - [⚙️ Configuration](#-configuration)
 - [🚀 Deployment](#-deployment)
 - [💻 Development](#-development)
