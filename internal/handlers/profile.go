@@ -45,7 +45,6 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 			}
 			data["ttl"] = fmt.Sprintf("%d", int(core.TokenDB.TTL(core.Ctx, k).Val().Seconds()))
 			data["friendly_ua"] = core.FormatUserAgent(data["user_agent"])
-			data["device_icon"] = core.GetDeviceIcon(data["user_agent"])
 			sessions = append(sessions, data)
 		}
 	}
@@ -176,6 +175,16 @@ func (h *ProfileHandler) TerminateSession(c echo.Context) error {
 	core.LogAudit("USER_TERMINATE_SESSION", username, c.RealIP(), map[string]interface{}{"token": token[:8] + "..."})
 
 	return c.Redirect(http.StatusFound, "/rauthprofile?success=session_terminated")
+}
+
+func (h *ProfileHandler) TerminateAllOtherSessions(c echo.Context) error {
+	username := c.Get("username").(string)
+	currentToken := c.Get("token").(string)
+
+	core.InvalidateOtherUserSessions(username, currentToken)
+	core.LogAudit("USER_TERMINATE_ALL_OTHER_SESSIONS", username, c.RealIP(), nil)
+
+	return c.Redirect(http.StatusFound, "/rauthprofile?success=sessions_terminated")
 }
 
 func (h *ProfileHandler) TerminateAllOtherSessions(c echo.Context) error {

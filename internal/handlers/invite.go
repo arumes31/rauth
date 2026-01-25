@@ -22,9 +22,7 @@ func (h *InviteHandler) Create(c echo.Context) error {
 
 	// Generate token
 	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to generate invitation token")
-	}
+	rand.Read(b)
 	token := hex.EncodeToString(b)
 
 	// Store token with email (24h expiry)

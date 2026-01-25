@@ -289,24 +289,13 @@
                                     {{range .sessions}}
                                     <tr class="align-middle {{if eq .is_current "1"}}bg-primary bg-opacity-10{{end}}">
                                         <td class="ps-4">
-                                            <div class="d-flex align-items-center">
-                                                <div class="position-relative me-3">
-                                                    <img data-identicon="{{$.username}}" class="identicon rounded" width="32" height="32">
-                                                    <div class="position-absolute bottom-0 end-0 bg-primary rounded-circle border border-black" style="width: 12px; height: 12px; margin: -2px;"></div>
-                                                </div>
-                                                <div class="fs-4 me-3 text-primary opacity-75">
-                                                    <i class="bi {{.device_icon}}"></i>
-                                                </div>
-                                                <div>
-                                                    <div class="small fw-bold">
-                                                        {{if eq .is_current "1"}}<span class="badge bg-primary me-2">Current</span>{{end}}
-                                                        {{.friendly_ua}}
-                                                    </div>
-                                                    <div class="extra-small text-muted" title="{{.user_agent}}">
-                                                        <i class="bi bi-geo-alt me-1"></i> {{.ip}} 
-                                                        <span class="ms-1 badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25">{{.country}}</span>
-                                                    </div>
-                                                </div>
+                                            <div class="small fw-bold">
+                                                {{if eq .is_current "1"}}<span class="badge bg-primary me-2">Current</span>{{end}}
+                                                {{.friendly_ua}}
+                                            </div>
+                                            <div class="extra-small text-muted" title="{{.user_agent}}">
+                                                <i class="bi bi-geo-alt me-1"></i> {{.ip}} 
+                                                <span class="ms-1 badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25">{{.country}}</span>
                                             </div>
                                         </td>
                                         <td class="text-muted small">

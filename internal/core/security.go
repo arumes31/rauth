@@ -166,18 +166,3 @@ func FormatUserAgent(ua string) string {
 
 	return fmt.Sprintf("%s on %s", browser, os)
 }
-
-func GetDeviceIcon(ua string) string {
-	if strings.Contains(ua, "Android") {
-		return "bi-android2"
-	} else if strings.Contains(ua, "iPhone") || strings.Contains(ua, "iPad") {
-		return "bi-apple"
-	} else if strings.Contains(ua, "Windows") {
-		return "bi-microsoft"
-	} else if strings.Contains(ua, "Macintosh") {
-		return "bi-apple"
-	} else if strings.Contains(ua, "Linux") {
-		return "bi-ubuntu"
-	}
-	return "bi-display"
-}
