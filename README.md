@@ -3,7 +3,7 @@
 <p align="center">
   <img src="https://img.shields.io/github/go-mod/go-version/arumes31/rauth?label=Go&logo=go&color=00ADD8" alt="Go Version">
   <img src="https://img.shields.io/github/license/arumes31/rauth?label=License&color=blue" alt="License">
-  <img src="https://img.shields.io/github/last-commit/arumes31/rauth/test?color=green" alt="Last Commit">
+  <img src="https://img.shields.io/github/last-commit/arumes31/rauth/main?color=green" alt="Last Commit">
 </p>
 
 <p align="center">
