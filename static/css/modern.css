@@ -403,6 +403,78 @@ body {
     animation: pulse-red 2s infinite;
 }
 
+/* Command Palette */
+.command-palette {
+    background: rgba(10, 0, 0, 0.95) !important;
+    border: 1px solid var(--primary) !important;
+    box-shadow: 0 0 30px rgba(239, 68, 68, 0.4) !important;
+    border-radius: 4px;
+}
+
+.command-input {
+    background: transparent !important;
+    border: none !important;
+    border-bottom: 1px solid var(--glass-border) !important;
+    color: var(--primary) !important;
+    font-size: 1.2rem;
+    padding: 1rem;
+    outline: none;
+}
+
+.command-option {
+    padding: 0.75rem 1rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    border-left: 3px solid transparent;
+}
+
+.command-option:hover, .command-option.active {
+    background: rgba(239, 68, 68, 0.1);
+    border-left-color: var(--primary);
+    color: var(--primary);
+}
+
+.command-shortcut {
+    font-size: 0.7rem;
+    opacity: 0.5;
+    background: rgba(239, 68, 68, 0.1);
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+
+/* Security Checklist */
+.checklist-item {
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.checklist-item:last-child {
+    border-bottom: none;
+}
+
+.checklist-icon {
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    margin-right: 12px;
+    font-size: 0.8rem;
+}
+
+.checklist-done {
+    background: rgba(34, 197, 94, 0.2);
+    color: var(--success);
+    border: 1px solid rgba(34, 197, 94, 0.4);
+}
+
+.checklist-todo {
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--primary);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
 .animate-fade-in {
     animation: fadeIn 0.5s ease-out;
 }

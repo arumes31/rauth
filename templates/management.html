@@ -10,9 +10,29 @@
     <link href="/static/css/modern.css" rel="stylesheet">
 </head>
 <body class="bg-light-animated">
-    <div class="scanlines"></div>
-
-    <!-- Toast Container -->
+        <div class="scanlines"></div>
+        
+        <!-- Command Palette Modal -->
+        <div class="modal fade" id="commandPalette" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content command-palette">
+                    <div class="modal-body p-0">
+                        <input type="text" id="commandInput" class="form-control command-input" placeholder="Type a command (e.g., 'sessions', 'audit', 'new user')..." autocomplete="off">
+                        <div id="commandResults" class="py-2">
+                            <!-- Options will be injected here -->
+                        </div>
+                    </div>
+                    <div class="modal-footer border-0 p-2 opacity-50 small">
+                        <span class="me-3"><kbd>↑↓</kbd> to navigate</span>
+                        <span class="me-3"><kbd>Enter</kbd> to select</span>
+                        <span><kbd>Esc</kbd> to close</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    
+        <!-- Toast Container -->
+    
     <div class="toast-container position-fixed bottom-0 end-0 p-3">
         <div id="successToast" class="toast matrix-toast" role="alert" aria-live="assertive" aria-atomic="true">
             <div class="toast-header bg-transparent border-0 text-primary">
@@ -198,7 +218,49 @@
 
             <!-- Audit Tab -->
             <div class="tab-pane fade" id="audit" role="tabpanel">
-                ... (keep existing content or just target the end of it)
+                <div class="card shadow-sm border-0">
+                    <div class="card-header py-3 d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0 fw-bold">System Audit Logs</h6>
+                        <div class="input-group input-group-sm" style="max-width: 300px;">
+                            <span class="input-group-text bg-transparent border-end-0 text-muted"><i class="bi bi-search"></i></span>
+                            <input type="text" id="auditSearch" class="form-control border-start-0" placeholder="Filter events, users, or IPs...">
+                        </div>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0" id="auditTable">
+                                <thead>
+                                    <tr>
+                                        <th class="ps-4">Timestamp</th>
+                                        <th>Event</th>
+                                        <th>Context</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {{range .logs}}
+                                    <tr class="align-middle audit-row">
+                                        <td class="ps-4 text-muted small">{{.Timestamp | formatTime}}</td>
+                                        <td><span class="{{.Action | statusColor}} extra-small fw-bold text-uppercase" style="letter-spacing: 0.5px;">{{.Action}}</span></td>
+                                        <td>
+                                            <div class="small fw-bold text-primary"><i class="bi bi-person me-1"></i> {{.Username}}</div>
+                                            <div class="extra-small text-muted">
+                                                <i class="bi bi-hdd-network me-1"></i> {{.IP}}
+                                                {{if .Details.country}}
+                                                    <span class="ms-2 badge bg-secondary bg-opacity-25 text-secondary border border-secondary border-opacity-25">{{.Details.country}}</span>
+                                                {{end}}
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    {{else}}
+                                    <tr>
+                                        <td colspan="3" class="text-center py-5 text-muted">No audit logs found</td>
+                                    </tr>
+                                    {{end}}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Invitations Tab -->
@@ -342,7 +404,87 @@
             editUserModal.show();
         }
 
-        // Show success alert if redirected back with success param
+        // Command Palette Logic
+        const commands = [
+            { name: 'Monitor: Active Sessions', cmd: 'sessions', action: () => document.getElementById('sessions-tab').click() },
+            { name: 'Directory: User Management', cmd: 'users', action: () => document.getElementById('users-tab').click() },
+            { name: 'Security: Audit Logs', cmd: 'audit', action: () => document.getElementById('audit-tab').click() },
+            { name: 'Access: Invitations', cmd: 'invites', action: () => document.getElementById('invites-tab').click() },
+            { name: 'Action: Create New User', cmd: 'new', action: () => new bootstrap.Modal(document.getElementById('createUserModal')).show() },
+            { name: 'Nav: My Profile', cmd: 'profile', action: () => window.location.href = '/rauthprofile' },
+            { name: 'Nav: Logout', cmd: 'logout', action: () => document.querySelector('form[action="/logout"]').submit() }
+        ];
+
+        let currentFocus = -1;
+        const cpModalElement = document.getElementById('commandPalette');
+        const cpModal = new bootstrap.Modal(cpModalElement);
+
+        document.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+                e.preventDefault();
+                cpModal.show();
+            }
+            if (e.key === '/') {
+                if (document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
+                    e.preventDefault();
+                    cpModal.show();
+                }
+            }
+        });
+
+        cpModalElement.addEventListener('shown.bs.modal', () => {
+            document.getElementById('commandInput').focus();
+            renderCommands('');
+        });
+
+        document.getElementById('commandInput').addEventListener('input', (e) => {
+            renderCommands(e.target.value);
+        });
+
+        document.getElementById('commandInput').addEventListener('keydown', (e) => {
+            const items = document.querySelectorAll('.command-option');
+            if (e.key === 'ArrowDown') {
+                currentFocus++;
+                addActive(items);
+            } else if (e.key === 'ArrowUp') {
+                currentFocus--;
+                addActive(items);
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                if (currentFocus > -1 && items[currentFocus]) {
+                    items[currentFocus].click();
+                }
+            }
+        });
+
+        function renderCommands(filter) {
+            const results = document.getElementById('commandResults');
+            results.innerHTML = '';
+            const filtered = commands.filter(c => c.name.toLowerCase().includes(filter.toLowerCase()) || c.cmd.includes(filter.toLowerCase()));
+            
+            filtered.forEach((c, idx) => {
+                const div = document.createElement('div');
+                div.className = 'command-option d-flex justify-content-between align-items-center';
+                div.innerHTML = `<span><i class="bi bi-chevron-right me-2 opacity-50"></i>${c.name}</span> <span class="command-shortcut">/${c.cmd}</span>`;
+                div.onclick = () => {
+                    c.action();
+                    cpModal.hide();
+                };
+                results.appendChild(div);
+            });
+            currentFocus = -1;
+        }
+
+        function addActive(items) {
+            if (!items) return false;
+            items.forEach(i => i.classList.remove('active'));
+            if (currentFocus >= items.length) currentFocus = 0;
+            if (currentFocus < 0) currentFocus = items.length - 1;
+            items[currentFocus].classList.add('active');
+            items[currentFocus].scrollIntoView({ block: 'nearest' });
+        }
+
+        // Handle success messages
         window.addEventListener('load', () => {
             const urlParams = new URLSearchParams(window.location.search);
             if (urlParams.has('success')) {
@@ -383,6 +525,16 @@
                 console.error(err);
                 alert("An error occurred.");
             }
+        }
+
+        // Audit Search Logic
+        document.getElementById('auditSearch').addEventListener('input', (e) => {
+            const term = e.target.value.toLowerCase();
+            const rows = document.querySelectorAll('.audit-row');
+            rows.forEach(row => {
+                const text = row.innerText.toLowerCase();
+                row.style.display = text.includes(term) ? '' : 'none';
+            });
         });
 
         function copyInviteUrl() {
