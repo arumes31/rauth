@@ -10,47 +10,45 @@
     <link href="/static/css/modern.css" rel="stylesheet">
 </head>
 <body class="bg-light-animated">
-            <div class="scanlines"></div>
-            
-            <!-- Audit Detail Modal -->
-            <div class="modal fade" id="auditDetailModal" tabindex="-1">
-                <div class="modal-dialog modal-dialog-centered">
-                    <div class="modal-content border-0 shadow-lg">
-                        <div class="modal-header border-0 pb-0">
-                            <h5 class="modal-title fw-bold text-primary">EVENT METADATA</h5>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                        </div>
-                        <div class="modal-body p-4">
-                            <div id="auditDetailContent" class="bg-black p-3 rounded border border-secondary border-opacity-25 extra-small">
-                                <!-- JSON data injected here -->
-                            </div>
-                        </div>
-                    </div>
+    <div class="scanlines"></div>
+    
+    <!-- Audit Detail Modal -->
+    <div class="modal fade" id="auditDetailModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title fw-bold text-primary">EVENT METADATA</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
-            </div>
-        
-            <!-- Command Palette Modal -->
-        
-        <div class="modal fade" id="commandPalette" tabindex="-1" aria-hidden="true">
-            <div class="modal-dialog modal-lg">
-                <div class="modal-content command-palette">
-                    <div class="modal-body p-0">
-                        <input type="text" id="commandInput" class="form-control command-input" placeholder="Type a command (e.g., 'sessions', 'audit', 'new user')..." autocomplete="off">
-                        <div id="commandResults" class="py-2">
-                            <!-- Options will be injected here -->
-                        </div>
-                    </div>
-                    <div class="modal-footer border-0 p-2 opacity-50 small">
-                        <span class="me-3"><kbd>↑↓</kbd> to navigate</span>
-                        <span class="me-3"><kbd>Enter</kbd> to select</span>
-                        <span><kbd>Esc</kbd> to close</span>
+                <div class="modal-body p-4">
+                    <div id="auditDetailContent" class="bg-black p-3 rounded border border-secondary border-opacity-25 extra-small">
+                        <!-- JSON data injected here -->
                     </div>
                 </div>
             </div>
         </div>
-    
-        <!-- Toast Container -->
-    
+    </div>
+
+    <!-- Command Palette Modal -->
+    <div class="modal fade" id="commandPalette" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content command-palette">
+                <div class="modal-body p-0">
+                    <input type="text" id="commandInput" class="form-control command-input" placeholder="Type a command (e.g., 'sessions', 'audit', 'new user')..." autocomplete="off">
+                    <div id="commandResults" class="py-2">
+                        <!-- Options will be injected here -->
+                    </div>
+                </div>
+                <div class="modal-footer border-0 p-2 opacity-50 small">
+                    <span class="me-3"><kbd>↑↓</kbd> to navigate</span>
+                    <span class="me-3"><kbd>Enter</kbd> to select</span>
+                    <span><kbd>Esc</kbd> to close</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
     <div class="toast-container position-fixed bottom-0 end-0 p-3">
         <div id="successToast" class="toast matrix-toast" role="alert" aria-live="assertive" aria-atomic="true">
             <div class="toast-header bg-transparent border-0 text-primary">
@@ -174,7 +172,7 @@
                                     </tr>
                                     {{else}}
                                     <tr>
-                                        <td colspan="4" class="text-center py-5 text-muted">No active sessions found</td>
+                                        <td colspan="6" class="text-center py-5 text-muted">No active sessions found</td>
                                     </tr>
                                     {{end}}
                                 </tbody>
@@ -246,42 +244,49 @@
 
             <!-- Audit Tab -->
             <div class="tab-pane fade" id="audit" role="tabpanel">
-                ... (keep existing content or just target the end of it)
-            </div>
-
-            <!-- Invitations Tab -->
-            <div class="tab-pane fade" id="invites" role="tabpanel">
                 <div class="card shadow-sm border-0">
-                    <div class="card-header py-3">
-                        <h6 class="mb-0 fw-bold">Secure Invitation System</h6>
+                    <div class="card-header py-3 d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0 fw-bold">System Audit Logs</h6>
+                        <div class="input-group input-group-sm" style="max-width: 300px;">
+                            <span class="input-group-text bg-transparent border-end-0 text-muted"><i class="bi bi-search"></i></span>
+                            <input type="text" id="auditSearch" class="form-control border-start-0" placeholder="Filter events, users, or IPs...">
+                        </div>
                     </div>
-                    <div class="card-body p-4">
-                        <p class="text-muted small mb-4">
-                            Instead of creating a password for the user, generate a secure invitation link. 
-                            The user will be able to set their own username and password upon redemption.
-                        </p>
-                        <form id="inviteForm" class="row g-3">
-                            <input type="hidden" name="csrf" value="{{.csrf}}">
-                            <div class="col-md-8">
-                                <label class="form-label small fw-bold text-muted">Recipient Email Address</label>
-                                <input type="email" name="email" id="inviteEmail" class="form-control" placeholder="user@example.com" required>
-                            </div>
-                            <div class="col-md-4 d-flex align-items-end">
-                                <button type="submit" class="btn btn-danger w-100 py-2 fw-bold">Generate Link</button>
-                            </div>
-                        </form>
-
-                        <div id="inviteResult" class="mt-4 d-none">
-                            <label class="form-label small fw-bold text-success">Invitation Link Generated</label>
-                            <div class="input-group">
-                                <input type="text" id="inviteUrl" class="form-control bg-light" readonly>
-                                <button class="btn btn-outline-success" type="button" onclick="copyInviteUrl()">
-                                    <i class="bi bi-clipboard me-1"></i> Copy
-                                </button>
-                            </div>
-                            <div class="extra-small text-muted mt-2">
-                                <i class="bi bi-info-circle me-1"></i> This link will expire in 24 hours.
-                            </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0" id="auditTable">
+                                <thead>
+                                    <tr>
+                                        <th class="ps-4">Timestamp</th>
+                                        <th>Event</th>
+                                        <th>Context</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {{range .logs}}
+                                    <tr class="align-middle audit-row" style="cursor: pointer;" onclick='showAuditDetail({{.Details | marshal}})'>
+                                        <td class="ps-4 text-muted small">{{.Timestamp | formatTime}}</td>
+                                        <td><span class="{{.Action | statusColor}} extra-small fw-bold text-uppercase" style="letter-spacing: 0.5px;">{{.Action}}</span></td>
+                                        <td>
+                                            <div class="d-flex align-items-center">
+                                                <img data-identicon="{{.Username}}" class="identicon rounded me-2" width="24" height="24">
+                                                <div class="small fw-bold text-primary">{{.Username}}</div>
+                                            </div>
+                                            <div class="extra-small text-muted">
+                                                <i class="bi bi-hdd-network me-1"></i> {{.IP}}
+                                                {{if .Details.country}}
+                                                    <span class="ms-2 badge bg-secondary bg-opacity-25 text-secondary border border-secondary border-opacity-25">{{.Details.country}}</span>
+                                                {{end}}
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    {{else}}
+                                    <tr>
+                                        <td colspan="3" class="text-center py-5 text-muted">No audit logs found</td>
+                                    </tr>
+                                    {{end}}
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
@@ -580,27 +585,6 @@
             }
         });
 
-        document.getElementById('inviteForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const formData = new FormData(e.target);
-            try {
-                const response = await fetch('/rauthmgmt/invite/create', {
-                    method: 'POST',
-                    body: formData
-                });
-                if (response.ok) {
-                    const data = await response.json();
-                    document.getElementById('inviteUrl').value = data.url;
-                    document.getElementById('inviteResult').classList.remove('d-none');
-                } else {
-                    alert("Failed to generate invitation link.");
-                }
-            } catch (err) {
-                console.error(err);
-                alert("An error occurred.");
-            }
-        }
-
         // Audit Search Logic
         document.getElementById('auditSearch').addEventListener('input', (e) => {
             const term = e.target.value.toLowerCase();
@@ -610,22 +594,6 @@
                 row.style.display = text.includes(term) ? '' : 'none';
             });
         });
-
-        function copyInviteUrl() {
-            const urlInput = document.getElementById('inviteUrl');
-            urlInput.select();
-            urlInput.setSelectionRange(0, 99999);
-            navigator.clipboard.writeText(urlInput.value);
-            
-            const btn = event.currentTarget;
-            const originalHtml = btn.innerHTML;
-            btn.innerHTML = '<i class="bi bi-check2"></i> Copied!';
-            btn.className = "btn btn-success";
-            setTimeout(() => {
-                btn.innerHTML = originalHtml;
-                btn.className = "btn btn-outline-success";
-            }, 2000);
-        }
 
         document.getElementById('inviteForm').addEventListener('submit', async (e) => {
             e.preventDefault();
