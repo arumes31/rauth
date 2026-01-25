@@ -55,7 +55,9 @@ func TestWebAuthnHandlers(t *testing.T) {
 			var options map[string]interface{}
 			err := json.Unmarshal(rec.Body.Bytes(), &options)
 			assert.NoError(t, err)
-			assert.NotNil(t, options["publicKey"])
+			// In Response format, challenge and user are at the top level
+			assert.NotNil(t, options["challenge"])
+			assert.NotNil(t, options["user"])
 		}
 	})
 
@@ -87,7 +89,8 @@ func TestWebAuthnHandlers(t *testing.T) {
 			var options map[string]interface{}
 			err := json.Unmarshal(rec.Body.Bytes(), &options)
 			assert.NoError(t, err)
-			assert.NotNil(t, options["publicKey"])
+			// In Response format, challenge is at the top level
+			assert.NotNil(t, options["challenge"])
 		}
 	})
 }

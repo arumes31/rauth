@@ -20,6 +20,7 @@ func TestProfileHandler_Show(t *testing.T) {
 	t.Run("View Profile", func(t *testing.T) {
 		c, rec := createTestContext(e, http.MethodGet, "/rauthprofile", nil)
 		c.Set("username", "profileuser")
+		c.Set("token", "testtoken")
 
 		err := h.Show(c)
 		assert.NoError(t, err)
@@ -32,6 +33,7 @@ func TestProfileHandler_Show(t *testing.T) {
 
 		c, _ := createTestContext(e, http.MethodGet, "/rauthprofile", nil)
 		c.Set("username", "profileuser")
+		c.Set("token", "testtoken")
 
 		renderer := &mockRenderer{}
 		e.Renderer = renderer
@@ -46,6 +48,48 @@ func TestProfileHandler_Show(t *testing.T) {
 			assert.Equal(t, "profileuser", log.Username)
 			assert.NotEqual(t, "OTHER_ACTION", log.Action)
 		}
+	})
+}
+
+func TestProfileHandler_TerminateSession(t *testing.T) {
+	setupHandlersTest(t)
+	h := &ProfileHandler{Cfg: &core.Config{}}
+	e := echo.New()
+
+	t.Run("Successfully terminate own session", func(t *testing.T) {
+		token := "my-session-token"
+		core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken="+token, "username", "profileuser")
+
+		f := make(url.Values)
+		f.Set("token", token)
+
+		c, rec := createTestContext(e, http.MethodPost, "/rauthprofile/session/terminate", f)
+		c.Set("username", "profileuser")
+
+		err := h.TerminateSession(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+
+		// Verify session is gone
+		exists, _ := core.TokenDB.Exists(core.Ctx, "X-rauth-authtoken="+token).Result()
+		assert.Equal(t, int64(0), exists)
+	})
+
+	t.Run("Fail to terminate others session", func(t *testing.T) {
+		token := "others-session-token"
+		core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken="+token, "username", "otheruser")
+
+		f := make(url.Values)
+		f.Set("token", token)
+
+		c, _ := createTestContext(e, http.MethodPost, "/rauthprofile/session/terminate", f)
+		c.Set("username", "profileuser")
+
+		err := h.TerminateSession(c)
+		assert.Error(t, err)
+		echoErr, ok := err.(*echo.HTTPError)
+		assert.True(t, ok)
+		assert.Equal(t, http.StatusForbidden, echoErr.Code)
 	})
 }
 

@@ -36,7 +36,7 @@ func (h *WebAuthnHandler) BeginRegistration(c echo.Context) error {
 	sessionJSON, _ := json.Marshal(sessionData)
 	core.TokenDB.Set(core.Ctx, "webauthn_reg:"+username, sessionJSON, 5*time.Minute)
 
-	return c.JSON(http.StatusOK, options)
+	return c.JSON(http.StatusOK, options.Response)
 }
 
 func (h *WebAuthnHandler) FinishRegistration(c echo.Context) error {
@@ -97,7 +97,7 @@ func (h *WebAuthnHandler) BeginLogin(c echo.Context) error {
 	sessionJSON, _ := json.Marshal(sessionData)
 	core.TokenDB.Set(core.Ctx, "webauthn_login:"+username, sessionJSON, 5*time.Minute)
 
-	return c.JSON(http.StatusOK, options)
+	return c.JSON(http.StatusOK, options.Response)
 }
 
 func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"rauth/internal/core"
@@ -16,10 +17,35 @@ type ProfileHandler struct {
 
 func (h *ProfileHandler) Show(c echo.Context) error {
 	username := c.Get("username").(string)
+	currentToken := c.Get("token").(string)
 	userData, err := core.UserDB.HGetAll(core.Ctx, "user:"+username).Result()
 	if err != nil {
 		slog.Error("Failed to fetch user data", "user", username, "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to load profile")
+	}
+
+	// Fetch sessions for this user
+	keys, err := core.TokenDB.Keys(core.Ctx, "X-rauth-authtoken=*").Result()
+	if err != nil {
+		slog.Error("Failed to fetch sessions from Redis", "error", err)
+	}
+
+	var sessions []map[string]string
+	for _, k := range keys {
+		data, err := core.TokenDB.HGetAll(core.Ctx, k).Result()
+		if err != nil {
+			continue
+		}
+		if data["username"] == username {
+			token := k[18:] // Remove prefix "X-rauth-authtoken="
+			data["token"] = token
+			data["is_current"] = "0"
+			if token == currentToken {
+				data["is_current"] = "1"
+			}
+			data["ttl"] = fmt.Sprintf("%d", int(core.TokenDB.TTL(core.Ctx, k).Val().Seconds()))
+			sessions = append(sessions, data)
+		}
 	}
 
 	// Personal Logs
@@ -45,9 +71,35 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 		"groups":    userData["groups"],
 		"isAdmin":   userData["is_admin"] == "1",
 		"has2FA":    userData["2fa_secret"] != "",
+		"sessions":  sessions,
 		"logs":      logs,
 		"csrf":      c.Get("csrf"),
 	})
+}
+
+func (h *ProfileHandler) TerminateSession(c echo.Context) error {
+	username := c.Get("username").(string)
+	token := c.FormValue("token")
+	if token == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "Token is required")
+	}
+
+	redisKey := "X-rauth-authtoken=" + token
+	data, err := core.TokenDB.HGetAll(core.Ctx, redisKey).Result()
+	if err != nil || len(data) == 0 {
+		return c.Redirect(http.StatusFound, "/rauthprofile")
+	}
+
+	// Security: Ensure user owns this session
+	if data["username"] != username {
+		slog.Warn("Unauthorized session termination attempt", "user", username, "target_token", token)
+		return echo.NewHTTPError(http.StatusForbidden, "You can only terminate your own sessions")
+	}
+
+	core.TokenDB.Del(core.Ctx, redisKey)
+	core.LogAudit("USER_TERMINATE_SESSION", username, c.RealIP(), map[string]interface{}{"token": token[:8] + "..."})
+
+	return c.Redirect(http.StatusFound, "/rauthprofile")
 }
 
 func (h *ProfileHandler) ChangePassword(c echo.Context) error {

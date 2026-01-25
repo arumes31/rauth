@@ -214,6 +214,7 @@ func main() {
 	// Profile Routes
 	protected.GET("/rauthprofile", profileHandler.Show)
 	protected.POST("/rauthprofile/password", profileHandler.ChangePassword)
+	protected.POST("/rauthprofile/session/terminate", profileHandler.TerminateSession)
 
 	// Admin Routes
 	admin := protected.Group("/rauthmgmt")
