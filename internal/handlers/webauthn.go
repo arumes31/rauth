@@ -275,6 +275,11 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 	}
 	c.SetCookie(cookie)
 
+	// Send Login Notification Email (Asynchronous)
+	if userRecord.Email != "" {
+		go core.SendLoginNotification(userRecord.Email, username, clientIP, countryCode)
+	}
+
 	core.LogAudit("LOGIN_SUCCESS_PASSKEY", username, clientIP, map[string]interface{}{"country": countryCode})
 
 	// Cleanup session cookie
