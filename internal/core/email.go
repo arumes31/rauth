@@ -92,8 +92,8 @@ func SendLoginNotification(email, username, ip, country string) {
 		<div class="alert alert-warning">
 			<strong>Wasn't you?</strong> If you don't recognize this activity, please change your password immediately and terminate all active sessions from your profile dashboard.
 		</div>
-		<a href="https://rauth.local/rauthprofile" class="btn">Manage Account</a>
-	`, username, username, ip, country, time.Now().Format("Jan 02, 2006 15:04:05 MST"))
+		<a href="%s/rauthprofile" class="btn">Manage Account</a>
+	`, username, username, ip, country, time.Now().Format("Jan 02, 2006 15:04:05 MST"), cfg.PublicURL)
 	
 	_ = SendEmail(email, subject, body)
 }
