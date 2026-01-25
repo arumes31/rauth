@@ -168,26 +168,26 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 
 	// Identify user
 	var username string
-	var userID []byte
 	usernameParam := c.QueryParam("username")
 
 	// 1. Check UserHandle from authenticator (most reliable for passkeys)
 	if len(parsedResponse.Response.UserHandle) > 0 {
+		// handle might be a UUID string (new) or username string (legacy)
 		handle := string(parsedResponse.Response.UserHandle)
+		
 		// Try to look up by UID
 		if u, err := core.GetUsernameByUID(handle); err == nil {
 			username = u
-			userID = parsedResponse.Response.UserHandle
 		} else {
-			// Fallback: handle might be the username (legacy)
-			username = handle
-			userID = parsedResponse.Response.UserHandle
+			// Fallback: handle might be the username itself
+			userRecord, err := core.GetUser(handle)
+			if err == nil {
+				username = userRecord.Username
+			}
 		}
 	} else if usernameParam != "" {
 		// 2. Fallback to query param if UserHandle is missing (common for some non-discoverable keys)
 		username = usernameParam
-		userRecord, _ := core.GetUser(username)
-		userID = []byte(userRecord.UID)
 	}
 
 	if username == "" {
@@ -199,9 +199,11 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "User not found")
 	}
 
+	// ALWAYS use the record's UID as the userID for validation
+	userID := []byte(userRecord.UID)
+
 	// Create user object for validation. 
-	// CRITICAL: The ID must match what the authenticator returned (UserHandle)
-	// to satisfy go-webauthn's internal checks.
+	// CRITICAL: The ID must match what we want to validate against (userRecord.UID)
 	user := &core.WebAuthnUser{
 		ID:          userID,
 		DisplayName: userRecord.Username,
