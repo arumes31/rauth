@@ -41,25 +41,35 @@ func (h *AuthHandler) Root(c echo.Context) error {
 
 func (h *AuthHandler) Validate(c echo.Context) error {
 	clientIP := c.RealIP()
-	if !core.CheckRateLimit("validate:"+clientIP, 100, 60) {
-		return c.NoContent(http.StatusTooManyRequests)
-	}
+	rateLimitKey := "validate:" + clientIP
 
 	cookie, err := c.Cookie("X-rauth-authtoken")
 	if err != nil {
+		if !core.CheckRateLimit(rateLimitKey, 100, 60) {
+			return c.NoContent(http.StatusTooManyRequests)
+		}
 		return c.NoContent(http.StatusUnauthorized)
 	}
 
 	token, err := core.DecryptToken(cookie.Value, h.Cfg.ServerSecret)
 	if err != nil || token == "" {
+		if !core.CheckRateLimit(rateLimitKey, 100, 60) {
+			return c.NoContent(http.StatusTooManyRequests)
+		}
 		return c.NoContent(http.StatusUnauthorized)
 	}
 
 	redisKey := "X-rauth-authtoken=" + token
 	data, err := core.TokenDB.HGetAll(core.Ctx, redisKey).Result()
 	if err != nil || len(data) == 0 || data["status"] != "valid" {
+		if !core.CheckRateLimit(rateLimitKey, 100, 60) {
+			return c.NoContent(http.StatusTooManyRequests)
+		}
 		return c.NoContent(http.StatusUnauthorized)
 	}
+
+	// If we reached here, the request is valid. Reset the rate limit counter for this IP.
+	core.ResetRateLimit(rateLimitKey)
 
 	// Geo-check
 	currentCountry := core.GetCountryCode(clientIP)
