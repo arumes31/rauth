@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -44,7 +45,7 @@ func (h *WebAuthnHandler) BeginRegistration(c echo.Context) error {
 func (h *WebAuthnHandler) FinishRegistration(c echo.Context) error {
 	clientIP := c.RealIP()
 	if !core.CheckRateLimit("reg_ip:"+clientIP, 10, 300) {
-		return echo.NewHTTPError(http.StatusTooManyRequests, "Too many registration attempts")
+		return echo.NewHTTPError(http.StatusTooManyRequests, fmt.Sprintf("Too many registration attempts from this IP (%s)", clientIP))
 	}
 
 	username, ok := c.Get("username").(string)
@@ -129,7 +130,7 @@ func (h *WebAuthnHandler) BeginLogin(c echo.Context) error {
 func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 	clientIP := c.RealIP()
 	if !core.CheckRateLimit("login_ip:"+clientIP, 10, 300) {
-		return echo.NewHTTPError(http.StatusTooManyRequests, "Too many login attempts")
+		return echo.NewHTTPError(http.StatusTooManyRequests, fmt.Sprintf("Too many login attempts from this IP (%s)", clientIP))
 	}
 
 	cookie, err := c.Cookie("rauth_webauthn_session")
@@ -157,9 +158,16 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "Failed to parse assertion: "+err.Error())
 	}
 
-	// Identify user from UserHandle (which we store as the username string)
-	username := string(parsedResponse.Response.UserHandle)
+	// Identify user: 
+	// 1. From query param (named login - user typed their name)
+	// 2. From UserHandle (nameless login - discoverable credential)
+	username := c.QueryParam("username")
 	if username == "" {
+		username = string(parsedResponse.Response.UserHandle)
+	}
+
+	if username == "" {
+		slog.Warn("WebAuthn login failed: no user identity provided")
 		return echo.NewHTTPError(http.StatusBadRequest, "Credential did not provide user information")
 	}
 
