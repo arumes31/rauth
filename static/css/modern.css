@@ -389,6 +389,12 @@ body {
     box-shadow: 0 0 15px rgba(239, 68, 68, 0.3);
 }
 
+.matrix-toast .toast-header {
+    background: rgba(239, 68, 68, 0.1) !important;
+    color: var(--primary) !important;
+    border-bottom: 1px solid var(--glass-border);
+}
+
 .matrix-toast .btn-close {
     filter: invert(1) sepia(1) saturate(5) hue-rotate(-45deg);
 }
