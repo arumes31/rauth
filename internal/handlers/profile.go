@@ -187,16 +187,6 @@ func (h *ProfileHandler) TerminateAllOtherSessions(c echo.Context) error {
 	return c.Redirect(http.StatusFound, "/rauthprofile?success=sessions_terminated")
 }
 
-func (h *ProfileHandler) TerminateAllOtherSessions(c echo.Context) error {
-	username := c.Get("username").(string)
-	currentToken := c.Get("token").(string)
-
-	core.InvalidateOtherUserSessions(username, currentToken)
-	core.LogAudit("USER_TERMINATE_ALL_OTHER_SESSIONS", username, c.RealIP(), nil)
-
-	return c.Redirect(http.StatusFound, "/rauthprofile?success=sessions_terminated")
-}
-
 func (h *ProfileHandler) ChangePassword(c echo.Context) error {
 	username := c.Get("username").(string)
 	current := c.FormValue("current_password")
