@@ -38,6 +38,8 @@ type Config struct {
 	SMTPUser string
 	SMTPPass string
 	SMTPFrom string
+	// URLs
+	PublicURL string
 }
 
 func LoadConfig() *Config {
@@ -71,6 +73,8 @@ func LoadConfig() *Config {
 		SMTPUser: getEnv("SMTP_USER", ""),
 		SMTPPass: getEnv("SMTP_PASS", ""),
 		SMTPFrom: getEnv("SMTP_FROM", ""),
+		// URLs
+		PublicURL: getEnv("PUBLIC_URL", "http://localhost:5980"),
 	}
 }
 

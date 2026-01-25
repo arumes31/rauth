@@ -81,6 +81,11 @@ func (h *AdminHandler) CreateUser(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 	
+	// Send Welcome Email (Asynchronous)
+	if email != "" {
+		go core.SendAccountCreatedNotification(email, user)
+	}
+
 	slog.Info("User created by admin", "admin", c.Get("username"), "user", user)
 	core.LogAudit("ADMIN_CREATE_USER", c.Get("username").(string), c.RealIP(), map[string]interface{}{"target": user})
 	return c.Redirect(http.StatusFound, "/rauthmgmt")

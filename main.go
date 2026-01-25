@@ -263,6 +263,7 @@ func main() {
 	protected.POST("/rauthprofile/session/terminate", profileHandler.TerminateSession)
 	protected.POST("/rauthprofile/passkey/rename", profileHandler.RenamePasskey)
 	protected.POST("/rauthprofile/passkey/revoke", profileHandler.RevokePasskey)
+	protected.POST("/rauthprofile/disable-totp", profileHandler.DisableTOTP)
 
 	// Admin Routes
 	admin := protected.Group("/rauthmgmt")

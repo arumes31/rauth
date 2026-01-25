@@ -109,8 +109,46 @@ func (h *ProfileHandler) RevokePasskey(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to revoke passkey")
 	}
 
+	// Send notification email
+	userRecord, _ := core.GetUser(username)
+	if userRecord.Email != "" {
+		go core.Send2FAModifiedNotification(userRecord.Email, username, "Removed (Passkey)", c.RealIP())
+	}
+
 	core.LogAudit("PASSKEY_REVOKE", username, c.RealIP(), nil)
 	return c.Redirect(http.StatusFound, "/rauthprofile")
+}
+
+func (h *ProfileHandler) DisableTOTP(c echo.Context) error {
+	username := c.Get("username").(string)
+	otpCode := c.FormValue("otp_code")
+
+	userData, err := core.UserDB.HGetAll(core.Ctx, "user:"+username).Result()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Internal error")
+	}
+
+	if userData["2fa_secret"] != "" {
+		if otpCode == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "2FA code required to disable 2FA"})
+		}
+		secret := core.Decrypt2FASecret(userData["2fa_secret"], h.Cfg.ServerSecret)
+		if !totp.Validate(otpCode, secret) {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid 2FA code"})
+		}
+	}
+
+	if err := core.UpdateUser(username, map[string]interface{}{"2fa_secret": ""}); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to disable TOTP")
+	}
+
+	// Send notification email
+	if userData["email"] != "" {
+		go core.Send2FAModifiedNotification(userData["email"], username, "Disabled (TOTP)", c.RealIP())
+	}
+
+	core.LogAudit("USER_DISABLE_TOTP", username, c.RealIP(), nil)
+	return c.Redirect(http.StatusFound, "/rauthprofile?success=totp_disabled")
 }
 
 func (h *ProfileHandler) TerminateSession(c echo.Context) error {
