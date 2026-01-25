@@ -97,6 +97,9 @@ func main() {
 	
 	// Custom HTTP Error Handler
 	e.HTTPErrorHandler = func(err error, c echo.Context) {
+		if c.Response().Committed {
+			return
+		}
 		code := http.StatusInternalServerError
 		if he, ok := err.(*echo.HTTPError); ok {
 			code = he.Code
@@ -134,6 +137,11 @@ func main() {
 		if renderErr := c.Render(code, "error.html", errorData); renderErr != nil {
 			slog.Error("Failed to render error page", "error", renderErr)
 		}
+	}
+
+	// Explicitly set NotFoundHandler to use our error handler
+	echo.NotFoundHandler = func(c echo.Context) error {
+		return echo.NewHTTPError(http.StatusNotFound)
 	}
 	
 	// CSRF Protection
