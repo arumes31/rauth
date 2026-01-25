@@ -32,6 +32,12 @@ type Config struct {
 	RequirePasswordLower  bool
 	RequirePasswordNumber bool
 	RequirePasswordSpecial bool
+	// SMTP Configuration
+	SMTPHost string
+	SMTPPort int
+	SMTPUser string
+	SMTPPass string
+	SMTPFrom string
 }
 
 func LoadConfig() *Config {
@@ -59,6 +65,12 @@ func LoadConfig() *Config {
 		RequirePasswordLower:  getEnvBool("PWD_REQUIRE_LOWER", true),
 		RequirePasswordNumber: getEnvBool("PWD_REQUIRE_NUMBER", true),
 		RequirePasswordSpecial: getEnvBool("PWD_REQUIRE_SPECIAL", true),
+		// SMTP Defaults
+		SMTPHost: getEnv("SMTP_HOST", ""),
+		SMTPPort: getEnvInt("SMTP_PORT", 587),
+		SMTPUser: getEnv("SMTP_USER", ""),
+		SMTPPass: getEnv("SMTP_PASS", ""),
+		SMTPFrom: getEnv("SMTP_FROM", ""),
 	}
 }
 
