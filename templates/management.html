@@ -10,9 +10,27 @@
     <link href="/static/css/modern.css" rel="stylesheet">
 </head>
 <body class="bg-light-animated">
-        <div class="scanlines"></div>
+            <div class="scanlines"></div>
+            
+            <!-- Audit Detail Modal -->
+            <div class="modal fade" id="auditDetailModal" tabindex="-1">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content border-0 shadow-lg">
+                        <div class="modal-header border-0 pb-0">
+                            <h5 class="modal-title fw-bold text-primary">EVENT METADATA</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body p-4">
+                            <div id="auditDetailContent" class="bg-black p-3 rounded border border-secondary border-opacity-25 extra-small">
+                                <!-- JSON data injected here -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         
-        <!-- Command Palette Modal -->
+            <!-- Command Palette Modal -->
+        
         <div class="modal fade" id="commandPalette" tabindex="-1" aria-hidden="true">
             <div class="modal-dialog modal-lg">
                 <div class="modal-content command-palette">
@@ -112,8 +130,13 @@
                                     {{range .sessions}}
                                     <tr class="align-middle">
                                         <td class="ps-4">
-                                            <div class="fw-bold text-primary">{{index . "username"}}</div>
-                                            <div class="extra-small text-muted">{{index . "ip"}}</div>
+                                            <div class="d-flex align-items-center">
+                                                <img data-identicon="{{index . "username"}}" class="identicon rounded me-3" width="32" height="32">
+                                                <div>
+                                                    <div class="fw-bold text-primary">{{index . "username"}}</div>
+                                                    <div class="extra-small text-muted">{{index . "ip"}}</div>
+                                                </div>
+                                            </div>
                                         </td>
                                         <td>
                                             <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25">
@@ -184,7 +207,12 @@
                                 <tbody>
                                     {{range .users}}
                                     <tr class="align-middle">
-                                        <td class="ps-4"><strong>{{.Username}}</strong></td>
+                                        <td class="ps-4">
+                                            <div class="d-flex align-items-center">
+                                                <img data-identicon="{{.Username}}" class="identicon rounded me-3" width="32" height="32">
+                                                <strong>{{.Username}}</strong>
+                                            </div>
+                                        </td>
                                         <td>{{.Email}}</td>
                                         <td>
                                             {{if eq .IsAdmin "1"}}
@@ -238,11 +266,14 @@
                                 </thead>
                                 <tbody>
                                     {{range .logs}}
-                                    <tr class="align-middle audit-row">
+                                    <tr class="align-middle audit-row" style="cursor: pointer;" onclick='showAuditDetail({{.Details | marshal}})'>
                                         <td class="ps-4 text-muted small">{{.Timestamp | formatTime}}</td>
                                         <td><span class="{{.Action | statusColor}} extra-small fw-bold text-uppercase" style="letter-spacing: 0.5px;">{{.Action}}</span></td>
                                         <td>
-                                            <div class="small fw-bold text-primary"><i class="bi bi-person me-1"></i> {{.Username}}</div>
+                                            <div class="d-flex align-items-center">
+                                                <img data-identicon="{{.Username}}" class="identicon rounded me-2" width="24" height="24">
+                                                <div class="small fw-bold text-primary">{{.Username}}</div>
+                                            </div>
                                             <div class="extra-small text-muted">
                                                 <i class="bi bi-hdd-network me-1"></i> {{.IP}}
                                                 {{if .Details.country}}
@@ -402,6 +433,56 @@
             document.getElementById('emailInput').value = email;
             document.getElementById('reset2faUsernameInput').value = username;
             editUserModal.show();
+        }
+
+        // Identicon Generator
+        function generateIdenticon(str, size = 40) {
+            let hash = 0;
+            for (let i = 0; i < str.length; i++) {
+                hash = str.charCodeAt(i) + ((hash << 5) - hash);
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            const color = `hsl(${Math.abs(hash % 360)}, 70%, 50%)`;
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, size, size);
+            ctx.fillStyle = color;
+            const pixels = 5;
+            const cellSize = size / pixels;
+            for (let i = 0; i < pixels; i++) {
+                for (let j = 0; j < pixels; j++) {
+                    const bit = (Math.abs(hash) >> (i * pixels + j)) & 1;
+                    if (bit) {
+                        ctx.fillRect(i * cellSize, j * cellSize, cellSize, cellSize);
+                        ctx.fillRect((pixels - 1 - i) * cellSize, j * cellSize, cellSize, cellSize);
+                    }
+                }
+            }
+            return canvas.toDataURL();
+        }
+
+        // Apply identicons and handle audit clicks on load
+        window.addEventListener('load', () => {
+            document.querySelectorAll('[data-identicon]').forEach(el => {
+                el.src = generateIdenticon(el.getAttribute('data-identicon'), 48);
+            });
+            
+            // Re-apply on search/tab change if needed
+            const observer = new MutationObserver(() => {
+                document.querySelectorAll('[data-identicon]:not([src])').forEach(el => {
+                    el.src = generateIdenticon(el.getAttribute('data-identicon'), 48);
+                });
+            });
+            observer.observe(document.body, { childList: true, subtree: true });
+        });
+
+        // Audit Detail Logic
+        const auditModal = new bootstrap.Modal(document.getElementById('auditDetailModal'));
+        function showAuditDetail(detailsJson) {
+            document.getElementById('auditDetailContent').innerHTML = `<pre class="mb-0 text-success">${JSON.stringify(detailsJson, null, 2)}</pre>`;
+            auditModal.show();
         }
 
         // Command Palette Logic

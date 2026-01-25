@@ -475,6 +475,29 @@ body {
     border: 1px solid rgba(239, 68, 68, 0.2);
 }
 
+/* Identicon */
+.identicon {
+    image-rendering: pixelated;
+    border: 1px solid var(--glass-border);
+    padding: 2px;
+    background: rgba(0,0,0,0.3);
+}
+
+/* Error Glitch */
+.glitch-text {
+    position: relative;
+    animation: glitch-text-anim 3s infinite linear alternate-reverse;
+}
+
+@keyframes glitch-text-anim {
+    0% { transform: skew(0deg); }
+    20% { transform: skew(0deg); }
+    21% { transform: skew(10deg); filter: blur(1px); }
+    22% { transform: skew(-10deg); }
+    23% { transform: skew(0deg); filter: blur(0); }
+    100% { transform: skew(0deg); }
+}
+
 .animate-fade-in {
     animation: fadeIn 0.5s ease-out;
 }

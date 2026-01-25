@@ -10,13 +10,14 @@
     <link href="/static/css/modern.css" rel="stylesheet">
 </head>
 <body class="bg-light-animated d-flex align-items-center vh-100">
+    <div class="scanlines"></div>
     <div class="container text-center animate-fade-in">
         <div class="row justify-content-center">
             <div class="col-md-6">
-                <div class="display-1 text-{{.Color}} mb-4">
+                <div class="display-1 text-{{.Color}} mb-4 glitch-text">
                     <i class="bi {{.Icon}}"></i>
                 </div>
-                <h1 class="fw-bold mb-3">{{.Code}} - {{.Title}}</h1>
+                <h1 class="fw-bold mb-3 glitch-text" data-text="{{.Code}} - {{.Title}}">{{.Code}} - {{.Title}}</h1>
                 <p class="text-muted mb-5">{{.Message}}</p>
                 <a href="/rauthprofile" class="btn btn-primary px-5 py-2 fw-bold">
                     <i class="bi bi-house-door me-2"></i>Return Home

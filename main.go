@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"rauth/internal/handlers"
 	"rauth/internal/middleware"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -175,6 +177,10 @@ func main() {
 		"formatSeconds": func(s string) string {
 			sec, _ := strconv.Atoi(s)
 			return fmt.Sprintf("%dm %ds", sec/60, sec%60)
+		},
+		"marshal": func(v interface{}) string {
+			a, _ := json.Marshal(v)
+			return string(a)
 		},
 		"statusColor": func(action string) string {
 			// Simple check: if contains SUCCESS -> green, FAILED -> red
