@@ -73,8 +73,8 @@
                             const urlParams = new URLSearchParams(window.location.search);
                             const rd = urlParams.get('rd');
 
-                            msg.className = "text-center extra-small mt-2 text-info";
-                            msg.textContent = "Checking for passkeys...";
+                            msg.className = "text-center extra-small mt-2 text-primary animate-pulse-red";
+                            msg.textContent = "INITIALIZING SECURE HANDSHAKE...";
 
                             try {
                                 // For nameless login, we don't send a username
@@ -87,9 +87,10 @@
                                 if (!response.ok) throw new Error("Could not start login");
                                 const optionsJSON = await response.json();
 
+                                msg.textContent = "WAITING FOR BIOMETRIC/HARDWARE KEY...";
                                 const assertion = await startAuthentication({ optionsJSON });
 
-                                let finishUrl = '/webauthn/login/finish';
+                                msg.textContent = "VERIFYING CRYPTOGRAPHIC PROOF...";
                                 const finishParams = new URLSearchParams();
                                 if (username) finishParams.append('username', username);
                                 if (rd) finishParams.append('rd', rd);

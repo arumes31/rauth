@@ -10,6 +10,22 @@
     <link href="/static/css/modern.css" rel="stylesheet">
 </head>
 <body class="bg-light-animated">
+    <div class="scanlines"></div>
+
+    <!-- Toast Container -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="successToast" class="toast matrix-toast" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="toast-header bg-transparent border-0 text-primary">
+                <i class="bi bi-shield-check me-2"></i>
+                <strong class="me-auto">SECURE OPS NOTIFICATION</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+            <div class="toast-body small fw-bold" id="toastMessage">
+                Administrative operation successful.
+            </div>
+        </div>
+    </div>
+
     <nav class="navbar navbar-expand-lg sticky-top">
         <div class="container">
             <a class="navbar-brand fs-3" href="#">RAuth</a>
@@ -76,7 +92,7 @@
                                     {{range .sessions}}
                                     <tr class="align-middle">
                                         <td class="ps-4">
-                                            <div class="fw-bold">{{index . "username"}}</div>
+                                            <div class="fw-bold text-primary">{{index . "username"}}</div>
                                             <div class="extra-small text-muted">{{index . "ip"}}</div>
                                         </td>
                                         <td>
@@ -85,8 +101,13 @@
                                             </span>
                                         </td>
                                         <td>
-                                            <div class="extra-small text-truncate text-muted" style="max-width: 250px;" title="{{index . "user_agent"}}">
-                                                {{index . "user_agent"}}
+                                            <div class="d-flex align-items-center">
+                                                <div class="fs-5 me-2 text-primary opacity-50">
+                                                    <i class="bi {{index . "device_icon"}}"></i>
+                                                </div>
+                                                <div class="extra-small text-truncate text-muted" style="max-width: 200px;" title="{{index . "user_agent"}}">
+                                                    {{index . "friendly_ua"}}
+                                                </div>
                                             </div>
                                         </td>
                                         <td class="text-muted small">
@@ -322,17 +343,26 @@
         }
 
         // Show success alert if redirected back with success param
-        const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.has('success')) {
-            const success = urlParams.get('success');
-            let msg = "Action completed successfully";
-            if (success === '2fa_reset') msg = "Two-factor authentication has been reset.";
-            if (success === 'password_changed') msg = "User password has been updated.";
-            if (success === 'email_updated') msg = "User email address has been updated.";
-            
-            // Basic toast or alert logic could go here
-            console.log(msg);
-        }
+        window.addEventListener('load', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.has('success')) {
+                const success = urlParams.get('success');
+                const messages = {
+                    '2fa_reset': 'Two-factor authentication has been reset for the user.',
+                    'password_changed': 'User password has been updated successfully.',
+                    'email_updated': 'User email address has been updated.',
+                    'user_created': 'New identity created in the system.',
+                    'user_deleted': 'User has been purged from the directory.'
+                };
+                
+                const msg = messages[success] || 'Administrative action completed.';
+                document.getElementById('toastMessage').textContent = msg;
+                const toast = new bootstrap.Toast(document.getElementById('successToast'));
+                toast.show();
+                
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+        });
 
         document.getElementById('inviteForm').addEventListener('submit', async (e) => {
             e.preventDefault();

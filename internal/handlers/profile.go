@@ -45,6 +45,7 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 			}
 			data["ttl"] = fmt.Sprintf("%d", int(core.TokenDB.TTL(core.Ctx, k).Val().Seconds()))
 			data["friendly_ua"] = core.FormatUserAgent(data["user_agent"])
+			data["device_icon"] = core.GetDeviceIcon(data["user_agent"])
 			sessions = append(sessions, data)
 		}
 	}
@@ -95,7 +96,7 @@ func (h *ProfileHandler) RenamePasskey(c echo.Context) error {
 	}
 
 	core.LogAudit("PASSKEY_RENAME", username, c.RealIP(), map[string]interface{}{"nickname": nickname})
-	return c.Redirect(http.StatusFound, "/rauthprofile")
+	return c.Redirect(http.StatusFound, "/rauthprofile?success=passkey_renamed")
 }
 
 func (h *ProfileHandler) RevokePasskey(c echo.Context) error {
@@ -117,7 +118,7 @@ func (h *ProfileHandler) RevokePasskey(c echo.Context) error {
 	}
 
 	core.LogAudit("PASSKEY_REVOKE", username, c.RealIP(), nil)
-	return c.Redirect(http.StatusFound, "/rauthprofile")
+	return c.Redirect(http.StatusFound, "/rauthprofile?success=passkey_revoked")
 }
 
 func (h *ProfileHandler) DisableTOTP(c echo.Context) error {
@@ -174,7 +175,7 @@ func (h *ProfileHandler) TerminateSession(c echo.Context) error {
 	core.TokenDB.Del(core.Ctx, redisKey)
 	core.LogAudit("USER_TERMINATE_SESSION", username, c.RealIP(), map[string]interface{}{"token": token[:8] + "..."})
 
-	return c.Redirect(http.StatusFound, "/rauthprofile")
+	return c.Redirect(http.StatusFound, "/rauthprofile?success=session_terminated")
 }
 
 func (h *ProfileHandler) TerminateAllOtherSessions(c echo.Context) error {
@@ -246,5 +247,5 @@ func (h *ProfileHandler) ChangePassword(c echo.Context) error {
 	slog.Info("Password changed by user", "user", username)
 	core.LogAudit("USER_CHANGE_PASSWORD", username, c.RealIP(), nil)
 
-	return c.Redirect(http.StatusFound, "/rauthprofile?success=1")
+	return c.Redirect(http.StatusFound, "/rauthprofile?success=password_changed")
 }

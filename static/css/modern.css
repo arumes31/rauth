@@ -355,6 +355,54 @@ body {
     border-radius: 4px;
 }
 
+/* Scanline Overlay */
+.scanlines {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+        rgba(18, 16, 16, 0) 50%,
+        rgba(0, 0, 0, 0.1) 50%
+    ), linear-gradient(
+        90deg,
+        rgba(255, 0, 0, 0.03),
+        rgba(0, 255, 0, 0.01),
+        rgba(0, 0, 255, 0.03)
+    );
+    background-size: 100% 3px, 3px 100%;
+    pointer-events: none;
+    z-index: 9999;
+    opacity: 0.3;
+}
+
+/* Matrix Toast */
+.matrix-toast {
+    background: var(--glass-bg) !important;
+    backdrop-filter: blur(15px);
+    border: 1px solid var(--primary) !important;
+    color: var(--primary) !important;
+    font-family: 'Courier New', monospace;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    box-shadow: 0 0 15px rgba(239, 68, 68, 0.3);
+}
+
+.matrix-toast .btn-close {
+    filter: invert(1) sepia(1) saturate(5) hue-rotate(-45deg);
+}
+
+@keyframes pulse-red {
+    0% { opacity: 0.4; }
+    50% { opacity: 1; text-shadow: 0 0 10px var(--primary); }
+    100% { opacity: 0.4; }
+}
+
+.animate-pulse-red {
+    animation: pulse-red 2s infinite;
+}
+
 .animate-fade-in {
     animation: fadeIn 0.5s ease-out;
 }

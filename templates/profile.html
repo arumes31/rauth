@@ -10,6 +10,22 @@
     <link href="/static/css/modern.css" rel="stylesheet">
 </head>
 <body class="bg-light-animated">
+    <div class="scanlines"></div>
+    
+    <!-- Toast Container -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="successToast" class="toast matrix-toast" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="toast-header bg-transparent border-0 text-primary">
+                <i class="bi bi-shield-check me-2"></i>
+                <strong class="me-auto">SYSTEM NOTIFICATION</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+            <div class="toast-body small fw-bold" id="toastMessage">
+                Operation completed successfully.
+            </div>
+        </div>
+    </div>
+
     <nav class="navbar navbar-expand-lg sticky-top">
         <div class="container">
             <a class="navbar-brand fs-3" href="#">RAuth</a>
@@ -60,7 +76,11 @@
                             </div>
                             <div class="mb-3">
                                 <label class="form-label text-muted small fw-bold">New Password</label>
-                                <input type="password" name="new_password" class="form-control" required>
+                                <input type="password" name="new_password" id="new_password" class="form-control" required oninput="checkStrength(this.value)">
+                                <div class="progress mt-2" style="height: 4px; background: rgba(239, 68, 68, 0.1);">
+                                    <div id="strength-bar" class="progress-bar" role="progressbar" style="width: 0%"></div>
+                                </div>
+                                <div id="strength-text" class="extra-small mt-1 text-muted text-uppercase fw-bold" style="letter-spacing: 1px;">Entropy: None</div>
                             </div>
                             <div class="mb-3">
                                 <label class="form-label text-muted small fw-bold">Verify Password</label>
@@ -203,13 +223,20 @@
                                     {{range .sessions}}
                                     <tr class="align-middle {{if eq .is_current "1"}}bg-primary bg-opacity-10{{end}}">
                                         <td class="ps-4">
-                                            <div class="small fw-bold">
-                                                {{if eq .is_current "1"}}<span class="badge bg-primary me-2">Current</span>{{end}}
-                                                {{.friendly_ua}}
-                                            </div>
-                                            <div class="extra-small text-muted" title="{{.user_agent}}">
-                                                <i class="bi bi-geo-alt me-1"></i> {{.ip}} 
-                                                <span class="ms-1 badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25">{{.country}}</span>
+                                            <div class="d-flex align-items-center">
+                                                <div class="fs-4 me-3 text-primary opacity-75">
+                                                    <i class="bi {{.device_icon}}"></i>
+                                                </div>
+                                                <div>
+                                                    <div class="small fw-bold">
+                                                        {{if eq .is_current "1"}}<span class="badge bg-primary me-2">Current</span>{{end}}
+                                                        {{.friendly_ua}}
+                                                    </div>
+                                                    <div class="extra-small text-muted" title="{{.user_agent}}">
+                                                        <i class="bi bi-geo-alt me-1"></i> {{.ip}} 
+                                                        <span class="ms-1 badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25">{{.country}}</span>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </td>
                                         <td class="text-muted small">
@@ -272,6 +299,57 @@
         </div>
     </div>
     <script src="/static/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Handle success messages
+        window.addEventListener('load', () => {
+            const params = new URLSearchParams(window.location.search);
+            const success = params.get('success');
+            if (success) {
+                const messages = {
+                    'sessions_terminated': 'All other active sessions have been terminated.',
+                    'session_terminated': 'The selected session has been terminated.',
+                    'password_changed': 'Credentials updated successfully.',
+                    'totp_disabled': 'Two-factor authentication has been disabled.',
+                    'passkey_renamed': 'Security key nickname updated.',
+                    'passkey_revoked': 'Security key has been revoked.'
+                };
+                
+                const msg = messages[success] || 'Operation successful.';
+                document.getElementById('toastMessage').textContent = msg;
+                const toast = new bootstrap.Toast(document.getElementById('successToast'));
+                toast.show();
+                
+                // Clean up URL
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+        });
+
+        function checkStrength(p) {
+            let s = 0;
+            if (p.length > 7) s++;
+            if (/[A-Z]/.test(p)) s++;
+            if (/[0-9]/.test(p)) s++;
+            if (/[^A-Za-z0-9]/.test(p)) s++;
+            if (p.length > 12) s++;
+
+            const bar = document.getElementById('strength-bar');
+            const text = document.getElementById('strength-text');
+            const colors = ['#dc2626', '#ea580c', '#eab308', '#84cc16', '#22c55e'];
+            const labels = ['Weak', 'Fair', 'Good', 'Strong', 'Excellent'];
+
+            const score = Math.min(s, 5);
+            if (p.length === 0) {
+                bar.style.width = '0%';
+                text.textContent = 'Entropy: None';
+                text.className = 'extra-small mt-1 text-muted text-uppercase fw-bold';
+            } else {
+                bar.style.width = (score * 20) + '%';
+                bar.style.backgroundColor = colors[score-1] || colors[0];
+                text.textContent = 'Entropy: ' + (labels[score-1] || labels[0]);
+                text.style.color = colors[score-1] || colors[0];
+            }
+        }
+    </script>
 </body>
 </html>
 {{end}}
