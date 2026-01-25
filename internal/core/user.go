@@ -45,9 +45,12 @@ func GetUser(username string) (User, error) {
 
 	// Ensure UID exists for older users
 	if user.UID == "" {
-		user.UID = uuid.New().String()
+		newUUID := uuid.New()
+		user.UID = newUUID.String()
 		UserDB.HSet(Ctx, "user:"+username, "uid", user.UID)
 		UserDB.Set(Ctx, "uid:"+user.UID, username, 0)
+		// Index by binary representation as well for raw UserHandle lookups
+		UserDB.Set(Ctx, "uid_bin:"+string(newUUID[:]), username, 0)
 	}
 
 	return user, nil
@@ -72,14 +75,15 @@ func CreateUser(username, password, email string, isAdmin bool, twoFactor string
 		adminVal = "1"
 	}
 
-	newUID := uuid.New().String()
+	newUUID := uuid.New()
+	uidStr := newUUID.String()
 	user := map[string]interface{}{
 		"username":   username,
 		"password":   hash,
 		"email":      email,
 		"is_admin":   adminVal,
 		"groups":     "default",
-		"uid":        newUID,
+		"uid":        uidStr,
 		"created_at": time.Now().Unix(),
 		"2fa_secret": Encrypt2FASecret(twoFactor, ServerSecret),
 	}
@@ -89,8 +93,9 @@ func CreateUser(username, password, email string, isAdmin bool, twoFactor string
 		return err
 	}
 
-	// Add UID index for nameless passkey login
-	UserDB.Set(Ctx, "uid:"+newUID, username, 0)
+	// Add UID indexes for nameless passkey login
+	UserDB.Set(Ctx, "uid:"+uidStr, username, 0)
+	UserDB.Set(Ctx, "uid_bin:"+string(newUUID[:]), username, 0)
 
 	return UserDB.SAdd(Ctx, "users", username).Err()
 }
@@ -99,6 +104,9 @@ func DeleteUser(username string) error {
 	user, err := GetUser(username)
 	if err == nil {
 		UserDB.Del(Ctx, "uid:"+user.UID)
+		if u, err := uuid.Parse(user.UID); err == nil {
+			UserDB.Del(Ctx, "uid_bin:"+string(u[:]))
+		}
 	}
 	if err := UserDB.Del(Ctx, "user:"+username).Err(); err != nil {
 		return err
@@ -111,5 +119,10 @@ func UpdateUser(username string, updates map[string]interface{}) error {
 }
 
 func GetUsernameByUID(uid string) (string, error) {
-	return UserDB.Get(Ctx, "uid:"+uid).Result()
+	// Try string lookup first
+	if val, err := UserDB.Get(Ctx, "uid:"+uid).Result(); err == nil {
+		return val, nil
+	}
+	// Try binary lookup
+	return UserDB.Get(Ctx, "uid_bin:"+uid).Result()
 }
