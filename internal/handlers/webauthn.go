@@ -94,8 +94,8 @@ func (h *WebAuthnHandler) BeginLogin(c echo.Context) error {
 	var err error
 
 	if username != "" {
-		userRecord, err := core.GetUser(username)
-		if err != nil {
+		userRecord, getErr := core.GetUser(username)
+		if getErr != nil {
 			// Dummy user to prevent enumeration
 			user := &core.WebAuthnUser{
 				ID:          []byte("dummy"),
