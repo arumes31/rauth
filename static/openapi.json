@@ -1,0 +1,51 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "RAuth API",
+    "description": "Authentication Proxy and Management API",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/rauthvalidate": {
+      "get": {
+        "summary": "Validate session",
+        "description": "Used by Nginx auth_request module to validate a session cookie.",
+        "responses": {
+          "200": { "description": "OK - Session valid" },
+          "401": { "description": "Unauthorized - Session invalid or expired" },
+          "429": { "description": "Too Many Requests" }
+        }
+      }
+    },
+    "/rauthlogin": {
+      "post": {
+        "summary": "Login",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "username": { "type": "string" },
+                  "password": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "OK - Success or 2FA required" },
+          "302": { "description": "Redirect - Login success" }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Health Check",
+        "responses": {
+          "200": { "description": "OK" }
+        }
+      }
+    }
+  }
+}

@@ -131,3 +131,38 @@ func Decrypt2FASecret(secret string, key string) string {
 	}
 	return decrypted
 }
+
+func FormatUserAgent(ua string) string {
+	if ua == "" {
+		return "Unknown Device"
+	}
+	
+	// Very simple heuristic parsing for common browsers/OS
+	os := "Unknown OS"
+	if strings.Contains(ua, "Android") {
+		os = "Android"
+	} else if strings.Contains(ua, "iPhone") || strings.Contains(ua, "iPad") {
+		os = "iOS"
+	} else if strings.Contains(ua, "Windows") {
+		os = "Windows"
+	} else if strings.Contains(ua, "Macintosh") {
+		os = "macOS"
+	} else if strings.Contains(ua, "Linux") {
+		os = "Linux"
+	}
+
+	browser := "Unknown Browser"
+	if strings.Contains(ua, "Edg/") {
+		browser = "Edge"
+	} else if strings.Contains(ua, "Chrome/") {
+		browser = "Chrome"
+	} else if strings.Contains(ua, "Firefox/") {
+		browser = "Firefox"
+	} else if strings.Contains(ua, "Safari/") && !strings.Contains(ua, "Chrome/") {
+		browser = "Safari"
+	} else if strings.Contains(ua, "Opera/") || strings.Contains(ua, "OPR/") {
+		browser = "Opera"
+	}
+
+	return fmt.Sprintf("%s on %s", browser, os)
+}
