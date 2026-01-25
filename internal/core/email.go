@@ -57,12 +57,13 @@ func SendEmail(to, subject, body string) error {
 		body = strings.Replace(emailBaseTemplate, "{{.Content}}", body, 1)
 	}
 
-	msg := []byte(fmt.Sprintf("To: %s\r\n"+
+	msg := []byte(fmt.Sprintf("From: %s\r\n"+
+		"To: %s\r\n"+
 		"Subject: %s\r\n"+
 		"MIME-version: 1.0;\r\n"+
 		"Content-Type: text/html; charset=\"UTF-8\";\r\n"+
 		"\r\n"+
-		"%s\r\n", to, subject, body))
+		"%s\r\n", cfg.SMTPFrom, to, subject, body))
 
 	addr := fmt.Sprintf("%s:%d", cfg.SMTPHost, cfg.SMTPPort)
 	
