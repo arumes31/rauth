@@ -170,27 +170,41 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 	var username string
 	usernameParam := c.QueryParam("username")
 
+	slog.Debug("Identifying user from passkey", "userHandleLen", len(parsedResponse.Response.UserHandle), "usernameParam", usernameParam)
+
 	// 1. Check UserHandle from authenticator (most reliable for passkeys)
 	if len(parsedResponse.Response.UserHandle) > 0 {
-		// handle might be a UUID string (new) or username string (legacy)
 		handle := string(parsedResponse.Response.UserHandle)
+		slog.Debug("Checking UserHandle", "handleHex", fmt.Sprintf("%x", parsedResponse.Response.UserHandle), "handleStr", handle)
 		
-		// Try to look up by UID
+		// Try multiple lookup methods for maximum compatibility
+		
+		// A. Try looking up by the string representation (what we currently store)
 		if u, err := core.GetUsernameByUID(handle); err == nil {
 			username = u
+			slog.Debug("Found username by string UID", "username", username)
 		} else {
-			// Fallback: handle might be the username itself
-			userRecord, err := core.GetUser(handle)
-			if err == nil {
-				username = userRecord.Username
+			// B. Try looking up by the raw binary (some authenticators might return this if they were registered differently)
+			if u, err := core.GetUsernameByUID(string(parsedResponse.Response.UserHandle)); err == nil {
+				username = u
+				slog.Debug("Found username by binary UID", "username", username)
+			} else {
+				// C. Fallback: handle might be the username itself (legacy)
+				userRecord, err := core.GetUser(handle)
+				if err == nil {
+					username = userRecord.Username
+					slog.Debug("Found username by legacy fallback", "username", username)
+				}
 			}
 		}
 	} else if usernameParam != "" {
+		slog.Debug("No UserHandle, using usernameParam", "username", usernameParam)
 		// 2. Fallback to query param if UserHandle is missing (common for some non-discoverable keys)
 		username = usernameParam
 	}
 
 	if username == "" {
+		slog.Warn("Could not identify user from passkey", "userHandle", string(parsedResponse.Response.UserHandle), "usernameParam", usernameParam)
 		return echo.NewHTTPError(http.StatusBadRequest, "Could not identify user from passkey")
 	}
 
