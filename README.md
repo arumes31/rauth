@@ -23,6 +23,7 @@ RAuth eliminates the complexity of full-scale identity providers while maintaini
 
 ## 📖 Table of Contents
 - [🚀 Core Features](#-core-features)
+- [🏗️ System Architecture](#-system-architecture)
 - [🛡️ Security Architecture](#-security-architecture)
 - [📦 Technical Stack](#-technical-stack)
 - [🔧 Nginx Integration](#-nginx-integration)
@@ -30,6 +31,7 @@ RAuth eliminates the complexity of full-scale identity providers while maintaini
 - [⚙️ Configuration](#-configuration)
 - [🚀 Deployment](#-deployment)
 - [💻 Development](#-development)
+- [❓ Troubleshooting FAQ](#-troubleshooting-faq)
 
 ---
 
@@ -41,18 +43,41 @@ RAuth eliminates the complexity of full-scale identity providers while maintaini
 *   **TOTP Support**: Compatible with Google Authenticator, Authy, and Bitwarden.
 *   **Enforced Setup**: New users are automatically guided through a secure MFA enrollment process.
 
+> **Browser & Device Support**: Passkeys are supported on Chrome 67+, Edge 79+, Firefox 60+, and Safari 13+. Hardware keys (YubiKey) work across all platforms, while platform authenticators (TouchID, Windows Hello) require OS-level support.
+
 ### 🌐 Smart Session Management
 *   **Sub-millisecond Validation**: Optimized Go backend with Redis caching for near-zero latency.
 *   **Geo-Fencing**: Built-in MaxMind integration. If a session is accessed from a new country, it is instantly invalidated to prevent session hijacking.
 *   **Device Awareness**: Logs and displays active sessions with User-Agent and IP metadata.
 *   **System-Wide Invalidation**: Every password change or 2FA reset automatically terminates all other active sessions for that account.
-*   **IP-Based Refresh**: Automatically extends session validity as long as the user remains on the same IP.
 
 ### 🛠️ Administrative Control
 *   **User Management**: Create, delete, and manage users via a secure dashboard.
 *   **Credential Resets**: Force password changes or reset 2FA seeds for users.
 *   **Audit Logging**: Every sensitive action (logins, failures, admin changes) is captured in a structured, searchable audit feed.
 *   **Email Notifications**: Automated, security-themed HTML alerts for logins, password changes, 2FA modifications, and account creation.
+
+### 🎨 Glassmorphism "Matrix" UI
+RAuth features a modern, high-performance frontend built with Bootstrap 5 and custom CSS. 
+*   **Visual Urgency**: Security-critical pages use a specialized red-themed urgency design.
+*   **Glassmorphism**: Transparent, frosted-glass components with real-time backdrop filtering.
+*   **Responsive**: Fully optimized for mobile, tablet, and desktop viewports.
+
+---
+
+## 🏗️ System Architecture
+
+RAuth integrates seamlessly into your existing Nginx proxy stack using the `auth_request` module.
+
+```mermaid
+graph TD
+    User((User)) -->|HTTPS Request| Nginx[Nginx Reverse Proxy]
+    Nginx -->|1. auth_request| RAuth[RAuth Auth Service]
+    RAuth <-->|2. Session Check| Redis[(Redis Store)]
+    RAuth -->|3. Return 200/401| Nginx
+    Nginx -->|4. If 200: Forward| Backend[Your App Backend]
+    Nginx -->|5. If 401: Redirect| Login[RAuth Login UI]
+```
 
 ---
 
@@ -68,6 +93,8 @@ RAuth is built with a "Security-First" mindset:
 6.  **Clone Detection**: WebAuthn signature counter persistence allows the detection of cloned or tampered hardware security keys.
 7.  **Hardened Redirects**: Built-in protection against Open Redirects, including protocol-relative URL bypasses.
 8.  **Injection-Safe Emails**: All automated emails are hardened against Header (CRLF) Injection and HTML/XSS attacks.
+9.  **Custom Error Interception**: Branded 404, 403, and 500 error pages prevent technical leakage and provide a unified UX.
+10. **Background Hardening**: Automatic daily Geo-IP database updates and session cleanup tasks.
 
 ---
 
@@ -119,6 +146,9 @@ location @error401 {
 }
 ```
 
+### 🌐 Proxying Multiple Domains
+RAuth can protect multiple apps across different subdomains using a single deployment. Set your `COOKIE_DOMAIN` to the root domain (e.g., `example.com`) to share session state between `app1.example.com` and `app2.example.com`.
+
 ---
 
 ## 📊 Monitoring & Observability
@@ -127,7 +157,7 @@ RAuth exposes real-time metrics in Prometheus format at `/metrics`.
 
 ### Security & Usage Metrics
 *   `rauth_login_success_total`: Cumulative count of successful logins.
-*   `rauth_login_failed_total`: Cumulative count of failed attempts (useful for alerting on brute-force).
+*   `rauth_login_failed_total`: Cumulative count of failed attempts.
 *   `rauth_active_sessions`: Gauge showing the current number of valid sessions in Redis.
 *   `rauth_rate_limit_hits_total`: Count of requests blocked by the internal throttler.
 *   `rauth_audit_logs_total`: Counter categorized by action (e.g., `USER_CHANGE_PASSWORD`, `ADMIN_DELETE_USER`).
@@ -168,6 +198,13 @@ RAuth is configured via Environment Variables.
 
 ## 🚀 Deployment
 
+### 🗺️ Geo-IP Setup (Required)
+RAuth requires a MaxMind GeoLite2 database for security features.
+1.  Sign up for a free account at [MaxMind](https://www.maxmind.com/en/geolite2/signup).
+2.  Generate a **License Key** from the account dashboard.
+3.  Add `MAXMIND_ACCOUNT_ID` and `MAXMIND_LICENSE_KEY` to your `.env` file.
+4.  RAuth will automatically download and update the database on startup.
+
 ### Quick Start with Docker Compose
 
 1.  **Clone & Prepare**:
@@ -198,11 +235,18 @@ We use a combination of unit tests, integration tests, and fuzzing to ensure cor
 go test -v ./...
 ```
 
-### Local CI/CD
-You can verify the entire pipeline (Linting, Security, Tests) locally using [act](https://github.com/nektos/act):
-```bash
-act -j test -W .github/workflows/tests.yml
-```
+---
+
+## ❓ Troubleshooting FAQ
+
+**Q: Why am I stuck in a 401 Redirect Loop?**  
+A: This usually happens when the `COOKIE_DOMAIN` in RAuth doesn't match the domain of the app you are protecting. Ensure the cookie can be shared across subdomains.
+
+**Q: "Redis connection refused" in Docker?**  
+A: Ensure RAuth and Redis are on the same Docker network. If using the default Compose file, use `REDIS_HOST=rauth-auth-redis`.
+
+**Q: WebAuthn/Passkey registration fails?**  
+A: WebAuthn requires HTTPS (or `localhost` for development). Ensure your Nginx proxy is serving over SSL and forwarding the correct `Host` headers.
 
 ---
 Built with ❤️ for secure, fast, and private self-hosting.
