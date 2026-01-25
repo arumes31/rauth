@@ -15,11 +15,11 @@ const emailBaseTemplate = `
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background-color: #f4f7f6; }
         .container { max-width: 600px; margin: 20px auto; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
-        .header { background: #0d6efd; color: #fff; padding: 30px; text-align: center; }
+        .header { background: #dc3545; color: #fff; padding: 30px; text-align: center; }
         .header h1 { margin: 0; font-size: 24px; letter-spacing: 1px; }
         .content { padding: 30px; }
         .footer { background: #f8f9fa; color: #6c757d; padding: 20px; text-align: center; font-size: 12px; }
-        .btn { display: inline-block; padding: 12px 25px; background: #0d6efd; color: #fff; text-decoration: none; border-radius: 5px; font-weight: bold; margin-top: 20px; }
+        .btn { display: inline-block; padding: 12px 25px; background: #dc3545; color: #fff; text-decoration: none; border-radius: 5px; font-weight: bold; margin-top: 20px; }
         .alert { padding: 15px; border-radius: 5px; margin-bottom: 20px; }
         .alert-warning { background: #fff3cd; border: 1px solid #ffeeba; color: #856404; }
         .details { background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0; font-size: 14px; }
@@ -93,7 +93,7 @@ func SendLoginNotification(email, username, ip, country string) {
 			<strong>Wasn't you?</strong> If you don't recognize this activity, please change your password immediately and terminate all active sessions from your profile dashboard.
 		</div>
 		<a href="%s/rauthprofile" class="btn">Manage Account</a>
-	`, username, username, ip, country, time.Now().Format("Jan 02, 2006 15:04:05 MST"), cfg.PublicURL)
+	`, username, username, ip, country, time.Now().Format("Jan 02, 2006 15:04:05 MST"), LoadConfig().PublicURL)
 	
 	_ = SendEmail(email, subject, body)
 }
