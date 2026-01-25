@@ -78,7 +78,7 @@ func SendEmail(to, subject, body string) error {
 }
 
 func SendLoginNotification(email, username, ip, country string) {
-	subject := "Security Alert: New Login Detected"
+	subject := "[RAuth] Security Alert: New Login Detected"
 	body := fmt.Sprintf(`
 		<h2>New Login Detected</h2>
 		<p>Hello <strong>%s</strong>,</p>
@@ -99,7 +99,7 @@ func SendLoginNotification(email, username, ip, country string) {
 }
 
 func SendPasswordChangeNotification(email, username, ip string) {
-	subject := "Security Alert: Password Changed"
+	subject := "[RAuth] Security Alert: Password Changed"
 	body := fmt.Sprintf(`
 		<h2>Password Changed</h2>
 		<p>Hello <strong>%s</strong>,</p>
