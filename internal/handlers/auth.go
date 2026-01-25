@@ -378,9 +378,15 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 		slog.Error("Failed to store token in Redis", "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Internal Server Error")
 	}
-	
+
 	validity := time.Duration(h.Cfg.TokenValidityMinutes) * time.Minute
 	core.TokenDB.Expire(core.Ctx, redisKey, validity)
+
+	// Send Login Notification Email (Asynchronous)
+	userRecord, _ := core.GetUser(username)
+	if userRecord.Email != "" {
+		go core.SendLoginNotification(userRecord.Email, username, clientIP, country)
+	}
 
 	cookie := &http.Cookie{
 		Name:     "X-rauth-authtoken",
@@ -396,7 +402,7 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 
 	core.LogAudit("LOGIN_SUCCESS", username, clientIP, map[string]interface{}{"country": country})
 	core.LoginSuccessTotal.Inc()
-	
+
 	redirect := c.QueryParam("rd")
 	if redirect != "" {
 		// Prevent protocol-relative redirects (e.g., //evil.com)
@@ -420,6 +426,8 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 			}
 		}
 	}
-	if redirect == "" { redirect = "/rauthprofile" }
+	if redirect == "" {
+		redirect = "/rauthprofile"
+	}
 	return c.Redirect(http.StatusFound, redirect)
 }
