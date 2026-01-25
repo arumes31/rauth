@@ -44,6 +44,7 @@ func TestWebAuthnHandlers(t *testing.T) {
 	})
 
 	t.Run("BeginRegistration_Success", func(t *testing.T) {
+		core.CreateUser("testuser", "password123", "test@example.com", false, "")
 		req := httptest.NewRequest(http.MethodGet, "/webauthn/register/begin", nil)
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)

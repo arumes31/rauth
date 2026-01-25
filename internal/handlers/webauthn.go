@@ -1,11 +1,11 @@
 package handlers
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
-	"net/http/httptest"
 	"rauth/internal/core"
 	"time"
 
@@ -24,11 +24,12 @@ func (h *WebAuthnHandler) BeginRegistration(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusUnauthorized)
 	}
 
-	user := &core.WebAuthnUser{
-		ID:          []byte(username),
-		DisplayName: username,
-		Credentials: core.GetWebAuthnCredentials(username),
+	userRecord, err := core.GetUser(username)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "User not found")
 	}
+
+	user := core.NewWebAuthnUser(userRecord)
 
 	options, sessionData, err := core.WebAuthnInstance.BeginRegistration(user)
 	if err != nil {
@@ -53,11 +54,12 @@ func (h *WebAuthnHandler) FinishRegistration(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusUnauthorized)
 	}
 
-	user := &core.WebAuthnUser{
-		ID:          []byte(username),
-		DisplayName: username,
-		Credentials: core.GetWebAuthnCredentials(username),
+	userRecord, err := core.GetUser(username)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "User not found")
 	}
+
+	user := core.NewWebAuthnUser(userRecord)
 
 	redisKey := "webauthn_reg:" + username
 	sessionJSON, err := core.TokenDB.Get(core.Ctx, redisKey).Result()
@@ -92,12 +94,18 @@ func (h *WebAuthnHandler) BeginLogin(c echo.Context) error {
 	var err error
 
 	if username != "" {
-		user := &core.WebAuthnUser{
-			ID:          []byte(username),
-			DisplayName: username,
-			Credentials: core.GetWebAuthnCredentials(username),
+		userRecord, err := core.GetUser(username)
+		if err != nil {
+			// Dummy user to prevent enumeration
+			user := &core.WebAuthnUser{
+				ID:          []byte("dummy"),
+				DisplayName: username,
+			}
+			options, sessionData, err = core.WebAuthnInstance.BeginLogin(user)
+		} else {
+			user := core.NewWebAuthnUser(userRecord)
+			options, sessionData, err = core.WebAuthnInstance.BeginLogin(user)
 		}
-		options, sessionData, err = core.WebAuthnInstance.BeginLogin(user)
 	} else {
 		// Nameless login
 		options, sessionData, err = core.WebAuthnInstance.BeginDiscoverableLogin()
@@ -133,19 +141,16 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusTooManyRequests, fmt.Sprintf("Too many login attempts from this IP (%s)", clientIP))
 	}
 
-	cookie, err := c.Cookie("rauth_webauthn_session")
-	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "Missing WebAuthn session")
+	sessionKey := "webauthn_login_nameless"
+	usernameParam := c.QueryParam("username")
+	if usernameParam != "" {
+		sessionKey = "webauthn_login:" + usernameParam
 	}
-	sessionID := cookie.Value
-	redisKey := "webauthn_login_session:" + sessionID
 
-	sessionJSON, err := core.TokenDB.Get(core.Ctx, redisKey).Result()
+	sessionJSON, err := core.TokenDB.Get(core.Ctx, sessionKey).Result()
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "Session expired")
+		return echo.NewHTTPError(http.StatusBadRequest, "Session expired or invalid")
 	}
-	core.TokenDB.Del(core.Ctx, redisKey)
-	c.SetCookie(&http.Cookie{Name: "rauth_webauthn_session", MaxAge: -1, Path: "/"})
 
 	var sessionData webauthn.SessionData
 	if err := json.Unmarshal([]byte(sessionJSON), &sessionData); err != nil {
@@ -154,50 +159,109 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 
 	parsedResponse, err := protocol.ParseCredentialRequestResponse(c.Request())
 	if err != nil {
-		slog.Error("WebAuthn parse assertion failed", "error", err)
-		return echo.NewHTTPError(http.StatusBadRequest, "Failed to parse assertion: "+err.Error())
+		return echo.NewHTTPError(http.StatusBadRequest, "Invalid assertion response")
 	}
 
-	// Identify user: 
-	// 1. From query param (named login - user typed their name)
-	// 2. From UserHandle (nameless login - discoverable credential)
-	username := c.QueryParam("username")
+	// Identify user
+	var username string
+	var userID []byte
+
+	// 1. Check UserHandle from authenticator (most reliable for passkeys)
+	if len(parsedResponse.Response.UserHandle) > 0 {
+		handle := string(parsedResponse.Response.UserHandle)
+		// Try to look up by UID
+		if u, err := core.GetUsernameByUID(handle); err == nil {
+			username = u
+			userID = parsedResponse.Response.UserHandle
+		} else {
+			// Fallback: handle might be the username (legacy)
+			username = handle
+			userID = parsedResponse.Response.UserHandle
+		}
+	} else if usernameParam != "" {
+		// 2. Fallback to query param if UserHandle is missing (common for some non-discoverable keys)
+		username = usernameParam
+		userRecord, _ := core.GetUser(username)
+		userID = []byte(userRecord.UID)
+	}
+
 	if username == "" {
-		username = string(parsedResponse.Response.UserHandle)
+		return echo.NewHTTPError(http.StatusBadRequest, "Could not identify user from passkey")
 	}
 
-	if username == "" {
-		slog.Warn("WebAuthn login failed: no user identity provided")
-		return echo.NewHTTPError(http.StatusBadRequest, "Credential did not provide user information")
+	userRecord, err := core.GetUser(username)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "User not found")
 	}
 
+	// Create user object for validation. 
+	// CRITICAL: The ID must match what the authenticator returned (UserHandle)
+	// to satisfy go-webauthn's internal checks.
 	user := &core.WebAuthnUser{
-		ID:          []byte(username),
-		DisplayName: username,
-		Credentials: core.GetWebAuthnCredentials(username),
+		ID:          userID,
+		DisplayName: userRecord.Username,
+		Credentials: core.GetWebAuthnCredentials(userRecord.Username),
+	}
+
+	// If the session already had a UserID (named login), we MUST ensure it matches
+	// or ValidateLogin will fail with "ID mismatch for User and Session".
+	// If it doesn't match but we found a valid user, we override it ONLY if the
+	// authenticator explicitly provided a UserHandle.
+	if len(sessionData.UserID) > 0 && !bytes.Equal(sessionData.UserID, userID) {
+		slog.Info("ID mismatch between session and authenticator, attempting override", "session", string(sessionData.UserID), "authenticator", string(userID))
+		sessionData.UserID = userID
 	}
 
 	credential, err := core.WebAuthnInstance.ValidateLogin(user, sessionData, parsedResponse)
 	if err != nil {
-		slog.Warn("WebAuthn login validation failed", "user", username, "error", err)
-		return echo.NewHTTPError(http.StatusUnauthorized, err.Error())
+		slog.Error("WebAuthn validation failed", "error", err, "username", username)
+		return echo.NewHTTPError(http.StatusUnauthorized, "Passkey validation failed: "+err.Error())
 	}
 
-	core.UpdateWebAuthnCredential(username, credential)
-	
-	// Create actual auth session
-	authHandler := &AuthHandler{Cfg: h.Cfg}
-	rec := httptest.NewRecorder()
-	e := echo.New()
-	req := c.Request()
-	ctx := e.NewContext(req, rec)
-	
-	if err := authHandler.issueToken(ctx, username); err != nil {
-		return err
-	}
+	// Update credential sign count
+	core.UpdateWebAuthnSignCount(username, credential.ID, credential.Authenticator.SignCount)
 
-	return c.JSON(http.StatusOK, map[string]string{
-		"status":   "success", 
-		"redirect": rec.Header().Get("Location"),
+	// Issue session
+	ua := c.Request().UserAgent()
+	token := core.GenerateRandomString(32)
+	
+	encrypted, _ := core.EncryptToken(token, h.Cfg.ServerSecret)
+	country := core.GetCountryCode(clientIP)
+
+	redisKey := "X-rauth-authtoken=" + token
+	core.TokenDB.HSet(core.Ctx, redisKey, map[string]interface{}{
+		"status":     "valid",
+		"ip":         clientIP,
+		"username":   username,
+		"country":    country,
+		"user_agent": ua,
+		"created_at": time.Now().Unix(),
 	})
+	
+	validity := time.Duration(h.Cfg.TokenValidityMinutes) * time.Minute
+	core.TokenDB.Expire(core.Ctx, redisKey, validity)
+
+	cookie := &http.Cookie{
+		Name:     "X-rauth-authtoken",
+		Value:    encrypted,
+		Path:     "/",
+		Domain:   h.Cfg.CookieDomains[0],
+		Expires:  time.Now().Add(validity),
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	}
+	c.SetCookie(cookie)
+
+	core.LogAudit("LOGIN_SUCCESS_PASSKEY", username, clientIP, map[string]interface{}{"country": country})
+
+	// Cleanup session
+	core.TokenDB.Del(core.Ctx, sessionKey)
+
+	redirect := "/rauthprofile"
+	if rd := c.QueryParam("rd"); rd != "" {
+		redirect = rd
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{"redirect": redirect})
 }
