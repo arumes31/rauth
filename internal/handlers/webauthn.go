@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -168,6 +167,7 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 
 	// Identify user
 	var username string
+	var userID []byte
 	usernameParam := c.QueryParam("username")
 
 	slog.Debug("Identifying user from passkey", "userHandleLen", len(parsedResponse.Response.UserHandle), "usernameParam", usernameParam)
@@ -175,36 +175,37 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 	// 1. Check UserHandle from authenticator (most reliable for passkeys)
 	if len(parsedResponse.Response.UserHandle) > 0 {
 		handle := string(parsedResponse.Response.UserHandle)
-		slog.Debug("Checking UserHandle", "handleHex", fmt.Sprintf("%x", parsedResponse.Response.UserHandle), "handleStr", handle)
+		slog.Debug("Checking UserHandle", "handleHex", fmt.Sprintf("%x", parsedResponse.Response.UserHandle))
 		
 		// Try multiple lookup methods for maximum compatibility
 		
-		// A. Try looking up by the string representation (what we currently store)
+		// A. Try looking up by the string representation (UUID string or username)
 		if u, err := core.GetUsernameByUID(handle); err == nil {
 			username = u
-			slog.Debug("Found username by string UID", "username", username)
+			userID = parsedResponse.Response.UserHandle
+			slog.Debug("Found username by string UID index", "username", username)
 		} else {
-			// B. Try looking up by the raw binary (some authenticators might return this if they were registered differently)
-			if u, err := core.GetUsernameByUID(string(parsedResponse.Response.UserHandle)); err == nil {
-				username = u
-				slog.Debug("Found username by binary UID", "username", username)
-			} else {
-				// C. Fallback: handle might be the username itself (legacy)
-				userRecord, err := core.GetUser(handle)
-				if err == nil {
-					username = userRecord.Username
-					slog.Debug("Found username by legacy fallback", "username", username)
-				}
+			// B. Try looking up handle as a username directly (legacy)
+			if userRecord, err := core.GetUser(handle); err == nil {
+				username = userRecord.Username
+				userID = parsedResponse.Response.UserHandle
+				slog.Debug("Found username by legacy username check", "username", username)
 			}
 		}
-	} else if usernameParam != "" {
-		slog.Debug("No UserHandle, using usernameParam", "username", usernameParam)
-		// 2. Fallback to query param if UserHandle is missing (common for some non-discoverable keys)
+	}
+
+	// 2. Fallback to query param if still not identified (common for non-discoverable keys)
+	if username == "" && usernameParam != "" {
+		slog.Debug("Fallback to usernameParam", "username", usernameParam)
 		username = usernameParam
+		if userRecord, err := core.GetUser(username); err == nil {
+			// Use the record's UID as the userID if the authenticator didn't provide one
+			userID = []byte(userRecord.UID)
+		}
 	}
 
 	if username == "" {
-		slog.Warn("Could not identify user from passkey", "userHandle", string(parsedResponse.Response.UserHandle), "usernameParam", usernameParam)
+		slog.Warn("Could not identify user from passkey", "userHandle", fmt.Sprintf("%x", parsedResponse.Response.UserHandle), "usernameParam", usernameParam)
 		return echo.NewHTTPError(http.StatusBadRequest, "Could not identify user from passkey")
 	}
 
@@ -213,25 +214,22 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "User not found")
 	}
 
-	// ALWAYS use the record's UID as the userID for validation
-	userID := []byte(userRecord.UID)
+	// If the authenticator didn't provide a handle, use the record's UID
+	if len(userID) == 0 {
+		userID = []byte(userRecord.UID)
+	}
 
 	// Create user object for validation. 
-	// CRITICAL: The ID must match what we want to validate against (userRecord.UID)
+	// CRITICAL: The ID must match what the authenticator thinks it is (userID)
 	user := &core.WebAuthnUser{
 		ID:          userID,
 		DisplayName: userRecord.Username,
 		Credentials: core.GetWebAuthnCredentials(userRecord.Username),
 	}
 
-	// If the session already had a UserID (named login), we MUST ensure it matches
-	// or ValidateLogin will fail with "ID mismatch for User and Session".
-	// If it doesn't match but we found a valid user, we override it ONLY if the
-	// authenticator explicitly provided a UserHandle.
-	if len(sessionData.UserID) > 0 && !bytes.Equal(sessionData.UserID, userID) {
-		slog.Info("ID mismatch between session and authenticator, attempting override", "session", string(sessionData.UserID), "authenticator", string(userID))
-		sessionData.UserID = userID
-	}
+	// Sync sessionData.UserID with the identified userID to satisfy go-webauthn's internal checks.
+	// This prevents "ID mismatch for User and Session".
+	sessionData.UserID = userID
 
 	credential, err := core.WebAuthnInstance.ValidateLogin(user, sessionData, parsedResponse)
 	if err != nil {
