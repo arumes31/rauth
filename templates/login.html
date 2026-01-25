@@ -91,6 +91,7 @@
                                 const assertion = await startAuthentication({ optionsJSON });
 
                                 msg.textContent = "VERIFYING CRYPTOGRAPHIC PROOF...";
+                                let finishUrl = '/webauthn/login/finish';
                                 const finishParams = new URLSearchParams();
                                 if (username) finishParams.append('username', username);
                                 if (rd) finishParams.append('rd', rd);
