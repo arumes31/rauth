@@ -229,6 +229,7 @@ func main() {
 	admin.POST("/user/delete", adminHandler.DeleteUser)
 	admin.POST("/user/reset-2fa", adminHandler.ResetUser2FA)
 	admin.POST("/user/change-password", adminHandler.ChangeUserPassword)
+	admin.POST("/user/update-email", adminHandler.UpdateUserEmail)
 	admin.POST("/session/invalidate", adminHandler.InvalidateSession)
 
 	e.GET("/health", func(c echo.Context) error {
