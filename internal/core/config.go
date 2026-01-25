@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"strings"
 )
@@ -24,6 +25,7 @@ type Config struct {
 	InitialEmail             string
 	Initial2FASecret         string
 	WebAuthnOrigins          []string
+	AllowedCountries         []string
 	// Password Policy
 	MinPasswordLength    int
 	RequirePasswordUpper  bool
@@ -50,6 +52,7 @@ func LoadConfig() *Config {
 		InitialEmail:         getEnv("INITIAL_EMAIL", "admin@local"),
 		Initial2FASecret:     getEnv("INITIAL_2FA_SECRET", ""),
 		WebAuthnOrigins:      getEnvSlice("WEBAUTHN_ORIGINS", []string{}),
+		AllowedCountries:     getEnvSlice("ALLOWED_COUNTRIES", []string{}),
 		// Password Policy Defaults
 		MinPasswordLength:     getEnvInt("PWD_MIN_LENGTH", 8),
 		RequirePasswordUpper:  getEnvBool("PWD_REQUIRE_UPPER", true),
@@ -72,6 +75,19 @@ func (c *Config) IsAllowedHost(host string) bool {
 		}
 	}
 
+	// Also check WebAuthn origins
+	for _, o := range c.WebAuthnOrigins {
+		parsed, err := url.Parse(o)
+		if err == nil {
+			h := parsed.Hostname()
+			if h == host {
+				return true
+			}
+		} else if o == host {
+			return true
+		}
+	}
+
 	// Check if host is part of any cookie domain
 	for _, domain := range c.CookieDomains {
 		// Exact match
@@ -85,6 +101,18 @@ func (c *Config) IsAllowedHost(host string) bool {
 		}
 	}
 
+	return false
+}
+
+func (c *Config) IsCountryAllowed(country string) bool {
+	if len(c.AllowedCountries) == 0 {
+		return true // No restriction if empty
+	}
+	for _, allowed := range c.AllowedCountries {
+		if strings.EqualFold(allowed, country) {
+			return true
+		}
+	}
 	return false
 }
 
@@ -120,7 +148,15 @@ func getEnv(key, fallback string) string {
 
 func getEnvSlice(key string, fallback []string) []string {
 	if value, ok := os.LookupEnv(key); ok {
-		return strings.Split(value, ",")
+		parts := strings.Split(value, ",")
+		var result []string
+		for _, p := range parts {
+			trimmed := strings.TrimSpace(p)
+			if trimmed != "" {
+				result = append(result, trimmed)
+			}
+		}
+		return result
 	}
 	return fallback
 }

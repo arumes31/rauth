@@ -60,7 +60,7 @@ func CreateUser(username, password, email string, isAdmin bool, twoFactor string
 		"groups":     "default",
 		"uid":        uuid.New().String(),
 		"created_at": time.Now().Unix(),
-		"2fa_secret": twoFactor,
+		"2fa_secret": Encrypt2FASecret(twoFactor, ServerSecret),
 	}
 
 	err = UserDB.HSet(Ctx, "user:"+username, user).Err()

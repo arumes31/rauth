@@ -31,7 +31,7 @@
                 {{.secret}}
             </div>
 
-            <form method="POST" action="/rauthsetup2fa">
+            <form method="POST" action="/rauthsetup2fa{{if .rd}}?rd={{.rd}}{{end}}">
                 <input type="hidden" name="csrf" value="{{.csrf}}">
                 <input type="hidden" name="temp_secret" value="{{.secret}}">
                 

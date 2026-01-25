@@ -184,7 +184,8 @@ func TestAuthHandler_CompleteSetup2FA(t *testing.T) {
 		assert.Equal(t, http.StatusFound, rec.Code)
 
 		saved, _ := core.UserDB.HGet(core.Ctx, "user:"+username, "2fa_secret").Result()
-		assert.Equal(t, secret, saved)
+		decrypted := core.Decrypt2FASecret(saved, cfg.ServerSecret)
+		assert.Equal(t, secret, decrypted)
 	})
 }
 
