@@ -389,6 +389,16 @@ body {
     box-shadow: 0 0 15px rgba(239, 68, 68, 0.3);
 }
 
+@media (min-width: 992px) {
+    .matrix-toast {
+        min-width: 400px;
+    }
+    .matrix-toast .toast-body {
+        font-size: 1.1rem;
+        padding: 1.25rem;
+    }
+}
+
 .matrix-toast .toast-header {
     background: rgba(239, 68, 68, 0.1) !important;
     color: var(--primary) !important;
