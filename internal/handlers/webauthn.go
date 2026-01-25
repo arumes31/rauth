@@ -141,16 +141,20 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusTooManyRequests, fmt.Sprintf("Too many login attempts from this IP (%s)", clientIP))
 	}
 
-	sessionKey := "webauthn_login_nameless"
-	usernameParam := c.QueryParam("username")
-	if usernameParam != "" {
-		sessionKey = "webauthn_login:" + usernameParam
-	}
-
-	sessionJSON, err := core.TokenDB.Get(core.Ctx, sessionKey).Result()
+	cookie, err := c.Cookie("rauth_webauthn_session")
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "Session expired or invalid")
 	}
+	sessionID := cookie.Value
+	redisKey := "webauthn_login_session:" + sessionID
+
+	sessionJSON, err := core.TokenDB.Get(core.Ctx, redisKey).Result()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "Session expired or invalid")
+	}
+
+	// Clean up session immediately after retrieval (one-time use)
+	core.TokenDB.Del(core.Ctx, redisKey)
 
 	var sessionData webauthn.SessionData
 	if err := json.Unmarshal([]byte(sessionJSON), &sessionData); err != nil {
@@ -165,6 +169,7 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 	// Identify user
 	var username string
 	var userID []byte
+	usernameParam := c.QueryParam("username")
 
 	// 1. Check UserHandle from authenticator (most reliable for passkeys)
 	if len(parsedResponse.Response.UserHandle) > 0 {
@@ -225,38 +230,49 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 	ua := c.Request().UserAgent()
 	token := core.GenerateRandomString(32)
 	
-	encrypted, _ := core.EncryptToken(token, h.Cfg.ServerSecret)
-	country := core.GetCountryCode(clientIP)
+	encryptedToken, encErr := core.EncryptToken(token, h.Cfg.ServerSecret)
+	if encErr != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to encrypt token")
+	}
+	countryCode := core.GetCountryCode(clientIP)
 
-	redisKey := "X-rauth-authtoken=" + token
-	core.TokenDB.HSet(core.Ctx, redisKey, map[string]interface{}{
+	finalRedisKey := "X-rauth-authtoken=" + token
+	core.TokenDB.HSet(core.Ctx, finalRedisKey, map[string]interface{}{
 		"status":     "valid",
 		"ip":         clientIP,
 		"username":   username,
-		"country":    country,
+		"country":    countryCode,
 		"user_agent": ua,
 		"created_at": time.Now().Unix(),
 	})
 	
-	validity := time.Duration(h.Cfg.TokenValidityMinutes) * time.Minute
-	core.TokenDB.Expire(core.Ctx, redisKey, validity)
+	tokenValidity := time.Duration(h.Cfg.TokenValidityMinutes) * time.Minute
+	core.TokenDB.Expire(core.Ctx, finalRedisKey, tokenValidity)
 
-	cookie := &http.Cookie{
+	cookie = &http.Cookie{
 		Name:     "X-rauth-authtoken",
-		Value:    encrypted,
+		Value:    encryptedToken,
 		Path:     "/",
 		Domain:   h.Cfg.CookieDomains[0],
-		Expires:  time.Now().Add(validity),
+		Expires:  time.Now().Add(tokenValidity),
 		HttpOnly: true,
 		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
 	}
 	c.SetCookie(cookie)
 
-	core.LogAudit("LOGIN_SUCCESS_PASSKEY", username, clientIP, map[string]interface{}{"country": country})
+	core.LogAudit("LOGIN_SUCCESS_PASSKEY", username, clientIP, map[string]interface{}{"country": countryCode})
 
-	// Cleanup session
-	core.TokenDB.Del(core.Ctx, sessionKey)
+	// Cleanup session cookie
+	c.SetCookie(&http.Cookie{
+		Name:     "rauth_webauthn_session",
+		Value:    "",
+		Path:     "/",
+		Expires:  time.Unix(0, 0),
+		HttpOnly: true,
+		Secure:   true,
+		MaxAge:   -1,
+	})
 
 	redirect := "/rauthprofile"
 	if rd := c.QueryParam("rd"); rd != "" {
