@@ -28,6 +28,9 @@ func TestAuthHandler_Root(t *testing.T) {
 	})
 }
 
+func TestAuthHandler_Login(t *testing.T) {
+	setupHandlersTest(t)
+
 	cfg := &core.Config{
 		ServerSecret: "32byte-secret-key-for-testing-!!",
 		CookieDomains: []string{"example.com"},
@@ -98,6 +101,10 @@ func TestAuthHandler_Validate(t *testing.T) {
 		ServerSecret: "32byte-secret-key-for-testing-!!",
 		CookieDomains: []string{"example.com"},
 		TokenValidityMinutes: 60,
+		RateLimitLoginMax: 1000,
+		RateLimitLoginDecay: 60,
+		RateLimitValidateMax: 1000,
+		RateLimitValidateDecay: 60,
 	}
 	h := &AuthHandler{Cfg: cfg}
 	e := echo.New()
@@ -153,6 +160,10 @@ func TestAuthHandler_CompleteSetup2FA(t *testing.T) {
 		ServerSecret:  "32byte-secret-key-for-testing-!!",
 		CookieDomains: []string{"example.com"},
 		TokenValidityMinutes: 60,
+		RateLimitLoginMax: 1000,
+		RateLimitLoginDecay: 60,
+		RateLimitValidateMax: 1000,
+		RateLimitValidateDecay: 60,
 	}
 	h := &AuthHandler{Cfg: cfg}
 	e := echo.New()
@@ -192,6 +203,10 @@ func TestAuthHandler_InvalidateSessionIntegration(t *testing.T) {
 		ServerSecret: "32byte-secret-key-for-testing-!!",
 		CookieDomains: []string{"example.com"},
 		TokenValidityMinutes: 60,
+		RateLimitLoginMax: 1000,
+		RateLimitLoginDecay: 60,
+		RateLimitValidateMax: 1000,
+		RateLimitValidateDecay: 60,
 	}
 	h := &AuthHandler{Cfg: cfg}
 	adminH := &AdminHandler{Cfg: cfg}

@@ -19,6 +19,8 @@ func TestBruteForceProtection(t *testing.T) {
 		CookieDomains: []string{"example.com"},
 		RateLimitLoginMax: 10,
 		RateLimitLoginDecay: 300,
+		RateLimitValidateMax: 100,
+		RateLimitValidateDecay: 60,
 	}
 	h := &AuthHandler{Cfg: cfg}
 	e := echo.New()
@@ -51,19 +53,49 @@ func TestBruteForceProtection(t *testing.T) {
 
 	t.Run("Validate Rate Limiting", func(t *testing.T) {
 		clientIP := "5.6.7.8"
-		for i := 0; i < 105; i++ {
+		for i := 0; i < h.Cfg.RateLimitValidateMax+5; i++ {
 			c, rec := createTestContext(e, http.MethodGet, "/rauthvalidate", nil)
 			c.Request().Header.Set(echo.HeaderXRealIP, clientIP)
 			
 			err := h.Validate(c)
 			assert.NoError(t, err)
 			
-			if i >= 100 {
+			if i >= h.Cfg.RateLimitValidateMax {
 				assert.Equal(t, http.StatusTooManyRequests, rec.Code)
 			}
 		}
 	})
 	
+	t.Run("Independent Rate Limits", func(t *testing.T) {
+		clientIP := "10.10.10.10"
+		rateLimitKeyLogin := "rate_limit:login_ip:" + clientIP
+		rateLimitKeyValidate := "rate_limit:validate:" + clientIP
+
+		// 1. Max out login rate limit
+		core.RateLimitDB.Set(core.Ctx, rateLimitKeyLogin, h.Cfg.RateLimitLoginMax, 0)
+
+		// 2. Verify login is blocked
+		f := url.Values{}
+		f.Set("username", "bruteuser")
+		f.Set("password", "wrong")
+		cLogin, recLogin := createTestContext(e, http.MethodPost, "/rauthlogin", f)
+		cLogin.Request().Header.Set(echo.HeaderXRealIP, clientIP)
+		err := h.Login(cLogin)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusTooManyRequests, recLogin.Code)
+
+		// 3. Verify validation is NOT blocked (uses a different key)
+		cVal, recVal := createTestContext(e, http.MethodGet, "/rauthvalidate", nil)
+		cVal.Request().Header.Set(echo.HeaderXRealIP, clientIP)
+		err = h.Validate(cVal)
+		assert.NoError(t, err)
+		assert.NotEqual(t, http.StatusTooManyRequests, recVal.Code)
+
+		// Cleanup
+		core.RateLimitDB.Del(core.Ctx, rateLimitKeyLogin)
+		core.RateLimitDB.Del(core.Ctx, rateLimitKeyValidate)
+	})
+
 	t.Run("2FA Brute Force Protection (Currently Vulnerable)", func(t *testing.T) {
 		pendingToken := "brute-2fa-token"
 		encryptedToken, _ := core.EncryptToken(pendingToken, cfg.ServerSecret)

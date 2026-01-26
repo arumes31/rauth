@@ -21,6 +21,8 @@ func TestAuthHandler_Verify2FA_Reproduction(t *testing.T) {
 		ServerSecret: "32byte-secret-key-for-testing-!!",
 		CookieDomains: []string{"example.com"},
 		TokenValidityMinutes: 60,
+		RateLimitLoginMax: 100,
+		RateLimitLoginDecay: 60,
 	}
 	h := &AuthHandler{Cfg: cfg}
 	e := echo.New()
