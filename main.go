@@ -316,6 +316,9 @@ func main() {
 }
 
 func initializeSystem(cfg *core.Config) {
+	// Start GeoIP Updater
+	core.StartGeoUpdater(cfg)
+
 	if cfg.InitialUser != "" && cfg.InitialPassword != "" {
 		slog.Info("Checking initial user", "user", cfg.InitialUser)
 		err := core.CreateUser(cfg.InitialUser, cfg.InitialPassword, cfg.InitialEmail, true, cfg.Initial2FASecret)

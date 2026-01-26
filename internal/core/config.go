@@ -26,6 +26,10 @@ type Config struct {
 	Initial2FASecret         string
 	WebAuthnOrigins          []string
 	AllowedCountries         []string
+	// MaxMind
+	MaxMindAccountID         string
+	MaxMindLicenseKey        string
+	MaxMindEditionIDs        string
 	// Password Policy
 	MinPasswordLength    int
 	RequirePasswordUpper  bool
@@ -61,6 +65,10 @@ func LoadConfig() *Config {
 		Initial2FASecret:     getEnv("INITIAL_2FA_SECRET", ""),
 		WebAuthnOrigins:      getEnvSlice("WEBAUTHN_ORIGINS", []string{}),
 		AllowedCountries:     getEnvSlice("ALLOWED_COUNTRIES", []string{}),
+		// MaxMind
+		MaxMindAccountID:      getEnv("MAXMIND_ACCOUNT_ID", ""),
+		MaxMindLicenseKey:     getEnv("MAXMIND_LICENSE_KEY", ""),
+		MaxMindEditionIDs:     getEnv("MAXMIND_EDITION_IDS", "GeoLite2-Country"),
 		// Password Policy Defaults
 		MinPasswordLength:     getEnvInt("PWD_MIN_LENGTH", 8),
 		RequirePasswordUpper:  getEnvBool("PWD_REQUIRE_UPPER", true),

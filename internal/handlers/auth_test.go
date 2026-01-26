@@ -135,10 +135,7 @@ func TestAuthHandler_Validate(t *testing.T) {
 		})
 
 		clientIP := "8.8.8.8"
-		core.GeoCacheLock.Lock()
-		if core.GeoCache == nil { core.GeoCache = make(map[string]string) }
-		core.GeoCache[clientIP] = "US"
-		core.GeoCacheLock.Unlock()
+		core.GeoCache.Put(clientIP, "US")
 
 		c, rec := createTestContext(e, http.MethodGet, "/rauthvalidate", nil)
 		c.Request().Header.Set(echo.HeaderXRealIP, clientIP)
