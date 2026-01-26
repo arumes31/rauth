@@ -295,10 +295,6 @@ func main() {
 	admin.POST("/session/invalidate", adminHandler.InvalidateSession)
 	admin.POST("/invite/create", inviteHandler.Create)
 
-	e.GET("/health", func(c echo.Context) error {
-		return c.JSON(http.StatusOK, map[string]string{"status": "OK"})
-	})
-
 	go func() {
 		if err := e.Start(":80"); err != nil && err != http.ErrServerClosed {
 			e.Logger.Fatal("shutting down the server")
