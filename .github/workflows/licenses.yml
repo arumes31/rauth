@@ -22,7 +22,7 @@ jobs:
       - name: Report Licenses
         run: go-licenses report ./... > licenses_report.csv
       - name: Upload Report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: license-report
           path: licenses_report.csv
