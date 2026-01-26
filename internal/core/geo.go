@@ -162,6 +162,7 @@ func UpdateGeoDB(cfg *Config) error {
 		return fmt.Errorf("failed to write GeoIP.conf: %w", err)
 	}
 
+	// #nosec G204 - These paths are derived from trusted internal configuration
 	cmd := exec.Command("geoipupdate", "-v", "-f", confPath, "-d", dbDir)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
