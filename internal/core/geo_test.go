@@ -35,8 +35,6 @@ func TestGetCountryCode(t *testing.T) {
 	assert.Equal(t, "Internal", GetCountryCode("192.168.1.50"))
 
 	// Mock Cache behavior
-	GeoCacheLock.Lock()
-	GeoCache["8.8.4.4"] = "cached-country"
-	GeoCacheLock.Unlock()
+	GeoCache.Put("8.8.4.4", "cached-country")
 	assert.Equal(t, "cached-country", GetCountryCode("8.8.4.4"))
 }

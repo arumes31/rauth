@@ -30,4 +30,14 @@ var (
 		Name: "rauth_audit_logs_total",
 		Help: "The total number of audit logs by action",
 	}, []string{"action"})
+
+	GeoIPLookupsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "rauth_geoip_lookups_total",
+		Help: "The total number of GeoIP lookups by status (hit, miss, internal)",
+	}, []string{"status"})
+
+	GeoIPDBBuildTimestamp = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "rauth_geoip_db_build_timestamp",
+		Help: "The build timestamp of the loaded GeoIP database",
+	})
 )

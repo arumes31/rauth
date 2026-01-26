@@ -14,9 +14,10 @@ type HealthHandler struct {
 }
 
 type HealthStatus struct {
-	Status    string            `json:"status"`
-	Timestamp string            `json:"timestamp"`
-	Checks    map[string]string `json:"checks"`
+	Status    string                 `json:"status"`
+	Timestamp string                 `json:"timestamp"`
+	Checks    map[string]string      `json:"checks"`
+	GeoIP     map[string]interface{} `json:"geoip"`
 	System    map[string]interface{} `json:"system"`
 }
 
@@ -39,12 +40,15 @@ func (h *HealthHandler) Check(c echo.Context) error {
 		checks["redis_token"] = "OK"
 	}
 
-	// GeoIP Check
-	if core.GetGeoReaderStatus() {
+	// GeoIP Metadata
+	geoMetadata := core.GetGeoMetadata()
+	if geoMetadata["loaded"].(bool) {
 		checks["geoip_database"] = "OK"
 	} else {
 		checks["geoip_database"] = "WARN: Not Loaded"
-		if status == "OK" { status = "DEGRADED" }
+		if status == "OK" {
+			status = "DEGRADED"
+		}
 	}
 
 	// System Info
@@ -52,9 +56,9 @@ func (h *HealthHandler) Check(c echo.Context) error {
 	runtime.ReadMemStats(&m)
 
 	systemInfo := map[string]interface{}{
-		"goroutines":    runtime.NumGoroutine(),
-		"memory_alloc":  m.Alloc / 1024 / 1024, // MB
-		"go_version":    runtime.Version(),
+		"goroutines":     runtime.NumGoroutine(),
+		"memory_alloc":   m.Alloc / 1024 / 1024, // MB
+		"go_version":     runtime.Version(),
 		"uptime_seconds": int(time.Since(core.StartTime).Seconds()),
 	}
 
@@ -62,6 +66,7 @@ func (h *HealthHandler) Check(c echo.Context) error {
 		Status:    status,
 		Timestamp: time.Now().Format(time.RFC3339),
 		Checks:    checks,
+		GeoIP:     geoMetadata,
 		System:    systemInfo,
 	}
 
