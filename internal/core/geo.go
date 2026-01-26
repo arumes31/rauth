@@ -110,7 +110,7 @@ func StartGeoUpdater(cfg *Config) {
 	dbDir := filepath.Dir(cfg.MaxMindDBPath)
 
 	// Ensure directory exists
-	if err := os.MkdirAll(dbDir, 0755); err != nil {
+	if err := os.MkdirAll(dbDir, 0750); err != nil {
 		slog.Error("Failed to create GeoIP directory", "path", dbDir, "error", err)
 		return
 	}
@@ -229,11 +229,11 @@ func GetGeoMetadata() map[string]interface{} {
 	defer geoLock.RUnlock()
 
 	loaded := geoReader != nil
-	var buildDate int64
+	var buildDate uint64
 	var path string
 	if loaded {
 		m := geoReader.Metadata()
-		buildDate = int64(m.BuildEpoch)
+		buildDate = uint64(m.BuildEpoch)
 		cfg := LoadConfig()
 		path = cfg.MaxMindDBPath
 	}
