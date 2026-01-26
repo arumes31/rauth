@@ -49,6 +49,8 @@ type Config struct {
 	RateLimitLoginDecay       int
 	RateLimitRegistrationMax   int
 	RateLimitRegistrationDecay int
+	RateLimitValidateMax       int
+	RateLimitValidateDecay     int
 }
 
 func LoadConfig() *Config {
@@ -93,6 +95,8 @@ func LoadConfig() *Config {
 		RateLimitLoginDecay:         getEnvInt("RATE_LIMIT_LOGIN_DECAY", 300),
 		RateLimitRegistrationMax:   getEnvInt("RATE_LIMIT_REG_MAX", 10),
 		RateLimitRegistrationDecay: getEnvInt("RATE_LIMIT_REG_DECAY", 300),
+		RateLimitValidateMax:       getEnvInt("RATE_LIMIT_VALIDATE_MAX", 1000),
+		RateLimitValidateDecay:     getEnvInt("RATE_LIMIT_VALIDATE_DECAY", 60),
 	}
 }
 

@@ -45,7 +45,7 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 
 	cookie, err := c.Cookie("X-rauth-authtoken")
 	if err != nil {
-		if !core.CheckRateLimit(rateLimitKey, 100, 60) {
+		if !core.CheckRateLimit(rateLimitKey, h.Cfg.RateLimitValidateMax, h.Cfg.RateLimitValidateDecay) {
 			return c.NoContent(http.StatusTooManyRequests)
 		}
 		return c.NoContent(http.StatusUnauthorized)
@@ -53,7 +53,7 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 
 	token, err := core.DecryptToken(cookie.Value, h.Cfg.ServerSecret)
 	if err != nil || token == "" {
-		if !core.CheckRateLimit(rateLimitKey, 100, 60) {
+		if !core.CheckRateLimit(rateLimitKey, h.Cfg.RateLimitValidateMax, h.Cfg.RateLimitValidateDecay) {
 			return c.NoContent(http.StatusTooManyRequests)
 		}
 		return c.NoContent(http.StatusUnauthorized)
@@ -62,7 +62,7 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 	redisKey := "X-rauth-authtoken=" + token
 	data, err := core.TokenDB.HGetAll(core.Ctx, redisKey).Result()
 	if err != nil || len(data) == 0 || data["status"] != "valid" {
-		if !core.CheckRateLimit(rateLimitKey, 100, 60) {
+		if !core.CheckRateLimit(rateLimitKey, h.Cfg.RateLimitValidateMax, h.Cfg.RateLimitValidateDecay) {
 			return c.NoContent(http.StatusTooManyRequests)
 		}
 		return c.NoContent(http.StatusUnauthorized)
