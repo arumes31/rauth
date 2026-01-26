@@ -12,7 +12,13 @@ import (
 
 func TestAdminHandler_Dashboard(t *testing.T) {
 	setupHandlersTest(t)
-	cfg := &core.Config{}
+	cfg := &core.Config{
+		RateLimitLoginMax: 1000,
+		RateLimitLoginDecay: 60,
+		RateLimitLoginAccessMax: 1000,
+		RateLimitLoginFailUserMax: 1000,
+		RateLimitLoginFailIPMax: 1000,
+	}
 	h := &AdminHandler{Cfg: cfg}
 	e := echo.New()
 	e.Renderer = &mockRenderer{}
@@ -29,7 +35,13 @@ func TestAdminHandler_Dashboard(t *testing.T) {
 
 func TestAdminHandler_InvalidateSession(t *testing.T) {
 	setupHandlersTest(t)
-	cfg := &core.Config{}
+	cfg := &core.Config{
+		RateLimitLoginMax: 1000,
+		RateLimitLoginDecay: 60,
+		RateLimitLoginAccessMax: 1000,
+		RateLimitLoginFailUserMax: 1000,
+		RateLimitLoginFailIPMax: 1000,
+	}
 	h := &AdminHandler{Cfg: cfg}
 	e := echo.New()
 
@@ -55,6 +67,11 @@ func TestAdminHandler_CreateUser(t *testing.T) {
 	setupHandlersTest(t)
 	cfg := &core.Config{
 		MinPasswordLength: 8,
+		RateLimitLoginMax: 1000,
+		RateLimitLoginDecay: 60,
+		RateLimitLoginAccessMax: 1000,
+		RateLimitLoginFailUserMax: 1000,
+		RateLimitLoginFailIPMax: 1000,
 	}
 	h := &AdminHandler{Cfg: cfg}
 	e := echo.New()
@@ -121,7 +138,13 @@ func TestAdminHandler_CreateUser(t *testing.T) {
 
 func TestAdminHandler_DeleteUser(t *testing.T) {
 	setupHandlersTest(t)
-	cfg := &core.Config{}
+	cfg := &core.Config{
+		RateLimitLoginMax: 1000,
+		RateLimitLoginDecay: 60,
+		RateLimitLoginAccessMax: 1000,
+		RateLimitLoginFailUserMax: 1000,
+		RateLimitLoginFailIPMax: 1000,
+	}
 	h := &AdminHandler{Cfg: cfg}
 	e := echo.New()
 

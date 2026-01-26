@@ -192,10 +192,12 @@ RAuth is configured via Environment Variables.
 | **Admin**  | `INITIAL_EMAIL` | Initial admin email address | `admin@example.com` |
 | **Admin**  | `INITIAL_2FA_SECRET` | Optional: Pre-set Base32 2FA secret | (None) |
 | **Redis**  | `REDIS_HOST` | Hostname of the Redis instance | `rauth-auth-redis` |
+| **Redis**  | `REDIS_PORT` | Port of the Redis instance | `6379` |
 | **Redis**  | `REDIS_PASSWORD` | Password for Redis auth | (None) |
 | **Auth**   | `COOKIE_DOMAIN` | Domain for the auth cookie | `example.com` |
+| **Auth**   | `ALLOWED_HOSTS` | Redirect whitelist (Comma-separated) | `localhost,127.0.0.1` |
 | **Auth**   | `TOKEN_VALIDITY_MINUTES`| Session duration in minutes | `2880` (2 days) |
-| **Auth**   | `ALLOWED_HOSTS` | Redirect whitelist (Comma-separated) | `localhost,example.com` |
+| **Auth**   | `ALLOWED_COUNTRIES` | List of allowed country codes (e.g. `US,DE`) | (Any) |
 | **WebAuthn**| `WEBAUTHN_ORIGINS`| Allowed origins for Passkeys (Comma-separated)| (Auto-generated) |
 | **URL**    | `PUBLIC_URL` | Base URL for email links (e.g., `https://auth.example.com`) | `http://localhost:5980` |
 | **Network**| `AUTH_PORT` | Port to expose the auth service | `5980` |
@@ -209,16 +211,22 @@ RAuth is configured via Environment Variables.
 | **Geo-IP** | `MAXMIND_LICENSE_KEY` | Your License Key for Geo-IP updates | **REQUIRED** |
 | **Geo-IP** | `GEOIP_EDITION_IDS` | Databases to download | `GeoLite2-Country` |
 | **Email**  | `SMTP_HOST` | SMTP server hostname | (None) |
-| **Email**  | `SMTP_PORT` | SMTP server port (e.g., 587) | (None) |
+| **Email**  | `SMTP_PORT` | SMTP server port (e.g., 587) | `587` |
 | **Email**  | `SMTP_USER` | SMTP username | (None) |
 | **Email**  | `SMTP_PASS` | SMTP password | (None) |
 | **Email**  | `SMTP_FROM` | Sender email address | (None) |
-| **Throttle**| `RATE_LIMIT_LOGIN_MAX`| Max login attempts per IP | `10` |
-| **Throttle**| `RATE_LIMIT_LOGIN_DECAY`| Reset window for login (seconds) | `300` |
-| **Throttle**| `RATE_LIMIT_REG_MAX`| Max registration attempts per IP | `10` |
-| **Throttle**| `RATE_LIMIT_REG_DECAY`| Reset window for registration (seconds) | `300` |
+| **Throttle**| `RATE_LIMIT_LOGIN_MAX`| Max authentication attempts per IP | `30` |
+| **Throttle**| `RATE_LIMIT_LOGIN_DECAY`| Reset window for auth (seconds) | `300` |
+| **Throttle**| `RATE_LIMIT_REG_MAX`| Max registrations per IP | `10` |
+| **Throttle**| `RATE_LIMIT_REG_DECAY`| Reset window for reg (seconds) | `300` |
 | **Throttle**| `RATE_LIMIT_VALIDATE_MAX`| Max validation attempts per IP | `1000` |
 | **Throttle**| `RATE_LIMIT_VALIDATE_DECAY`| Reset window for validation (seconds) | `60` |
+| **Throttle**| `RATE_LIMIT_LOGIN_ACCESS_MAX`| Max GET/POST requests to login per IP | `300` |
+| **Throttle**| `RATE_LIMIT_LOGIN_ACCESS_DECAY`| Reset window for login access (seconds) | `60` |
+| **Throttle**| `RATE_LIMIT_LOGIN_FAIL_USER_MAX`| Max fails per account before lockout | `10` |
+| **Throttle**| `RATE_LIMIT_LOGIN_FAIL_USER_DECAY`| Account lockout duration (seconds) | `300` |
+| **Throttle**| `RATE_LIMIT_LOGIN_FAIL_IP_MAX`| Max global IP failures before block | `50` |
+| **Throttle**| `RATE_LIMIT_LOGIN_FAIL_IP_DECAY`| Global IP block duration (seconds) | `600` |
 | **Regional**| `TZ` | Container Timezone (e.g., `Europe/Berlin`) | `UTC` |
 
 ---

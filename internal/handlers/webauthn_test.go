@@ -27,6 +27,9 @@ func TestWebAuthnHandlers(t *testing.T) {
 		RateLimitLoginDecay: 60,
 		RateLimitRegistrationMax: 100,
 		RateLimitRegistrationDecay: 60,
+		RateLimitLoginAccessMax: 1000,
+		RateLimitLoginFailUserMax: 1000,
+		RateLimitLoginFailIPMax: 1000,
 	}
 	err := core.InitWebAuthn(cfg)
 	assert.NoError(t, err)

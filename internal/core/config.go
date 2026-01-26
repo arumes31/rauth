@@ -51,6 +51,12 @@ type Config struct {
 	RateLimitRegistrationDecay int
 	RateLimitValidateMax       int
 	RateLimitValidateDecay     int
+	RateLimitLoginAccessMax    int
+	RateLimitLoginAccessDecay  int
+	RateLimitLoginFailUserMax   int
+	RateLimitLoginFailUserDecay int
+	RateLimitLoginFailIPMax     int
+	RateLimitLoginFailIPDecay   int
 }
 
 func LoadConfig() *Config {
@@ -91,12 +97,18 @@ func LoadConfig() *Config {
 		// URLs
 		PublicURL: getEnv("PUBLIC_URL", "http://localhost:5980"),
 		// Rate Limiting Defaults
-		RateLimitLoginMax:          getEnvInt("RATE_LIMIT_LOGIN_MAX", 10),
+		RateLimitLoginMax:          getEnvInt("RATE_LIMIT_LOGIN_MAX", 30),
 		RateLimitLoginDecay:         getEnvInt("RATE_LIMIT_LOGIN_DECAY", 300),
 		RateLimitRegistrationMax:   getEnvInt("RATE_LIMIT_REG_MAX", 10),
 		RateLimitRegistrationDecay: getEnvInt("RATE_LIMIT_REG_DECAY", 300),
 		RateLimitValidateMax:       getEnvInt("RATE_LIMIT_VALIDATE_MAX", 1000),
 		RateLimitValidateDecay:     getEnvInt("RATE_LIMIT_VALIDATE_DECAY", 60),
+		RateLimitLoginAccessMax:    getEnvInt("RATE_LIMIT_LOGIN_ACCESS_MAX", 300),
+		RateLimitLoginAccessDecay:  getEnvInt("RATE_LIMIT_LOGIN_ACCESS_DECAY", 60),
+		RateLimitLoginFailUserMax:   getEnvInt("RATE_LIMIT_LOGIN_FAIL_USER_MAX", 10),
+		RateLimitLoginFailUserDecay: getEnvInt("RATE_LIMIT_LOGIN_FAIL_USER_DECAY", 300),
+		RateLimitLoginFailIPMax:     getEnvInt("RATE_LIMIT_LOGIN_FAIL_IP_MAX", 50),
+		RateLimitLoginFailIPDecay:   getEnvInt("RATE_LIMIT_LOGIN_FAIL_IP_DECAY", 600),
 	}
 }
 

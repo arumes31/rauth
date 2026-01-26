@@ -123,13 +123,22 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 func (h *AuthHandler) Login(c echo.Context) error {
 	clientIP := c.RealIP()
 	slog.Debug("Login attempt", "ip", clientIP, "method", c.Request().Method)
-	if !core.CheckRateLimit("login_ip:"+clientIP, h.Cfg.RateLimitLoginMax, h.Cfg.RateLimitLoginDecay) {
-		slog.Warn("Rate limit exceeded", "ip", clientIP)
-		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": fmt.Sprintf("Too many attempts from this IP (%s).", clientIP), "csrf": c.Get("csrf")})
+
+	// 1. Basic IP Throttling for ALL requests (GET/POST) - Very high limit to prevent DoS
+	// Using a separate key for general access to avoid blocking legitimate users.
+	if !core.CheckRateLimit("login_access:"+clientIP, h.Cfg.RateLimitLoginAccessMax, h.Cfg.RateLimitLoginAccessDecay) {
+		slog.Warn("General login access rate limit exceeded", "ip", clientIP)
+		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many requests. Please wait a minute.", "csrf": c.Get("csrf")})
 	}
 
 	if c.Request().Method == http.MethodGet {
 		return c.Render(http.StatusOK, "login.html", map[string]interface{}{"csrf": c.Get("csrf"), "rd": c.QueryParam("rd")})
+	}
+
+	// 2. Strict Throttling for POST (Authentication Attempts)
+	if !core.CheckRateLimit("login_post_ip:"+clientIP, h.Cfg.RateLimitLoginMax, h.Cfg.RateLimitLoginDecay) {
+		slog.Warn("Login POST rate limit exceeded", "ip", clientIP)
+		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": fmt.Sprintf("Too many login attempts from this IP (%s).", clientIP), "csrf": c.Get("csrf")})
 	}
 
 	if c.FormValue("action") == "verify_2fa" {
@@ -137,8 +146,16 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	}
 
 	username := strings.TrimSpace(c.FormValue("username"))
-	password := c.FormValue("password")
+	
+	// 3. Per-User Throttling (Single account brute force protection)
+	if username != "" && !core.CheckRateLimit("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay) {
+		slog.Warn("Login user rate limit exceeded", "username", username, "ip", clientIP)
+		// We still do the password check work to prevent timing attacks, but we will return 429
+		core.CheckPasswordHash("dummy", "$2a$12$ce88271ea06248da6b12669ef405f18a52c193fcced142ee27")
+		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "This account is temporarily locked due to too many failed attempts.", "csrf": c.Get("csrf")})
+	}
 
+	password := c.FormValue("password")
 	userRecord, err := core.GetUser(username)
 	
 	// Constant time password check to prevent username enumeration
@@ -154,8 +171,20 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	if !valid {
 		core.LogAudit("LOGIN_FAILED", username, clientIP, nil)
 		core.LoginFailedTotal.Inc()
+		
+		// 4. Track FAILED attempts from IP across different users (Credential stuffing protection)
+		if !core.CheckRateLimit("login_fail_ip:"+clientIP, h.Cfg.RateLimitLoginFailIPMax, h.Cfg.RateLimitLoginFailIPDecay) {
+			slog.Warn("Global IP failure rate limit exceeded", "ip", clientIP)
+			return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many failed attempts from your network. Please try again later.", "csrf": c.Get("csrf")})
+		}
+
 		return c.Render(http.StatusOK, "login.html", map[string]interface{}{"error": "Invalid credentials", "csrf": c.Get("csrf")})
 	}
+
+	// Success! Reset per-user penalties
+	core.ResetRateLimit("login_fail_user:" + username)
+	core.ResetRateLimit("login_post_ip:" + clientIP) // Optional: allow user to keep trying if they are successful
+
 
 	// Check if 2FA is enabled
 	if userRecord.TwoFactor != "" {
@@ -202,7 +231,10 @@ func (h *AuthHandler) Login(c echo.Context) error {
 
 func (h *AuthHandler) Verify2FA(c echo.Context) error {
 	clientIP := c.RealIP()
-	if !core.CheckRateLimit("login_ip:"+clientIP, h.Cfg.RateLimitLoginMax, h.Cfg.RateLimitLoginDecay) {
+	if !core.CheckRateLimit("login_access:"+clientIP, h.Cfg.RateLimitLoginAccessMax, h.Cfg.RateLimitLoginAccessDecay) {
+		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many requests. Please wait a minute.", "csrf": c.Get("csrf")})
+	}
+	if !core.CheckRateLimit("login_post_ip:"+clientIP, h.Cfg.RateLimitLoginMax, h.Cfg.RateLimitLoginDecay) {
 		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": fmt.Sprintf("Too many attempts from this IP (%s). Please try again later.", clientIP), "csrf": c.Get("csrf"), "display2fa": true})
 	}
 
@@ -228,11 +260,20 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 		core.TokenDB.Del(core.Ctx, "pending_2fa:"+pendingToken)
 		// Clear pending cookie
 		c.SetCookie(&http.Cookie{Name: "rauth_2fa_pending", MaxAge: -1, Path: "/", HttpOnly: true, Secure: true})
-		core.ResetRateLimit("login_ip:" + c.RealIP())
+		
+		core.ResetRateLimit("login_post_ip:" + clientIP)
+		core.ResetRateLimit("login_fail_user:" + username)
+		
 		return h.issueToken(c, username)
 	}
 
-	core.LogAudit("2FA_FAILED", username, c.RealIP(), nil)
+	core.LogAudit("2FA_FAILED", username, clientIP, nil)
+	
+	// Penalize failed 2FA attempts
+	if !core.CheckRateLimit("login_fail_ip:"+clientIP, h.Cfg.RateLimitLoginFailIPMax, h.Cfg.RateLimitLoginFailIPDecay) {
+		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many failed attempts. Please try again later.", "csrf": c.Get("csrf"), "display2fa": true})
+	}
+
 	return c.Render(http.StatusOK, "login.html", map[string]interface{}{
 		"display2fa": true,
 		"error":      "Invalid 2FA code",
@@ -279,7 +320,10 @@ func (h *AuthHandler) Setup2FA(c echo.Context) error {
 
 func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 	clientIP := c.RealIP()
-	if !core.CheckRateLimit("login_ip:"+clientIP, h.Cfg.RateLimitLoginMax, h.Cfg.RateLimitLoginDecay) {
+	if !core.CheckRateLimit("login_access:"+clientIP, h.Cfg.RateLimitLoginAccessMax, h.Cfg.RateLimitLoginAccessDecay) {
+		return c.Render(http.StatusTooManyRequests, "setup_2fa.html", map[string]interface{}{"error": "Too many requests. Please wait a minute.", "csrf": c.Get("csrf")})
+	}
+	if !core.CheckRateLimit("login_post_ip:"+clientIP, h.Cfg.RateLimitLoginMax, h.Cfg.RateLimitLoginDecay) {
 		return c.Render(http.StatusTooManyRequests, "setup_2fa.html", map[string]interface{}{"error": fmt.Sprintf("Too many attempts from this IP (%s). Please try again later.", clientIP), "csrf": c.Get("csrf")})
 	}
 
@@ -322,12 +366,18 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 		// Send notification email
 		userRecord, _ := core.GetUser(username)
 		if userRecord.Email != "" {
-			go core.Send2FAModifiedNotification(userRecord.Email, username, "Enabled", c.RealIP())
+			go core.Send2FAModifiedNotification(userRecord.Email, username, "Enabled", clientIP)
 		}
 
-		core.ResetRateLimit("login_ip:" + c.RealIP())
-		core.LogAudit("2FA_SETUP_SUCCESS", username, c.RealIP(), nil)
+		core.ResetRateLimit("login_post_ip:" + clientIP)
+		core.ResetRateLimit("login_fail_user:" + username)
+		core.LogAudit("2FA_SETUP_SUCCESS", username, clientIP, nil)
 		return h.issueToken(c, username)
+	}
+
+	// Penalize failed setup attempts
+	if !core.CheckRateLimit("login_fail_ip:"+clientIP, h.Cfg.RateLimitLoginFailIPMax, h.Cfg.RateLimitLoginFailIPDecay) {
+		return c.Render(http.StatusTooManyRequests, "setup_2fa.html", map[string]interface{}{"error": "Too many failed attempts. Please try again later.", "csrf": c.Get("csrf")})
 	}
 
 	return c.Render(http.StatusOK, "setup_2fa.html", map[string]interface{}{
@@ -418,6 +468,11 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 
 	core.LogAudit("LOGIN_SUCCESS", username, clientIP, map[string]interface{}{"country": country})
 	core.LoginSuccessTotal.Inc()
+
+	// Reset all relevant rate limits on success
+	core.ResetRateLimit("login_post_ip:" + clientIP)
+	core.ResetRateLimit("login_fail_user:" + username)
+	core.ResetRateLimit("login_fail_ip:" + clientIP)
 
 	redirect := c.QueryParam("rd")
 	if redirect != "" {
