@@ -123,7 +123,7 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 func (h *AuthHandler) Login(c echo.Context) error {
 	clientIP := c.RealIP()
 	slog.Debug("Login attempt", "ip", clientIP, "method", c.Request().Method)
-	if !core.CheckRateLimit("login_ip:"+clientIP, 10, 300) {
+	if !core.CheckRateLimit("login_ip:"+clientIP, h.Cfg.RateLimitLoginMax, h.Cfg.RateLimitLoginDecay) {
 		slog.Warn("Rate limit exceeded", "ip", clientIP)
 		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": fmt.Sprintf("Too many attempts from this IP (%s).", clientIP), "csrf": c.Get("csrf")})
 	}
@@ -202,7 +202,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 
 func (h *AuthHandler) Verify2FA(c echo.Context) error {
 	clientIP := c.RealIP()
-	if !core.CheckRateLimit("login_ip:"+clientIP, 10, 300) {
+	if !core.CheckRateLimit("login_ip:"+clientIP, h.Cfg.RateLimitLoginMax, h.Cfg.RateLimitLoginDecay) {
 		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": fmt.Sprintf("Too many attempts from this IP (%s). Please try again later.", clientIP), "csrf": c.Get("csrf"), "display2fa": true})
 	}
 
@@ -279,7 +279,7 @@ func (h *AuthHandler) Setup2FA(c echo.Context) error {
 
 func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 	clientIP := c.RealIP()
-	if !core.CheckRateLimit("login_ip:"+clientIP, 10, 300) {
+	if !core.CheckRateLimit("login_ip:"+clientIP, h.Cfg.RateLimitLoginMax, h.Cfg.RateLimitLoginDecay) {
 		return c.Render(http.StatusTooManyRequests, "setup_2fa.html", map[string]interface{}{"error": fmt.Sprintf("Too many attempts from this IP (%s). Please try again later.", clientIP), "csrf": c.Get("csrf")})
 	}
 

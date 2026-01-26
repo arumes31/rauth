@@ -28,13 +28,12 @@ func TestAuthHandler_Root(t *testing.T) {
 	})
 }
 
-func TestAuthHandler_Login(t *testing.T) {
-	setupHandlersTest(t)
-
 	cfg := &core.Config{
 		ServerSecret: "32byte-secret-key-for-testing-!!",
 		CookieDomains: []string{"example.com"},
 		TokenValidityMinutes: 60,
+		RateLimitLoginMax: 10,
+		RateLimitLoginDecay: 300,
 	}
 	h := &AuthHandler{Cfg: cfg}
 	e := echo.New()

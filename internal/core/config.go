@@ -44,6 +44,11 @@ type Config struct {
 	SMTPFrom string
 	// URLs
 	PublicURL string
+	// Rate Limiting
+	RateLimitLoginMax        int
+	RateLimitLoginDecay       int
+	RateLimitRegistrationMax   int
+	RateLimitRegistrationDecay int
 }
 
 func LoadConfig() *Config {
@@ -83,6 +88,11 @@ func LoadConfig() *Config {
 		SMTPFrom: getEnv("SMTP_FROM", ""),
 		// URLs
 		PublicURL: getEnv("PUBLIC_URL", "http://localhost:5980"),
+		// Rate Limiting Defaults
+		RateLimitLoginMax:          getEnvInt("RATE_LIMIT_LOGIN_MAX", 10),
+		RateLimitLoginDecay:         getEnvInt("RATE_LIMIT_LOGIN_DECAY", 300),
+		RateLimitRegistrationMax:   getEnvInt("RATE_LIMIT_REG_MAX", 10),
+		RateLimitRegistrationDecay: getEnvInt("RATE_LIMIT_REG_DECAY", 300),
 	}
 }
 

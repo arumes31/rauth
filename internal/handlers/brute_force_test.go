@@ -17,6 +17,8 @@ func TestBruteForceProtection(t *testing.T) {
 	cfg := &core.Config{
 		ServerSecret: "32byte-secret-key-for-testing-!!",
 		CookieDomains: []string{"example.com"},
+		RateLimitLoginMax: 10,
+		RateLimitLoginDecay: 300,
 	}
 	h := &AuthHandler{Cfg: cfg}
 	e := echo.New()
