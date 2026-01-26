@@ -23,6 +23,13 @@ func TestWebAuthnHandlers(t *testing.T) {
 	cfg := &core.Config{
 		CookieDomains: []string{"localhost"},
 		ServerSecret:  "testsecret1234567890123456789012",
+		RateLimitLoginMax: 100,
+		RateLimitLoginDecay: 60,
+		RateLimitRegistrationMax: 100,
+		RateLimitRegistrationDecay: 60,
+		RateLimitLoginAccessMax: 1000,
+		RateLimitLoginFailUserMax: 1000,
+		RateLimitLoginFailIPMax: 1000,
 	}
 	err := core.InitWebAuthn(cfg)
 	assert.NoError(t, err)

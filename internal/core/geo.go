@@ -109,10 +109,13 @@ func reloadReader(path string) {
 func StartGeoUpdater(cfg *Config) {
 	dbDir := filepath.Dir(cfg.MaxMindDBPath)
 
-	// Ensure directory exists
-	if err := os.MkdirAll(dbDir, 0755); err != nil {
+	// Ensure directory exists and has correct permissions
+	if err := os.MkdirAll(dbDir, 0750); err != nil {
 		slog.Error("Failed to create GeoIP directory", "path", dbDir, "error", err)
 		return
+	}
+	if err := os.Chmod(dbDir, 0750); err != nil {
+		slog.Warn("Failed to enforce GeoIP directory permissions", "path", dbDir, "error", err)
 	}
 
 	// 1. Download on startup only if no database exists
@@ -159,6 +162,7 @@ func UpdateGeoDB(cfg *Config) error {
 		return fmt.Errorf("failed to write GeoIP.conf: %w", err)
 	}
 
+	// #nosec G204 - These paths are derived from trusted internal configuration
 	cmd := exec.Command("geoipupdate", "-v", "-f", confPath, "-d", dbDir)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -229,11 +233,11 @@ func GetGeoMetadata() map[string]interface{} {
 	defer geoLock.RUnlock()
 
 	loaded := geoReader != nil
-	var buildDate int64
+	var buildDate uint64
 	var path string
 	if loaded {
 		m := geoReader.Metadata()
-		buildDate = int64(m.BuildEpoch)
+		buildDate = uint64(m.BuildEpoch)
 		cfg := LoadConfig()
 		path = cfg.MaxMindDBPath
 	}

@@ -35,6 +35,11 @@ func TestAuthHandler_Login(t *testing.T) {
 		ServerSecret: "32byte-secret-key-for-testing-!!",
 		CookieDomains: []string{"example.com"},
 		TokenValidityMinutes: 60,
+		RateLimitLoginMax: 1000,
+		RateLimitLoginDecay: 300,
+		RateLimitLoginAccessMax: 1000,
+		RateLimitLoginFailUserMax: 1000,
+		RateLimitLoginFailIPMax: 1000,
 	}
 	h := &AuthHandler{Cfg: cfg}
 	e := echo.New()
@@ -77,7 +82,12 @@ func TestAuthHandler_Login(t *testing.T) {
 
 	t.Run("Rate limit exceeded", func(t *testing.T) {
 		clientIP := "192.168.1.100"
-		core.RateLimitDB.Set(core.Ctx, "rate_limit:login_ip:"+clientIP, 11, 0)
+		// Temporarily set limit low for this subtest
+		oldMax := h.Cfg.RateLimitLoginMax
+		h.Cfg.RateLimitLoginMax = 10
+		defer func() { h.Cfg.RateLimitLoginMax = oldMax }()
+
+		core.RateLimitDB.Set(core.Ctx, "rate_limit:login_post_ip:"+clientIP, 11, 0)
 
 		f := make(url.Values)
 		f.Set("username", "testuser")
@@ -99,6 +109,13 @@ func TestAuthHandler_Validate(t *testing.T) {
 		ServerSecret: "32byte-secret-key-for-testing-!!",
 		CookieDomains: []string{"example.com"},
 		TokenValidityMinutes: 60,
+		RateLimitLoginMax: 1000,
+		RateLimitLoginDecay: 60,
+		RateLimitValidateMax: 1000,
+		RateLimitValidateDecay: 60,
+		RateLimitLoginAccessMax: 1000,
+		RateLimitLoginFailUserMax: 1000,
+		RateLimitLoginFailIPMax: 1000,
 	}
 	h := &AuthHandler{Cfg: cfg}
 	e := echo.New()
@@ -154,6 +171,13 @@ func TestAuthHandler_CompleteSetup2FA(t *testing.T) {
 		ServerSecret:  "32byte-secret-key-for-testing-!!",
 		CookieDomains: []string{"example.com"},
 		TokenValidityMinutes: 60,
+		RateLimitLoginMax: 1000,
+		RateLimitLoginDecay: 60,
+		RateLimitValidateMax: 1000,
+		RateLimitValidateDecay: 60,
+		RateLimitLoginAccessMax: 1000,
+		RateLimitLoginFailUserMax: 1000,
+		RateLimitLoginFailIPMax: 1000,
 	}
 	h := &AuthHandler{Cfg: cfg}
 	e := echo.New()
@@ -193,6 +217,13 @@ func TestAuthHandler_InvalidateSessionIntegration(t *testing.T) {
 		ServerSecret: "32byte-secret-key-for-testing-!!",
 		CookieDomains: []string{"example.com"},
 		TokenValidityMinutes: 60,
+		RateLimitLoginMax: 1000,
+		RateLimitLoginDecay: 60,
+		RateLimitValidateMax: 1000,
+		RateLimitValidateDecay: 60,
+		RateLimitLoginAccessMax: 1000,
+		RateLimitLoginFailUserMax: 1000,
+		RateLimitLoginFailIPMax: 1000,
 	}
 	h := &AuthHandler{Cfg: cfg}
 	adminH := &AdminHandler{Cfg: cfg}

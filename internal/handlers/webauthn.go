@@ -44,7 +44,7 @@ func (h *WebAuthnHandler) BeginRegistration(c echo.Context) error {
 
 func (h *WebAuthnHandler) FinishRegistration(c echo.Context) error {
 	clientIP := c.RealIP()
-	if !core.CheckRateLimit("reg_ip:"+clientIP, 10, 300) {
+	if !core.CheckRateLimit("reg_ip:"+clientIP, h.Cfg.RateLimitRegistrationMax, h.Cfg.RateLimitRegistrationDecay) {
 		return echo.NewHTTPError(http.StatusTooManyRequests, fmt.Sprintf("Too many registration attempts from this IP (%s)", clientIP))
 	}
 
@@ -136,7 +136,7 @@ func (h *WebAuthnHandler) BeginLogin(c echo.Context) error {
 
 func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 	clientIP := c.RealIP()
-	if !core.CheckRateLimit("login_ip:"+clientIP, 10, 300) {
+	if !core.CheckRateLimit("login_ip:"+clientIP, h.Cfg.RateLimitLoginMax, h.Cfg.RateLimitLoginDecay) {
 		return echo.NewHTTPError(http.StatusTooManyRequests, fmt.Sprintf("Too many login attempts from this IP (%s)", clientIP))
 	}
 
