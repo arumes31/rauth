@@ -213,6 +213,12 @@ RAuth is configured via Environment Variables.
 | **Email**  | `SMTP_USER` | SMTP username | (None) |
 | **Email**  | `SMTP_PASS` | SMTP password | (None) |
 | **Email**  | `SMTP_FROM` | Sender email address | (None) |
+| **Throttle**| `RATE_LIMIT_LOGIN_MAX`| Max login attempts per IP | `10` |
+| **Throttle**| `RATE_LIMIT_LOGIN_DECAY`| Reset window for login (seconds) | `300` |
+| **Throttle**| `RATE_LIMIT_REG_MAX`| Max registration attempts per IP | `10` |
+| **Throttle**| `RATE_LIMIT_REG_DECAY`| Reset window for registration (seconds) | `300` |
+| **Throttle**| `RATE_LIMIT_VALIDATE_MAX`| Max validation attempts per IP | `1000` |
+| **Throttle**| `RATE_LIMIT_VALIDATE_DECAY`| Reset window for validation (seconds) | `60` |
 | **Regional**| `TZ` | Container Timezone (e.g., `Europe/Berlin`) | `UTC` |
 
 ---
