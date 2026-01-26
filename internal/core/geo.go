@@ -109,10 +109,13 @@ func reloadReader(path string) {
 func StartGeoUpdater(cfg *Config) {
 	dbDir := filepath.Dir(cfg.MaxMindDBPath)
 
-	// Ensure directory exists
+	// Ensure directory exists and has correct permissions
 	if err := os.MkdirAll(dbDir, 0750); err != nil {
 		slog.Error("Failed to create GeoIP directory", "path", dbDir, "error", err)
 		return
+	}
+	if err := os.Chmod(dbDir, 0750); err != nil {
+		slog.Warn("Failed to enforce GeoIP directory permissions", "path", dbDir, "error", err)
 	}
 
 	// 1. Download on startup only if no database exists
