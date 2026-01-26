@@ -78,6 +78,21 @@ func InvalidateOtherUserSessions(username, currentToken string) {
 	}
 }
 
+func HasActiveSessions(ip string) bool {
+	keys, err := TokenDB.Keys(Ctx, "X-rauth-authtoken=*").Result()
+	if err != nil {
+		return false
+	}
+
+	for _, k := range keys {
+		data, err := TokenDB.HGetAll(Ctx, k).Result()
+		if err == nil && data["ip"] == ip && data["status"] == "valid" {
+			return true
+		}
+	}
+	return false
+}
+
 func copyOptions(base *redis.Options, db int) *redis.Options {
 	clone := *base
 	clone.DB = db

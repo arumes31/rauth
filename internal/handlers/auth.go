@@ -173,9 +173,12 @@ func (h *AuthHandler) Login(c echo.Context) error {
 		core.LoginFailedTotal.Inc()
 		
 		// 4. Track FAILED attempts from IP across different users (Credential stuffing protection)
-		if !core.CheckRateLimit("login_fail_ip:"+clientIP, h.Cfg.RateLimitLoginFailIPMax, h.Cfg.RateLimitLoginFailIPDecay) {
-			slog.Warn("Global IP failure rate limit exceeded", "ip", clientIP)
-			return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many failed attempts from your network. Please try again later.", "csrf": c.Get("csrf")})
+		// Optimization: Don't trigger global IP lockout if there are already other valid sessions on this IP (shared environment)
+		if !core.HasActiveSessions(clientIP) {
+			if !core.CheckRateLimit("login_fail_ip:"+clientIP, h.Cfg.RateLimitLoginFailIPMax, h.Cfg.RateLimitLoginFailIPDecay) {
+				slog.Warn("Global IP failure rate limit exceeded", "ip", clientIP)
+				return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many failed attempts from your network. Please try again later.", "csrf": c.Get("csrf")})
+			}
 		}
 
 		return c.Render(http.StatusOK, "login.html", map[string]interface{}{"error": "Invalid credentials", "csrf": c.Get("csrf")})
@@ -270,8 +273,10 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 	core.LogAudit("2FA_FAILED", username, clientIP, nil)
 	
 	// Penalize failed 2FA attempts
-	if !core.CheckRateLimit("login_fail_ip:"+clientIP, h.Cfg.RateLimitLoginFailIPMax, h.Cfg.RateLimitLoginFailIPDecay) {
-		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many failed attempts. Please try again later.", "csrf": c.Get("csrf"), "display2fa": true})
+	if !core.HasActiveSessions(clientIP) {
+		if !core.CheckRateLimit("login_fail_ip:"+clientIP, h.Cfg.RateLimitLoginFailIPMax, h.Cfg.RateLimitLoginFailIPDecay) {
+			return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many failed attempts. Please try again later.", "csrf": c.Get("csrf"), "display2fa": true})
+		}
 	}
 
 	return c.Render(http.StatusOK, "login.html", map[string]interface{}{
@@ -376,8 +381,10 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 	}
 
 	// Penalize failed setup attempts
-	if !core.CheckRateLimit("login_fail_ip:"+clientIP, h.Cfg.RateLimitLoginFailIPMax, h.Cfg.RateLimitLoginFailIPDecay) {
-		return c.Render(http.StatusTooManyRequests, "setup_2fa.html", map[string]interface{}{"error": "Too many failed attempts. Please try again later.", "csrf": c.Get("csrf")})
+	if !core.HasActiveSessions(clientIP) {
+		if !core.CheckRateLimit("login_fail_ip:"+clientIP, h.Cfg.RateLimitLoginFailIPMax, h.Cfg.RateLimitLoginFailIPDecay) {
+			return c.Render(http.StatusTooManyRequests, "setup_2fa.html", map[string]interface{}{"error": "Too many failed attempts. Please try again later.", "csrf": c.Get("csrf")})
+		}
 	}
 
 	return c.Render(http.StatusOK, "setup_2fa.html", map[string]interface{}{
