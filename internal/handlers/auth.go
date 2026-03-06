@@ -91,9 +91,9 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 	if data["user_agent"] != c.Request().UserAgent() {
 		slog.Warn("User-Agent change detected", "username", data["username"], "old", data["user_agent"], "new", c.Request().UserAgent())
 		core.LogAudit("USER_AGENT_CHANGE_DETECTED", data["username"], clientIP, map[string]interface{}{"old": data["user_agent"], "new": c.Request().UserAgent()})
-		// We could expire here, but let's be less aggressive for now and just log it unless it's a critical app.
-		// For RAuth, safety first: let's expire if UA changes significantly?
-		// Actually, let's just log for now to avoid false positives with browser updates.
+		
+		// Update the session with the new User-Agent to avoid repeated logs for minor browser updates
+		core.TokenDB.HSet(core.Ctx, redisKey, "user_agent", c.Request().UserAgent())
 	}
 
 	c.Response().Header().Set("X-RAuth-User", data["username"])
