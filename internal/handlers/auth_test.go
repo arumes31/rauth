@@ -162,6 +162,32 @@ func TestAuthHandler_Validate(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusUnauthorized, rec.Code)
 	})
+
+	t.Run("User-Agent mismatch invalidates session", func(t *testing.T) {
+		token := "ua-token"
+		encrypted, _ := core.EncryptToken(token, cfg.ServerSecret)
+		
+		redisKey := "X-rauth-authtoken=" + token
+		core.TokenDB.HSet(core.Ctx, redisKey, map[string]interface{}{
+			"status":     "valid",
+			"username":   "testuser",
+			"ip":         "127.0.0.1",
+			"country":    "unknown",
+			"user_agent": "Mozilla/5.0 (Original Browser)",
+		})
+
+		c, rec := createTestContext(e, http.MethodGet, "/rauthvalidate", nil)
+		c.Request().Header.Set("User-Agent", "Mozilla/5.0 (Attacker Browser)")
+		c.Request().AddCookie(&http.Cookie{Name: "X-rauth-authtoken", Value: encrypted})
+
+		err := h.Validate(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusUnauthorized, rec.Code)
+
+		// Verify session was deleted from Redis
+		exists, _ := core.TokenDB.Exists(core.Ctx, redisKey).Result()
+		assert.Equal(t, int64(0), exists)
+	})
 }
 
 func TestAuthHandler_CompleteSetup2FA(t *testing.T) {

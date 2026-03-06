@@ -89,11 +89,11 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 
 	// User-Agent check (Fingerprinting)
 	if data["user_agent"] != c.Request().UserAgent() {
-		slog.Warn("User-Agent change detected", "username", data["username"], "old", data["user_agent"], "new", c.Request().UserAgent())
-		core.LogAudit("USER_AGENT_CHANGE_DETECTED", data["username"], clientIP, map[string]interface{}{"old": data["user_agent"], "new": c.Request().UserAgent()})
+		slog.Warn("User-Agent mismatch detected, invalidating session", "username", data["username"], "old", data["user_agent"], "new", c.Request().UserAgent())
+		core.LogAudit("USER_AGENT_MISMATCH_INVALIDATED", data["username"], clientIP, map[string]interface{}{"old": data["user_agent"], "new": c.Request().UserAgent()})
 		
-		// Update the session with the new User-Agent to avoid repeated logs for minor browser updates
-		core.TokenDB.HSet(core.Ctx, redisKey, "user_agent", c.Request().UserAgent())
+		core.TokenDB.Del(core.Ctx, redisKey)
+		return c.NoContent(http.StatusUnauthorized)
 	}
 
 	c.Response().Header().Set("X-RAuth-User", data["username"])
