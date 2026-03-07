@@ -72,9 +72,18 @@ func main() {
 		LogError:    true,
 		HandleError: true,
 		LogValuesFunc: func(c echo.Context, v echoMiddleware.RequestLoggerValues) error {
+			xForwardedFor := c.Request().Header.Get("X-Forwarded-For")
+			if xForwardedFor == "" {
+				xForwardedFor = "-"
+			}
+			
+			geoIP := core.GetCountryCode(v.RemoteIP)
+
 			if v.Error == nil {
 				slog.Info("request",
 					slog.String("ip", v.RemoteIP),
+					slog.String("x_forwarded_for", xForwardedFor),
+					slog.String("geo", geoIP),
 					slog.String("method", v.Method),
 					slog.String("uri", v.URI),
 					slog.Int("status", v.Status),
@@ -83,6 +92,8 @@ func main() {
 			} else {
 				slog.Error("request error",
 					slog.String("ip", v.RemoteIP),
+					slog.String("x_forwarded_for", xForwardedFor),
+					slog.String("geo", geoIP),
 					slog.String("method", v.Method),
 					slog.String("uri", v.URI),
 					slog.Int("status", v.Status),
