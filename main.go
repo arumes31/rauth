@@ -76,6 +76,11 @@ func main() {
 			if xForwardedFor == "" {
 				xForwardedFor = "-"
 			}
+
+			cfIP := c.Request().Header.Get("CF-Connecting-IP")
+			if cfIP == "" {
+				cfIP = "-"
+			}
 			
 			geoIP := core.GetCountryCode(v.RemoteIP)
 
@@ -83,6 +88,7 @@ func main() {
 				slog.Info("request",
 					slog.String("ip", v.RemoteIP),
 					slog.String("x_forwarded_for", xForwardedFor),
+					slog.String("cf_ip", cfIP),
 					slog.String("geo", geoIP),
 					slog.String("method", v.Method),
 					slog.String("uri", v.URI),
@@ -93,6 +99,7 @@ func main() {
 				slog.Error("request error",
 					slog.String("ip", v.RemoteIP),
 					slog.String("x_forwarded_for", xForwardedFor),
+					slog.String("cf_ip", cfIP),
 					slog.String("geo", geoIP),
 					slog.String("method", v.Method),
 					slog.String("uri", v.URI),
