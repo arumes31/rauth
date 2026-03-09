@@ -69,7 +69,7 @@ jobs:
             type=sha,format=long
 
       - name: Build and push Auth Service
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: ${{ github.event_name != 'pull_request' }}
