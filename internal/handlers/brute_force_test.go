@@ -168,6 +168,7 @@ func TestBruteForceProtection(t *testing.T) {
 		clientIP := "9.9.9.9"
 		core.ResetRateLimit("login_post_ip:" + clientIP)
 		core.ResetRateLimit("login_fail_ip:" + clientIP)
+		core.ResetRateLimit("2fa_fail_user:bruteuser")
 
 		for i := 0; i < 22; i++ {
 			f := url.Values{}
