@@ -69,6 +69,7 @@ func TestIsAllowedHost(t *testing.T) {
 		{"localhost", true},
 		{"evil.com", false},
 		{"notexample.com", false},
+		{"evil-example.com", false},
 		{"example.com.evil.com", false},
 	}
 
