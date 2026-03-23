@@ -2,6 +2,7 @@ package core
 
 import (
 	"time"
+	"strings"
 )
 
 func CheckRateLimit(key string, maxAttempts int, decaySeconds int) bool {
@@ -17,7 +18,8 @@ func CheckRateLimit(key string, maxAttempts int, decaySeconds int) bool {
 	}
 
 	if int(count) > maxAttempts {
-		RateLimitHitsTotal.WithLabelValues(key).Inc()
+		metricType := strings.SplitN(key, ":", 2)[0]
+		RateLimitHitsTotal.WithLabelValues(metricType).Inc()
 		return false
 	}
 
