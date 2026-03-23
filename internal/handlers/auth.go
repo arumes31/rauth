@@ -274,7 +274,7 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 	core.LogAudit("2FA_FAILED", username, clientIP, nil)
 
 	// Penalize failed 2FA attempts for user
-	if !core.CheckRateLimit("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay) {
+	if !core.CheckRateLimit("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailIPMax, h.Cfg.RateLimitLoginFailIPDecay) {
 		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many failed attempts.", "csrf": c.Get("csrf"), "display2fa": true})
 	}
 	
@@ -388,7 +388,7 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 	}
 
 	// Penalize failed setup attempts for user
-	if !core.CheckRateLimit("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay) {
+	if !core.CheckRateLimit("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailIPMax, h.Cfg.RateLimitLoginFailIPDecay) {
 		return c.Render(http.StatusTooManyRequests, "setup_2fa.html", map[string]interface{}{"error": "Too many failed attempts.", "csrf": c.Get("csrf")})
 	}
 
