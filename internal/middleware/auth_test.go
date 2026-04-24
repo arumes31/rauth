@@ -18,7 +18,7 @@ func TestAuthMiddleware(t *testing.T) {
 	core.UserDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
 
 	e := echo.New()
-	cfg := &core.Config{ServerSecret: "32byte-secret-key-for-testing-!!" }
+	cfg := &core.Config{ServerSecret: "32byte-secret-key-for-testing-!!"}
 
 	handler := AuthMiddleware(cfg)(func(c echo.Context) error {
 		return c.String(http.StatusOK, "OK")
@@ -38,11 +38,11 @@ func TestAuthMiddleware(t *testing.T) {
 	t.Run("Success with valid token", func(t *testing.T) {
 		token := "valid-test-token"
 		encrypted, _ := core.EncryptToken(token, cfg.ServerSecret)
-		
+
 		core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken="+token, map[string]interface{}{
-			"status": "valid",
+			"status":   "valid",
 			"username": "testuser",
-			"groups": "admin",
+			"groups":   "admin",
 		})
 
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -69,7 +69,7 @@ func TestAdminMiddleware(t *testing.T) {
 
 	t.Run("Forbidden if not admin", func(t *testing.T) {
 		core.UserDB.HSet(core.Ctx, "user:normal", map[string]interface{}{"is_admin": "0"})
-		
+
 		req := httptest.NewRequest(http.MethodGet, "/rauthmgmt", nil)
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
@@ -83,7 +83,7 @@ func TestAdminMiddleware(t *testing.T) {
 
 	t.Run("Success if admin", func(t *testing.T) {
 		core.UserDB.HSet(core.Ctx, "user:admin", map[string]interface{}{"is_admin": "1"})
-		
+
 		req := httptest.NewRequest(http.MethodGet, "/rauthmgmt", nil)
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)

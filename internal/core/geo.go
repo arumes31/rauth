@@ -65,10 +65,10 @@ func (c *GeoLRUCache) Put(key, value string) {
 }
 
 var (
-	GeoCache     = NewGeoLRUCache(1000)
-	geoReader    *geoip2.Reader
-	geoLock      sync.RWMutex
-	once         sync.Once
+	GeoCache  = NewGeoLRUCache(1000)
+	geoReader *geoip2.Reader
+	geoLock   sync.RWMutex
+	once      sync.Once
 
 	// For testing
 	geoUpdateFunc = UpdateGeoDB
@@ -98,11 +98,11 @@ func reloadReader(path string) {
 		return
 	}
 	geoReader = reader
-	
+
 	// Update metadata metric
 	metadata := reader.Metadata()
 	GeoIPDBBuildTimestamp.Set(float64(metadata.BuildEpoch))
-	
+
 	slog.Info("MaxMind database loaded", "path", path, "build_epoch", metadata.BuildEpoch)
 }
 

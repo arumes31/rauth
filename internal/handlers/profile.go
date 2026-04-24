@@ -69,15 +69,15 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 	passkeys := core.GetStoredCredentials(username)
 
 	return c.Render(http.StatusOK, "profile.html", map[string]interface{}{
-		"username":  username,
-		"email":     userData["email"],
-		"groups":    userData["groups"],
-		"isAdmin":   userData["is_admin"] == "1",
-		"has2FA":    userData["2fa_secret"] != "",
-		"sessions":  sessions,
-		"logs":      logs,
-		"passkeys":  passkeys,
-		"csrf":      c.Get("csrf"),
+		"username": username,
+		"email":    userData["email"],
+		"groups":   userData["groups"],
+		"isAdmin":  userData["is_admin"] == "1",
+		"has2FA":   userData["2fa_secret"] != "",
+		"sessions": sessions,
+		"logs":     logs,
+		"passkeys": passkeys,
+		"csrf":     c.Get("csrf"),
 	})
 }
 

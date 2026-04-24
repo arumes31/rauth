@@ -1,8 +1,8 @@
 package core
 
 import (
-	"testing"
 	"github.com/stretchr/testify/assert"
+	"testing"
 )
 
 func TestEncryption(t *testing.T) {
@@ -26,7 +26,7 @@ func TestEncryption(t *testing.T) {
 
 func TestDecryptTokenErrors(t *testing.T) {
 	key := "12345678901234567890123456789012"
-	
+
 	t.Run("Invalid base64", func(t *testing.T) {
 		_, err := DecryptToken("not-base64-!", key)
 		assert.Error(t, err)
@@ -61,7 +61,7 @@ func TestEncryptionLargeInput(t *testing.T) {
 
 func TestValidatePasswordComplexity(t *testing.T) {
 	cfg := &Config{
-		MinPasswordLength:     8,
+		MinPasswordLength:      8,
 		RequirePasswordUpper:   true,
 		RequirePasswordLower:   true,
 		RequirePasswordNumber:  true,
@@ -144,10 +144,10 @@ func TestValidatePasswordDetails(t *testing.T) {
 
 func FuzzValidatePassword(f *testing.F) {
 	cfg := &Config{
-		MinPasswordLength:     8,
-		RequirePasswordUpper:  true,
-		RequirePasswordLower:  true,
-		RequirePasswordNumber: true,
+		MinPasswordLength:      8,
+		RequirePasswordUpper:   true,
+		RequirePasswordLower:   true,
+		RequirePasswordNumber:  true,
 		RequirePasswordSpecial: true,
 	}
 	f.Add("Password123!")
