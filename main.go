@@ -165,14 +165,15 @@ func main() {
 
 	// CSRF Protection
 	// #nosec G101 - False positive: this is middleware configuration, not hardcoded credentials
-	e.Use(echoMiddleware.CSRFWithConfig(echoMiddleware.CSRFConfig{
+	csrfConfig := echoMiddleware.CSRFConfig{
 		TokenLookup:    "header:X-CSRF-Token,form:csrf",
 		CookieName:     "_csrf",
 		CookiePath:     "/",
 		CookieHTTPOnly: true,
 		CookieSecure:   true,
 		CookieSameSite: http.SameSiteLaxMode,
-	}))
+	}
+	e.Use(echoMiddleware.CSRFWithConfig(csrfConfig))
 
 	funcMap := template.FuncMap{
 		"formatTime": func(input interface{}) string {
