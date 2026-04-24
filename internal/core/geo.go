@@ -163,8 +163,18 @@ func UpdateGeoDB(cfg *Config) error {
 		return fmt.Errorf("failed to write GeoIP.conf: %w", err)
 	}
 
-	// #nosec G204 - These paths are derived from trusted internal configuration
-	cmd := exec.Command("geoipupdate", "-v", "-f", confPath, "-d", dbDir)
+	// Harden the command execution
+	exePath, err := exec.LookPath("geoipupdate")
+	if err != nil {
+		return fmt.Errorf("geoipupdate executable not found: %w", err)
+	}
+
+	// Sanitize paths
+	cleanConfPath := filepath.Clean(confPath)
+	cleanDBDir := filepath.Clean(dbDir)
+
+	// #nosec G204 - Paths are sanitized and binary is found via LookPath
+	cmd := exec.Command(exePath, "-v", "-f", cleanConfPath, "-d", cleanDBDir)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("geoipupdate failed: %w, output: %s", err, string(output))

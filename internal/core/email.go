@@ -159,7 +159,11 @@ func SendLoginNotification(email, username, ip, country string) {
 
 	`, eUsername, eUsername, eIP, eCountry, time.Now().Format("Jan 02, 2006 15:04:05 MST"), LoadConfig().PublicURL)
 
-	_ = SendEmail(email, subject, body)
+	if err := SendEmail(email, subject, body); err != nil {
+
+		slog.Error("Failed to send login notification", "error", err, "user", username)
+
+	}
 
 }
 
@@ -191,7 +195,11 @@ func SendPasswordChangeNotification(email, username, ip string) {
 
 	`, eUsername, eIP, time.Now().Format("Jan 02, 2006 15:04:05 MST"))
 
-	_ = SendEmail(email, subject, body)
+	if err := SendEmail(email, subject, body); err != nil {
+
+		slog.Error("Failed to send password change notification", "error", err, "user", username)
+
+	}
 
 }
 
@@ -221,7 +229,11 @@ func SendAccountCreatedNotification(email, username string) {
 
 	`, eUsername, LoadConfig().PublicURL)
 
-	_ = SendEmail(email, subject, body)
+	if err := SendEmail(email, subject, body); err != nil {
+
+		slog.Error("Failed to send account creation notification", "error", err, "user", username)
+
+	}
 
 }
 
@@ -261,6 +273,10 @@ func Send2FAModifiedNotification(email, username, action, ip string) {
 
 	`, eAction, eUsername, eAction, eAction, eIP, time.Now().Format("Jan 02, 2006 15:04:05 MST"))
 
-	_ = SendEmail(email, subject, body)
+	if err := SendEmail(email, subject, body); err != nil {
+
+		slog.Error("Failed to send 2FA modification notification", "error", err, "user", username, "action", action)
+
+	}
 
 }
