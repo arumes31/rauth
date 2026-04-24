@@ -164,6 +164,7 @@ func main() {
 	}
 	
 	// CSRF Protection
+	// #nosec G101 - False positive: this is middleware configuration, not hardcoded credentials
 	e.Use(echoMiddleware.CSRFWithConfig(echoMiddleware.CSRFConfig{
 		TokenLookup:    "header:X-CSRF-Token,form:csrf",
 		CookieName:     "_csrf",

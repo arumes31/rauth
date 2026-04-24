@@ -106,12 +106,13 @@ RAuth is built with a "Security-First" mindset:
 8.  **Injection-Safe Emails**: All automated emails are hardened against Header (CRLF) Injection and HTML/XSS attacks.
 9.  **Custom Error Interception**: Branded 404, 403, and 500 error pages prevent technical leakage and provide a unified UX.
 10. **Background Hardening**: Automatic daily Geo-IP database updates and session cleanup tasks.
+11. **Security Compliance**: Verified with `gosec` and `golangci-lint` for industry-standard security best practices.
 
 ---
 
 ## 📦 Technical Stack
 
-*   **Runtime**: [Go 1.24+](https://golang.org/) (High-concurrency, memory-safe)
+*   **Runtime**: [Go 1.25+](https://golang.org/) (High-concurrency, memory-safe)
 *   **Web Framework**: [Echo v4](https://echo.labstack.com/)
 *   **Identity Store**: [Redis 8.0+](https://redis.io/)
 *   **MFA Core**: [go-webauthn](https://github.com/go-webauthn/webauthn) & [pquerna/otp](https://github.com/pquerna/otp)
