@@ -114,6 +114,7 @@ func StartGeoUpdater(cfg *Config) {
 		slog.Error("Failed to create GeoIP directory", "path", dbDir, "error", err)
 		return
 	}
+	// #nosec G302 - Directory needs 0700 for searching
 	if err := os.Chmod(dbDir, 0700); err != nil {
 		slog.Warn("Failed to enforce GeoIP directory permissions", "path", dbDir, "error", err)
 	}
