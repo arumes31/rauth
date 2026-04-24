@@ -15,7 +15,7 @@ import (
 )
 
 var (
-	globalTestMu sync.Mutex
+	globalTestMu    sync.Mutex
 	sharedMiniredis *miniredis.Miniredis
 )
 
@@ -28,16 +28,16 @@ func setupHandlersTest(t *testing.T) {
 		}
 		sharedMiniredis = s
 	}
-	
+
 	client := redis.NewClient(&redis.Options{Addr: sharedMiniredis.Addr()})
 	core.TokenDB = client
 	core.UserDB = client
 	core.AuditDB = client
 	core.RateLimitDB = client
-	
+
 	// Clean slate for each test
 	sharedMiniredis.FlushAll()
-	
+
 	t.Cleanup(func() {
 		globalTestMu.Unlock()
 	})
@@ -57,7 +57,7 @@ func createTestContext(e *echo.Echo, method, path string, f url.Values) (echo.Co
 	}
 	// Default RemoteAddr for testing
 	req.RemoteAddr = "127.0.0.1:1234"
-	
+
 	rec := httptest.NewRecorder()
 	return e.NewContext(req, rec), rec
 }

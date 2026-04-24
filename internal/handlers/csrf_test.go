@@ -15,7 +15,7 @@ import (
 func TestCSRFProtection(t *testing.T) {
 	setupHandlersTest(t)
 	e := echo.New()
-	
+
 	// Apply CSRF middleware exactly as in main.go
 	e.Use(echoMiddleware.CSRFWithConfig(echoMiddleware.CSRFConfig{
 		TokenLookup: "form:csrf",
@@ -42,7 +42,7 @@ func TestCSRFProtection(t *testing.T) {
 		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
 		// Set cookie but provide wrong form value
 		req.AddCookie(&http.Cookie{Name: "_csrf", Value: "validtoken"})
-		
+
 		rec := httptest.NewRecorder()
 		e.ServeHTTP(rec, req)
 

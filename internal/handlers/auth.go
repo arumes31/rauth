@@ -91,7 +91,7 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 	if data["user_agent"] != c.Request().UserAgent() {
 		slog.Warn("User-Agent mismatch detected, invalidating session", "username", data["username"], "old", data["user_agent"], "new", c.Request().UserAgent())
 		core.LogAudit("USER_AGENT_MISMATCH_INVALIDATED", data["username"], clientIP, map[string]interface{}{"old": data["user_agent"], "new": c.Request().UserAgent()})
-		
+
 		core.TokenDB.Del(core.Ctx, redisKey)
 		return c.NoContent(http.StatusUnauthorized)
 	}
@@ -102,7 +102,7 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 	if data["ip"] == clientIP {
 		validity := time.Duration(h.Cfg.TokenValidityMinutes) * time.Minute
 		core.TokenDB.Expire(core.Ctx, redisKey, validity)
-		
+
 		// Update cookie expiration
 		newCookie := &http.Cookie{
 			Name:     "X-rauth-authtoken",
@@ -146,7 +146,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	}
 
 	username := strings.TrimSpace(c.FormValue("username"))
-	
+
 	// 3. Per-User Throttling (Single account brute force protection)
 	if username != "" && !core.CheckRateLimit("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay) {
 		slog.Warn("Login user rate limit exceeded", "username", username, "ip", clientIP)
@@ -157,7 +157,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 
 	password := c.FormValue("password")
 	userRecord, err := core.GetUser(username)
-	
+
 	// Constant time password check to prevent username enumeration
 	var valid bool
 	if err == nil {
@@ -171,7 +171,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	if !valid {
 		core.LogAudit("LOGIN_FAILED", username, clientIP, nil)
 		core.LoginFailedTotal.Inc()
-		
+
 		// 4. Track FAILED attempts from IP across different users (Credential stuffing protection)
 		// Optimization: Don't trigger global IP lockout if there are already other valid sessions on this IP (shared environment)
 		if !core.HasActiveSessions(clientIP) {
@@ -187,7 +187,6 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	// Success! Reset per-user penalties
 	core.ResetRateLimit("login_fail_user:" + username)
 	core.ResetRateLimit("login_post_ip:" + clientIP) // Optional: allow user to keep trying if they are successful
-
 
 	// Check if 2FA is enabled
 	if userRecord.TwoFactor != "" {
@@ -224,7 +223,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 		SameSite: http.SameSiteLaxMode,
 		Expires:  time.Now().Add(10 * time.Minute),
 	})
-	
+
 	redirectURL := "/rauthsetup2fa"
 	if rd := c.QueryParam("rd"); rd != "" {
 		redirectURL += "?rd=" + url.QueryEscape(rd)
@@ -270,11 +269,11 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 			Secure:   true,
 			SameSite: http.SameSiteLaxMode,
 		})
-		
+
 		core.ResetRateLimit("login_post_ip:" + clientIP)
 		core.ResetRateLimit("login_fail_user:" + username)
 		core.ResetRateLimit("2fa_fail_user:" + username)
-		
+
 		return h.issueToken(c, username)
 	}
 
@@ -284,7 +283,7 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 	if !core.CheckRateLimit("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailIPMax, h.Cfg.RateLimitLoginFailIPDecay) {
 		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many failed attempts.", "csrf": c.Get("csrf"), "display2fa": true})
 	}
-	
+
 	// Penalize failed 2FA attempts
 	if !core.HasActiveSessions(clientIP) {
 		if !core.CheckRateLimit("login_fail_ip:"+clientIP, h.Cfg.RateLimitLoginFailIPMax, h.Cfg.RateLimitLoginFailIPDecay) {
@@ -349,7 +348,7 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 	if err != nil {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
-	
+
 	setupToken, err := core.DecryptToken(cookie.Value, h.Cfg.ServerSecret)
 	if err != nil {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
@@ -375,7 +374,7 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 			slog.Error("Failed to save 2FA secret", "error", err)
 			return echo.NewHTTPError(http.StatusInternalServerError, "Database Error")
 		}
-		
+
 		// Cleanup
 		core.TokenDB.Del(core.Ctx, "pending_setup:"+setupToken)
 		core.TokenDB.Del(core.Ctx, "pending_setup_secret:"+setupToken)
