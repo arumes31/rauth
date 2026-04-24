@@ -112,7 +112,7 @@ RAuth is built with a "Security-First" mindset:
 
 ## 📦 Technical Stack
 
-*   **Runtime**: [Go 1.25+](https://golang.org/) (High-concurrency, memory-safe)
+*   **Runtime**: [Go 1.26+](https://golang.org/) (High-concurrency, memory-safe)
 *   **Web Framework**: [Echo v4](https://echo.labstack.com/)
 *   **Identity Store**: [Redis 8.0+](https://redis.io/)
 *   **MFA Core**: [go-webauthn](https://github.com/go-webauthn/webauthn) & [pquerna/otp](https://github.com/pquerna/otp)
@@ -226,6 +226,8 @@ RAuth is configured via Environment Variables.
 | **Geo-IP** | `MAXMIND_ACCOUNT_ID` | Your Account ID for Geo-IP updates | **REQUIRED** |
 | **Geo-IP** | `MAXMIND_LICENSE_KEY` | Your License Key for Geo-IP updates | **REQUIRED** |
 | **Geo-IP** | `GEOIP_EDITION_IDS` | Databases to download | `GeoLite2-Country` |
+| **Geo-IP** | `GEO_API_HOST` | Hostname of the internal Geo API service | `rauth-geo-service` |
+| **Geo-IP** | `GEO_API_PORT` | Port of the internal Geo API service | `3000` |
 | **Email**  | `SMTP_HOST` | SMTP server hostname | (None) |
 | **Email**  | `SMTP_PORT` | SMTP server port (e.g., 587) | `587` |
 | **Email**  | `SMTP_USER` | SMTP username | (None) |
@@ -277,7 +279,7 @@ RAuth will automatically initialize the primary admin user defined in your envir
 ## 💻 Development
 
 ### Prerequisites
-*   Go 1.24+
+*   Go 1.26+
 *   Redis (or [miniredis](https://github.com/alicebob/miniredis) for testing)
 
 ### Testing
