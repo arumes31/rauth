@@ -44,8 +44,8 @@ func TestUpdateGeoDB_ConfigGeneration(t *testing.T) {
 
 	dbPath := filepath.Join(tempDir, "GeoLite2-Country.mmdb")
 	cfg := &Config{
-		MaxMindDBPath:    dbPath,
-		MaxMindAccountID: "test-id",
+		MaxMindDBPath:     dbPath,
+		MaxMindAccountID:  "test-id",
 		MaxMindLicenseKey: "test-key",
 		MaxMindEditionIDs: "test-edition",
 	}
@@ -53,7 +53,7 @@ func TestUpdateGeoDB_ConfigGeneration(t *testing.T) {
 	// Since we can't easily run 'geoipupdate' in many environments,
 	// we just test the part before the command execution if we refactor more,
 	// or we can just verify the file generation if we split the function.
-	
+
 	// For now, let's just ensure it errors if binary is missing but config is written.
 	err = UpdateGeoDB(cfg)
 	assert.Error(t, err) // Likely fails because geoipupdate is not in path

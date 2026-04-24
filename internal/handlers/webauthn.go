@@ -115,7 +115,7 @@ func (h *WebAuthnHandler) BeginLogin(c echo.Context) error {
 	}
 
 	sessionJSON, _ := json.Marshal(sessionData)
-	
+
 	sessionID := core.GenerateRandomString(32)
 	redisKey := "webauthn_login_session:" + sessionID
 	core.TokenDB.Set(core.Ctx, redisKey, sessionJSON, 5*time.Minute)
@@ -176,9 +176,9 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 	if len(parsedResponse.Response.UserHandle) > 0 {
 		handle := string(parsedResponse.Response.UserHandle)
 		slog.Debug("Checking UserHandle", "handleHex", fmt.Sprintf("%x", parsedResponse.Response.UserHandle))
-		
+
 		// Try multiple lookup methods for maximum compatibility
-		
+
 		// A. Try looking up by the string representation (UUID string or username)
 		if u, err := core.GetUsernameByUID(handle); err == nil {
 			username = u
@@ -219,7 +219,7 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 		userID = []byte(userRecord.UID)
 	}
 
-	// Create user object for validation. 
+	// Create user object for validation.
 	// CRITICAL: The ID must match what the authenticator thinks it is (userID)
 	user := &core.WebAuthnUser{
 		ID:          userID,
@@ -243,7 +243,7 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 	// Issue session
 	ua := c.Request().UserAgent()
 	token := core.GenerateRandomString(32)
-	
+
 	encryptedToken, encErr := core.EncryptToken(token, h.Cfg.ServerSecret)
 	if encErr != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to encrypt token")
@@ -259,7 +259,7 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 		"user_agent": ua,
 		"created_at": time.Now().Unix(),
 	})
-	
+
 	tokenValidity := time.Duration(h.Cfg.TokenValidityMinutes) * time.Minute
 	core.TokenDB.Expire(core.Ctx, finalRedisKey, tokenValidity)
 

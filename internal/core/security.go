@@ -114,14 +114,20 @@ func GenerateRandomString(n int) string {
 }
 
 func Encrypt2FASecret(secret string, key string) string {
-	if secret == "" { return "" }
+	if secret == "" {
+		return ""
+	}
 	encrypted, err := EncryptToken(secret, key)
-	if err != nil { return secret } // Fallback to plain if encryption fails (should not happen)
+	if err != nil {
+		return secret
+	} // Fallback to plain if encryption fails (should not happen)
 	return "enc:" + encrypted
 }
 
 func Decrypt2FASecret(secret string, key string) string {
-	if secret == "" { return "" }
+	if secret == "" {
+		return ""
+	}
 	if !strings.HasPrefix(secret, "enc:") {
 		return secret // Already plain
 	}
@@ -136,7 +142,7 @@ func FormatUserAgent(ua string) string {
 	if ua == "" {
 		return "Unknown Device"
 	}
-	
+
 	// Very simple heuristic parsing for common browsers/OS
 	os := "Unknown OS"
 	if strings.Contains(ua, "Android") {

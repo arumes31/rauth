@@ -18,7 +18,7 @@ func LogAudit(action, username, ip string, details map[string]interface{}) {
 	if details == nil {
 		details = make(map[string]interface{})
 	}
-	
+
 	// Automatically add country if not provided
 	if _, ok := details["country"]; !ok {
 		details["country"] = GetCountryCode(ip)

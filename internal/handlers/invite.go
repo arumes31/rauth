@@ -31,8 +31,8 @@ func (h *InviteHandler) Create(c echo.Context) error {
 	core.InviteDB.Set(core.Ctx, "invite:"+token, email, 24*time.Hour)
 
 	inviteURL := h.Cfg.PublicURL + "/rauthredeem?token=" + token
-	
-	// If email config exists, we could send it here. 
+
+	// If email config exists, we could send it here.
 	// For now, return it so the admin can copy-paste.
 	return c.JSON(http.StatusOK, map[string]string{
 		"token": token,
