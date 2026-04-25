@@ -227,7 +227,34 @@ func (h *AuthHandler) Login(c echo.Context) error {
 
 	redirectURL := "/rauthsetup2fa"
 	if rd := c.QueryParam("rd"); rd != "" {
-		redirectURL += "?rd=" + url.QueryEscape(rd)
+		// Validate the redirect URL to prevent open redirect vulnerabilities
+		var safeRedirect string
+		if strings.HasPrefix(rd, "//") {
+			slog.Warn("Protocol-relative redirect attempted in setup 2FA", "url", rd, "user", username)
+			safeRedirect = "/rauthprofile"
+		} else {
+			parsedURL, err := url.Parse(rd)
+			if err != nil {
+				safeRedirect = "/rauthprofile"
+			} else if parsedURL.IsAbs() {
+				if (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") || !h.Cfg.IsAllowedHost(parsedURL.Hostname()) {
+					slog.Warn("Unsafe absolute redirect attempted in setup 2FA", "host", parsedURL.Hostname(), "user", username)
+					safeRedirect = "/rauthprofile"
+				} else {
+					safeRedirect = rd
+				}
+			} else {
+				safeRedirect = rd
+				// Relative URL - ensure it starts with / and not // (checked above)
+				if !strings.HasPrefix(safeRedirect, "/") {
+					safeRedirect = "/" + safeRedirect
+				}
+			}
+		}
+
+		if safeRedirect != "/rauthprofile" {
+			redirectURL += "?rd=" + url.QueryEscape(safeRedirect)
+		}
 	}
 	return c.Redirect(http.StatusFound, redirectURL)
 }
@@ -518,7 +545,7 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 			if err != nil {
 				redirect = "/rauthprofile"
 			} else if parsedURL.IsAbs() {
-				if !h.Cfg.IsAllowedHost(parsedURL.Hostname()) {
+				if (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") || !h.Cfg.IsAllowedHost(parsedURL.Hostname()) {
 					slog.Warn("Unsafe absolute redirect attempted", "host", parsedURL.Hostname(), "user", username)
 					redirect = "/rauthprofile"
 				}

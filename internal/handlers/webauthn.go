@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"rauth/internal/core"
+	"strings"
 	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
@@ -295,7 +297,28 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 
 	redirect := "/rauthprofile"
 	if rd := c.QueryParam("rd"); rd != "" {
-		redirect = rd
+		// Prevent protocol-relative redirects (e.g., //evil.com)
+		if strings.HasPrefix(rd, "//") {
+			slog.Warn("Protocol-relative redirect attempted", "url", rd, "user", username)
+			redirect = "/rauthprofile"
+		} else {
+			parsedURL, err := url.Parse(rd)
+			if err != nil {
+				redirect = "/rauthprofile"
+			} else if parsedURL.IsAbs() {
+				if (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") || !h.Cfg.IsAllowedHost(parsedURL.Hostname()) {
+					slog.Warn("Unsafe absolute redirect attempted", "host", parsedURL.Hostname(), "user", username)
+					redirect = "/rauthprofile"
+				} else {
+					redirect = rd
+				}
+			} else {
+				redirect = rd
+				if !strings.HasPrefix(redirect, "/") {
+					redirect = "/" + redirect
+				}
+			}
+		}
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{"redirect": redirect})

@@ -1,4 +1,4 @@
-## 2024-03-24 - Rate Limiting Bypass on 2FA
-**Vulnerability:** The `Verify2FA` and `CompleteSetup2FA` functions lacked user-specific rate limiting (`login_fail_user`).
-**Learning:** An attacker who compromises a user's password could bypass 2FA by brute-forcing the 6-digit TOTP code across different IPs without locking the user account. Rate limits must be applied at multiple layers (IP + User) simultaneously.
-**Prevention:** Apply both IP-based and user-based rate-limiting constraints to *all* authentication challenge stages. Ensure the fail counter is only incremented when the challenge actually fails, and resets upon success.
+## 2026-04-25 - [Open Redirect]
+**Vulnerability:** The open redirect prevention in multiple places checked `parsedURL.IsAbs()` but allowed arbitrary protocols such as `javascript:`. If `parsedURL.IsAbs()` is true, it checked `h.Cfg.IsAllowedHost(parsedURL.Hostname())`. However, for a `javascript:` URL, the hostname is often empty or arbitrary, and if the user input contains `javascript://allowedhost.com/alert(1)`, `parsedURL.Hostname()` matches `allowedhost.com`, bypassing the domain filter and enabling XSS. In other cases, `javascript:alert(1)` might have an empty hostname, which might fail `IsAllowedHost("")`, but it's much safer to explicitly validate the `Scheme`.
+**Learning:** `url.Parse` allows a variety of schemes. When checking if a URL is absolute and redirecting to it, it is critical to ensure the scheme is `http` or `https` to prevent XSS via `javascript:` or `data:` URIs.
+**Prevention:** Always check `Scheme == "http" || Scheme == "https"` before redirecting.
