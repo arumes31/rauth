@@ -61,7 +61,7 @@ func main() {
 	// Security headers and hardening
 	e.Use(echoMiddleware.Secure())
 	e.Use(echoMiddleware.BodyLimit("1M"))
-	
+
 	// Structured logging middleware
 	e.Use(echoMiddleware.RequestLoggerWithConfig(echoMiddleware.RequestLoggerConfig{
 		LogStatus:   true,
@@ -81,7 +81,7 @@ func main() {
 			if cfIP == "" {
 				cfIP = "-"
 			}
-			
+
 			geoIP := core.GetCountryCode(v.RemoteIP)
 
 			if v.Error == nil {
@@ -111,9 +111,9 @@ func main() {
 			return nil
 		},
 	}))
-	
+
 	e.Use(echoMiddleware.Recover())
-	
+
 	// Custom HTTP Error Handler
 	e.HTTPErrorHandler = func(err error, c echo.Context) {
 		if c.Response().Committed {
@@ -123,7 +123,7 @@ func main() {
 		if he, ok := err.(*echo.HTTPError); ok {
 			code = he.Code
 		}
-		
+
 		errorData := map[string]interface{}{
 			"Code":    code,
 			"Title":   "Error",
@@ -152,7 +152,7 @@ func main() {
 			// Generic handler for other codes
 			errorData["Title"] = http.StatusText(code)
 		}
-		
+
 		if renderErr := c.Render(code, "error.html", errorData); renderErr != nil {
 			slog.Error("Failed to render error page", "error", renderErr)
 		}
@@ -162,16 +162,18 @@ func main() {
 	echo.NotFoundHandler = func(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound)
 	}
-	
+
 	// CSRF Protection
-	e.Use(echoMiddleware.CSRFWithConfig(echoMiddleware.CSRFConfig{
+	// #nosec G101 - False positive: this is middleware configuration, not hardcoded credentials
+	csrfConfig := echoMiddleware.CSRFConfig{
 		TokenLookup:    "header:X-CSRF-Token,form:csrf",
 		CookieName:     "_csrf",
 		CookiePath:     "/",
 		CookieHTTPOnly: true,
 		CookieSecure:   true,
 		CookieSameSite: http.SameSiteLaxMode,
-	}))
+	}
+	e.Use(echoMiddleware.CSRFWithConfig(csrfConfig))
 
 	funcMap := template.FuncMap{
 		"formatTime": func(input interface{}) string {
@@ -208,7 +210,7 @@ func main() {
 			// Actually I need to add "strings" to imports if I use strings.Contains.
 			// Or just checking the suffix/substring manually.
 			// Let's assume standard actions: LOGIN_SUCCESS, LOGIN_FAILED, 2FA_FAILED.
-			
+
 			// Re-implementing simplified contains to avoid import mess if possible, but importing "strings" is better.
 			// I will add "strings" to imports in a separate step or assume it is there?
 			// It is NOT in imports. I will just use basic if/else for known actions.
@@ -271,7 +273,6 @@ func main() {
 	protected.GET("/webauthn/register/begin", webauthnHandler.BeginRegistration)
 	protected.POST("/webauthn/register/finish", webauthnHandler.FinishRegistration)
 
-	
 	protected.POST("/logout", func(c echo.Context) error {
 		// Get token from context (set by AuthMiddleware)
 		if token, ok := c.Get("token").(string); ok {

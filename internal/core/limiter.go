@@ -1,13 +1,13 @@
 package core
 
 import (
-	"time"
 	"strings"
+	"time"
 )
 
 func CheckRateLimit(key string, maxAttempts int, decaySeconds int) bool {
 	fullKey := "rate_limit:" + key
-	
+
 	count, err := RateLimitDB.Incr(Ctx, fullKey).Result()
 	if err != nil {
 		return true // Fail open if Redis is down? Or return false? Let's stay with true for now.

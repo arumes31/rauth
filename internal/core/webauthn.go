@@ -18,17 +18,23 @@ type WebAuthnUser struct {
 }
 
 func (u *WebAuthnUser) WebAuthnID() []byte {
-	if u == nil { return nil }
+	if u == nil {
+		return nil
+	}
 	return u.ID
 }
 
 func (u *WebAuthnUser) WebAuthnName() string {
-	if u == nil { return "" }
+	if u == nil {
+		return ""
+	}
 	return u.DisplayName
 }
 
 func (u *WebAuthnUser) WebAuthnDisplayName() string {
-	if u == nil { return u.WebAuthnName() }
+	if u == nil {
+		return u.WebAuthnName()
+	}
 	return u.DisplayName
 }
 
@@ -37,7 +43,9 @@ func (u *WebAuthnUser) WebAuthnIcon() string {
 }
 
 func (u *WebAuthnUser) WebAuthnCredentials() []webauthn.Credential {
-	if u == nil { return nil }
+	if u == nil {
+		return nil
+	}
 	return u.Credentials
 }
 
@@ -60,10 +68,10 @@ var WebAuthnInstance *webauthn.WebAuthn
 
 func InitWebAuthn(cfg *Config) error {
 	var err error
-	
+
 	// Collect origins
 	originMap := make(map[string]bool)
-	
+
 	if len(cfg.WebAuthnOrigins) > 0 {
 		for _, o := range cfg.WebAuthnOrigins {
 			trimmed := strings.TrimSuffix(strings.TrimSpace(o), "/")
@@ -102,7 +110,7 @@ func InitWebAuthn(cfg *Config) error {
 	for o := range originMap {
 		origins = append(origins, o)
 	}
-	
+
 	fmt.Printf("WebAuthn Registered Origins: %v\n", origins)
 
 	WebAuthnInstance, err = webauthn.New(&webauthn.Config{

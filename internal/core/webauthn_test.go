@@ -8,8 +8,8 @@ import (
 
 func TestInitWebAuthn(t *testing.T) {
 	tests := []struct {
-		name           string
-		cfg            *Config
+		name            string
+		cfg             *Config
 		expectedOrigins []string
 	}{
 		{
@@ -54,9 +54,9 @@ func TestInitWebAuthn(t *testing.T) {
 			err := InitWebAuthn(tt.cfg)
 			assert.NoError(t, err)
 			assert.NotNil(t, WebAuthnInstance)
-			
+
 			// We can't directly access RPOrigins from WebAuthnInstance as it's private in some versions
-			// but we can check the config if we could. 
+			// but we can check the config if we could.
 			// In github.com/go-webauthn/webauthn, it's public in the Config but we pass it to New.
 		})
 	}

@@ -10,15 +10,15 @@ import (
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
-	"github.com/redis/go-redis/v9"
 	"github.com/labstack/echo/v4"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestXSSProtection(t *testing.T) {
 	s := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: s.Addr()})
-	
+
 	// Force override globals for this test
 	oldUserDB := core.UserDB
 	oldAuditDB := core.AuditDB

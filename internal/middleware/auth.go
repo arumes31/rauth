@@ -40,7 +40,7 @@ func AuthMiddleware(cfg *core.Config) echo.MiddlewareFunc {
 			// Set headers for Nginx auth_request to forward to upstream
 			c.Response().Header().Set("X-RAuth-User", data["username"])
 			c.Response().Header().Set("X-RAuth-Groups", data["groups"])
-			
+
 			isAdmin := "0"
 			if userData, err := core.UserDB.HGetAll(core.Ctx, "user:"+data["username"]).Result(); err == nil {
 				isAdmin = userData["is_admin"]
@@ -64,7 +64,7 @@ func AdminMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 			slog.Error("Failed to fetch user data in admin middleware", "user", username, "error", err)
 			return echo.NewHTTPError(http.StatusInternalServerError, "Internal Server Error")
 		}
-		
+
 		if userData["is_admin"] != "1" {
 			slog.Warn("Unauthorized admin access attempt", "user", username, "ip", c.RealIP())
 			return echo.NewHTTPError(http.StatusForbidden, "Admin access required")

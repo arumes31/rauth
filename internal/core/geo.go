@@ -65,10 +65,10 @@ func (c *GeoLRUCache) Put(key, value string) {
 }
 
 var (
-	GeoCache     = NewGeoLRUCache(1000)
-	geoReader    *geoip2.Reader
-	geoLock      sync.RWMutex
-	once         sync.Once
+	GeoCache  = NewGeoLRUCache(1000)
+	geoReader *geoip2.Reader
+	geoLock   sync.RWMutex
+	once      sync.Once
 
 	// For testing
 	geoUpdateFunc = UpdateGeoDB
@@ -98,11 +98,11 @@ func reloadReader(path string) {
 		return
 	}
 	geoReader = reader
-	
+
 	// Update metadata metric
 	metadata := reader.Metadata()
 	GeoIPDBBuildTimestamp.Set(float64(metadata.BuildEpoch))
-	
+
 	slog.Info("MaxMind database loaded", "path", path, "build_epoch", metadata.BuildEpoch)
 }
 
@@ -114,6 +114,7 @@ func StartGeoUpdater(cfg *Config) {
 		slog.Error("Failed to create GeoIP directory", "path", dbDir, "error", err)
 		return
 	}
+	// #nosec G302 - Directory needs 0700 for searching
 	if err := os.Chmod(dbDir, 0700); err != nil {
 		slog.Warn("Failed to enforce GeoIP directory permissions", "path", dbDir, "error", err)
 	}
@@ -162,8 +163,18 @@ func UpdateGeoDB(cfg *Config) error {
 		return fmt.Errorf("failed to write GeoIP.conf: %w", err)
 	}
 
-	// #nosec G204 - These paths are derived from trusted internal configuration
-	cmd := exec.Command("geoipupdate", "-v", "-f", confPath, "-d", dbDir)
+	// Harden the command execution
+	exePath, err := exec.LookPath("geoipupdate")
+	if err != nil {
+		return fmt.Errorf("geoipupdate executable not found: %w", err)
+	}
+
+	// Sanitize paths
+	cleanConfPath := filepath.Clean(confPath)
+	cleanDBDir := filepath.Clean(dbDir)
+
+	// #nosec G204 - Paths are sanitized and binary is found via LookPath
+	cmd := exec.Command(exePath, "-v", "-f", cleanConfPath, "-d", cleanDBDir)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("geoipupdate failed: %w, output: %s", err, string(output))

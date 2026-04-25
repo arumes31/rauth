@@ -1,14 +1,14 @@
 package core
 
 import (
-	"testing"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"testing"
 )
 
 func TestUserManagement(t *testing.T) {
 	s := miniredis.RunT(t)
-	
+
 	UserDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
 	AuditDB = redis.NewClient(&redis.Options{Addr: s.Addr()}) // Reuse s for simplicity
 
