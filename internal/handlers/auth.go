@@ -517,7 +517,10 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 			if err != nil {
 				redirect = "/rauthprofile"
 			} else if parsedURL.IsAbs() {
-				if !h.Cfg.IsAllowedHost(parsedURL.Hostname()) {
+				if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+					slog.Warn("Unsafe redirect scheme attempted", "scheme", parsedURL.Scheme, "user", username)
+					redirect = "/rauthprofile"
+				} else if !h.Cfg.IsAllowedHost(parsedURL.Hostname()) {
 					slog.Warn("Unsafe absolute redirect attempted", "host", parsedURL.Hostname(), "user", username)
 					redirect = "/rauthprofile"
 				}

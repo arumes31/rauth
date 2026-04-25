@@ -65,8 +65,10 @@ func TestAuthHandler_Login(t *testing.T) {
 		err := h.Login(c)
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusFound, rec.Code)
+		assert.Equal(t, "/rauthsetup2fa", rec.Header().Get("Location"))
 		assert.NotEmpty(t, rec.Header().Get("Set-Cookie"))
 	})
+
 
 	t.Run("Failed login - wrong password", func(t *testing.T) {
 		f := make(url.Values)

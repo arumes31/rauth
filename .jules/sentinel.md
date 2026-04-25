@@ -1,4 +1,4 @@
-## 2024-03-24 - Rate Limiting Bypass on 2FA
-**Vulnerability:** The `Verify2FA` and `CompleteSetup2FA` functions lacked user-specific rate limiting (`login_fail_user`).
-**Learning:** An attacker who compromises a user's password could bypass 2FA by brute-forcing the 6-digit TOTP code across different IPs without locking the user account. Rate limits must be applied at multiple layers (IP + User) simultaneously.
-**Prevention:** Apply both IP-based and user-based rate-limiting constraints to *all* authentication challenge stages. Ensure the fail counter is only incremented when the challenge actually fails, and resets upon success.
+## 2026-04-25 - [Fix Open Redirect XSS via Scheme Bypass]
+**Vulnerability:** The redirect validation logic in `internal/handlers/auth.go` correctly verified that an absolute URL's hostname belonged to the `AllowedHosts` list. However, it failed to check the URI scheme. An attacker could bypass this by using a payload like `javascript://example.com/%0Aalert(1)`. The `url.Parse` method considers `javascript` as the scheme and `example.com` as the hostname, which satisfies the host validation but executes arbitrary JavaScript in the victim's browser instead of navigating them securely.
+**Learning:** Checking only the hostname is insufficient for absolute URL redirect validation. Go's `url.Parse` accurately parses malicious schemes while still identifying the subsequent authority as the hostname, passing flawed validation logic that neglects scheme evaluation.
+**Prevention:** Always enforce a strict allowlist of URI schemes (e.g., `http` and `https`) when processing absolute URLs for redirects, prior to verifying the hostname against the permitted origins list.

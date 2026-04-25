@@ -64,4 +64,27 @@ func TestAuthHandler_Verify2FA_Reproduction(t *testing.T) {
 
 		assert.Equal(t, http.StatusFound, rec.Code)
 	})
+
+	t.Run("Scheme validation for open redirect bypass via rd param", func(t *testing.T) {
+		validCode, _ := totp.GenerateCode(secret, time.Now())
+		f := make(url.Values)
+		f.Set("totp_code", validCode)
+
+		// javascript scheme but the host is an allowed host
+		// the redirect validation should catch this by scheme check.
+		req := httptest.NewRequest(http.MethodPost, "/verify-2fa?rd=javascript://example.com/%0Aalert(1)", strings.NewReader(f.Encode()))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
+
+		encryptedPendingToken, _ := core.EncryptToken(pendingToken, cfg.ServerSecret)
+		req.AddCookie(&http.Cookie{Name: "rauth_2fa_pending", Value: encryptedPendingToken})
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := h.Verify2FA(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+
+		// should fallback to default /rauthprofile because of bad scheme
+		assert.Equal(t, "/rauthprofile", rec.Header().Get("Location"))
+	})
 }
