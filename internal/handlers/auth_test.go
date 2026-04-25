@@ -32,14 +32,14 @@ func TestAuthHandler_Login(t *testing.T) {
 	setupHandlersTest(t)
 
 	cfg := &core.Config{
-		ServerSecret:              "32byte-secret-key-for-testing-!!",
-		CookieDomains:             []string{"example.com"},
-		TokenValidityMinutes:      60,
-		RateLimitLoginMax:         1000,
-		RateLimitLoginDecay:       300,
-		RateLimitLoginAccessMax:   1000,
+		ServerSecret: "32byte-secret-key-for-testing-!!",
+		CookieDomains: []string{"example.com"},
+		TokenValidityMinutes: 60,
+		RateLimitLoginMax: 1000,
+		RateLimitLoginDecay: 300,
+		RateLimitLoginAccessMax: 1000,
 		RateLimitLoginFailUserMax: 1000,
-		RateLimitLoginFailIPMax:   1000,
+		RateLimitLoginFailIPMax: 1000,
 	}
 	h := &AuthHandler{Cfg: cfg}
 	e := echo.New()
@@ -106,16 +106,16 @@ func TestAuthHandler_Validate(t *testing.T) {
 	setupHandlersTest(t)
 
 	cfg := &core.Config{
-		ServerSecret:              "32byte-secret-key-for-testing-!!",
-		CookieDomains:             []string{"example.com"},
-		TokenValidityMinutes:      60,
-		RateLimitLoginMax:         1000,
-		RateLimitLoginDecay:       60,
-		RateLimitValidateMax:      1000,
-		RateLimitValidateDecay:    60,
-		RateLimitLoginAccessMax:   1000,
+		ServerSecret: "32byte-secret-key-for-testing-!!",
+		CookieDomains: []string{"example.com"},
+		TokenValidityMinutes: 60,
+		RateLimitLoginMax: 1000,
+		RateLimitLoginDecay: 60,
+		RateLimitValidateMax: 1000,
+		RateLimitValidateDecay: 60,
+		RateLimitLoginAccessMax: 1000,
 		RateLimitLoginFailUserMax: 1000,
-		RateLimitLoginFailIPMax:   1000,
+		RateLimitLoginFailIPMax: 1000,
 	}
 	h := &AuthHandler{Cfg: cfg}
 	e := echo.New()
@@ -125,10 +125,10 @@ func TestAuthHandler_Validate(t *testing.T) {
 		encrypted, _ := core.EncryptToken(token, cfg.ServerSecret)
 
 		core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken="+token, map[string]interface{}{
-			"status":   "valid",
+			"status": "valid",
 			"username": "testuser",
-			"ip":       "127.0.0.1",
-			"country":  "unknown",
+			"ip": "127.0.0.1",
+			"country": "unknown",
 		})
 
 		c, rec := createTestContext(e, http.MethodGet, "/rauthvalidate", nil)
@@ -194,16 +194,16 @@ func TestAuthHandler_CompleteSetup2FA(t *testing.T) {
 	setupHandlersTest(t)
 
 	cfg := &core.Config{
-		ServerSecret:              "32byte-secret-key-for-testing-!!",
-		CookieDomains:             []string{"example.com"},
-		TokenValidityMinutes:      60,
-		RateLimitLoginMax:         1000,
-		RateLimitLoginDecay:       60,
-		RateLimitValidateMax:      1000,
-		RateLimitValidateDecay:    60,
-		RateLimitLoginAccessMax:   1000,
+		ServerSecret:  "32byte-secret-key-for-testing-!!",
+		CookieDomains: []string{"example.com"},
+		TokenValidityMinutes: 60,
+		RateLimitLoginMax: 1000,
+		RateLimitLoginDecay: 60,
+		RateLimitValidateMax: 1000,
+		RateLimitValidateDecay: 60,
+		RateLimitLoginAccessMax: 1000,
 		RateLimitLoginFailUserMax: 1000,
-		RateLimitLoginFailIPMax:   1000,
+		RateLimitLoginFailIPMax: 1000,
 	}
 	h := &AuthHandler{Cfg: cfg}
 	e := echo.New()
@@ -240,16 +240,16 @@ func TestAuthHandler_InvalidateSessionIntegration(t *testing.T) {
 	setupHandlersTest(t)
 
 	cfg := &core.Config{
-		ServerSecret:              "32byte-secret-key-for-testing-!!",
-		CookieDomains:             []string{"example.com"},
-		TokenValidityMinutes:      60,
-		RateLimitLoginMax:         1000,
-		RateLimitLoginDecay:       60,
-		RateLimitValidateMax:      1000,
-		RateLimitValidateDecay:    60,
-		RateLimitLoginAccessMax:   1000,
+		ServerSecret: "32byte-secret-key-for-testing-!!",
+		CookieDomains: []string{"example.com"},
+		TokenValidityMinutes: 60,
+		RateLimitLoginMax: 1000,
+		RateLimitLoginDecay: 60,
+		RateLimitValidateMax: 1000,
+		RateLimitValidateDecay: 60,
+		RateLimitLoginAccessMax: 1000,
 		RateLimitLoginFailUserMax: 1000,
-		RateLimitLoginFailIPMax:   1000,
+		RateLimitLoginFailIPMax: 1000,
 	}
 	h := &AuthHandler{Cfg: cfg}
 	adminH := &AdminHandler{Cfg: cfg}
@@ -265,10 +265,10 @@ func TestAuthHandler_InvalidateSessionIntegration(t *testing.T) {
 	// REDIS KEY MUST BE: X-rauth-authtoken= + token
 	redisKey := "X-rauth-authtoken=" + rawToken
 	core.TokenDB.HSet(core.Ctx, redisKey, map[string]interface{}{
-		"status":   "valid",
+		"status": "valid",
 		"username": username,
-		"ip":       "127.0.0.1",
-		"country":  "unknown",
+		"ip": "127.0.0.1",
+		"country": "unknown",
 	})
 
 	// 2. Verify it is valid

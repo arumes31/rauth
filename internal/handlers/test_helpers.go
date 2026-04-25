@@ -15,7 +15,7 @@ import (
 )
 
 var (
-	globalTestMu    sync.Mutex
+	globalTestMu sync.Mutex
 	sharedMiniredis *miniredis.Miniredis
 )
 
@@ -34,6 +34,7 @@ func setupHandlersTest(t *testing.T) {
 	core.UserDB = client
 	core.AuditDB = client
 	core.RateLimitDB = client
+	core.InviteDB = client
 
 	// Clean slate for each test
 	sharedMiniredis.FlushAll()

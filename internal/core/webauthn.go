@@ -18,23 +18,17 @@ type WebAuthnUser struct {
 }
 
 func (u *WebAuthnUser) WebAuthnID() []byte {
-	if u == nil {
-		return nil
-	}
+	if u == nil { return nil }
 	return u.ID
 }
 
 func (u *WebAuthnUser) WebAuthnName() string {
-	if u == nil {
-		return ""
-	}
+	if u == nil { return "" }
 	return u.DisplayName
 }
 
 func (u *WebAuthnUser) WebAuthnDisplayName() string {
-	if u == nil {
-		return u.WebAuthnName()
-	}
+	if u == nil { return u.WebAuthnName() }
 	return u.DisplayName
 }
 
@@ -43,9 +37,7 @@ func (u *WebAuthnUser) WebAuthnIcon() string {
 }
 
 func (u *WebAuthnUser) WebAuthnCredentials() []webauthn.Credential {
-	if u == nil {
-		return nil
-	}
+	if u == nil { return nil }
 	return u.Credentials
 }
 

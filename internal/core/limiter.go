@@ -1,8 +1,8 @@
 package core
 
 import (
-	"strings"
 	"time"
+	"strings"
 )
 
 func CheckRateLimit(key string, maxAttempts int, decaySeconds int) bool {

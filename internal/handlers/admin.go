@@ -206,16 +206,15 @@ func (h *AdminHandler) InvalidateSession(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to invalidate session")
 	}
 
-	slog.Info("Session invalidated by admin", "admin", admin)
+		slog.Info("Session invalidated by admin", "admin", admin)
 
-	logToken := token
+		logToken := token
 
-	if len(token) > 8 {
-		logToken = token[:8] + "..."
+		if len(token) > 8 { logToken = token[:8] + "..." }
+
+		core.LogAudit("ADMIN_INVALIDATE_SESSION", admin, c.RealIP(), map[string]interface{}{"token": logToken})
+
+		return c.Redirect(http.StatusFound, "/rauthmgmt?success=session_terminated")
+
 	}
 
-	core.LogAudit("ADMIN_INVALIDATE_SESSION", admin, c.RealIP(), map[string]interface{}{"token": logToken})
-
-	return c.Redirect(http.StatusFound, "/rauthmgmt?success=session_terminated")
-
-}
