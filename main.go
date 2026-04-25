@@ -164,7 +164,7 @@ func main() {
 	}
 
 	// CSRF Protection
-	e.Use(echoMiddleware.CSRFWithConfig(echoMiddleware.CSRFConfig{
+	e.Use(echoMiddleware.CSRFWithConfig(echoMiddleware.CSRFConfig{ // #nosec G101
 		TokenLookup:    "header:X-CSRF-Token,form:csrf",
 		CookieName:     "_csrf",
 		CookiePath:     "/",
