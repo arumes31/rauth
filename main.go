@@ -164,16 +164,14 @@ func main() {
 	}
 
 	// CSRF Protection
-	// #nosec G101 - False positive: this is middleware configuration, not hardcoded credentials
-	csrfConfig := echoMiddleware.CSRFConfig{
+	e.Use(echoMiddleware.CSRFWithConfig(echoMiddleware.CSRFConfig{
 		TokenLookup:    "header:X-CSRF-Token,form:csrf",
 		CookieName:     "_csrf",
 		CookiePath:     "/",
 		CookieHTTPOnly: true,
 		CookieSecure:   true,
 		CookieSameSite: http.SameSiteLaxMode,
-	}
-	e.Use(echoMiddleware.CSRFWithConfig(csrfConfig))
+	}))
 
 	funcMap := template.FuncMap{
 		"formatTime": func(input interface{}) string {
@@ -272,6 +270,7 @@ func main() {
 	// WebAuthn Protected Registration
 	protected.GET("/webauthn/register/begin", webauthnHandler.BeginRegistration)
 	protected.POST("/webauthn/register/finish", webauthnHandler.FinishRegistration)
+
 
 	protected.POST("/logout", func(c echo.Context) error {
 		// Get token from context (set by AuthMiddleware)

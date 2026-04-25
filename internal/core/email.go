@@ -1,6 +1,7 @@
 package core
 
 import (
+
 	"fmt"
 
 	"html"
@@ -12,7 +13,10 @@ import (
 	"strings"
 
 	"time"
+
 )
+
+
 
 const emailBaseTemplate = `
 <!DOCTYPE html>
@@ -49,6 +53,8 @@ const emailBaseTemplate = `
 </html>
 `
 
+
+
 func sanitizeEmailHeader(s string) string {
 
 	// Remove any carriage returns or newlines to prevent header injection
@@ -60,6 +66,8 @@ func sanitizeEmailHeader(s string) string {
 	return s
 
 }
+
+
 
 func SendEmail(to, subject, body string) error {
 
@@ -73,11 +81,17 @@ func SendEmail(to, subject, body string) error {
 
 	}
 
+
+
 	to = sanitizeEmailHeader(to)
 
 	subject = sanitizeEmailHeader(subject)
 
+
+
 	auth := smtp.PlainAuth("", cfg.SMTPUser, cfg.SMTPPass, cfg.SMTPHost)
+
+
 
 	// If body doesn't look like HTML, wrap it in our base template
 
@@ -86,6 +100,8 @@ func SendEmail(to, subject, body string) error {
 		body = strings.Replace(emailBaseTemplate, "{{.Content}}", body, 1)
 
 	}
+
+
 
 	msg := []byte(fmt.Sprintf("From: %s\r\n"+
 
@@ -101,7 +117,11 @@ func SendEmail(to, subject, body string) error {
 
 		"%s\r\n", cfg.SMTPFrom, to, subject, body))
 
+
+
 	addr := fmt.Sprintf("%s:%d", cfg.SMTPHost, cfg.SMTPPort)
+
+
 
 	err := smtp.SendMail(addr, auth, cfg.SMTPFrom, []string{to}, msg)
 
@@ -113,21 +133,29 @@ func SendEmail(to, subject, body string) error {
 
 	}
 
+
+
 	slog.Info("Email sent successfully", "to", to, "subject", subject)
 
 	return nil
 
 }
 
+
+
 func SendLoginNotification(email, username, ip, country string) {
 
 	subject := "[RAuth] Security Alert: New Login Detected"
+
+
 
 	eUsername := html.EscapeString(username)
 
 	eIP := html.EscapeString(ip)
 
 	eCountry := html.EscapeString(country)
+
+
 
 	body := fmt.Sprintf(`
 
@@ -159,21 +187,25 @@ func SendLoginNotification(email, username, ip, country string) {
 
 	`, eUsername, eUsername, eIP, eCountry, time.Now().Format("Jan 02, 2006 15:04:05 MST"), LoadConfig().PublicURL)
 
-	if err := SendEmail(email, subject, body); err != nil {
 
-		slog.Error("Failed to send login notification", "error", err, "user", username)
 
-	}
+	_ = SendEmail(email, subject, body)
 
 }
+
+
 
 func SendPasswordChangeNotification(email, username, ip string) {
 
 	subject := "[RAuth] Security Alert: Password Changed"
 
+
+
 	eUsername := html.EscapeString(username)
 
 	eIP := html.EscapeString(ip)
+
+
 
 	body := fmt.Sprintf(`
 
@@ -195,19 +227,23 @@ func SendPasswordChangeNotification(email, username, ip string) {
 
 	`, eUsername, eIP, time.Now().Format("Jan 02, 2006 15:04:05 MST"))
 
-	if err := SendEmail(email, subject, body); err != nil {
 
-		slog.Error("Failed to send password change notification", "error", err, "user", username)
 
-	}
+	_ = SendEmail(email, subject, body)
 
 }
+
+
 
 func SendAccountCreatedNotification(email, username string) {
 
 	subject := "[RAuth] Welcome: Your Account is Ready"
 
+
+
 	eUsername := html.EscapeString(username)
+
+
 
 	body := fmt.Sprintf(`
 
@@ -229,23 +265,27 @@ func SendAccountCreatedNotification(email, username string) {
 
 	`, eUsername, LoadConfig().PublicURL)
 
-	if err := SendEmail(email, subject, body); err != nil {
 
-		slog.Error("Failed to send account creation notification", "error", err, "user", username)
 
-	}
+	_ = SendEmail(email, subject, body)
 
 }
+
+
 
 func Send2FAModifiedNotification(email, username, action, ip string) {
 
 	subject := sanitizeEmailHeader(fmt.Sprintf("[RAuth] Security Alert: 2FA %s", action))
+
+
 
 	eUsername := html.EscapeString(username)
 
 	eAction := html.EscapeString(action)
 
 	eIP := html.EscapeString(ip)
+
+
 
 	body := fmt.Sprintf(`
 
@@ -273,10 +313,8 @@ func Send2FAModifiedNotification(email, username, action, ip string) {
 
 	`, eAction, eUsername, eAction, eAction, eIP, time.Now().Format("Jan 02, 2006 15:04:05 MST"))
 
-	if err := SendEmail(email, subject, body); err != nil {
 
-		slog.Error("Failed to send 2FA modification notification", "error", err, "user", username, "action", action)
 
-	}
+	_ = SendEmail(email, subject, body)
 
 }

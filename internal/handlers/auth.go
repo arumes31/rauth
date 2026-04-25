@@ -188,6 +188,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	core.ResetRateLimit("login_fail_user:" + username)
 	core.ResetRateLimit("login_post_ip:" + clientIP) // Optional: allow user to keep trying if they are successful
 
+
 	// Check if 2FA is enabled
 	if userRecord.TwoFactor != "" {
 		// Issue a temporary short-lived session for 2FA verification
@@ -261,14 +262,7 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 	if totp.Validate(code, secret) {
 		core.TokenDB.Del(core.Ctx, "pending_2fa:"+pendingToken)
 		// Clear pending cookie
-		c.SetCookie(&http.Cookie{
-			Name:     "rauth_2fa_pending",
-			MaxAge:   -1,
-			Path:     "/",
-			HttpOnly: true,
-			Secure:   true,
-			SameSite: http.SameSiteLaxMode,
-		})
+		c.SetCookie(&http.Cookie{Name: "rauth_2fa_pending", MaxAge: -1, Path: "/", HttpOnly: true, Secure: true})
 
 		core.ResetRateLimit("login_post_ip:" + clientIP)
 		core.ResetRateLimit("login_fail_user:" + username)
@@ -378,14 +372,7 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 		// Cleanup
 		core.TokenDB.Del(core.Ctx, "pending_setup:"+setupToken)
 		core.TokenDB.Del(core.Ctx, "pending_setup_secret:"+setupToken)
-		c.SetCookie(&http.Cookie{
-			Name:     "rauth_setup_pending",
-			MaxAge:   -1,
-			Path:     "/",
-			HttpOnly: true,
-			Secure:   true,
-			SameSite: http.SameSiteLaxMode,
-		})
+		c.SetCookie(&http.Cookie{Name: "rauth_setup_pending", MaxAge: -1, Path: "/", HttpOnly: true, Secure: true})
 
 		// Send notification email
 		userRecord, _ := core.GetUser(username)

@@ -7,14 +7,14 @@ import (
 )
 
 type User struct {
-	Username  string `json:"username" redis:"username"`
-	Password  string `json:"password" redis:"password"`
-	Email     string `json:"email" redis:"email"`
-	Groups    string `json:"groups" redis:"groups"`
-	IsAdmin   string `json:"is_admin" redis:"is_admin"`
-	TwoFactor string `json:"2fa_secret" redis:"2fa_secret"`
-	UID       string `json:"uid" redis:"uid"`
-	CreatedAt int64  `json:"created_at" redis:"created_at"`
+	Username   string `json:"username" redis:"username"`
+	Password   string `json:"password" redis:"password"`
+	Email      string `json:"email" redis:"email"`
+	Groups     string `json:"groups" redis:"groups"`
+	IsAdmin    string `json:"is_admin" redis:"is_admin"`
+	TwoFactor  string `json:"2fa_secret" redis:"2fa_secret"`
+	UID        string `json:"uid" redis:"uid"`
+	CreatedAt  int64  `json:"created_at" redis:"created_at"`
 }
 
 func ListUsers() ([]User, error) {

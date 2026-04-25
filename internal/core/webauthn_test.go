@@ -8,8 +8,8 @@ import (
 
 func TestInitWebAuthn(t *testing.T) {
 	tests := []struct {
-		name            string
-		cfg             *Config
+		name           string
+		cfg            *Config
 		expectedOrigins []string
 	}{
 		{

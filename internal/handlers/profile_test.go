@@ -97,7 +97,7 @@ func TestProfileHandler_ChangePassword(t *testing.T) {
 	setupHandlersTest(t)
 	cfg := &core.Config{
 		MinPasswordLength: 8,
-		CookieDomains:     []string{"example.com"},
+		CookieDomains: []string{"example.com"},
 	}
 	h := &ProfileHandler{Cfg: cfg}
 	e := echo.New()

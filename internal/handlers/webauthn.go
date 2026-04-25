@@ -291,7 +291,6 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 		HttpOnly: true,
 		Secure:   true,
 		MaxAge:   -1,
-		SameSite: http.SameSiteLaxMode,
 	})
 
 	redirect := "/rauthprofile"
