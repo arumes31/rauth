@@ -508,6 +508,11 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 	core.ResetRateLimit("login_fail_ip:" + clientIP)
 
 	redirect := c.QueryParam("rd")
+	redirect = ValidateRedirect(redirect, h.Cfg, username)
+	return c.Redirect(http.StatusFound, redirect)
+}
+
+func ValidateRedirect(redirect string, cfg *core.Config, username string) string {
 	if redirect != "" {
 		// Prevent protocol-relative redirects (e.g., //evil.com)
 		if strings.HasPrefix(redirect, "//") {
@@ -518,8 +523,8 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 			if err != nil {
 				redirect = "/rauthprofile"
 			} else if parsedURL.IsAbs() {
-				if !h.Cfg.IsAllowedHost(parsedURL.Hostname()) {
-					slog.Warn("Unsafe absolute redirect attempted", "host", parsedURL.Hostname(), "user", username)
+				if !cfg.IsAllowedHost(parsedURL.Hostname()) || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
+					slog.Warn("Unsafe absolute redirect attempted", "host", parsedURL.Hostname(), "scheme", parsedURL.Scheme, "user", username)
 					redirect = "/rauthprofile"
 				}
 			} else {
@@ -533,5 +538,5 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 	if redirect == "" {
 		redirect = "/rauthprofile"
 	}
-	return c.Redirect(http.StatusFound, redirect)
+	return redirect
 }
