@@ -1,4 +1,4 @@
-## 2024-03-24 - Rate Limiting Bypass on 2FA
-**Vulnerability:** The `Verify2FA` and `CompleteSetup2FA` functions lacked user-specific rate limiting (`login_fail_user`).
-**Learning:** An attacker who compromises a user's password could bypass 2FA by brute-forcing the 6-digit TOTP code across different IPs without locking the user account. Rate limits must be applied at multiple layers (IP + User) simultaneously.
-**Prevention:** Apply both IP-based and user-based rate-limiting constraints to *all* authentication challenge stages. Ensure the fail counter is only incremented when the challenge actually fails, and resets upon success.
+## 2026-04-27 - Fix XSS and Open Redirect in 'rd' parameter
+**Vulnerability:** XSS and Open Redirect in the `rd` query parameter in the WebAuthn flow, and an incomplete check in the standard login flow.
+**Learning:** Even if a URL's hostname is verified as allowed, if the scheme is not explicitly checked, malicious schemes like `javascript:` or `data:` can be used to execute arbitrary code (XSS). Additionally, the WebAuthn flow had entirely missed the validation logic for the `rd` parameter.
+**Prevention:** Always validate both the scheme (`http`, `https`) and the hostname when processing absolute URLs for redirects. Centralize this validation logic into a single function (e.g., `ValidateRedirect`) and reuse it across all authentication endpoints to prevent discrepancies.

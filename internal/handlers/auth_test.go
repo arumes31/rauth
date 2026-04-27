@@ -12,6 +12,34 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestValidateRedirect(t *testing.T) {
+	cfg := &core.Config{AllowedHosts: []string{"example.com"}}
+
+	tests := []struct {
+		name     string
+		redirect string
+		expected string
+	}{
+		{"Empty redirect", "", "/rauthprofile"},
+		{"Valid relative redirect", "/dashboard", "/dashboard"},
+		{"Relative redirect missing prefix", "settings", "/settings"},
+		{"Protocol relative redirect", "//evil.com", "/rauthprofile"},
+		{"Valid absolute HTTP redirect", "http://example.com/path", "http://example.com/path"},
+		{"Valid absolute HTTPS redirect", "https://example.com/path", "https://example.com/path"},
+		{"Disallowed host absolute redirect", "https://evil.com/path", "/rauthprofile"},
+		{"Disallowed scheme javascript", "javascript:alert(1)", "/rauthprofile"},
+		{"Disallowed scheme javascript absolute", "javascript://example.com/%0aalert(1)", "/rauthprofile"},
+		{"Disallowed scheme data", "data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==", "/rauthprofile"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ValidateRedirect(tt.redirect, cfg)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 func TestAuthHandler_Root(t *testing.T) {
 	setupHandlersTest(t)
 	cfg := &core.Config{ServerSecret: "32byte-secret-key-for-testing-!!"}
