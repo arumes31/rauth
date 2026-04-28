@@ -293,10 +293,7 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 		MaxAge:   -1,
 	})
 
-	redirect := "/rauthprofile"
-	if rd := c.QueryParam("rd"); rd != "" {
-		redirect = rd
-	}
+	redirect := ValidateRedirect(c.QueryParam("rd"), h.Cfg)
 
 	return c.JSON(http.StatusOK, map[string]string{"redirect": redirect})
 }
