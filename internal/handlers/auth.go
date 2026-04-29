@@ -507,31 +507,44 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 	core.ResetRateLimit("login_fail_user:" + username)
 	core.ResetRateLimit("login_fail_ip:" + clientIP)
 
-	redirect := c.QueryParam("rd")
-	if redirect != "" {
-		// Prevent protocol-relative redirects (e.g., //evil.com)
-		if strings.HasPrefix(redirect, "//") {
-			slog.Warn("Protocol-relative redirect attempted", "url", redirect, "user", username)
-			redirect = "/rauthprofile"
-		} else {
-			parsedURL, err := url.Parse(redirect)
-			if err != nil {
-				redirect = "/rauthprofile"
-			} else if parsedURL.IsAbs() {
-				if !h.Cfg.IsAllowedHost(parsedURL.Hostname()) {
-					slog.Warn("Unsafe absolute redirect attempted", "host", parsedURL.Hostname(), "user", username)
-					redirect = "/rauthprofile"
-				}
-			} else {
-				// Relative URL - ensure it starts with / and not // (checked above)
-				if !strings.HasPrefix(redirect, "/") {
-					redirect = "/" + redirect
-				}
-			}
+	redirect := ValidateRedirect(c.QueryParam("rd"), h.Cfg)
+	return c.Redirect(http.StatusFound, redirect)
+}
+
+// ValidateRedirect sanitizes redirect URLs to prevent open redirects and XSS.
+func ValidateRedirect(redirect string, cfg *core.Config) string {
+	if redirect == "" {
+		return "/rauthprofile"
+	}
+
+	// Prevent protocol-relative redirects (e.g., //evil.com)
+	if strings.HasPrefix(redirect, "//") {
+		slog.Warn("Protocol-relative redirect attempted", "url", redirect)
+		return "/rauthprofile"
+	}
+
+	parsedURL, err := url.Parse(redirect)
+	if err != nil {
+		return "/rauthprofile"
+	}
+
+	if parsedURL.IsAbs() {
+		// Only allow http and https schemes to prevent javascript: XSS
+		scheme := strings.ToLower(parsedURL.Scheme)
+		if scheme != "http" && scheme != "https" {
+			slog.Warn("Invalid redirect scheme", "scheme", scheme)
+			return "/rauthprofile"
+		}
+
+		if !cfg.IsAllowedHost(parsedURL.Hostname()) {
+			slog.Warn("Unsafe absolute redirect attempted", "host", parsedURL.Hostname())
+			return "/rauthprofile"
+		}
+	} else {
+		// Relative URL - ensure it starts with / and not // (checked above)
+		if !strings.HasPrefix(redirect, "/") {
+			redirect = "/" + redirect
 		}
 	}
-	if redirect == "" {
-		redirect = "/rauthprofile"
-	}
-	return c.Redirect(http.StatusFound, redirect)
+	return redirect
 }

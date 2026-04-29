@@ -295,7 +295,7 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 
 	redirect := "/rauthprofile"
 	if rd := c.QueryParam("rd"); rd != "" {
-		redirect = rd
+		redirect = ValidateRedirect(rd, h.Cfg)
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{"redirect": redirect})
