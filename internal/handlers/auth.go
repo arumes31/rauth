@@ -508,30 +508,44 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 	core.ResetRateLimit("login_fail_ip:" + clientIP)
 
 	redirect := c.QueryParam("rd")
-	if redirect != "" {
-		// Prevent protocol-relative redirects (e.g., //evil.com)
-		if strings.HasPrefix(redirect, "//") {
-			slog.Warn("Protocol-relative redirect attempted", "url", redirect, "user", username)
-			redirect = "/rauthprofile"
-		} else {
-			parsedURL, err := url.Parse(redirect)
-			if err != nil {
-				redirect = "/rauthprofile"
-			} else if parsedURL.IsAbs() {
-				if !h.Cfg.IsAllowedHost(parsedURL.Hostname()) {
-					slog.Warn("Unsafe absolute redirect attempted", "host", parsedURL.Hostname(), "user", username)
-					redirect = "/rauthprofile"
-				}
-			} else {
-				// Relative URL - ensure it starts with / and not // (checked above)
-				if !strings.HasPrefix(redirect, "/") {
-					redirect = "/" + redirect
-				}
-			}
+	redirect = ValidateRedirect(redirect, h.Cfg.IsAllowedHost)
+	return c.Redirect(http.StatusFound, redirect)
+}
+
+// ValidateRedirect ensures redirect URLs are safe.
+// It centralizes logic from AuthHandler.
+func ValidateRedirect(redirect string, isAllowedHost func(string) bool) string {
+	if redirect == "" {
+		return "/rauthprofile"
+	}
+
+	// Prevent protocol-relative redirects (e.g., //evil.com)
+	if strings.HasPrefix(redirect, "//") {
+		return "/rauthprofile"
+	}
+
+	parsedURL, err := url.Parse(redirect)
+	if err != nil {
+		return "/rauthprofile"
+	}
+
+	if parsedURL.IsAbs() {
+		// Only allow http/https schemes
+		scheme := strings.ToLower(parsedURL.Scheme)
+		if scheme != "http" && scheme != "https" {
+			return "/rauthprofile"
+		}
+
+		// Check against allowed hosts
+		if !isAllowedHost(parsedURL.Hostname()) {
+			return "/rauthprofile"
+		}
+	} else {
+		// Relative URL - ensure it starts with / and not // (checked above)
+		if !strings.HasPrefix(redirect, "/") {
+			redirect = "/" + redirect
 		}
 	}
-	if redirect == "" {
-		redirect = "/rauthprofile"
-	}
-	return c.Redirect(http.StatusFound, redirect)
+
+	return redirect
 }
