@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"strings"
 	"rauth/internal/core"
 	"time"
 
@@ -295,7 +297,26 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 
 	redirect := "/rauthprofile"
 	if rd := c.QueryParam("rd"); rd != "" {
-		redirect = rd
+		if strings.HasPrefix(rd, "//") {
+			slog.Warn("Protocol-relative redirect attempted", "url", rd)
+		} else {
+			parsedURL, err := url.Parse(rd)
+			if err != nil {
+				// invalid url, default redirect
+			} else if parsedURL.IsAbs() {
+				if (parsedURL.Scheme == "http" || parsedURL.Scheme == "https") && h.Cfg.IsAllowedHost(parsedURL.Hostname()) {
+					redirect = rd
+				} else {
+					slog.Warn("Unsafe absolute redirect attempted", "host", parsedURL.Hostname())
+				}
+			} else {
+				if !strings.HasPrefix(rd, "/") {
+					redirect = "/" + rd
+				} else {
+					redirect = rd
+				}
+			}
+		}
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{"redirect": redirect})
