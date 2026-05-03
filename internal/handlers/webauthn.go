@@ -5,9 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"rauth/internal/core"
-	"strings"
 	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
@@ -295,32 +293,7 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 		MaxAge:   -1,
 	})
 
-	redirect := "/rauthprofile"
-	if rd := c.QueryParam("rd"); rd != "" {
-		// Prevent protocol-relative redirects (e.g., //evil.com)
-		if strings.HasPrefix(rd, "//") {
-			slog.Warn("Protocol-relative redirect attempted", "url", rd, "user", username)
-		} else {
-			parsedURL, err := url.Parse(rd)
-			if err != nil {
-				// Invalid URL
-			} else if parsedURL.IsAbs() {
-				// Check for allowed host and scheme (http/https) to prevent XSS
-				if (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") || !h.Cfg.IsAllowedHost(parsedURL.Hostname()) {
-					slog.Warn("Unsafe absolute redirect attempted", "host", parsedURL.Hostname(), "scheme", parsedURL.Scheme, "user", username)
-				} else {
-					redirect = rd
-				}
-			} else {
-				// Relative URL - ensure it starts with / and not // (checked above)
-				if !strings.HasPrefix(rd, "/") {
-					redirect = "/" + rd
-				} else {
-					redirect = rd
-				}
-			}
-		}
-	}
+	redirect := core.ValidateRedirectURL(c.QueryParam("rd"), "/rauthprofile", username, h.Cfg)
 
 	return c.JSON(http.StatusOK, map[string]string{"redirect": redirect})
 }

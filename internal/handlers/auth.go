@@ -507,32 +507,6 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 	core.ResetRateLimit("login_fail_user:" + username)
 	core.ResetRateLimit("login_fail_ip:" + clientIP)
 
-	redirect := c.QueryParam("rd")
-	if redirect != "" {
-		// Prevent protocol-relative redirects (e.g., //evil.com)
-		if strings.HasPrefix(redirect, "//") {
-			slog.Warn("Protocol-relative redirect attempted", "url", redirect, "user", username)
-			redirect = "/rauthprofile"
-		} else {
-			parsedURL, err := url.Parse(redirect)
-			if err != nil {
-				redirect = "/rauthprofile"
-			} else if parsedURL.IsAbs() {
-				// Check for allowed host and scheme (http/https) to prevent XSS
-				if (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") || !h.Cfg.IsAllowedHost(parsedURL.Hostname()) {
-					slog.Warn("Unsafe absolute redirect attempted", "host", parsedURL.Hostname(), "scheme", parsedURL.Scheme, "user", username)
-					redirect = "/rauthprofile"
-				}
-			} else {
-				// Relative URL - ensure it starts with / and not // (checked above)
-				if !strings.HasPrefix(redirect, "/") {
-					redirect = "/" + redirect
-				}
-			}
-		}
-	}
-	if redirect == "" {
-		redirect = "/rauthprofile"
-	}
+	redirect := core.ValidateRedirectURL(c.QueryParam("rd"), "/rauthprofile", username, h.Cfg)
 	return c.Redirect(http.StatusFound, redirect)
 }
