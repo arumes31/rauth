@@ -3,7 +3,7 @@
 **Learning:** An attacker who compromises a user's password could bypass 2FA by brute-forcing the 6-digit TOTP code across different IPs without locking the user account. Rate limits must be applied at multiple layers (IP + User) simultaneously.
 **Prevention:** Apply both IP-based and user-based rate-limiting constraints to *all* authentication challenge stages. Ensure the fail counter is only incremented when the challenge actually fails, and resets upon success.
 
-## 2024-05-03 - Open Redirect to XSS via Absolute URLs
-**Vulnerability:** The redirect parameter (`rd`) validation checked for valid hostnames for absolute URLs but failed to enforce strict protocol boundaries, allowing `javascript:` URIs to execute arbitrary code if a user clicked a crafted login link.
-**Learning:** The `url.Parse().Hostname()` function ignores the URI scheme. An attacker can set `rd=javascript://allowed-host/%0Aalert(1)` to bypass the host allowlist while achieving XSS.
-**Prevention:** Always explicitly whitelist `http` and `https` schemes when validating absolute URLs during redirects.
+## 2025-05-02 - Fix XSS vulnerability via open redirect scheme validation
+**Vulnerability:** The open redirect logic allowed absolute URLs without verifying their scheme, opening the door for XSS via `javascript:` or `data:` schemes (e.g., `javascript://example.com/%0Aalert(1)`).
+**Learning:** Checking `IsAllowedHost` is insufficient if the scheme is not explicitly restricted to `http` or `https`, as browsers will execute code for other URI schemes while still matching the hostname.
+**Prevention:** Always ensure that an absolute URL's scheme is strictly limited to `http` or `https` in combination with host whitelisting when processing redirects.
