@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
+	"net/url"
 	"regexp"
 	"strings"
 
@@ -180,4 +182,38 @@ func GetDeviceIcon(ua string) string {
 		return "bi-ubuntu"
 	}
 	return "bi-display"
+}
+
+// ValidateRedirectURL safely validates and sanitizes a redirect URL
+func ValidateRedirectURL(rd, defaultRedirect, username string, cfg *Config) string {
+	if rd == "" {
+		return defaultRedirect
+	}
+
+	// Prevent protocol-relative redirects (e.g., //evil.com)
+	if strings.HasPrefix(rd, "//") {
+		slog.Warn("Protocol-relative redirect attempted", "url", rd, "user", username)
+		return defaultRedirect
+	}
+
+	parsedURL, err := url.Parse(rd)
+	if err != nil {
+		return defaultRedirect
+	}
+
+	if parsedURL.IsAbs() {
+		// Check for allowed host and scheme (http/https) to prevent XSS
+		if (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") || !cfg.IsAllowedHost(parsedURL.Hostname()) {
+			slog.Warn("Unsafe absolute redirect attempted", "host", parsedURL.Hostname(), "scheme", parsedURL.Scheme, "user", username)
+			return defaultRedirect
+		}
+		return rd
+	}
+
+	// Relative URL - ensure it starts with / and not // (checked above)
+	if !strings.HasPrefix(rd, "/") {
+		return "/" + rd
+	}
+
+	return rd
 }
