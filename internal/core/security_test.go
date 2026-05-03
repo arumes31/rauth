@@ -26,7 +26,7 @@ func TestEncryption(t *testing.T) {
 
 func TestDecryptTokenErrors(t *testing.T) {
 	key := "12345678901234567890123456789012"
-	
+
 	t.Run("Invalid base64", func(t *testing.T) {
 		_, err := DecryptToken("not-base64-!", key)
 		assert.Error(t, err)

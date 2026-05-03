@@ -8,7 +8,7 @@ import (
 
 func TestUserManagement(t *testing.T) {
 	s := miniredis.RunT(t)
-	
+
 	UserDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
 	AuditDB = redis.NewClient(&redis.Options{Addr: s.Addr()}) // Reuse s for simplicity
 

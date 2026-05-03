@@ -20,7 +20,7 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 	if err != nil {
 		slog.Error("Failed to list users", "error", err)
 	}
-	
+
 	// Fetch sessions
 	keys, err := core.TokenDB.Keys(core.Ctx, "X-rauth-authtoken=*").Result()
 	if err != nil {
@@ -82,7 +82,7 @@ func (h *AdminHandler) CreateUser(c echo.Context) error {
 		slog.Warn("Failed to create user", "user", user, "error", err)
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	
+
 	// Send Welcome Email (Asynchronous)
 	if email != "" {
 		go core.SendAccountCreatedNotification(email, user)
@@ -200,7 +200,7 @@ func (h *AdminHandler) InvalidateSession(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "Token is required")
 	}
 	admin := c.Get("username").(string)
-	
+
 	if err := core.TokenDB.Del(core.Ctx, "X-rauth-authtoken="+token).Err(); err != nil {
 		slog.Error("Failed to invalidate session", "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to invalidate session")
@@ -218,4 +218,3 @@ func (h *AdminHandler) InvalidateSession(c echo.Context) error {
 
 	}
 
-	

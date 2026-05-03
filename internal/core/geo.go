@@ -98,11 +98,11 @@ func reloadReader(path string) {
 		return
 	}
 	geoReader = reader
-	
+
 	// Update metadata metric
 	metadata := reader.Metadata()
 	GeoIPDBBuildTimestamp.Set(float64(metadata.BuildEpoch))
-	
+
 	slog.Info("MaxMind database loaded", "path", path, "build_epoch", metadata.BuildEpoch)
 }
 
@@ -114,7 +114,6 @@ func StartGeoUpdater(cfg *Config) {
 		slog.Error("Failed to create GeoIP directory", "path", dbDir, "error", err)
 		return
 	}
-	// #nosec G302 - Directory needs 0700 for searching
 	if err := os.Chmod(dbDir, 0700); err != nil {
 		slog.Warn("Failed to enforce GeoIP directory permissions", "path", dbDir, "error", err)
 	}

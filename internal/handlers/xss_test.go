@@ -18,7 +18,7 @@ import (
 func TestXSSProtection(t *testing.T) {
 	s := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: s.Addr()})
-	
+
 	// Force override globals for this test
 	oldUserDB := core.UserDB
 	oldAuditDB := core.AuditDB

@@ -38,7 +38,7 @@ func TestAuthMiddleware(t *testing.T) {
 	t.Run("Success with valid token", func(t *testing.T) {
 		token := "valid-test-token"
 		encrypted, _ := core.EncryptToken(token, cfg.ServerSecret)
-		
+
 		core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken="+token, map[string]interface{}{
 			"status": "valid",
 			"username": "testuser",
@@ -69,7 +69,7 @@ func TestAdminMiddleware(t *testing.T) {
 
 	t.Run("Forbidden if not admin", func(t *testing.T) {
 		core.UserDB.HSet(core.Ctx, "user:normal", map[string]interface{}{"is_admin": "0"})
-		
+
 		req := httptest.NewRequest(http.MethodGet, "/rauthmgmt", nil)
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
@@ -83,7 +83,7 @@ func TestAdminMiddleware(t *testing.T) {
 
 	t.Run("Success if admin", func(t *testing.T) {
 		core.UserDB.HSet(core.Ctx, "user:admin", map[string]interface{}{"is_admin": "1"})
-		
+
 		req := httptest.NewRequest(http.MethodGet, "/rauthmgmt", nil)
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)

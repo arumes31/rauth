@@ -91,7 +91,7 @@ func SendEmail(to, subject, body string) error {
 
 	auth := smtp.PlainAuth("", cfg.SMTPUser, cfg.SMTPPass, cfg.SMTPHost)
 
-	
+
 
 	// If body doesn't look like HTML, wrap it in our base template
 
@@ -121,7 +121,7 @@ func SendEmail(to, subject, body string) error {
 
 	addr := fmt.Sprintf("%s:%d", cfg.SMTPHost, cfg.SMTPPort)
 
-	
+
 
 	err := smtp.SendMail(addr, auth, cfg.SMTPFrom, []string{to}, msg)
 
@@ -147,7 +147,7 @@ func SendLoginNotification(email, username, ip, country string) {
 
 	subject := "[RAuth] Security Alert: New Login Detected"
 
-	
+
 
 	eUsername := html.EscapeString(username)
 
@@ -187,7 +187,7 @@ func SendLoginNotification(email, username, ip, country string) {
 
 	`, eUsername, eUsername, eIP, eCountry, time.Now().Format("Jan 02, 2006 15:04:05 MST"), LoadConfig().PublicURL)
 
-	
+
 
 	_ = SendEmail(email, subject, body)
 
@@ -199,7 +199,7 @@ func SendPasswordChangeNotification(email, username, ip string) {
 
 	subject := "[RAuth] Security Alert: Password Changed"
 
-	
+
 
 	eUsername := html.EscapeString(username)
 
@@ -227,7 +227,7 @@ func SendPasswordChangeNotification(email, username, ip string) {
 
 	`, eUsername, eIP, time.Now().Format("Jan 02, 2006 15:04:05 MST"))
 
-	
+
 
 	_ = SendEmail(email, subject, body)
 
@@ -239,7 +239,7 @@ func SendAccountCreatedNotification(email, username string) {
 
 	subject := "[RAuth] Welcome: Your Account is Ready"
 
-	
+
 
 	eUsername := html.EscapeString(username)
 
@@ -265,7 +265,7 @@ func SendAccountCreatedNotification(email, username string) {
 
 	`, eUsername, LoadConfig().PublicURL)
 
-	
+
 
 	_ = SendEmail(email, subject, body)
 
@@ -277,7 +277,7 @@ func Send2FAModifiedNotification(email, username, action, ip string) {
 
 	subject := sanitizeEmailHeader(fmt.Sprintf("[RAuth] Security Alert: 2FA %s", action))
 
-	
+
 
 	eUsername := html.EscapeString(username)
 
@@ -313,7 +313,7 @@ func Send2FAModifiedNotification(email, username, action, ip string) {
 
 	`, eAction, eUsername, eAction, eAction, eIP, time.Now().Format("Jan 02, 2006 15:04:05 MST"))
 
-	
+
 
 	_ = SendEmail(email, subject, body)
 

@@ -43,7 +43,7 @@ func TestProfileHandler_Show(t *testing.T) {
 
 		data := renderer.LastData.(map[string]interface{})
 		logs := data["logs"].([]core.AuditLog)
-		
+
 		for _, log := range logs {
 			assert.Equal(t, "profileuser", log.Username)
 			assert.NotEqual(t, "OTHER_ACTION", log.Action)
@@ -136,7 +136,7 @@ func TestProfileHandler_ChangePassword(t *testing.T) {
 		err := h.ChangePassword(c)
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
-		
+
 		var resp map[string]string
 		err = json.Unmarshal(rec.Body.Bytes(), &resp)
 		assert.NoError(t, err)

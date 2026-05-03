@@ -8,7 +8,7 @@ import (
 
 func TestRateLimiter(t *testing.T) {
 	s := miniredis.RunT(t)
-	
+
 	// Override RateLimitDB for testing
 	RateLimitDB = redis.NewClient(&redis.Options{
 		Addr: s.Addr(),

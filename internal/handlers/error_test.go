@@ -11,7 +11,7 @@ import (
 
 func TestCustomNotFoundHandler(t *testing.T) {
 	e := echo.New()
-	
+
 	// Mock renderer
 	e.Renderer = &mockRenderer{}
 
@@ -21,7 +21,7 @@ func TestCustomNotFoundHandler(t *testing.T) {
 		if he, ok := err.(*echo.HTTPError); ok {
 			code = he.Code
 		}
-		
+
 		if code == http.StatusNotFound {
 			_ = c.Render(http.StatusNotFound, "error.html", nil)
 			return
@@ -31,7 +31,7 @@ func TestCustomNotFoundHandler(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/non-existent-page", nil)
 	rec := httptest.NewRecorder()
-	
+
 	e.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)

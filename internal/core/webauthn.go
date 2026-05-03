@@ -60,10 +60,10 @@ var WebAuthnInstance *webauthn.WebAuthn
 
 func InitWebAuthn(cfg *Config) error {
 	var err error
-	
+
 	// Collect origins
 	originMap := make(map[string]bool)
-	
+
 	if len(cfg.WebAuthnOrigins) > 0 {
 		for _, o := range cfg.WebAuthnOrigins {
 			trimmed := strings.TrimSuffix(strings.TrimSpace(o), "/")
@@ -102,7 +102,7 @@ func InitWebAuthn(cfg *Config) error {
 	for o := range originMap {
 		origins = append(origins, o)
 	}
-	
+
 	fmt.Printf("WebAuthn Registered Origins: %v\n", origins)
 
 	WebAuthnInstance, err = webauthn.New(&webauthn.Config{
