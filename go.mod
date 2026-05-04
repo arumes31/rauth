@@ -4,7 +4,7 @@ go 1.26.2
 
 require (
 	github.com/alicebob/miniredis/v2 v2.37.0
-	github.com/go-webauthn/webauthn v0.17.0
+	github.com/go-webauthn/webauthn v0.17.2
 	github.com/google/uuid v1.6.0
 	github.com/labstack/echo/v4 v4.15.2
 	github.com/oschwald/geoip2-golang v1.13.0
