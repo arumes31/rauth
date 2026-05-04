@@ -170,7 +170,7 @@ func TestBruteForceProtection(t *testing.T) {
 		core.ResetRateLimit("login_fail_ip:" + clientIP)
 		core.ResetRateLimit("2fa_fail_user:bruteuser")
 
-		for i := 0; i < 22; i++ {
+			for i := 0; i < 7; i++ {
 			f := url.Values{}
 			f.Set("action", "verify_2fa")
 			f.Set("totp_code", "123456")
@@ -182,10 +182,10 @@ func TestBruteForceProtection(t *testing.T) {
 			err := h.Login(c)
 			assert.NoError(t, err)
 
-			if i >= 20 {
+				if i >= 5 {
 				assert.Equal(t, http.StatusTooManyRequests, rec.Code)
 				data := renderer.LastData.(map[string]interface{})
-				assert.Contains(t, data["error"], "Too many failed attempts")
+					assert.Contains(t, data["error"], "This account is temporarily locked")
 			}
 		}
 	})

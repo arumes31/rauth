@@ -257,6 +257,12 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
 
+	// Pre-check user rate limit before evaluating TOTP to prevent brute force bypass
+	if !core.CheckRateLimit("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay) {
+		slog.Warn("2FA user rate limit exceeded", "username", username, "ip", clientIP)
+		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "This account is temporarily locked due to too many failed attempts.", "csrf": c.Get("csrf"), "display2fa": true})
+	}
+
 	userRecord, _ := core.GetUser(username)
 	secret := core.Decrypt2FASecret(userRecord.TwoFactor, h.Cfg.ServerSecret)
 	if totp.Validate(code, secret) {
@@ -273,17 +279,11 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 
 		core.ResetRateLimit("login_post_ip:" + clientIP)
 		core.ResetRateLimit("login_fail_user:" + username)
-		core.ResetRateLimit("2fa_fail_user:" + username)
 
 		return h.issueToken(c, username)
 	}
 
 	core.LogAudit("2FA_FAILED", username, clientIP, nil)
-
-	// Penalize failed 2FA attempts for user
-	if !core.CheckRateLimit("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailIPMax, h.Cfg.RateLimitLoginFailIPDecay) {
-		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many failed attempts.", "csrf": c.Get("csrf"), "display2fa": true})
-	}
 
 	// Penalize failed 2FA attempts
 	if !core.HasActiveSessions(clientIP) {
@@ -365,6 +365,12 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 		return c.Redirect(http.StatusFound, "/rauthsetup2fa")
 	}
 
+	// Pre-check user rate limit before evaluating TOTP to prevent brute force bypass
+	if !core.CheckRateLimit("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay) {
+		slog.Warn("2FA setup user rate limit exceeded", "username", username, "ip", clientIP)
+		return c.Render(http.StatusTooManyRequests, "setup_2fa.html", map[string]interface{}{"error": "Too many failed attempts. Please try again later.", "csrf": c.Get("csrf")})
+	}
+
 	code := c.FormValue("totp_code")
 	// Verify the code against the temporary secret
 	if totp.Validate(code, secret) {
@@ -396,14 +402,8 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 
 		core.ResetRateLimit("login_post_ip:" + clientIP)
 		core.ResetRateLimit("login_fail_user:" + username)
-		core.ResetRateLimit("2fa_fail_user:" + username)
 		core.LogAudit("2FA_SETUP_SUCCESS", username, clientIP, nil)
 		return h.issueToken(c, username)
-	}
-
-	// Penalize failed setup attempts for user
-	if !core.CheckRateLimit("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailIPMax, h.Cfg.RateLimitLoginFailIPDecay) {
-		return c.Render(http.StatusTooManyRequests, "setup_2fa.html", map[string]interface{}{"error": "Too many failed attempts.", "csrf": c.Get("csrf")})
 	}
 
 	// Penalize failed setup attempts
