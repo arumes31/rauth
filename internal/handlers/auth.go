@@ -259,6 +259,12 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 
 	userRecord, _ := core.GetUser(username)
 	secret := core.Decrypt2FASecret(userRecord.TwoFactor, h.Cfg.ServerSecret)
+
+	if core.IsRateLimitExceeded("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax) {
+		slog.Warn("Login user rate limit exceeded during 2FA", "username", username, "ip", clientIP)
+		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "This account is temporarily locked due to too many failed attempts.", "csrf": c.Get("csrf"), "display2fa": true})
+	}
+
 	if totp.Validate(code, secret) {
 		core.TokenDB.Del(core.Ctx, "pending_2fa:"+pendingToken)
 		// Clear pending cookie
@@ -278,6 +284,7 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 		return h.issueToken(c, username)
 	}
 
+	core.CheckRateLimit("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay)
 	core.LogAudit("2FA_FAILED", username, clientIP, nil)
 
 	// Penalize failed 2FA attempts for user
@@ -367,6 +374,11 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 
 	code := c.FormValue("totp_code")
 	// Verify the code against the temporary secret
+	if core.IsRateLimitExceeded("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax) {
+		slog.Warn("Login user rate limit exceeded during 2FA setup", "username", username, "ip", clientIP)
+		return c.Render(http.StatusTooManyRequests, "setup_2fa.html", map[string]interface{}{"error": "This account is temporarily locked due to too many failed attempts.", "csrf": c.Get("csrf")})
+	}
+
 	if totp.Validate(code, secret) {
 		// Save to user profile (encrypted)
 		encryptedSecret := core.Encrypt2FASecret(secret, h.Cfg.ServerSecret)
@@ -400,6 +412,8 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 		core.LogAudit("2FA_SETUP_SUCCESS", username, clientIP, nil)
 		return h.issueToken(c, username)
 	}
+
+	core.CheckRateLimit("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay)
 
 	// Penalize failed setup attempts for user
 	if !core.CheckRateLimit("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailIPMax, h.Cfg.RateLimitLoginFailIPDecay) {

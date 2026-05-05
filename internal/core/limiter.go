@@ -26,6 +26,15 @@ func CheckRateLimit(key string, maxAttempts int, decaySeconds int) bool {
 	return true
 }
 
+func IsRateLimitExceeded(key string, maxAttempts int) bool {
+	fullKey := "rate_limit:" + key
+	count, err := RateLimitDB.Get(Ctx, fullKey).Int()
+	if err != nil {
+		return false // Treat missing or error as not exceeded
+	}
+	return count > maxAttempts
+}
+
 func ResetRateLimit(key string) {
 	RateLimitDB.Del(Ctx, "rate_limit:"+key)
 }
