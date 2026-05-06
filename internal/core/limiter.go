@@ -5,6 +5,15 @@ import (
 	"strings"
 )
 
+func IsRateLimitExceeded(key string, maxAttempts int) bool {
+	fullKey := "rate_limit:" + key
+	count, err := RateLimitDB.Get(Ctx, fullKey).Int()
+	if err != nil {
+		return false // Treat as not exceeded if key doesn't exist or error
+	}
+	return count >= maxAttempts
+}
+
 func CheckRateLimit(key string, maxAttempts int, decaySeconds int) bool {
 	fullKey := "rate_limit:" + key
 
