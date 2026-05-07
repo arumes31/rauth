@@ -185,7 +185,7 @@ func TestBruteForceProtection(t *testing.T) {
 			if i >= 20 {
 				assert.Equal(t, http.StatusTooManyRequests, rec.Code)
 				data := renderer.LastData.(map[string]interface{})
-				assert.Contains(t, data["error"], "Too many failed attempts")
+				assert.Contains(t, data["error"], "This account is temporarily locked due to too many failed attempts")
 			}
 		}
 	})

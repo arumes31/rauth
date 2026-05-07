@@ -257,6 +257,11 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
 
+	// Apply user-specific rate limiting BEFORE validating the 2FA code
+	if core.IsRateLimitExceeded("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax) {
+		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "This account is temporarily locked due to too many failed attempts.", "csrf": c.Get("csrf"), "display2fa": true})
+	}
+
 	userRecord, _ := core.GetUser(username)
 	secret := core.Decrypt2FASecret(userRecord.TwoFactor, h.Cfg.ServerSecret)
 	if totp.Validate(code, secret) {
@@ -283,6 +288,11 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 	// Penalize failed 2FA attempts for user
 	if !core.CheckRateLimit("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailIPMax, h.Cfg.RateLimitLoginFailIPDecay) {
 		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many failed attempts.", "csrf": c.Get("csrf"), "display2fa": true})
+	}
+
+	// Also penalize the login_fail_user to match the password behavior
+	if !core.CheckRateLimit("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay) {
+		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "This account is temporarily locked due to too many failed attempts.", "csrf": c.Get("csrf"), "display2fa": true})
 	}
 
 	// Penalize failed 2FA attempts
@@ -360,6 +370,11 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
 
+	// Apply user-specific rate limiting BEFORE validating the 2FA code
+	if core.IsRateLimitExceeded("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax) {
+		return c.Render(http.StatusTooManyRequests, "setup_2fa.html", map[string]interface{}{"error": "This account is temporarily locked due to too many failed attempts.", "csrf": c.Get("csrf")})
+	}
+
 	secret, err := core.TokenDB.Get(core.Ctx, "pending_setup_secret:"+setupToken).Result()
 	if err != nil {
 		return c.Redirect(http.StatusFound, "/rauthsetup2fa")
@@ -404,6 +419,11 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 	// Penalize failed setup attempts for user
 	if !core.CheckRateLimit("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailIPMax, h.Cfg.RateLimitLoginFailIPDecay) {
 		return c.Render(http.StatusTooManyRequests, "setup_2fa.html", map[string]interface{}{"error": "Too many failed attempts.", "csrf": c.Get("csrf")})
+	}
+
+	// Also penalize the login_fail_user to match the password behavior
+	if !core.CheckRateLimit("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay) {
+		return c.Render(http.StatusTooManyRequests, "setup_2fa.html", map[string]interface{}{"error": "This account is temporarily locked due to too many failed attempts.", "csrf": c.Get("csrf")})
 	}
 
 	// Penalize failed setup attempts

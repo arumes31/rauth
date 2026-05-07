@@ -3,6 +3,7 @@ package core
 import (
 	"time"
 	"strings"
+	"github.com/redis/go-redis/v9"
 )
 
 func CheckRateLimit(key string, maxAttempts int, decaySeconds int) bool {
@@ -24,6 +25,18 @@ func CheckRateLimit(key string, maxAttempts int, decaySeconds int) bool {
 	}
 
 	return true
+}
+
+func IsRateLimitExceeded(key string, maxAttempts int) bool {
+	fullKey := "rate_limit:" + key
+	count, err := RateLimitDB.Get(Ctx, fullKey).Int()
+	if err != nil {
+		if err == redis.Nil {
+			return false
+		}
+		return false // Fail open if Redis is down
+	}
+	return count >= maxAttempts
 }
 
 func ResetRateLimit(key string) {

@@ -7,3 +7,8 @@
 **Vulnerability:** The open redirect logic allowed absolute URLs without verifying their scheme, opening the door for XSS via `javascript:` or `data:` schemes (e.g., `javascript://example.com/%0Aalert(1)`).
 **Learning:** Checking `IsAllowedHost` is insufficient if the scheme is not explicitly restricted to `http` or `https`, as browsers will execute code for other URI schemes while still matching the hostname.
 **Prevention:** Always ensure that an absolute URL's scheme is strictly limited to `http` or `https` in combination with host whitelisting when processing redirects.
+
+## 2026-05-07 - Rate Limiting Bypass on 2FA (Part 2)
+**Vulnerability:** The fix for the `Verify2FA` and `CompleteSetup2FA` rate limit bypass missed checking the lock *before* verifying the code.
+**Learning:** Checking rate limits *after* executing the protected function does not prevent brute force. Rate limiting must be checked *before* performing an expensive or sensitive operation. In authentication flows, rate limits must be validated before testing the credential (TOTP/Password).
+**Prevention:** Always apply the `IsRateLimitExceeded` check prior to invoking functions like `totp.Validate` to correctly enforce the rate limit and block unauthorized brute-force attempts.
