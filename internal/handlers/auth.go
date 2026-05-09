@@ -259,6 +259,11 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 
 	userRecord, _ := core.GetUser(username)
 	secret := core.Decrypt2FASecret(userRecord.TwoFactor, h.Cfg.ServerSecret)
+
+	if core.IsRateLimitExceeded("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax) {
+		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many failed attempts.", "csrf": c.Get("csrf"), "display2fa": true})
+	}
+
 	if totp.Validate(code, secret) {
 		core.TokenDB.Del(core.Ctx, "pending_2fa:"+pendingToken)
 		// Clear pending cookie
@@ -367,6 +372,11 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 
 	code := c.FormValue("totp_code")
 	// Verify the code against the temporary secret
+
+	if core.IsRateLimitExceeded("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax) {
+		return c.Render(http.StatusTooManyRequests, "setup_2fa.html", map[string]interface{}{"error": "Too many failed attempts.", "csrf": c.Get("csrf")})
+	}
+
 	if totp.Validate(code, secret) {
 		// Save to user profile (encrypted)
 		encryptedSecret := core.Encrypt2FASecret(secret, h.Cfg.ServerSecret)
