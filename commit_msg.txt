@@ -1,0 +1,11 @@
+🛡️ Sentinel: [HIGH] Fix rate limiting bypass on 2FA
+
+🚨 Severity: HIGH
+💡 Vulnerability: The `Verify2FA` and `CompleteSetup2FA` endpoints lacked user-specific rate limiting (`login_fail_user`). In addition, the `Login` endpoint improperly penalized user accounts for every authentication attempt.
+🎯 Impact: An attacker who compromises a user's password could bypass 2FA by brute-forcing the 6-digit TOTP code across different IPs without locking the user account.
+🔧 Fix:
+- Added `IsRateLimitExceeded` to strictly check rate limit without incrementing.
+- Ensured `Verify2FA` and `CompleteSetup2FA` enforce user-level rate limiting by checking `login_fail_user` prior to validating the TOTP token.
+- Ensured `Verify2FA` and `CompleteSetup2FA` record failed validation attempts against the `login_fail_user` counter.
+- Improved the general `Login` endpoint to prevent overly penalizing users upon authentication attempts.
+✅ Verification: Ran `go test -v ./internal/handlers/... -run TestBruteForce` which tests brute force protection.

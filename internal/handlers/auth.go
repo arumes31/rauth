@@ -148,7 +148,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	username := strings.TrimSpace(c.FormValue("username"))
 
 	// 3. Per-User Throttling (Single account brute force protection)
-	if username != "" && !core.CheckRateLimit("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay) {
+	if username != "" && core.IsRateLimitExceeded("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax) {
 		slog.Warn("Login user rate limit exceeded", "username", username, "ip", clientIP)
 		// We still do the password check work to prevent timing attacks, but we will return 429
 		core.CheckPasswordHash("dummy", "$2a$12$ce88271ea06248da6b12669ef405f18a52c193fcced142ee27")
@@ -171,6 +171,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	if !valid {
 		core.LogAudit("LOGIN_FAILED", username, clientIP, nil)
 		core.LoginFailedTotal.Inc()
+		core.CheckRateLimit("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay)
 
 		// 4. Track FAILED attempts from IP across different users (Credential stuffing protection)
 		// Optimization: Don't trigger global IP lockout if there are already other valid sessions on this IP (shared environment)
@@ -257,6 +258,10 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
 
+	if core.IsRateLimitExceeded("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax) {
+		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "This account is temporarily locked due to too many failed attempts.", "csrf": c.Get("csrf"), "display2fa": true})
+	}
+
 	userRecord, _ := core.GetUser(username)
 	secret := core.Decrypt2FASecret(userRecord.TwoFactor, h.Cfg.ServerSecret)
 	if totp.Validate(code, secret) {
@@ -281,6 +286,7 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 	core.LogAudit("2FA_FAILED", username, clientIP, nil)
 
 	// Penalize failed 2FA attempts for user
+	core.CheckRateLimit("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay)
 	if !core.CheckRateLimit("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailIPMax, h.Cfg.RateLimitLoginFailIPDecay) {
 		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many failed attempts.", "csrf": c.Get("csrf"), "display2fa": true})
 	}
@@ -365,6 +371,10 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 		return c.Redirect(http.StatusFound, "/rauthsetup2fa")
 	}
 
+	if core.IsRateLimitExceeded("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax) {
+		return c.Render(http.StatusTooManyRequests, "setup_2fa.html", map[string]interface{}{"error": "This account is temporarily locked due to too many failed attempts.", "csrf": c.Get("csrf")})
+	}
+
 	code := c.FormValue("totp_code")
 	// Verify the code against the temporary secret
 	if totp.Validate(code, secret) {
@@ -402,6 +412,7 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 	}
 
 	// Penalize failed setup attempts for user
+	core.CheckRateLimit("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay)
 	if !core.CheckRateLimit("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailIPMax, h.Cfg.RateLimitLoginFailIPDecay) {
 		return c.Render(http.StatusTooManyRequests, "setup_2fa.html", map[string]interface{}{"error": "Too many failed attempts.", "csrf": c.Get("csrf")})
 	}
