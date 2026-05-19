@@ -186,12 +186,13 @@ func GetDeviceIcon(ua string) string {
 
 // ValidateRedirectURL safely validates and sanitizes a redirect URL
 func ValidateRedirectURL(rd, defaultRedirect, username string, cfg *Config) string {
+	rd = strings.TrimSpace(rd)
 	if rd == "" {
 		return defaultRedirect
 	}
 
 	// Prevent protocol-relative redirects (e.g., //evil.com)
-	if strings.HasPrefix(rd, "//") {
+	if strings.HasPrefix(rd, "//") || strings.HasPrefix(rd, "/\\") || strings.HasPrefix(rd, "\\\\") {
 		slog.Warn("Protocol-relative redirect attempted", "url", rd, "user", username)
 		return defaultRedirect
 	}
