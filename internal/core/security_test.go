@@ -202,3 +202,32 @@ func BenchmarkDecryptToken(b *testing.B) {
 		_, _ = DecryptToken(encrypted, key)
 	}
 }
+
+func TestValidateRedirectURL(t *testing.T) {
+	cfg := &Config{AllowedHosts: []string{"example.com"}}
+
+	tests := []struct {
+		name     string
+		rd       string
+		expected string
+	}{
+		{"Empty string", "", "/default"},
+		{"Valid relative path", "/dashboard", "/dashboard"},
+		{"Valid absolute URL", "https://example.com/page", "https://example.com/page"},
+		{"Protocol relative double slash", "//evil.com", "/default"},
+		{"Protocol relative slash backslash", "/\\evil.com", "/default"},
+		{"Protocol relative double backslash", "\\\\evil.com", "/default"},
+		{"Leading space double slash", "  //evil.com", "/default"},
+		{"Leading space relative path", "  /dashboard  ", "/dashboard"},
+		{"Missing leading slash", "dashboard", "/dashboard"},
+		{"Invalid scheme XSS", "javascript:alert(1)", "/default"},
+		{"Unallowed host", "https://evil.com/page", "/default"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ValidateRedirectURL(tt.rd, "/default", "testuser", cfg)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
