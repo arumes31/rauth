@@ -1,8 +1,9 @@
 package core
 
 import (
-	"time"
+	"strconv"
 	"strings"
+	"time"
 )
 
 func CheckRateLimit(key string, maxAttempts int, decaySeconds int) bool {
@@ -28,4 +29,14 @@ func CheckRateLimit(key string, maxAttempts int, decaySeconds int) bool {
 
 func ResetRateLimit(key string) {
 	RateLimitDB.Del(Ctx, "rate_limit:"+key)
+}
+
+func IsRateLimitExceeded(key string, maxAttempts int) bool {
+	fullKey := "rate_limit:" + key
+	countStr, err := RateLimitDB.Get(Ctx, fullKey).Result()
+	if err != nil {
+		return false
+	}
+	count, _ := strconv.Atoi(countStr)
+	return count >= maxAttempts
 }
