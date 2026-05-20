@@ -1,6 +1,7 @@
 package core
 
 import (
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -40,11 +41,13 @@ func IsRateLimitExceeded(key string, maxAttempts int) bool {
 		if err == redis.Nil {
 			return false
 		}
+		slog.Error("Redis rate limit check failed", "key", key, "error", err)
 		// Redis error, fail closed
 		return true
 	}
 	count, err := strconv.Atoi(countStr)
 	if err != nil {
+		slog.Error("Failed to parse rate limit count", "key", key, "countStr", countStr, "error", err)
 		// Parse error, fail closed
 		return true
 	}
