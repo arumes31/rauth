@@ -151,7 +151,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	if username != "" && !core.CheckRateLimit("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay) {
 		slog.Warn("Login user rate limit exceeded", "username", username, "ip", clientIP)
 		// We still do the password check work to prevent timing attacks, but we will return 429
-		core.CheckPasswordHash("dummy", "$2a$12$ce88271ea06248da6b12669ef405f18a52c193fcced142ee27")
+		core.CheckPasswordHash("dummy", "$2a$12$WJlQ/t/NbjXzEfIi2P54vecljh4fSRxYOkWj5Kbs7hM0eZFmL/Nyq")
 		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "This account is temporarily locked due to too many failed attempts.", "csrf": c.Get("csrf")})
 	}
 
@@ -164,7 +164,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 		valid = core.CheckPasswordHash(password, userRecord.Password)
 	} else {
 		// Dummy hash to simulate work
-		core.CheckPasswordHash(password, "$2a$12$ce88271ea06248da6b12669ef405f18a52c193fcced142ee27")
+		core.CheckPasswordHash(password, "$2a$12$WJlQ/t/NbjXzEfIi2P54vecljh4fSRxYOkWj5Kbs7hM0eZFmL/Nyq")
 		valid = false
 	}
 
