@@ -14,3 +14,8 @@
 **Vulnerability:** Rate limiting for 2FA attempts was checked and enforced *after* the computationally expensive cryptographic TOTP validation. An attacker could bypass the protection by continuing to brute-force the TOTP codes, since a correct guess would validate and authenticate the user before the rate limit blocked them.
 **Learning:** Security checks (like rate limiting) must always occur before the protected action or validation. Failing to do so renders the protection useless against continuous automated attacks.
 **Prevention:** Implement pre-execution checks (e.g., `core.IsRateLimitExceeded`) prior to sensitive or costly operations. Use a pattern that checks the limit before executing the logic, and only increments the counter after a failed execution to prevent bypasses and timing attacks.
+
+## 2024-05-31 - 2FA Brute-Force Rate-Limit Bypass in Profile Endpoints
+**Vulnerability:** 2FA rate limiting was missing in the profile endpoints (DisableTOTP and ChangePassword), leaving them vulnerable to brute-force attacks.
+**Learning:** Security fixes must be applied uniformly across all endpoints that perform the same cryptographic validation.
+**Prevention:** Audit all usages of sensitive validation functions (e.g. totp.Validate) to ensure pre-execution rate limiting is universally applied.

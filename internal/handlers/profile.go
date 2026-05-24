@@ -134,9 +134,16 @@ func (h *ProfileHandler) DisableTOTP(c echo.Context) error {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "2FA code required to disable 2FA"})
 		}
 		secret := core.Decrypt2FASecret(userData["2fa_secret"], h.Cfg.ServerSecret)
+
+		exceeded, _, err := core.ReserveRateLimitAttempt("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailIPMax, h.Cfg.RateLimitLoginFailIPDecay)
+		if exceeded || err != nil {
+			return c.JSON(http.StatusTooManyRequests, map[string]string{"error": "Too many failed attempts. Please try again later."})
+		}
+
 		if !totp.Validate(otpCode, secret) {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid 2FA code"})
 		}
+		core.ResetRateLimit("2fa_fail_user:" + username)
 	}
 
 	if err := core.UpdateUser(username, map[string]interface{}{"2fa_secret": ""}); err != nil {
@@ -210,9 +217,16 @@ func (h *ProfileHandler) ChangePassword(c echo.Context) error {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "2FA code required"})
 		}
 		secret := core.Decrypt2FASecret(userData["2fa_secret"], h.Cfg.ServerSecret)
+
+		exceeded, _, err := core.ReserveRateLimitAttempt("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailIPMax, h.Cfg.RateLimitLoginFailIPDecay)
+		if exceeded || err != nil {
+			return c.JSON(http.StatusTooManyRequests, map[string]string{"error": "Too many failed attempts. Please try again later."})
+		}
+
 		if !totp.Validate(otpCode, secret) {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid 2FA code"})
 		}
+		core.ResetRateLimit("2fa_fail_user:" + username)
 	}
 
 	if newPass != confirm {
