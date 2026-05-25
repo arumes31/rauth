@@ -62,6 +62,18 @@ func main() {
 	e.Use(echoMiddleware.Secure())
 	e.Use(echoMiddleware.BodyLimit("1M"))
 
+	// User-Agent Client Hints negotiation middleware
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Response().Header().Set("Accept-CH", "Sec-CH-UA-Platform, Sec-CH-UA-Mobile, Sec-CH-UA-Model")
+			c.Response().Header().Set("Critical-CH", "Sec-CH-UA-Platform, Sec-CH-UA-Mobile, Sec-CH-UA-Model")
+			c.Response().Header().Add("Vary", "Sec-CH-UA-Platform")
+			c.Response().Header().Add("Vary", "Sec-CH-UA-Mobile")
+			c.Response().Header().Add("Vary", "Sec-CH-UA-Model")
+			return next(c)
+		}
+	})
+
 	// Structured logging middleware
 	e.Use(echoMiddleware.RequestLoggerWithConfig(echoMiddleware.RequestLoggerConfig{
 		LogStatus:   true,

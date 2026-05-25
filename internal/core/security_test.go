@@ -233,3 +233,75 @@ func TestValidateRedirectURL(t *testing.T) {
 		})
 	}
 }
+
+func TestIsUserAgentCompatible(t *testing.T) {
+	tests := []struct {
+		name     string
+		oldUA    string
+		newUA    string
+		expected bool
+	}{
+		{
+			name:     "Exactly identical UAs",
+			oldUA:    "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+			newUA:    "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+			expected: true,
+		},
+		{
+			name:     "Android to Linux Chrome (Tablet Desktop Mode Toggle)",
+			oldUA:    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+			newUA:    "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+			expected: true,
+		},
+		{
+			name:     "Android to Linux Firefox (Tablet Desktop Mode Toggle)",
+			oldUA:    "Mozilla/5.0 (Android; Mobile; rv:130.0) Gecko/130.0 Firefox/130.0",
+			newUA:    "Mozilla/5.0 (X11; Linux x86_64; rv:130.0) Gecko/20100101 Firefox/130.0",
+			expected: true,
+		},
+		{
+			name:     "Chrome vs Firefox on same OS",
+			oldUA:    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+			newUA:    "Mozilla/5.0 (X11; Linux x86_64; rv:130.0) Gecko/20100101 Firefox/130.0",
+			expected: false,
+		},
+		{
+			name:     "Chrome Linux to Chrome Windows (Different OS)",
+			oldUA:    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+			newUA:    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+			expected: false,
+		},
+		{
+			name:     "Chrome Android to Chrome macOS (Different OS)",
+			oldUA:    "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+			newUA:    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+			expected: false,
+		},
+		{
+			name:     "Empty strings",
+			oldUA:    "",
+			newUA:    "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+			expected: false,
+		},
+		{
+			name:     "Different Unknown UAs (Strict Fallback)",
+			oldUA:    "Mozilla/5.0 (Original Browser)",
+			newUA:    "Mozilla/5.0 (Attacker Browser)",
+			expected: false,
+		},
+		{
+			name:     "Identical Unknown UAs (Strict Fallback)",
+			oldUA:    "Mozilla/5.0 (Original Browser)",
+			newUA:    "Mozilla/5.0 (Original Browser)",
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := IsUserAgentCompatible(tt.oldUA, tt.newUA)
+			assert.Equal(t, tt.expected, res)
+		})
+	}
+}
+
