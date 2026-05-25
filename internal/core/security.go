@@ -154,16 +154,20 @@ func FormatUserAgent(ua string) string {
 	}
 
 	browser := "Unknown Browser"
-	if strings.Contains(ua, "Edg/") {
+	if strings.Contains(ua, "Opera/") || strings.Contains(ua, "OPR/") || strings.Contains(ua, "Opera") {
+		browser = "Opera"
+	} else if strings.Contains(ua, "Edg/") {
 		browser = "Edge"
+	} else if strings.Contains(ua, "CriOS/") {
+		browser = "Chrome"
+	} else if strings.Contains(ua, "FxiOS/") {
+		browser = "Firefox"
 	} else if strings.Contains(ua, "Chrome/") {
 		browser = "Chrome"
 	} else if strings.Contains(ua, "Firefox/") {
 		browser = "Firefox"
-	} else if strings.Contains(ua, "Safari/") && !strings.Contains(ua, "Chrome/") {
+	} else if strings.Contains(ua, "Safari/") && !strings.Contains(ua, "Chrome/") && !strings.Contains(ua, "CriOS/") && !strings.Contains(ua, "FxiOS/") {
 		browser = "Safari"
-	} else if strings.Contains(ua, "Opera/") || strings.Contains(ua, "OPR/") {
-		browser = "Opera"
 	}
 
 	return fmt.Sprintf("%s on %s", browser, os)
@@ -239,16 +243,20 @@ func ParseUserAgent(ua string) ParsedUA {
 	}
 
 	browser := "Unknown Browser"
-	if strings.Contains(ua, "Edg/") {
+	if strings.Contains(ua, "Opera/") || strings.Contains(ua, "OPR/") || strings.Contains(ua, "Opera") {
+		browser = "Opera"
+	} else if strings.Contains(ua, "Edg/") {
 		browser = "Edge"
+	} else if strings.Contains(ua, "CriOS/") {
+		browser = "Chrome"
+	} else if strings.Contains(ua, "FxiOS/") {
+		browser = "Firefox"
 	} else if strings.Contains(ua, "Chrome/") {
 		browser = "Chrome"
 	} else if strings.Contains(ua, "Firefox/") {
 		browser = "Firefox"
-	} else if strings.Contains(ua, "Safari/") && !strings.Contains(ua, "Chrome/") {
+	} else if strings.Contains(ua, "Safari/") && !strings.Contains(ua, "Chrome/") && !strings.Contains(ua, "CriOS/") && !strings.Contains(ua, "FxiOS/") {
 		browser = "Safari"
-	} else if strings.Contains(ua, "Opera/") || strings.Contains(ua, "OPR/") {
-		browser = "Opera"
 	}
 
 	return ParsedUA{OS: os, Browser: browser}

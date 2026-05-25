@@ -96,17 +96,35 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 	storedMobile := data["ua_ch_mobile"]
 	storedModel := data["ua_ch_model"]
 
-	useClientHints := storedPlatform != "" && chPlatform != ""
-	var uaIsValid bool
+	normalizeCH := func(val string) string {
+		return strings.Trim(val, `"`)
+	}
 
-	if useClientHints {
-		normalizeCH := func(val string) string {
-			return strings.Trim(val, `"`)
+	var hasMutuallyPresentHints bool
+	uaIsValid := true
+
+	if storedPlatform != "" && chPlatform != "" {
+		hasMutuallyPresentHints = true
+		if normalizeCH(storedPlatform) != normalizeCH(chPlatform) {
+			uaIsValid = false
 		}
-		uaIsValid = normalizeCH(storedPlatform) == normalizeCH(chPlatform) &&
-			normalizeCH(storedMobile) == normalizeCH(chMobile) &&
-			normalizeCH(storedModel) == normalizeCH(chModel)
-	} else {
+	}
+	if uaIsValid && storedMobile != "" && chMobile != "" {
+		hasMutuallyPresentHints = true
+		if normalizeCH(storedMobile) != normalizeCH(chMobile) {
+			uaIsValid = false
+		}
+	}
+	if uaIsValid && storedModel != "" && chModel != "" {
+		hasMutuallyPresentHints = true
+		if normalizeCH(storedModel) != normalizeCH(chModel) {
+			uaIsValid = false
+		}
+	}
+
+	useClientHints := hasMutuallyPresentHints
+
+	if !useClientHints {
 		// Fallback to lenient User-Agent parser matching
 		uaIsValid = core.IsUserAgentCompatible(data["user_agent"], c.Request().UserAgent())
 	}
