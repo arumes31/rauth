@@ -130,12 +130,8 @@ func (h *ProfileHandler) DisableTOTP(c echo.Context) error {
 	}
 
 	if userData["2fa_secret"] != "" {
-		if otpCode == "" {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "2FA code required to disable 2FA"})
-		}
-		secret := core.Decrypt2FASecret(userData["2fa_secret"], h.Cfg.ServerSecret)
-		if !totp.Validate(otpCode, secret) {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid 2FA code"})
+		if err := h.validateTOTP(username, otpCode, userData["2fa_secret"]); err != nil {
+			return c.JSON(err.Code, map[string]string{"error": err.Message.(string)})
 		}
 	}
 
@@ -200,18 +196,18 @@ func (h *ProfileHandler) ChangePassword(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Internal error")
 	}
 
+	if core.IsRateLimitExceeded("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax) {
+		return c.JSON(http.StatusTooManyRequests, map[string]string{"error": "Too many failed attempts. Please try again later."})
+	}
 	if !core.CheckPasswordHash(current, userData["password"]) {
+		core.CheckRateLimit("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay)
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Current password incorrect"})
 	}
 
 	// 2FA Verification if enabled
 	if userData["2fa_secret"] != "" {
-		if otpCode == "" {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "2FA code required"})
-		}
-		secret := core.Decrypt2FASecret(userData["2fa_secret"], h.Cfg.ServerSecret)
-		if !totp.Validate(otpCode, secret) {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid 2FA code"})
+		if err := h.validateTOTP(username, otpCode, userData["2fa_secret"]); err != nil {
+			return c.JSON(err.Code, map[string]string{"error": err.Message.(string)})
 		}
 	}
 
@@ -247,4 +243,19 @@ func (h *ProfileHandler) ChangePassword(c echo.Context) error {
 	core.LogAudit("USER_CHANGE_PASSWORD", username, c.RealIP(), nil)
 
 	return c.Redirect(http.StatusFound, "/rauthprofile?success=password_changed")
+}
+
+func (h *ProfileHandler) validateTOTP(username, otpCode, encryptedSecret string) *echo.HTTPError {
+	if otpCode == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "2FA code required")
+	}
+	if core.IsRateLimitExceeded("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax) {
+		return echo.NewHTTPError(http.StatusTooManyRequests, "Too many failed attempts. Please try again later.")
+	}
+	secret := core.Decrypt2FASecret(encryptedSecret, h.Cfg.ServerSecret)
+	if !totp.Validate(otpCode, secret) {
+		core.CheckRateLimit("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay)
+		return echo.NewHTTPError(http.StatusBadRequest, "Invalid 2FA code")
+	}
+	return nil
 }
