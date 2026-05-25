@@ -233,3 +233,111 @@ func TestValidateRedirectURL(t *testing.T) {
 		})
 	}
 }
+
+func TestIsUserAgentCompatible(t *testing.T) {
+	tests := []struct {
+		name     string
+		oldUA    string
+		newUA    string
+		expected bool
+	}{
+		{
+			name:     "Exactly identical UAs",
+			oldUA:    "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+			newUA:    "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+			expected: true,
+		},
+		{
+			name:     "Android to Linux Chrome (Tablet Desktop Mode Toggle)",
+			oldUA:    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+			newUA:    "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+			expected: true,
+		},
+		{
+			name:     "Android to Linux Firefox (Tablet Desktop Mode Toggle)",
+			oldUA:    "Mozilla/5.0 (Android; Mobile; rv:130.0) Gecko/130.0 Firefox/130.0",
+			newUA:    "Mozilla/5.0 (X11; Linux x86_64; rv:130.0) Gecko/20100101 Firefox/130.0",
+			expected: true,
+		},
+		{
+			name:     "Chrome vs Firefox on same OS",
+			oldUA:    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+			newUA:    "Mozilla/5.0 (X11; Linux x86_64; rv:130.0) Gecko/20100101 Firefox/130.0",
+			expected: false,
+		},
+		{
+			name:     "Chrome Linux to Chrome Windows (Different OS)",
+			oldUA:    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+			newUA:    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+			expected: false,
+		},
+		{
+			name:     "Chrome Android to Chrome macOS (Different OS)",
+			oldUA:    "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+			newUA:    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+			expected: false,
+		},
+		{
+			name:     "Empty strings",
+			oldUA:    "",
+			newUA:    "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+			expected: false,
+		},
+		{
+			name:     "Different Unknown UAs (Strict Fallback)",
+			oldUA:    "Mozilla/5.0 (Original Browser)",
+			newUA:    "Mozilla/5.0 (Attacker Browser)",
+			expected: false,
+		},
+		{
+			name:     "Identical Unknown UAs (Strict Fallback)",
+			oldUA:    "Mozilla/5.0 (Original Browser)",
+			newUA:    "Mozilla/5.0 (Original Browser)",
+			expected: true,
+		},
+		{
+			name:     "Opera Linux to Opera Android (Compatible Platforms)",
+			oldUA:    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 OPR/106.0.0.0",
+			newUA:    "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 OPR/106.0.0.0",
+			expected: true,
+		},
+		{
+			name:     "Opera vs Chrome (Incompatible Brands)",
+			oldUA:    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 OPR/106.0.0.0",
+			newUA:    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+			expected: false,
+		},
+		{
+			name:     "CriOS (Chrome iOS) vs Chrome Android (Different OS)",
+			oldUA:    "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/95.0.4638.50 Mobile/15E148 Safari/604.1",
+			newUA:    "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/95.0.4638.50 Mobile Safari/537.36",
+			expected: false,
+		},
+		{
+			name:     "FxiOS (Firefox iOS) vs Firefox Android (Different OS)",
+			oldUA:    "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/40.0 Mobile/15E148 Safari/605.1.15",
+			newUA:    "Mozilla/5.0 (Android; Mobile; rv:40.0) Gecko/40.0 Firefox/40.0",
+			expected: false,
+		},
+		{
+			name:     "CriOS vs FxiOS on iOS (Different Brands)",
+			oldUA:    "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/95.0.4638.50 Mobile/15E148 Safari/604.1",
+			newUA:    "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/40.0 Mobile/15E148 Safari/605.1.15",
+			expected: false,
+		},
+		{
+			name:     "CriOS vs Safari on iOS (Different Brands)",
+			oldUA:    "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/95.0.4638.50 Mobile/15E148 Safari/604.1",
+			newUA:    "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := IsUserAgentCompatible(tt.oldUA, tt.newUA)
+			assert.Equal(t, tt.expected, res)
+		})
+	}
+}
+

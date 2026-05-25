@@ -154,16 +154,20 @@ func FormatUserAgent(ua string) string {
 	}
 
 	browser := "Unknown Browser"
-	if strings.Contains(ua, "Edg/") {
+	if strings.Contains(ua, "Opera/") || strings.Contains(ua, "OPR/") || strings.Contains(ua, "Opera") {
+		browser = "Opera"
+	} else if strings.Contains(ua, "Edg/") {
 		browser = "Edge"
+	} else if strings.Contains(ua, "CriOS/") {
+		browser = "Chrome"
+	} else if strings.Contains(ua, "FxiOS/") {
+		browser = "Firefox"
 	} else if strings.Contains(ua, "Chrome/") {
 		browser = "Chrome"
 	} else if strings.Contains(ua, "Firefox/") {
 		browser = "Firefox"
-	} else if strings.Contains(ua, "Safari/") && !strings.Contains(ua, "Chrome/") {
+	} else if strings.Contains(ua, "Safari/") && !strings.Contains(ua, "Chrome/") && !strings.Contains(ua, "CriOS/") && !strings.Contains(ua, "FxiOS/") {
 		browser = "Safari"
-	} else if strings.Contains(ua, "Opera/") || strings.Contains(ua, "OPR/") {
-		browser = "Opera"
 	}
 
 	return fmt.Sprintf("%s on %s", browser, os)
@@ -218,3 +222,74 @@ func ValidateRedirectURL(rd, defaultRedirect, username string, cfg *Config) stri
 
 	return rd
 }
+
+type ParsedUA struct {
+	OS      string
+	Browser string
+}
+
+func ParseUserAgent(ua string) ParsedUA {
+	os := "Unknown OS"
+	if strings.Contains(ua, "Android") {
+		os = "Android"
+	} else if strings.Contains(ua, "iPhone") || strings.Contains(ua, "iPad") {
+		os = "iOS"
+	} else if strings.Contains(ua, "Windows") {
+		os = "Windows"
+	} else if strings.Contains(ua, "Macintosh") {
+		os = "macOS"
+	} else if strings.Contains(ua, "Linux") {
+		os = "Linux"
+	}
+
+	browser := "Unknown Browser"
+	if strings.Contains(ua, "Opera/") || strings.Contains(ua, "OPR/") || strings.Contains(ua, "Opera") {
+		browser = "Opera"
+	} else if strings.Contains(ua, "Edg/") {
+		browser = "Edge"
+	} else if strings.Contains(ua, "CriOS/") {
+		browser = "Chrome"
+	} else if strings.Contains(ua, "FxiOS/") {
+		browser = "Firefox"
+	} else if strings.Contains(ua, "Chrome/") {
+		browser = "Chrome"
+	} else if strings.Contains(ua, "Firefox/") {
+		browser = "Firefox"
+	} else if strings.Contains(ua, "Safari/") && !strings.Contains(ua, "Chrome/") && !strings.Contains(ua, "CriOS/") && !strings.Contains(ua, "FxiOS/") {
+		browser = "Safari"
+	}
+
+	return ParsedUA{OS: os, Browser: browser}
+}
+
+func IsUserAgentCompatible(oldUA, newUA string) bool {
+	if oldUA == newUA {
+		return true
+	}
+	if oldUA == "" || newUA == "" {
+		return false
+	}
+
+	oldParsed := ParseUserAgent(oldUA)
+	newParsed := ParseUserAgent(newUA)
+
+	// Fallback to strict string matching if browser or OS cannot be reliably parsed/identified
+	if oldParsed.Browser == "Unknown Browser" || oldParsed.OS == "Unknown OS" ||
+		newParsed.Browser == "Unknown Browser" || newParsed.OS == "Unknown OS" {
+		return oldUA == newUA
+	}
+
+	if oldParsed.Browser != newParsed.Browser {
+		return false
+	}
+
+	// Treat Linux and Android as compatible platforms (tablet desktop/mobile toggles)
+	isOldLinuxOrAndroid := (oldParsed.OS == "Linux" || oldParsed.OS == "Android")
+	isNewLinuxOrAndroid := (newParsed.OS == "Linux" || newParsed.OS == "Android")
+	if isOldLinuxOrAndroid && isNewLinuxOrAndroid {
+		return true
+	}
+
+	return oldParsed.OS == newParsed.OS
+}
+

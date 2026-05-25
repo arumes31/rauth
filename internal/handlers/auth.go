@@ -87,10 +87,68 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 		return c.NoContent(http.StatusUnauthorized)
 	}
 
-	// User-Agent check (Fingerprinting)
-	if data["user_agent"] != c.Request().UserAgent() {
-		slog.Warn("User-Agent mismatch detected, invalidating session", "username", data["username"], "old", data["user_agent"], "new", c.Request().UserAgent())
-		core.LogAudit("USER_AGENT_MISMATCH_INVALIDATED", data["username"], clientIP, map[string]interface{}{"old": data["user_agent"], "new": c.Request().UserAgent()})
+	// Dual-Layer User-Agent Check (User-Agent Client Hints + Lenient Parser Fallback)
+	chPlatform := c.Request().Header.Get("Sec-CH-UA-Platform")
+	chMobile := c.Request().Header.Get("Sec-CH-UA-Mobile")
+	chModel := c.Request().Header.Get("Sec-CH-UA-Model")
+
+	storedPlatform := data["ua_ch_platform"]
+	storedMobile := data["ua_ch_mobile"]
+	storedModel := data["ua_ch_model"]
+
+	normalizeCH := func(val string) string {
+		return strings.Trim(val, `"`)
+	}
+
+	var hasMutuallyPresentHints bool
+	uaIsValid := true
+
+	if storedPlatform != "" && chPlatform != "" {
+		hasMutuallyPresentHints = true
+		if normalizeCH(storedPlatform) != normalizeCH(chPlatform) {
+			uaIsValid = false
+		}
+	}
+	if uaIsValid && storedMobile != "" && chMobile != "" {
+		hasMutuallyPresentHints = true
+		if normalizeCH(storedMobile) != normalizeCH(chMobile) {
+			uaIsValid = false
+		}
+	}
+	if uaIsValid && storedModel != "" && chModel != "" {
+		hasMutuallyPresentHints = true
+		if normalizeCH(storedModel) != normalizeCH(chModel) {
+			uaIsValid = false
+		}
+	}
+
+	useClientHints := hasMutuallyPresentHints
+
+	if !useClientHints {
+		// Fallback to lenient User-Agent parser matching
+		uaIsValid = core.IsUserAgentCompatible(data["user_agent"], c.Request().UserAgent())
+	}
+
+	if !uaIsValid {
+		slog.Warn("Session validation failed due to User-Agent/Client-Hint mismatch, invalidating session",
+			"username", data["username"],
+			"use_ch", useClientHints,
+			"stored_ua", data["user_agent"],
+			"current_ua", c.Request().UserAgent(),
+			"stored_ch_platform", storedPlatform,
+			"current_ch_platform", chPlatform,
+			"stored_ch_model", storedModel,
+			"current_ch_model", chModel,
+		)
+		core.LogAudit("USER_AGENT_MISMATCH_INVALIDATED", data["username"], clientIP, map[string]interface{}{
+			"use_ch":              useClientHints,
+			"stored_ua":           data["user_agent"],
+			"current_ua":          c.Request().UserAgent(),
+			"stored_ch_platform":  storedPlatform,
+			"current_ch_platform": chPlatform,
+			"stored_ch_model":     storedModel,
+			"current_ch_model":     chModel,
+		})
 
 		core.TokenDB.Del(core.Ctx, redisKey)
 		return c.NoContent(http.StatusUnauthorized)
@@ -151,7 +209,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	if username != "" && !core.CheckRateLimit("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay) {
 		slog.Warn("Login user rate limit exceeded", "username", username, "ip", clientIP)
 		// We still do the password check work to prevent timing attacks, but we will return 429
-		core.CheckPasswordHash("dummy", "$2a$12$ce88271ea06248da6b12669ef405f18a52c193fcced142ee27")
+		core.CheckPasswordHash("dummy", "$2a$12$WJlQ/t/NbjXzEfIi2P54vecljh4fSRxYOkWj5Kbs7hM0eZFmL/Nyq")
 		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "This account is temporarily locked due to too many failed attempts.", "csrf": c.Get("csrf")})
 	}
 
@@ -164,7 +222,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 		valid = core.CheckPasswordHash(password, userRecord.Password)
 	} else {
 		// Dummy hash to simulate work
-		core.CheckPasswordHash(password, "$2a$12$ce88271ea06248da6b12669ef405f18a52c193fcced142ee27")
+		core.CheckPasswordHash(password, "$2a$12$WJlQ/t/NbjXzEfIi2P54vecljh4fSRxYOkWj5Kbs7hM0eZFmL/Nyq")
 		valid = false
 	}
 
@@ -467,12 +525,15 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 
 	redisKey := "X-rauth-authtoken=" + token
 	err = core.TokenDB.HSet(core.Ctx, redisKey, map[string]interface{}{
-		"status":     "valid",
-		"ip":         clientIP,
-		"username":   username,
-		"country":    country,
-		"user_agent": c.Request().UserAgent(),
-		"created_at": time.Now().Unix(),
+		"status":         "valid",
+		"ip":             clientIP,
+		"username":       username,
+		"country":        country,
+		"user_agent":     c.Request().UserAgent(),
+		"ua_ch_platform": c.Request().Header.Get("Sec-CH-UA-Platform"),
+		"ua_ch_mobile":   c.Request().Header.Get("Sec-CH-UA-Mobile"),
+		"ua_ch_model":    c.Request().Header.Get("Sec-CH-UA-Model"),
+		"created_at":     time.Now().Unix(),
 	}).Err()
 	if err != nil {
 		slog.Error("Failed to store token in Redis", "error", err)
