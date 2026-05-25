@@ -1,10 +1,20 @@
-# RAuth: High-Performance Auth Proxy & Identity Management
+<p align="center">
+  <img src="static/favicon.png" alt="RAuth Logo" width="128" height="128">
+</p>
+
+<h1 align="center" style="border-bottom: none;"><span style="color: #ef4444;">RAuth</span>: High-Performance Auth Proxy & Identity Management</h1>
 
 <p align="center">
-  <img src="https://img.shields.io/github/go-mod/go-version/arumes31/rauth?label=Go&logo=go&color=00ADD8" alt="Go Version">
-  <img src="https://img.shields.io/github/license/arumes31/rauth?label=License&color=blue" alt="License">
-  <img src="https://img.shields.io/github/last-commit/arumes31/rauth/main?color=green" alt="Last Commit">
-  <img src="https://img.shields.io/github/repo-size/arumes31/rauth" alt="Repo Size">
+  <img src="https://img.shields.io/badge/Security-Hardened-red?style=for-the-badge&logo=shield" alt="Security Hardened">
+  <img src="https://img.shields.io/badge/MFA-Passkey%20%2F%20TOTP-red?style=for-the-badge&logo=yubico" alt="MFA Support">
+  <img src="https://img.shields.io/badge/Performance-High--Speed-red?style=for-the-badge&logo=go" alt="High Performance">
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/github/go-mod/go-version/arumes31/rauth?label=Go&logo=go&color=EA4335" alt="Go Version">
+  <img src="https://img.shields.io/github/license/arumes31/rauth?label=License&color=EA4335" alt="License">
+  <img src="https://img.shields.io/github/last-commit/arumes31/rauth/main?color=EA4335" alt="Last Commit">
+  <img src="https://img.shields.io/github/repo-size/arumes31/rauth?color=EA4335" alt="Repo Size">
 </p>
 
 <p align="center">
