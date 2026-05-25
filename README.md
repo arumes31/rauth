@@ -105,12 +105,12 @@ graph TD
 
 ## 🛡️ Security Architecture
 
-RAuth is built with a "Security-First" mindset:
+RAuth is built with a "Security-First" mindset, implementing advanced system-wide hardening:
 
 1.  **Authenticated Encryption**: All session tokens stored in cookies are encrypted using **AES-256-GCM**.
 2.  **At-Rest Secret Encryption**: User TOTP secrets are encrypted with the `SERVER_SECRET` before being stored in Redis, protecting against database exposure.
-3.  **Enumeration Mitigation**: Uniform response times for login attempts via dummy password hashing, preventing username enumeration through timing attacks.
-4.  **Brute-Force Protection**: Atomic Redis-backed rate limiting per IP and per username, covering both password and MFA/Passkey endpoints.
+3.  **Enumeration & Timing Attack Mitigation**: Uniform response times for login and session checks using fully valid, pre-computed 60-character dummy bcrypt hashes, completely neutralizing username enumeration timing attacks.
+4.  **Brute-Force Protection & Rate Limiting**: Atomic Redis-backed rate limiting per IP and per username, protecting login pages, registration endpoints, and sensitive profile-level operations (e.g. 2FA verification, password change).
 5.  **Hardened CSRF & CSP**: Strictly configured CSRF cookies (HTTPOnly, Secure, SameSite=Lax) and a robust Content Security Policy (CSP).
 6.  **Clone Detection**: WebAuthn signature counter persistence allows the detection of cloned or tampered hardware security keys.
 7.  **Hardened Redirects**: Built-in protection against Open Redirects, including protocol-relative URL bypasses.
@@ -236,6 +236,9 @@ RAuth is configured via Environment Variables.
 | **Geo-IP** | `MAXMIND_ACCOUNT_ID` | Your Account ID for Geo-IP updates | **REQUIRED** |
 | **Geo-IP** | `MAXMIND_LICENSE_KEY` | Your License Key for Geo-IP updates | **REQUIRED** |
 | **Geo-IP** | `GEOIP_EDITION_IDS` | Databases to download | `GeoLite2-Country` |
+| **Geo-IP** | `MAXMIND_DB_PATH` | Path to local MaxMind .mmdb file | `/app/geoip/GeoLite2-Country.mmdb` |
+| **Geo-IP** | `GEO_API_HOST` | Hostname of local Geo-IP service | `rauth-geo-service` |
+| **Geo-IP** | `GEO_API_PORT` | Port of local Geo-IP service | `3000` |
 | **Email**  | `SMTP_HOST` | SMTP server hostname | (None) |
 | **Email**  | `SMTP_PORT` | SMTP server port (e.g., 587) | `587` |
 | **Email**  | `SMTP_USER` | SMTP username | (None) |
