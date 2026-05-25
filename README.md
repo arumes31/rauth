@@ -72,6 +72,7 @@ RAuth eliminates the complexity of full-scale identity providers while maintaini
 RAuth features a modern, high-performance frontend built with Bootstrap 5 and custom CSS. 
 *   **Visual Urgency**: Security-critical pages use a specialized red-themed urgency design.
 *   **Glassmorphism**: Transparent, frosted-glass components with real-time backdrop filtering.
+*   **Premium Iconography**: Fully customized, glowing cyberpunk-themed favicon served with transparency for high-end aesthetic alignment across modern browsers, tabs, and bookmarks.
 *   **Responsive**: Fully optimized for mobile, tablet, and desktop viewports.
 
 ---
