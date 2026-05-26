@@ -381,8 +381,19 @@ RAuth requires MaxMind GeoLite2 databases for advanced session geo-fencing and s
    INITIAL_EMAIL=admin@example.com
    ```
 
-### 🚢 Step 3: Create docker-compose.yml & Launch
-Instead of compiling from source, you can pull the official pre-compiled multi-architecture image directly from the GitHub Container Registry (GHCR). Save the following configuration as `docker-compose.yml` in the same directory as your `.env` file:
+### 🚢 Step 3: Choose Deployment Mode & Launch
+
+RAuth provides two Docker Compose configurations to suit your needs:
+
+#### Option A: Production Deployment (Recommended)
+Use the pre-compiled, official multi-architecture image directly from the GitHub Container Registry (GHCR) with `docker-compose.ghcr.yml`. You do not need to clone the repository or compile anything from source.
+
+Create a `docker-compose.ghcr.yml` file or run:
+```bash
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+Here is the `docker-compose.ghcr.yml` configuration:
 
 ```yaml
 services:
@@ -394,7 +405,7 @@ services:
     environment:
       - REDIS_HOST=rauth-auth-redis
       - REDIS_PORT=6379
-      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-rauthsecurepassword}
       - INITIAL_USER=${INITIAL_USER:-admin}
       - INITIAL_PASSWORD=${INITIAL_PASSWORD}
       - INITIAL_EMAIL=${INITIAL_EMAIL:-admin@example.com}
@@ -443,10 +454,10 @@ services:
       - auth-network
 
   rauth-auth-redis:
-    image: redis:8.0-alpine
+    image: redis:7.4-alpine
     container_name: rauth-auth-redis
     hostname: rauth-auth-redis
-    command: redis-server --requirepass ${REDIS_PASSWORD}
+    command: redis-server --requirepass ${REDIS_PASSWORD:-rauthsecurepassword}
     volumes:
       - ./redis-data:/data
     networks:
@@ -457,9 +468,11 @@ networks:
     driver: bridge
 ```
 
-Now, run the stack in detached background mode:
+#### Option B: Local Development / Build from Source
+If you are modifying the codebase or prefer to compile the application locally, use `docker-compose.yml` (which includes a local build context):
+
 ```bash
-docker-compose up -d
+docker compose up -d --build
 ```
 RAuth will automatically pull the secure image from GHCR, download and update the latest Geo-IP database, boot the Redis memory store, and seed your initial admin user.
 
