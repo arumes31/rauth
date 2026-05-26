@@ -381,12 +381,87 @@ RAuth requires MaxMind GeoLite2 databases for advanced session geo-fencing and s
    INITIAL_EMAIL=admin@example.com
    ```
 
-### 🚢 Step 3: Launch with Docker Compose
-Run the stack in detached background mode:
+### 🚢 Step 3: Create docker-compose.yml & Launch
+Instead of compiling from source, you can pull the official pre-compiled multi-architecture image directly from the GitHub Container Registry (GHCR). Save the following configuration as `docker-compose.yml` in the same directory as your `.env` file:
+
+```yaml
+services:
+  rauth-auth-service:
+    image: ghcr.io/arumes31/rauth-auth:latest
+    container_name: rauth-auth-service
+    ports:
+      - "${AUTH_PORT:-5980}:80"
+    environment:
+      - REDIS_HOST=rauth-auth-redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - INITIAL_USER=${INITIAL_USER:-admin}
+      - INITIAL_PASSWORD=${INITIAL_PASSWORD}
+      - INITIAL_EMAIL=${INITIAL_EMAIL:-admin@example.com}
+      - INITIAL_2FA_SECRET=${INITIAL_2FA_SECRET}
+      - TOKEN_VALIDITY_MINUTES=${TOKEN_VALIDITY_MINUTES:-2880}
+      - COOKIE_DOMAIN=${COOKIE_DOMAIN:-example.com}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1}
+      - ALLOWED_COUNTRIES=${ALLOWED_COUNTRIES}
+      - SERVER_SECRET=${SERVER_SECRET}
+      - TZ=${TZ:-UTC}
+      - MAXMIND_ACCOUNT_ID=${MAXMIND_ACCOUNT_ID}
+      - MAXMIND_LICENSE_KEY=${MAXMIND_LICENSE_KEY}
+      - MAXMIND_DB_PATH=/app/geoip/GeoLite2-Country.mmdb
+      - GEOIP_EDITION_IDS=${GEOIP_EDITION_IDS:-GeoLite2-Country}
+      - GEOIP_DATABASE_DIRECTORY=/app/geoip
+      - WEBAUTHN_ORIGINS=${WEBAUTHN_ORIGINS}
+      - PUBLIC_URL=${PUBLIC_URL:-http://localhost:5980}
+      - PWD_MIN_LENGTH=${PWD_MIN_LENGTH:-8}
+      - PWD_REQUIRE_UPPER=${PWD_REQUIRE_UPPER:-true}
+      - PWD_REQUIRE_LOWER=${PWD_REQUIRE_LOWER:-true}
+      - PWD_REQUIRE_NUMBER=${PWD_REQUIRE_NUMBER:-true}
+      - PWD_REQUIRE_SPECIAL=${PWD_REQUIRE_SPECIAL:-true}
+      - METRICS_ALLOWED_IPS=${METRICS_ALLOWED_IPS:-127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10}
+      - RATE_LIMIT_LOGIN_MAX=${RATE_LIMIT_LOGIN_MAX:-30}
+      - RATE_LIMIT_LOGIN_DECAY=${RATE_LIMIT_LOGIN_DECAY:-300}
+      - RATE_LIMIT_REG_MAX=${RATE_LIMIT_REG_MAX:-10}
+      - RATE_LIMIT_REG_DECAY=${RATE_LIMIT_REG_DECAY:-300}
+      - RATE_LIMIT_VALIDATE_MAX=${RATE_LIMIT_VALIDATE_MAX:-1000}
+      - RATE_LIMIT_VALIDATE_DECAY=${RATE_LIMIT_VALIDATE_DECAY:-60}
+      - RATE_LIMIT_LOGIN_ACCESS_MAX=${RATE_LIMIT_LOGIN_ACCESS_MAX:-300}
+      - RATE_LIMIT_LOGIN_ACCESS_DECAY=${RATE_LIMIT_LOGIN_ACCESS_DECAY:-60}
+      - RATE_LIMIT_LOGIN_FAIL_USER_MAX=${RATE_LIMIT_LOGIN_FAIL_USER_MAX:-10}
+      - RATE_LIMIT_LOGIN_FAIL_USER_DECAY=${RATE_LIMIT_LOGIN_FAIL_USER_DECAY:-300}
+      - RATE_LIMIT_LOGIN_FAIL_IP_MAX=${RATE_LIMIT_LOGIN_FAIL_IP_MAX:-50}
+      - RATE_LIMIT_LOGIN_FAIL_IP_DECAY=${RATE_LIMIT_LOGIN_FAIL_IP_DECAY:-600}
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASS=${SMTP_PASS}
+      - SMTP_FROM=${SMTP_FROM}
+    depends_on:
+      - rauth-auth-redis
+    volumes:
+      - ./geoip-data:/app/geoip
+    networks:
+      - auth-network
+
+  rauth-auth-redis:
+    image: redis:8.0-alpine
+    container_name: rauth-auth-redis
+    hostname: rauth-auth-redis
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - ./redis-data:/data
+    networks:
+      - auth-network
+
+networks:
+  auth-network:
+    driver: bridge
+```
+
+Now, run the stack in detached background mode:
 ```bash
 docker-compose up -d
 ```
-RAuth will automatically download and update the latest Geo-IP database, boot the Redis memory store, and seed your initial admin user.
+RAuth will automatically pull the secure image from GHCR, download and update the latest Geo-IP database, boot the Redis memory store, and seed your initial admin user.
 
 ### 🔐 Step 4: Access the Admin Dashboard & Secure Account
 1. Open your browser and navigate to RAuth's administration portal at `https://auth.example.com/rauthmgmt` (or `http://localhost:5980/rauthmgmt` for local development).
