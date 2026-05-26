@@ -69,6 +69,7 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 		ttl := ttlCmds[token].Val()
 		data["ttl"] = fmt.Sprintf("%d", int(ttl.Seconds()))
 		data["friendly_ua"] = core.FormatUserAgent(data["user_agent"])
+		data["device_icon"] = core.GetDeviceIcon(data["user_agent"])
 		sessions = append(sessions, data)
 	}
 
