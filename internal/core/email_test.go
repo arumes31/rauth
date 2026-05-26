@@ -7,26 +7,39 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSendEmail_NotConfigured(t *testing.T) {
 	// Ensure SMTP is not configured
 	// We don't want to actually send an email in tests anyway unless mocked
-	os.Setenv("SMTP_HOST", "")
-	defer os.Unsetenv("SMTP_HOST")
+	err := os.Setenv("SMTP_HOST", "")
+	require.NoError(t, err)
+	defer func() {
+		err := os.Unsetenv("SMTP_HOST")
+		require.NoError(t, err)
+	}()
 
-	err := SendEmail("test@example.com", "Test Subject", "Test Body")
+	err = SendEmail("test@example.com", "Test Subject", "Test Body")
 	assert.NoError(t, err) // Should return nil when not configured
 }
 
 func TestSendPasswordChangeNotification(t *testing.T) {
 	// Setup SMTP config
-	os.Setenv("SMTP_HOST", "localhost")
-	os.Setenv("SMTP_PORT", "587")
-	os.Setenv("SMTP_FROM", "rauth@example.com")
-	defer os.Unsetenv("SMTP_HOST")
-	defer os.Unsetenv("SMTP_PORT")
-	defer os.Unsetenv("SMTP_FROM")
+	err := os.Setenv("SMTP_HOST", "localhost")
+	require.NoError(t, err)
+	err = os.Setenv("SMTP_PORT", "587")
+	require.NoError(t, err)
+	err = os.Setenv("SMTP_FROM", "rauth@example.com")
+	require.NoError(t, err)
+	defer func() {
+		err := os.Unsetenv("SMTP_HOST")
+		require.NoError(t, err)
+		err = os.Unsetenv("SMTP_PORT")
+		require.NoError(t, err)
+		err = os.Unsetenv("SMTP_FROM")
+		require.NoError(t, err)
+	}()
 
 	var capturedAddr string
 	var capturedFrom string
@@ -60,12 +73,20 @@ func TestSendPasswordChangeNotification(t *testing.T) {
 }
 
 func TestSendLoginNotification(t *testing.T) {
-	os.Setenv("SMTP_HOST", "localhost")
-	os.Setenv("SMTP_PORT", "587")
-	os.Setenv("SMTP_FROM", "rauth@example.com")
-	defer os.Unsetenv("SMTP_HOST")
-	defer os.Unsetenv("SMTP_PORT")
-	defer os.Unsetenv("SMTP_FROM")
+	err := os.Setenv("SMTP_HOST", "localhost")
+	require.NoError(t, err)
+	err = os.Setenv("SMTP_PORT", "587")
+	require.NoError(t, err)
+	err = os.Setenv("SMTP_FROM", "rauth@example.com")
+	require.NoError(t, err)
+	defer func() {
+		err := os.Unsetenv("SMTP_HOST")
+		require.NoError(t, err)
+		err = os.Unsetenv("SMTP_PORT")
+		require.NoError(t, err)
+		err = os.Unsetenv("SMTP_FROM")
+		require.NoError(t, err)
+	}()
 
 	var capturedTo []string
 	var capturedMsg string
@@ -93,12 +114,20 @@ func TestSendLoginNotification(t *testing.T) {
 }
 
 func TestSendAccountCreatedNotification(t *testing.T) {
-	os.Setenv("SMTP_HOST", "localhost")
-	os.Setenv("SMTP_PORT", "587")
-	os.Setenv("SMTP_FROM", "rauth@example.com")
-	defer os.Unsetenv("SMTP_HOST")
-	defer os.Unsetenv("SMTP_PORT")
-	defer os.Unsetenv("SMTP_FROM")
+	err := os.Setenv("SMTP_HOST", "localhost")
+	require.NoError(t, err)
+	err = os.Setenv("SMTP_PORT", "587")
+	require.NoError(t, err)
+	err = os.Setenv("SMTP_FROM", "rauth@example.com")
+	require.NoError(t, err)
+	defer func() {
+		err := os.Unsetenv("SMTP_HOST")
+		require.NoError(t, err)
+		err = os.Unsetenv("SMTP_PORT")
+		require.NoError(t, err)
+		err = os.Unsetenv("SMTP_FROM")
+		require.NoError(t, err)
+	}()
 
 	var capturedTo []string
 	var capturedMsg string
@@ -123,12 +152,20 @@ func TestSendAccountCreatedNotification(t *testing.T) {
 }
 
 func TestSend2FAModifiedNotification(t *testing.T) {
-	os.Setenv("SMTP_HOST", "localhost")
-	os.Setenv("SMTP_PORT", "587")
-	os.Setenv("SMTP_FROM", "rauth@example.com")
-	defer os.Unsetenv("SMTP_HOST")
-	defer os.Unsetenv("SMTP_PORT")
-	defer os.Unsetenv("SMTP_FROM")
+	err := os.Setenv("SMTP_HOST", "localhost")
+	require.NoError(t, err)
+	err = os.Setenv("SMTP_PORT", "587")
+	require.NoError(t, err)
+	err = os.Setenv("SMTP_FROM", "rauth@example.com")
+	require.NoError(t, err)
+	defer func() {
+		err := os.Unsetenv("SMTP_HOST")
+		require.NoError(t, err)
+		err = os.Unsetenv("SMTP_PORT")
+		require.NoError(t, err)
+		err = os.Unsetenv("SMTP_FROM")
+		require.NoError(t, err)
+	}()
 
 	var capturedTo []string
 	var capturedMsg string
@@ -156,8 +193,12 @@ func TestSend2FAModifiedNotification(t *testing.T) {
 }
 
 func TestSendEmail_HTMLWrap(t *testing.T) {
-	os.Setenv("SMTP_HOST", "localhost")
-	defer os.Unsetenv("SMTP_HOST")
+	err := os.Setenv("SMTP_HOST", "localhost")
+	require.NoError(t, err)
+	defer func() {
+		err := os.Unsetenv("SMTP_HOST")
+		require.NoError(t, err)
+	}()
 
 	var capturedMsg string
 	oldSendMail := smtpSendMail
@@ -167,7 +208,7 @@ func TestSendEmail_HTMLWrap(t *testing.T) {
 	}
 	defer func() { smtpSendMail = oldSendMail }()
 
-	err := SendEmail("test@example.com", "Plain Subject", "This is plain text")
+	err = SendEmail("test@example.com", "Plain Subject", "This is plain text")
 	assert.NoError(t, err)
 	assert.Contains(t, capturedMsg, "<html>")
 	assert.Contains(t, capturedMsg, "This is plain text")
