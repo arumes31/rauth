@@ -41,7 +41,9 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 		cmds[token] = pipe.HGetAll(core.Ctx, redisKey)
 		ttlCmds[token] = pipe.TTL(core.Ctx, redisKey)
 	}
-	pipe.Exec(core.Ctx)
+	if _, err := pipe.Exec(core.Ctx); err != nil {
+		slog.Error("Failed to execute session details pipeline", "error", err)
+	}
 
 	for _, token := range tokens {
 		data, err := cmds[token].Result()

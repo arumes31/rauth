@@ -1,6 +1,7 @@
 package core
 
 import (
+	"log/slog"
 	"context"
 	"fmt"
 	"time"
@@ -62,7 +63,9 @@ func InvalidateUserSessions(username string) {
 		pipe.Del(Ctx, "X-rauth-authtoken="+token)
 	}
 	pipe.Del(Ctx, indexKey)
-	pipe.Exec(Ctx)
+	if _, err := pipe.Exec(Ctx); err != nil {
+		slog.Error("Failed to execute InvalidateUserSessions pipeline", "error", err)
+	}
 }
 
 func InvalidateOtherUserSessions(username, currentToken string) {
@@ -80,7 +83,9 @@ func InvalidateOtherUserSessions(username, currentToken string) {
 		pipe.Del(Ctx, "X-rauth-authtoken="+token)
 		pipe.SRem(Ctx, indexKey, token)
 	}
-	pipe.Exec(Ctx)
+	if _, err := pipe.Exec(Ctx); err != nil {
+		slog.Error("Failed to execute InvalidateOtherUserSessions pipeline", "error", err)
+	}
 }
 
 func HasActiveSessions(ip string) bool {
