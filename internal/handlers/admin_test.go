@@ -148,7 +148,7 @@ func TestAdminHandler_CreateUser(t *testing.T) {
 		if err != nil {
 			if he, ok := err.(*echo.HTTPError); ok {
 				assert.Equal(t, http.StatusBadRequest, he.Code)
-				assert.Equal(t, "Invalid email format", he.Message)
+				assert.Equal(t, "invalid email format", he.Message)
 			}
 		} else {
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -240,7 +240,7 @@ func TestAdminHandler_UpdateUserEmail(t *testing.T) {
 		assert.Error(t, err)
 		if he, ok := err.(*echo.HTTPError); ok {
 			assert.Equal(t, http.StatusBadRequest, he.Code)
-			assert.Equal(t, "Invalid email format", he.Message)
+			assert.Equal(t, "invalid email format", he.Message)
 		}
 	})
 }

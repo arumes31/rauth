@@ -48,7 +48,7 @@ func TestInviteHandler_Create(t *testing.T) {
 		he, ok := err.(*echo.HTTPError)
 		assert.True(t, ok)
 		assert.Equal(t, http.StatusBadRequest, he.Code)
-		assert.Equal(t, "Email is required", he.Message)
+		assert.Equal(t, "email is required", he.Message)
 	})
 }
 

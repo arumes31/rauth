@@ -139,12 +139,12 @@ func TestValidateEmail(t *testing.T) {
 	}{
 		{"test@example.com", true, ""},
 		{"user.name+tag@gmail.com", true, ""},
-		{"", false, "Email is required"},
-		{"invalid-email", false, "Invalid email format"},
-		{"@example.com", false, "Invalid email format"},
-		{"test@", false, "Invalid email format"},
-		{"test@.com", false, "Invalid email format"},
-		{"test@example", false, "Invalid email format"},
+		{"", false, "email is required"},
+		{"invalid-email", false, "invalid email format"},
+		{"@example.com", false, "invalid email format"},
+		{"test@", false, "invalid email format"},
+		{"test@.com", false, "invalid email format"},
+		{"test@example", false, "invalid email format"},
 	}
 
 	for _, tt := range tests {
