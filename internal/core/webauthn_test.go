@@ -1,12 +1,12 @@
 package core
 
 import (
-	"encoding/hex"
 	"fmt"
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/go-webauthn/webauthn/webauthn"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -62,53 +62,61 @@ func TestInitWebAuthn(t *testing.T) {
 	}
 }
 
-func TestWebAuthnOperations(t *testing.T) {
+func TestWebAuthnCredentialManagement(t *testing.T) {
 	s := miniredis.RunT(t)
-	cfg := &Config{
-		RedisHost: "127.0.0.1",
-		RedisPort: s.Port(),
-	}
-	err := InitRedis(cfg)
-	assert.NoError(t, err)
+	UserDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
 
 	username := "testuser"
-	cred1 := &webauthn.Credential{ID: []byte("cred1")}
-	cred2 := &webauthn.Credential{ID: []byte("cred2")}
+	c1 := &webauthn.Credential{ID: []byte("id1"), Authenticator: webauthn.Authenticator{SignCount: 1}}
+	c2 := &webauthn.Credential{ID: []byte("id2"), Authenticator: webauthn.Authenticator{SignCount: 2}}
 
-	t.Run("SaveWebAuthnCredential", func(t *testing.T) {
-		err := SaveWebAuthnCredential(username, cred1)
-		assert.NoError(t, err)
-		err = SaveWebAuthnCredential(username, cred2)
-		assert.NoError(t, err)
+	assert.NoError(t, SaveWebAuthnCredential(username, c1))
+	assert.NoError(t, SaveWebAuthnCredential(username, c2))
 
-		creds := GetWebAuthnCredentials(username)
-		assert.Len(t, creds, 2)
-	})
+	creds := GetWebAuthnCredentials(username)
+	assert.Equal(t, 2, len(creds))
 
-	t.Run("UpdateWebAuthnNickname", func(t *testing.T) {
-		credID := hex.EncodeToString(cred1.ID)
-		newNickname := "My Phone"
-		err := UpdateWebAuthnNickname(username, credID, newNickname)
-		assert.NoError(t, err)
-
-		stored := GetStoredCredentials(username)
-		found := false
-		for _, c := range stored {
-			if fmt.Sprintf("%x", c.ID) == credID {
-				assert.Equal(t, newNickname, c.Nickname)
-				found = true
-			}
+	// Test Nickname Update
+	id1Hex := fmt.Sprintf("%x", c1.ID)
+	err := UpdateWebAuthnNickname(username, id1Hex, "New Nickname")
+	assert.NoError(t, err)
+	stored := GetStoredCredentials(username)
+	found := false
+	for _, sc := range stored {
+		if fmt.Sprintf("%x", sc.ID) == id1Hex {
+			assert.Equal(t, "New Nickname", sc.Nickname)
+			found = true
 		}
-		assert.True(t, found)
-	})
+	}
+	assert.True(t, found)
 
-	t.Run("DeleteWebAuthnCredential", func(t *testing.T) {
-		credID := hex.EncodeToString(cred1.ID)
-		err := DeleteWebAuthnCredential(username, credID)
-		assert.NoError(t, err)
+	// Test Last Used Update
+	UpdateWebAuthnLastUsed(username, c2.ID)
+	stored = GetStoredCredentials(username)
+	for _, sc := range stored {
+		if fmt.Sprintf("%x", sc.ID) == fmt.Sprintf("%x", c2.ID) {
+			assert.NotZero(t, sc.LastUsed)
+		}
+	}
 
-		creds := GetWebAuthnCredentials(username)
-		assert.Len(t, creds, 1)
-		assert.Equal(t, cred2.ID, creds[0].ID)
-	})
+	// Test Credential Update
+	c2Updated := *c2
+	c2Updated.Authenticator.SignCount = 100
+	UpdateWebAuthnCredential(username, &c2Updated)
+	creds = GetWebAuthnCredentials(username)
+	found = false
+	for _, c := range creds {
+		if string(c.ID) == string(c2.ID) {
+			assert.Equal(t, uint32(100), c.Authenticator.SignCount)
+			found = true
+		}
+	}
+	assert.True(t, found)
+
+	// Test Deletion
+	err = DeleteWebAuthnCredential(username, id1Hex)
+	assert.NoError(t, err)
+	creds = GetWebAuthnCredentials(username)
+	assert.Equal(t, 1, len(creds))
+	assert.Equal(t, string(c2.ID), string(creds[0].ID))
 }

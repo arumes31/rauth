@@ -77,7 +77,7 @@ func (s *StoredCredential) UnmarshalJSON(data []byte) error {
 	s.Nickname = aux.Nickname
 	s.CreatedAt = aux.CreatedAt
 	s.LastUsed = aux.LastUsed
-	return s.Credential.UnmarshalJSON(data)
+	return json.Unmarshal(data, &s.Credential)
 }
 
 var WebAuthnInstance *webauthn.WebAuthn
@@ -202,7 +202,7 @@ func DeleteWebAuthnCredential(username string, credID string) error {
 		}
 	}
 	if len(toPush) > 0 {
-		UserDB.RPush(Ctx, key, toPush...)
+		return UserDB.RPush(Ctx, key, toPush...).Err()
 	}
 	return nil
 }
@@ -212,15 +212,15 @@ func UpdateWebAuthnNickname(username string, credID string, nickname string) err
 	key := "user:" + username + ":webauthn_creds"
 	UserDB.Del(Ctx, key)
 	var toPush []interface{}
-	for _, c := range stored {
-		if fmt.Sprintf("%x", c.ID) == credID {
-			c.Nickname = nickname
+	for i := range stored {
+		if fmt.Sprintf("%x", stored[i].ID) == credID {
+			stored[i].Nickname = nickname
 		}
-		data, _ := json.Marshal(c)
+		data, _ := json.Marshal(stored[i])
 		toPush = append(toPush, data)
 	}
 	if len(toPush) > 0 {
-		UserDB.RPush(Ctx, key, toPush...)
+		return UserDB.RPush(Ctx, key, toPush...).Err()
 	}
 	return nil
 }
@@ -230,11 +230,11 @@ func UpdateWebAuthnLastUsed(username string, credID []byte) {
 	key := "user:" + username + ":webauthn_creds"
 	UserDB.Del(Ctx, key)
 	var toPush []interface{}
-	for _, c := range stored {
-		if fmt.Sprintf("%x", c.ID) == fmt.Sprintf("%x", credID) {
-			c.LastUsed = time.Now().Unix()
+	for i := range stored {
+		if fmt.Sprintf("%x", stored[i].ID) == fmt.Sprintf("%x", credID) {
+			stored[i].LastUsed = time.Now().Unix()
 		}
-		data, _ := json.Marshal(c)
+		data, _ := json.Marshal(stored[i])
 		toPush = append(toPush, data)
 	}
 	if len(toPush) > 0 {
@@ -247,12 +247,12 @@ func UpdateWebAuthnCredential(username string, cred *webauthn.Credential) {
 	key := "user:" + username + ":webauthn_creds"
 	UserDB.Del(Ctx, key)
 	var toPush []interface{}
-	for _, c := range stored {
-		if fmt.Sprintf("%x", c.ID) == fmt.Sprintf("%x", cred.ID) {
-			c.Credential = *cred
-			c.LastUsed = time.Now().Unix()
+	for i := range stored {
+		if fmt.Sprintf("%x", stored[i].ID) == fmt.Sprintf("%x", cred.ID) {
+			stored[i].Credential = *cred
+			stored[i].LastUsed = time.Now().Unix()
 		}
-		data, _ := json.Marshal(c)
+		data, _ := json.Marshal(stored[i])
 		toPush = append(toPush, data)
 	}
 	if len(toPush) > 0 {
