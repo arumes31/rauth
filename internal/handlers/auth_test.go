@@ -297,3 +297,70 @@ func TestAuthHandler_InvalidateSessionIntegration(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, http.StatusUnauthorized, rec3.Code)
 }
+
+func TestAuthHandler_Setup2FA(t *testing.T) {
+	setupHandlersTest(t)
+
+	cfg := &core.Config{
+		ServerSecret: "32byte-secret-key-for-testing-!!",
+	}
+	h := &AuthHandler{Cfg: cfg}
+	e := echo.New()
+	e.Renderer = &mockRenderer{}
+
+	t.Run("Redirect to login when cookie is missing", func(t *testing.T) {
+		c, rec := createTestContext(e, http.MethodGet, "/rauthsetup2fa", nil)
+
+		err := h.Setup2FA(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+		assert.Equal(t, "/rauthlogin", rec.Header().Get("Location"))
+	})
+
+	t.Run("Redirect to login when cookie is invalid", func(t *testing.T) {
+		c, rec := createTestContext(e, http.MethodGet, "/rauthsetup2fa", nil)
+		c.Request().AddCookie(&http.Cookie{Name: "rauth_setup_pending", Value: "invalid-token"})
+
+		err := h.Setup2FA(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+		assert.Equal(t, "/rauthlogin", rec.Header().Get("Location"))
+	})
+
+	t.Run("Redirect to login when token is not in DB", func(t *testing.T) {
+		setupToken := "missing-token"
+		encryptedToken, _ := core.EncryptToken(setupToken, cfg.ServerSecret)
+
+		c, rec := createTestContext(e, http.MethodGet, "/rauthsetup2fa", nil)
+		c.Request().AddCookie(&http.Cookie{Name: "rauth_setup_pending", Value: encryptedToken})
+
+		err := h.Setup2FA(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+		assert.Equal(t, "/rauthlogin", rec.Header().Get("Location"))
+	})
+
+	t.Run("Successful 2FA Setup page rendering", func(t *testing.T) {
+		username := "setupuser"
+		setupToken := "valid-setup-token"
+		encryptedToken, _ := core.EncryptToken(setupToken, cfg.ServerSecret)
+		core.TokenDB.Set(core.Ctx, "pending_setup:"+setupToken, username, 10*time.Minute)
+
+		c, rec := createTestContext(e, http.MethodGet, "/rauthsetup2fa", nil)
+		c.Request().AddCookie(&http.Cookie{Name: "rauth_setup_pending", Value: encryptedToken})
+
+		err := h.Setup2FA(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		// Check if secret was generated and stored
+		secret, err := core.TokenDB.Get(core.Ctx, "pending_setup_secret:"+setupToken).Result()
+		assert.NoError(t, err)
+		assert.NotEmpty(t, secret)
+
+		// Check renderer data
+		renderer := e.Renderer.(*mockRenderer)
+		data := renderer.LastData.(map[string]interface{})
+		assert.Equal(t, secret, data["secret"])
+	})
+}
