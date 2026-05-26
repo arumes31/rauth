@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 )
-
 var sendMail = smtp.SendMail
 
 const emailBaseTemplate = `

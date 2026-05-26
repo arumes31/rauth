@@ -11,7 +11,6 @@ import (
 )
 
 func TestSendEmail_NotConfigured(t *testing.T) {
-	// Ensure SMTP is not configured
 	// We don't want to actually send an email in tests anyway unless mocked
 	err := os.Setenv("SMTP_HOST", "")
 	require.NoError(t, err)
