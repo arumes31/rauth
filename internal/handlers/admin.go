@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"rauth/internal/core"
 	"strings"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/labstack/echo/v4"
 )
@@ -22,18 +23,25 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 	}
 
 	// Fetch sessions
-	keys, err := core.TokenDB.Keys(core.Ctx, "X-rauth-authtoken=*").Result()
-	if err != nil {
-		slog.Error("Failed to fetch sessions from Redis", "error", err)
+	var keys []string
+	iter := core.TokenDB.Scan(core.Ctx, 0, "X-rauth-authtoken=*", 0).Iterator()
+	for iter.Next(core.Ctx) {
+		keys = append(keys, iter.Val())
 	}
+	pipe := core.TokenDB.Pipeline()
+	cmds := make(map[string]*redis.MapStringStringCmd)
+	for _, k := range keys {
+		cmds[k] = pipe.HGetAll(core.Ctx, k)
+	}
+	pipe.Exec(core.Ctx)
 
 	var sessions []map[string]string
 	for _, k := range keys {
-		data, err := core.TokenDB.HGetAll(core.Ctx, k).Result()
-		if err != nil {
+		data, err := cmds[k].Result()
+		if err != nil || len(data) == 0 {
 			continue
 		}
-		data["token"] = k[18:] // Remove prefix "X-rauth-authtoken="
+		data["token"] = k[18:]
 		data["ttl"] = fmt.Sprintf("%d", int(core.TokenDB.TTL(core.Ctx, k).Val().Seconds()))
 		data["friendly_ua"] = core.FormatUserAgent(data["user_agent"])
 		data["device_icon"] = core.GetDeviceIcon(data["user_agent"])
@@ -201,20 +209,18 @@ func (h *AdminHandler) InvalidateSession(c echo.Context) error {
 	}
 	admin := c.Get("username").(string)
 
-	if err := core.TokenDB.Del(core.Ctx, "X-rauth-authtoken="+token).Err(); err != nil {
-		slog.Error("Failed to invalidate session", "error", err)
-		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to invalidate session")
-	}
 
-		slog.Info("Session invalidated by admin", "admin", admin)
+	core.DeleteSession("X-rauth-authtoken="+token)
 
-		logToken := token
+	slog.Info("Session invalidated by admin", "admin", admin)
 
-		if len(token) > 8 { logToken = token[:8] + "..." }
+	logToken := token
 
-		core.LogAudit("ADMIN_INVALIDATE_SESSION", admin, c.RealIP(), map[string]interface{}{"token": logToken})
+	if len(token) > 8 { logToken = token[:8] + "..." }
 
-		return c.Redirect(http.StatusFound, "/rauthmgmt?success=session_terminated")
+	core.LogAudit("ADMIN_INVALIDATE_SESSION", admin, c.RealIP(), map[string]interface{}{"token": logToken})
+
+	return c.Redirect(http.StatusFound, "/rauthmgmt?success=session_terminated")
 
 	}
 

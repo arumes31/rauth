@@ -259,6 +259,7 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 		"user_agent": ua,
 		"created_at": time.Now().Unix(),
 	})
+	core.AddSessionToIndex(username, finalRedisKey)
 
 	tokenValidity := time.Duration(h.Cfg.TokenValidityMinutes) * time.Minute
 	core.TokenDB.Expire(core.Ctx, finalRedisKey, tokenValidity)

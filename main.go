@@ -292,7 +292,7 @@ func main() {
 	protected.POST("/logout", func(c echo.Context) error {
 		// Get token from context (set by AuthMiddleware)
 		if token, ok := c.Get("token").(string); ok {
-			core.TokenDB.Del(core.Ctx, "X-rauth-authtoken="+token)
+			core.DeleteSession("X-rauth-authtoken="+token)
 		}
 
 		cookie := &http.Cookie{
@@ -364,9 +364,12 @@ func initializeSystem(cfg *core.Config) {
 	go func() {
 		for {
 			// Count active sessions
-			if keys, err := core.TokenDB.Keys(core.Ctx, "X-rauth-authtoken=*").Result(); err == nil {
-				core.ActiveSessionsGauge.Set(float64(len(keys)))
+			var count int64
+			iter := core.TokenDB.Scan(core.Ctx, 0, "X-rauth-authtoken=*", 0).Iterator()
+			for iter.Next(core.Ctx) {
+				count++
 			}
+			core.ActiveSessionsGauge.Set(float64(count))
 			time.Sleep(1 * time.Minute)
 		}
 	}()

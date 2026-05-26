@@ -47,50 +47,62 @@ func InitRedis(cfg *Config) error {
 }
 
 func InvalidateUserSessions(username string) {
-	keys, err := TokenDB.Keys(Ctx, "X-rauth-authtoken=*").Result()
+	keys, err := TokenDB.SMembers(Ctx, "user_sessions:"+username).Result()
 	if err != nil {
 		return
 	}
 
+	pipe := TokenDB.Pipeline()
 	for _, k := range keys {
-		data, err := TokenDB.HGetAll(Ctx, k).Result()
-		if err == nil && data["username"] == username {
-			TokenDB.Del(Ctx, k)
-		}
+		pipe.Del(Ctx, k)
 	}
+	pipe.Del(Ctx, "user_sessions:"+username)
+	pipe.Exec(Ctx)
 }
 
 func InvalidateOtherUserSessions(username, currentToken string) {
-	keys, err := TokenDB.Keys(Ctx, "X-rauth-authtoken=*").Result()
+	keys, err := TokenDB.SMembers(Ctx, "user_sessions:"+username).Result()
 	if err != nil {
 		return
 	}
 
+	pipe := TokenDB.Pipeline()
 	for _, k := range keys {
-		token := k[18:] // Remove prefix "X-rauth-authtoken="
-		if token == currentToken {
+		if k == "X-rauth-authtoken="+currentToken {
 			continue
 		}
-		data, err := TokenDB.HGetAll(Ctx, k).Result()
-		if err == nil && data["username"] == username {
-			TokenDB.Del(Ctx, k)
-		}
+		pipe.Del(Ctx, k)
+		pipe.SRem(Ctx, "user_sessions:"+username, k)
 	}
+	pipe.Exec(Ctx)
 }
 
 func HasActiveSessions(ip string) bool {
-	keys, err := TokenDB.Keys(Ctx, "X-rauth-authtoken=*").Result()
-	if err != nil {
-		return false
-	}
-
-	for _, k := range keys {
+	iter := TokenDB.Scan(Ctx, 0, "X-rauth-authtoken=*", 0).Iterator()
+	for iter.Next(Ctx) {
+		k := iter.Val()
 		data, err := TokenDB.HGetAll(Ctx, k).Result()
 		if err == nil && data["ip"] == ip && data["status"] == "valid" {
 			return true
 		}
 	}
 	return false
+}
+
+func AddSessionToIndex(username, key string) {
+	TokenDB.SAdd(Ctx, "user_sessions:"+username, key)
+}
+
+func RemoveSessionFromIndex(username, key string) {
+	TokenDB.SRem(Ctx, "user_sessions:"+username, key)
+}
+
+func DeleteSession(key string) {
+	data, err := TokenDB.HGetAll(Ctx, key).Result()
+	if err == nil && data["username"] != "" {
+		RemoveSessionFromIndex(data["username"], key)
+	}
+	TokenDB.Del(Ctx, key)
 }
 
 func copyOptions(base *redis.Options, db int) *redis.Options {
