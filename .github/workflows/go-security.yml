@@ -1,4 +1,4 @@
-name: Go Security and Quality Scan
+name: gsec, govul, godep,
 
 on:
   push:

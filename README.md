@@ -19,13 +19,16 @@
 
 <p align="center">
   <a href="https://github.com/arumes31/rauth/actions/workflows/tests.yml">
-    <img src="https://github.com/arumes31/rauth/actions/workflows/tests.yml/badge.svg?branch=test" alt="Tests Status">
+    <img src="https://github.com/arumes31/rauth/actions/workflows/tests.yml/badge.svg?branch=main" alt="Tests Status">
   </a>
   <a href="https://github.com/arumes31/rauth/actions/workflows/build.yml">
-    <img src="https://github.com/arumes31/rauth/actions/workflows/build.yml/badge.svg?branch=test" alt="Build Status">
+    <img src="https://github.com/arumes31/rauth/actions/workflows/build.yml/badge.svg?branch=main" alt="Build Status">
   </a>
   <a href="https://github.com/arumes31/rauth/actions/workflows/go-security.yml">
-    <img src="https://github.com/arumes31/rauth/actions/workflows/go-security.yml/badge.svg?branch=test" alt="Security Scan">
+    <img src="https://github.com/arumes31/rauth/actions/workflows/go-security.yml/badge.svg?branch=main" alt="gsec, govul, godep,">
+  </a>
+  <a href="https://github.com/arumes31/rauth/actions/workflows/security.yml">
+    <img src="https://github.com/arumes31/rauth/actions/workflows/security.yml/badge.svg?branch=main" alt="Container Scan">
   </a>
 </p>
 
@@ -58,32 +61,51 @@ RAuth eliminates the complexity of full-scale identity providers while maintaini
 
 ## 🚀 Core Features
 
-### 🔐 Multi-Factor Authentication (MFA)
-*   **WebAuthn / Passkeys**: Modern, phishing-resistant authentication using hardware keys (YubiKey), TouchID, FaceID, or Windows Hello.
-*   **User-Nameless Login**: Support for Discoverable Credentials (Resident Keys). Users can authenticate without typing a username; the server identifies them via their secure hardware key.
-*   **TOTP Support**: Compatible with Google Authenticator, Authy, and Bitwarden.
-*   **Enforced Setup**: New users are automatically guided through a secure MFA enrollment process.
+<table width="100%">
+  <tr>
+    <td width="50%" valign="top">
+      <h3>🔐 Multi-Factor Authentication</h3>
+      <ul>
+        <li><b>WebAuthn / Passkeys</b>: Modern, phishing-resistant authentication using YubiKeys, TouchID, FaceID, or Windows Hello.</li>
+        <li><b>User-Nameless Login</b>: Discoverable Credentials support for logging in via hardware key without entering a username.</li>
+        <li><b>TOTP Support</b>: Fully compatible with Google Authenticator, Authy, and Bitwarden.</li>
+        <li><b>Enforced Setup</b>: Guided multi-factor enrollment automatically triggered for all new user sign-ins.</li>
+      </ul>
+    </td>
+    <td width="50%" valign="top">
+      <h3>🌐 Smart Session Management</h3>
+      <ul>
+        <li><b>Sub-millisecond Validation</b>: Near-zero latency Go backend cached on a high-speed Redis database.</li>
+        <li><b>Geo-Fencing</b>: Real-time MaxMind integration instantly invalidating sessions initiated from anomalous countries.</li>
+        <li><b>Device Awareness</b>: Rich user audits complete with browser, operating system, and IP location metadata.</li>
+        <li><b>System-Wide Invalidation</b>: Automated termination of all active sessions on password changes or 2FA resets.</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>🛠️ Administrative Control</h3>
+      <ul>
+        <li><b>User Dashboard</b>: Centralized user provisioning, deletion, and status auditing.</li>
+        <li><b>Credential Resets</b>: Seamless forced password rotations and 2FA resets.</li>
+        <li><b>Audit Logging</b>: Secure, structured, and searchable audit feed mapping critical authentication events.</li>
+        <li><b>Security Emails</b>: HTML email alerts notifying users of new logins, resets, and credential changes.</li>
+      </ul>
+    </td>
+    <td width="50%" valign="top">
+      <h3>🎨 Glassmorphism "Matrix" UI</h3>
+      <ul>
+        <li><b>Visual Urgency</b>: Specialized high-intensity red styling for security-critical operations.</li>
+        <li><b>Glassmorphic Layers</b>: Premium backdrop-filtered frosted-glass modules.</li>
+        <li><b>Cyberpunk Styling</b>: Cyber-glowing iconography and responsive high-performance animations.</li>
+        <li><b>Full Optimization</b>: Fully adaptive viewports designed for mobile, tablet, and desktop systems.</li>
+      </ul>
+    </td>
+  </tr>
+</table>
 
+> [!NOTE]
 > **Browser & Device Support**: Passkeys are supported on Chrome 67+, Edge 79+, Firefox 60+, and Safari 13+. Hardware keys (YubiKey) work across all platforms, while platform authenticators (TouchID, Windows Hello) require OS-level support.
-
-### 🌐 Smart Session Management
-*   **Sub-millisecond Validation**: Optimized Go backend with Redis caching for near-zero latency.
-*   **Geo-Fencing**: Built-in MaxMind integration. If a session is accessed from a new country, it is instantly invalidated to prevent session hijacking.
-*   **Device Awareness**: Logs and displays active sessions with User-Agent and IP metadata.
-*   **System-Wide Invalidation**: Every password change or 2FA reset automatically terminates all other active sessions for that account.
-
-### 🛠️ Administrative Control
-*   **User Management**: Create, delete, and manage users via a secure dashboard.
-*   **Credential Resets**: Force password changes or reset 2FA seeds for users.
-*   **Audit Logging**: Every sensitive action (logins, failures, admin changes) is captured in a structured, searchable audit feed.
-*   **Email Notifications**: Automated, security-themed HTML alerts for logins, password changes, 2FA modifications, and account creation.
-
-### 🎨 Glassmorphism "Matrix" UI
-RAuth features a modern, high-performance frontend built with Bootstrap 5 and custom CSS. 
-*   **Visual Urgency**: Security-critical pages use a specialized red-themed urgency design.
-*   **Glassmorphism**: Transparent, frosted-glass components with real-time backdrop filtering.
-*   **Premium Iconography**: Fully customized, glowing cyberpunk-themed favicon served with transparency for high-end aesthetic alignment across modern browsers, tabs, and bookmarks.
-*   **Responsive**: Fully optimized for mobile, tablet, and desktop viewports.
 
 ---
 
@@ -92,6 +114,7 @@ RAuth features a modern, high-performance frontend built with Bootstrap 5 and cu
 RAuth integrates seamlessly into your existing Nginx proxy stack using the `auth_request` module.
 
 ```mermaid
+%%{init: {'theme': 'dark', 'themeVariables': { 'primaryColor': '#dc3545', 'primaryTextColor': '#fff', 'lineColor': '#ef4444', 'nodeBorder': '#dc3545', 'mainBkg': '#1f1f1f', 'actorBkg': '#1f1f1f' }}}%%
 graph TD
     User((User)) -->|HTTPS Request| Nginx[Nginx Reverse Proxy]
     Nginx -->|1. auth_request| RAuth[RAuth Auth Service]
@@ -210,6 +233,9 @@ By default, the `/metrics` endpoint is restricted to:
 
 RAuth is configured via Environment Variables.
 
+<details>
+  <summary>🔍 <b>View Configuration Options (Environment Variables)</b></summary>
+
 | Category | Variable | Description | Default |
 |:---|:---|:---|:---|
 | **Secret** | `SERVER_SECRET` | 32+ char key for AES encryption | **REQUIRED** |
@@ -258,6 +284,8 @@ RAuth is configured via Environment Variables.
 | **Throttle**| `RATE_LIMIT_LOGIN_FAIL_IP_DECAY`| Global IP block duration (seconds) | `600` |
 | **Regional**| `TZ` | Container Timezone (e.g., `Europe/Berlin`) | `UTC` |
 
+</details>
+
 ---
 
 ## 🚀 Deployment
@@ -303,6 +331,9 @@ go test -v ./...
 
 ## ❓ Troubleshooting FAQ
 
+<details>
+  <summary>❓ <b>View Troubleshooting FAQ Solutions</b></summary>
+
 **Q: Why am I stuck in a 401 Redirect Loop?**  
 A: This usually happens when the `COOKIE_DOMAIN` in RAuth doesn't match the domain of the app you are protecting. Ensure the cookie can be shared across subdomains.
 
@@ -314,6 +345,8 @@ A: Ensure RAuth and Redis are on the same Docker network. If using the default C
 
 **Q: WebAuthn/Passkey registration fails?**  
 A: WebAuthn requires HTTPS (or `localhost` for development). Ensure your Nginx proxy is serving over SSL and forwarding the correct `Host` headers.
+
+</details>
 
 ---
 Built with ❤️ for secure, fast, and private self-hosting.
