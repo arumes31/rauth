@@ -145,7 +145,7 @@ RAuth is built with a "Security-First" mindset, implementing advanced system-wid
 
 ## 📦 Technical Stack
 
-*   **Runtime**: [Go 1.24+](https://golang.org/) (High-concurrency, memory-safe)
+*   **Runtime**: [Go 1.26+](https://golang.org/) (High-concurrency, memory-safe)
 *   **Web Framework**: [Echo v4](https://echo.labstack.com/)
 *   **Identity Store**: [Redis 8.0+](https://redis.io/)
 *   **MFA Core**: [go-webauthn](https://github.com/go-webauthn/webauthn) & [pquerna/otp](https://github.com/pquerna/otp)
@@ -318,7 +318,7 @@ RAuth will automatically initialize the primary admin user defined in your envir
 ## 💻 Development
 
 ### Prerequisites
-*   Go 1.24+
+*   Go 1.26+
 *   Redis (or [miniredis](https://github.com/alicebob/miniredis) for testing)
 
 ### Testing
