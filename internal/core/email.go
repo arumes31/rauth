@@ -15,6 +15,7 @@ import (
 	"time"
 
 )
+var sendMail = smtp.SendMail
 
 
 
@@ -123,7 +124,7 @@ func SendEmail(to, subject, body string) error {
 
 
 
-	err := smtp.SendMail(addr, auth, cfg.SMTPFrom, []string{to}, msg)
+	err := sendMail(addr, auth, cfg.SMTPFrom, []string{to}, msg)
 
 	if err != nil {
 
