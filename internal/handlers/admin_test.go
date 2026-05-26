@@ -134,6 +134,26 @@ func TestAdminHandler_CreateUser(t *testing.T) {
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 		}
 	})
+
+	t.Run("Create user - invalid email", func(t *testing.T) {
+		f := make(url.Values)
+		f.Set("new_username", "invalid-email")
+		f.Set("new_password", "SecurePass123!")
+		f.Set("new_email", "not-an-email")
+
+		c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/user/create", f)
+		c.Set("username", "admin")
+
+		err := h.CreateUser(c)
+		if err != nil {
+			if he, ok := err.(*echo.HTTPError); ok {
+				assert.Equal(t, http.StatusBadRequest, he.Code)
+				assert.Equal(t, "Invalid email format", he.Message)
+			}
+		} else {
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		}
+	})
 }
 
 func TestAdminHandler_DeleteUser(t *testing.T) {
@@ -184,5 +204,43 @@ func TestAdminHandler_DeleteUser(t *testing.T) {
 
 		exists := core.UserDB.Exists(core.Ctx, "user:admin").Val()
 		assert.Equal(t, int64(1), exists)
+	})
+}
+func TestAdminHandler_UpdateUserEmail(t *testing.T) {
+	setupHandlersTest(t)
+	cfg := &core.Config{}
+	h := &AdminHandler{Cfg: cfg}
+	e := echo.New()
+
+	t.Run("Update email - valid", func(t *testing.T) {
+		core.UserDB.HSet(core.Ctx, "user:victim", "username", "victim", "email", "old@example.com")
+
+		f := make(url.Values)
+		f.Set("username", "victim")
+		f.Set("new_email", "new@example.com")
+		c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/user/email", f)
+		c.Set("username", "admin")
+
+		err := h.UpdateUserEmail(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+
+		email := core.UserDB.HGet(core.Ctx, "user:victim", "email").Val()
+		assert.Equal(t, "new@example.com", email)
+	})
+
+	t.Run("Update email - invalid format", func(t *testing.T) {
+		f := make(url.Values)
+		f.Set("username", "victim")
+		f.Set("new_email", "invalid-email")
+		c, _ := createTestContext(e, http.MethodPost, "/rauthmgmt/user/email", f)
+		c.Set("username", "admin")
+
+		err := h.UpdateUserEmail(c)
+		assert.Error(t, err)
+		if he, ok := err.(*echo.HTTPError); ok {
+			assert.Equal(t, http.StatusBadRequest, he.Code)
+			assert.Equal(t, "Invalid email format", he.Message)
+		}
 	})
 }

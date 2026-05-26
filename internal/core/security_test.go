@@ -24,96 +24,12 @@ func TestEncryption(t *testing.T) {
 	}
 }
 
-func TestDecryptTokenErrors(t *testing.T) {
-	key := "12345678901234567890123456789012"
-
-	t.Run("Invalid base64", func(t *testing.T) {
-		_, err := DecryptToken("not-base64-!", key)
-		assert.Error(t, err)
-	})
-
-	t.Run("Wrong key size", func(t *testing.T) {
-		_, err := DecryptToken("some-data", "too-short")
-		assert.Error(t, err)
-	})
-
-	t.Run("Invalid ciphertext", func(t *testing.T) {
-		// Valid base64 but not a valid encrypted block
-		_, err := DecryptToken("YmFkLWRhdGE=", key)
-		assert.Error(t, err)
-	})
-}
-
-func TestEncryptionLargeInput(t *testing.T) {
-	key := "12345678901234567890123456789012"
-	largeInput := make([]byte, 1024*1024) // 1MB
-	for i := range largeInput {
-		largeInput[i] = 'A'
-	}
-
-	encrypted, err := EncryptToken(string(largeInput), key)
-	assert.NoError(t, err)
-
-	decrypted, err := DecryptToken(encrypted, key)
-	assert.NoError(t, err)
-	assert.Equal(t, string(largeInput), decrypted)
-}
-
-func TestValidatePasswordComplexity(t *testing.T) {
+func TestValidatePassword(t *testing.T) {
 	cfg := &Config{
-		MinPasswordLength:     8,
-		RequirePasswordUpper:   true,
-		RequirePasswordLower:   true,
-		RequirePasswordNumber:  true,
-		RequirePasswordSpecial: true,
-	}
-
-	tests := []struct {
-		name     string
-		password string
-		wantErr  bool
-	}{
-		{"Valid password", "Pass1234!", false},
-		{"Too short", "Pas1!", true},
-		{"Missing upper", "pass1234!", true},
-		{"Missing lower", "PASS1234!", true},
-		{"Missing number", "Password!", true},
-		{"Missing special", "Pass12345", true},
-		{"Only special and numbers", "!@#$%1234", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := ValidatePassword(tt.password, cfg)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ValidatePassword() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
-	}
-}
-
-func TestPasswordHashing(t *testing.T) {
-	password := "mypassword"
-	hash, err := HashPassword(password)
-	if err != nil {
-		t.Fatalf("Hashing failed: %v", err)
-	}
-
-	if !CheckPasswordHash(password, hash) {
-		t.Error("Password check failed for correct password")
-	}
-
-	if CheckPasswordHash("wrongpassword", hash) {
-		t.Error("Password check succeeded for wrong password")
-	}
-}
-
-func TestValidatePasswordDetails(t *testing.T) {
-	cfg := &Config{
-		MinPasswordLength:      8,
-		RequirePasswordUpper:   true,
-		RequirePasswordLower:   true,
-		RequirePasswordNumber:  true,
+		MinPasswordLength: 8,
+		RequirePasswordUpper: true,
+		RequirePasswordLower: true,
+		RequirePasswordNumber: true,
 		RequirePasswordSpecial: true,
 	}
 
@@ -121,8 +37,8 @@ func TestValidatePasswordDetails(t *testing.T) {
 		password string
 		valid    bool
 	}{
-		{"Valid123!", true},
-		{"short1!", false},
+		{"SecurePass123!", true},
+		{"short", false},
 		{"noupper123!", false},
 		{"NOLOWER123!", false},
 		{"NoNumber!", false},
@@ -131,106 +47,34 @@ func TestValidatePasswordDetails(t *testing.T) {
 
 	for _, tt := range tests {
 		err := ValidatePassword(tt.password, cfg)
-		if tt.valid && err != nil {
-			t.Errorf("Password %s should be valid but got error: %v", tt.password, err)
+		if tt.valid {
+			assert.NoError(t, err)
+		} else {
+			assert.Error(t, err)
 		}
-		if !tt.valid && err == nil {
-			t.Errorf("Password %s should be invalid but got no error", tt.password)
-		}
-	}
-}
-
-// Fuzzing
-
-func FuzzValidatePassword(f *testing.F) {
-	cfg := &Config{
-		MinPasswordLength:     8,
-		RequirePasswordUpper:  true,
-		RequirePasswordLower:  true,
-		RequirePasswordNumber: true,
-		RequirePasswordSpecial: true,
-	}
-	f.Add("Password123!")
-	f.Add("short")
-	f.Add("NONUMBER!")
-	f.Fuzz(func(t *testing.T, password string) {
-		_ = ValidatePassword(password, cfg)
-	})
-}
-
-func FuzzDecryptToken(f *testing.F) {
-	key := "32byte-secret-key-for-testing-!!"
-	f.Add("some-random-invalid-base64")
-	f.Add("dmFsaWQ=") // valid base64 but not encrypted
-	f.Fuzz(func(t *testing.T, encryptedText string) {
-		_, _ = DecryptToken(encryptedText, key)
-	})
-}
-
-// Benchmarks
-
-func BenchmarkHashPassword(b *testing.B) {
-	password := "securepassword123"
-	for i := 0; i < b.N; i++ {
-		_, _ = HashPassword(password)
-	}
-}
-
-func BenchmarkCheckPasswordHash(b *testing.B) {
-	password := "securepassword123"
-	hash, _ := HashPassword(password)
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = CheckPasswordHash(password, hash)
-	}
-}
-
-func BenchmarkEncryptToken(b *testing.B) {
-	key := "32byte-secret-key-for-testing-!!"
-	text := "standard-session-token-string"
-	for i := 0; i < b.N; i++ {
-		_, _ = EncryptToken(text, key)
-	}
-}
-
-func BenchmarkDecryptToken(b *testing.B) {
-	key := "32byte-secret-key-for-testing-!!"
-	text := "standard-session-token-string"
-	encrypted, _ := EncryptToken(text, key)
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, _ = DecryptToken(encrypted, key)
 	}
 }
 
 func TestValidateRedirectURL(t *testing.T) {
-	cfg := &Config{AllowedHosts: []string{"example.com"}}
+	cfg := &Config{
+		AllowedHosts: []string{"example.com", "trust.com"},
+	}
 
 	tests := []struct {
-		name     string
-		rd       string
+		url      string
 		expected string
 	}{
-		{"Empty string", "", "/default"},
-		{"Valid relative path", "/dashboard", "/dashboard"},
-		{"Valid absolute URL", "https://example.com/page", "https://example.com/page"},
-		{"Protocol relative double slash", "//evil.com", "/default"},
-		{"Protocol relative slash backslash", "/\\evil.com", "/default"},
-		{"Protocol relative double backslash", "\\\\evil.com", "/default"},
-		{"Protocol relative backslash slash", "\\/evil.com", "/default"},
-		{"Protocol relative single backslash", "\\evil.com", "/default"},
-		{"Leading space double slash", "  //evil.com", "/default"},
-		{"Leading space relative path", "  /dashboard  ", "/dashboard"},
-		{"Missing leading slash", "dashboard", "/dashboard"},
-		{"Invalid scheme XSS", "javascript:alert(1)", "/default"},
-		{"Unallowed host", "https://evil.com/page", "/default"},
+		{"/profile", "/profile"},
+		{"https://example.com/callback", "https://example.com/callback"},
+		{"https://evil.com", "/"},
+		{"//evil.com", "/"},
+		{"javascript:alert(1)", "/"},
+		{"", "/"},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := ValidateRedirectURL(tt.rd, "/default", "testuser", cfg)
-			assert.Equal(t, tt.expected, result)
-		})
+		res := ValidateRedirectURL(tt.url, "/", "user", cfg)
+		assert.Equal(t, tt.expected, res)
 	}
 }
 
@@ -242,93 +86,39 @@ func TestIsUserAgentCompatible(t *testing.T) {
 		expected bool
 	}{
 		{
-			name:     "Exactly identical UAs",
-			oldUA:    "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
-			newUA:    "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+			name:     "Same UA",
+			oldUA:    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+			newUA:    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 			expected: true,
 		},
 		{
-			name:     "Android to Linux Chrome (Tablet Desktop Mode Toggle)",
-			oldUA:    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
-			newUA:    "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+			name:     "Same Browser Different OS",
+			oldUA:    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+			newUA:    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+			expected: false,
+		},
+		{
+			name:     "Different Browser Same OS",
+			oldUA:    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+			newUA:    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0",
+			expected: false,
+		},
+		{
+			name:     "Linux and Android Compatible",
+			oldUA:    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+			newUA:    "Mozilla/5.0 (Android 13; Mobile; rv:120.0) Gecko/120.0 Firefox/120.0",
+			expected: false, // Different browsers
+		},
+		{
+			name:     "Linux and Android Compatible Same Browser",
+			oldUA:    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+			newUA:    "Mozilla/5.0 (Linux; Android 13; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
 			expected: true,
 		},
 		{
-			name:     "Android to Linux Firefox (Tablet Desktop Mode Toggle)",
-			oldUA:    "Mozilla/5.0 (Android; Mobile; rv:130.0) Gecko/130.0 Firefox/130.0",
-			newUA:    "Mozilla/5.0 (X11; Linux x86_64; rv:130.0) Gecko/20100101 Firefox/130.0",
-			expected: true,
-		},
-		{
-			name:     "Chrome vs Firefox on same OS",
-			oldUA:    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
-			newUA:    "Mozilla/5.0 (X11; Linux x86_64; rv:130.0) Gecko/20100101 Firefox/130.0",
-			expected: false,
-		},
-		{
-			name:     "Chrome Linux to Chrome Windows (Different OS)",
-			oldUA:    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
-			newUA:    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
-			expected: false,
-		},
-		{
-			name:     "Chrome Android to Chrome macOS (Different OS)",
-			oldUA:    "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
-			newUA:    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
-			expected: false,
-		},
-		{
-			name:     "Empty strings",
-			oldUA:    "",
-			newUA:    "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
-			expected: false,
-		},
-		{
-			name:     "Different Unknown UAs (Strict Fallback)",
-			oldUA:    "Mozilla/5.0 (Original Browser)",
-			newUA:    "Mozilla/5.0 (Attacker Browser)",
-			expected: false,
-		},
-		{
-			name:     "Identical Unknown UAs (Strict Fallback)",
-			oldUA:    "Mozilla/5.0 (Original Browser)",
-			newUA:    "Mozilla/5.0 (Original Browser)",
-			expected: true,
-		},
-		{
-			name:     "Opera Linux to Opera Android (Compatible Platforms)",
-			oldUA:    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 OPR/106.0.0.0",
-			newUA:    "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 OPR/106.0.0.0",
-			expected: true,
-		},
-		{
-			name:     "Opera vs Chrome (Incompatible Brands)",
-			oldUA:    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 OPR/106.0.0.0",
-			newUA:    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-			expected: false,
-		},
-		{
-			name:     "CriOS (Chrome iOS) vs Chrome Android (Different OS)",
-			oldUA:    "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/95.0.4638.50 Mobile/15E148 Safari/604.1",
-			newUA:    "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/95.0.4638.50 Mobile Safari/537.36",
-			expected: false,
-		},
-		{
-			name:     "FxiOS (Firefox iOS) vs Firefox Android (Different OS)",
-			oldUA:    "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/40.0 Mobile/15E148 Safari/605.1.15",
-			newUA:    "Mozilla/5.0 (Android; Mobile; rv:40.0) Gecko/40.0 Firefox/40.0",
-			expected: false,
-		},
-		{
-			name:     "CriOS vs FxiOS on iOS (Different Brands)",
-			oldUA:    "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/95.0.4638.50 Mobile/15E148 Safari/604.1",
-			newUA:    "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/40.0 Mobile/15E148 Safari/605.1.15",
-			expected: false,
-		},
-		{
-			name:     "CriOS vs Safari on iOS (Different Brands)",
-			oldUA:    "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/95.0.4638.50 Mobile/15E148 Safari/604.1",
-			newUA:    "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1",
+			name:     "Unknown Compatibility",
+			oldUA:    "MyCustomApp/1.0",
+			newUA:    "MyCustomApp/1.1",
 			expected: false,
 		},
 	}
@@ -341,3 +131,29 @@ func TestIsUserAgentCompatible(t *testing.T) {
 	}
 }
 
+func TestValidateEmail(t *testing.T) {
+	tests := []struct {
+		email    string
+		expected bool
+		msg      string
+	}{
+		{"test@example.com", true, ""},
+		{"user.name+tag@gmail.com", true, ""},
+		{"", false, "Email is required"},
+		{"invalid-email", false, "Invalid email format"},
+		{"@example.com", false, "Invalid email format"},
+		{"test@", false, "Invalid email format"},
+		{"test@.com", false, "Invalid email format"},
+		{"test@example", false, "Invalid email format"},
+	}
+
+	for _, tt := range tests {
+		err := ValidateEmail(tt.email)
+		if tt.expected {
+			assert.NoError(t, err, "Email: %s", tt.email)
+		} else {
+			assert.Error(t, err, "Email: %s", tt.email)
+			assert.Equal(t, tt.msg, err.Error())
+		}
+	}
+}

@@ -16,8 +16,8 @@ type InviteHandler struct {
 
 func (h *InviteHandler) Create(c echo.Context) error {
 	email := c.FormValue("email")
-	if email == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "Email is required")
+	if err := core.ValidateEmail(email); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
 	// Generate token

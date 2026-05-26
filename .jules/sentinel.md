@@ -24,3 +24,8 @@
 **Vulnerability:** Similar to the 2FA authentication flow, profile operations like `DisableTOTP` and `ChangePassword` were lacking pre-execution rate limit checks on 2FA validation and password checks. This allowed brute-force attacks against a user's 2FA secret or password after they had already authenticated.
 **Learning:** Rate-limiting logic must be applied consistently to all endpoints that perform cryptographic validation of user secrets, regardless of whether it's an authentication flow or a profile settings change.
 **Prevention:** Always implement `core.IsRateLimitExceeded` before executing `totp.Validate` or `core.CheckPasswordHash`, and increment the rate limit on failure, across all relevant handlers.
+
+## 2026-05-26 - Missing Email Validation in Administrative and Invitation Flows
+**Vulnerability:** User-provided email addresses were not validated for correct format in the `CreateUser` and `UpdateUserEmail` administrative handlers, as well as in the `Create` invitation handler. This could lead to malformed data in the database and potential issues with notification emails.
+**Learning:** Validating email format is essential not only for data integrity but also for security, as it prevents the injection of malformed strings into email-related processes.
+**Prevention:** Always use a standard regular expression or a dedicated validation library to verify email formats at the handler level before processing or storing them.
