@@ -468,6 +468,12 @@ RAuth will automatically pull the secure image from GHCR, download and update th
 2. Authenticate using your `INITIAL_USER` and `INITIAL_PASSWORD`.
 3. Follow the secure prompt to register your Multi-Factor Authentication keys (Passkey / TOTP) to fully secure the admin account.
 
+### 🔀 Step 5: Configure Your Reverse Proxy (Nginx, Caddy, or Traefik)
+To start protecting your applications, configure your reverse proxy to forward user verification requests to RAuth's `/rauthvalidate` endpoint:
+- **Nginx**: See the [Nginx Integration](#-nginx-integration) section to set up the `auth_request` subrequest logic.
+- **Caddy**: See the [Caddy Integration](#-caddy-integration) section to configure Caddy's built-in `forward_auth` block.
+- **Traefik**: See the [Traefik Integration](#-traefik-integration) section to enable the `ForwardAuth` middleware layer.
+
 ---
 
 ## 💻 Development
