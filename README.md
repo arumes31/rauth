@@ -33,9 +33,15 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/github/stars/arumes31/rauth?style=social" alt="Stars">
-  <img src="https://img.shields.io/github/forks/arumes31/rauth?style=social" alt="Forks">
-  <img src="https://img.shields.io/github/issues/arumes31/rauth" alt="Issues">
+  <a href="https://github.com/arumes31/rauth/stargazers">
+    <img src="https://badgen.net/github/stars/arumes31/rauth?color=ea4335&icon=github&label=stars" alt="Stars">
+  </a>
+  <a href="https://github.com/arumes31/rauth/network/members">
+    <img src="https://badgen.net/github/forks/arumes31/rauth?color=ea4335&icon=github&label=forks" alt="Forks">
+  </a>
+  <a href="https://github.com/arumes31/rauth/issues">
+    <img src="https://badgen.net/github/open-issues/arumes31/rauth?color=ea4335&icon=github&label=issues" alt="Issues">
+  </a>
 </p>
 
 ---
