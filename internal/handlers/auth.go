@@ -76,6 +76,7 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 	if !h.Cfg.IsCountryAllowed(currentCountry) {
 		slog.Warn("Access from blocked country", "country", currentCountry, "ip", clientIP)
 		core.LogAudit("BLOCKED_COUNTRY_ACCESS", data["username"], clientIP, map[string]interface{}{"country": currentCountry})
+		core.RemoveSessionIndex(data["username"], token)
 		core.TokenDB.Del(core.Ctx, redisKey)
 		return c.NoContent(http.StatusUnauthorized)
 	}
@@ -83,6 +84,7 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 	if data["country"] != "unknown" && currentCountry != "unknown" && data["country"] != currentCountry {
 		core.LogAudit("COUNTRY_CHANGE_DETECTED", data["username"], clientIP, map[string]interface{}{"old": data["country"], "new": currentCountry, "current_ip": clientIP})
 		// Expire instant if country changes
+		core.RemoveSessionIndex(data["username"], token)
 		core.TokenDB.Del(core.Ctx, redisKey)
 		return c.NoContent(http.StatusUnauthorized)
 	}
@@ -150,6 +152,7 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 			"current_ch_model":     chModel,
 		})
 
+		core.RemoveSessionIndex(data["username"], token)
 		core.TokenDB.Del(core.Ctx, redisKey)
 		return c.NoContent(http.StatusUnauthorized)
 	}
@@ -535,6 +538,9 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 		"ua_ch_model":    c.Request().Header.Get("Sec-CH-UA-Model"),
 		"created_at":     time.Now().Unix(),
 	}).Err()
+	if err == nil {
+		core.AddSessionIndex(username, token)
+	}
 	if err != nil {
 		slog.Error("Failed to store token in Redis", "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Internal Server Error")
