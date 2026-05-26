@@ -1,8 +1,12 @@
 package core
 
 import (
+	"encoding/hex"
+	"fmt"
 	"testing"
 
+	"github.com/alicebob/miniredis/v2"
+	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -54,10 +58,56 @@ func TestInitWebAuthn(t *testing.T) {
 			err := InitWebAuthn(tt.cfg)
 			assert.NoError(t, err)
 			assert.NotNil(t, WebAuthnInstance)
-
-			// We can't directly access RPOrigins from WebAuthnInstance as it's private in some versions
-			// but we can check the config if we could.
-			// In github.com/go-webauthn/webauthn, it's public in the Config but we pass it to New.
 		})
 	}
+}
+
+func TestWebAuthnOperations(t *testing.T) {
+	s := miniredis.RunT(t)
+	cfg := &Config{
+		RedisHost: "127.0.0.1",
+		RedisPort: s.Port(),
+	}
+	InitRedis(cfg)
+
+	username := "testuser"
+	cred1 := &webauthn.Credential{ID: []byte("cred1")}
+	cred2 := &webauthn.Credential{ID: []byte("cred2")}
+
+	t.Run("SaveWebAuthnCredential", func(t *testing.T) {
+		err := SaveWebAuthnCredential(username, cred1)
+		assert.NoError(t, err)
+		err = SaveWebAuthnCredential(username, cred2)
+		assert.NoError(t, err)
+
+		creds := GetWebAuthnCredentials(username)
+		assert.Len(t, creds, 2)
+	})
+
+	t.Run("UpdateWebAuthnNickname", func(t *testing.T) {
+		credID := hex.EncodeToString(cred1.ID)
+		newNickname := "My Phone"
+		err := UpdateWebAuthnNickname(username, credID, newNickname)
+		assert.NoError(t, err)
+
+		stored := GetStoredCredentials(username)
+		found := false
+		for _, c := range stored {
+			if fmt.Sprintf("%x", c.ID) == credID {
+				assert.Equal(t, newNickname, c.Nickname)
+				found = true
+			}
+		}
+		assert.True(t, found)
+	})
+
+	t.Run("DeleteWebAuthnCredential", func(t *testing.T) {
+		credID := hex.EncodeToString(cred1.ID)
+		err := DeleteWebAuthnCredential(username, credID)
+		assert.NoError(t, err)
+
+		creds := GetWebAuthnCredentials(username)
+		assert.Len(t, creds, 1)
+		assert.Equal(t, cred2.ID, creds[0].ID)
+	})
 }
