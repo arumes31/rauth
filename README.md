@@ -337,30 +337,61 @@ RAuth is configured via Environment Variables.
 
 ---
 
-## 🚀 Deployment
+## 🚀 Deployment & Setup Guide
 
-### 🗺️ Geo-IP Setup (Required)
-RAuth requires a MaxMind GeoLite2 database for security features.
-1.  Sign up for a free account at [MaxMind](https://www.maxmind.com/en/geolite2/signup).
-2.  Generate a **License Key** from the account dashboard.
-3.  Add `MAXMIND_ACCOUNT_ID` and `MAXMIND_LICENSE_KEY` to your `.env` file.
-4.  RAuth will automatically download and update the database on startup.
+### 📋 Prerequisites
+- **Docker** and **Docker Compose** installed on your host system.
+- A registered domain name (e.g. `example.com`) with DNS records pointing to your reverse proxy.
+- An SSL Certificate (WebAuthn / Passkeys require a secure context).
 
-### Quick Start with Docker Compose
+### 🗺️ Step 1: Obtain a Free Geo-IP License (Required)
+RAuth requires MaxMind GeoLite2 databases for advanced session geo-fencing and security logs.
+1. Sign up for a free account at [MaxMind](https://www.maxmind.com/en/geolite2/signup).
+2. Create and generate a **License Key** from the account panel.
+3. Save your **Account ID** and **License Key** to use in the environment config.
 
-1.  **Clone & Prepare**:
-    ```bash
-    git clone https://github.com/arumes31/rauth.git
-    cd rauth
-    cp example.env .env
-    ```
-2.  **Configure**: Edit `.env` and provide your `SERVER_SECRET` and MaxMind credentials.
-3.  **Launch**:
-    ```bash
-    docker-compose up -d
-    ```
+### ⚙️ Step 2: Clone and Configure
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/arumes31/rauth.git
+   cd rauth
+   ```
+2. **Prepare the environment configuration file**:
+   ```bash
+   cp example.env .env
+   ```
+3. **Configure the `.env` settings**:
+   Open `.env` in an editor and set these minimum required values:
+   ```env
+   # Cryptographic Security Key (generate a random 32+ character string)
+   SERVER_SECRET=your_32char_secure_random_key_here
 
-RAuth will automatically initialize the primary admin user defined in your environment variables. Access the dashboard at `http://localhost:5980/rauthmgmt`.
+   # Domain & Cookie configurations
+   COOKIE_DOMAIN=example.com
+   ALLOWED_HOSTS=auth.example.com,app.example.com
+   PUBLIC_URL=https://auth.example.com
+
+   # Geo-IP credentials
+   MAXMIND_ACCOUNT_ID=your_maxmind_account_id
+   MAXMIND_LICENSE_KEY=your_maxmind_license_key
+
+   # Seed Administrative User
+   INITIAL_USER=admin
+   INITIAL_PASSWORD=temporary_secure_password
+   INITIAL_EMAIL=admin@example.com
+   ```
+
+### 🚢 Step 3: Launch with Docker Compose
+Run the stack in detached background mode:
+```bash
+docker-compose up -d
+```
+RAuth will automatically download and update the latest Geo-IP database, boot the Redis memory store, and seed your initial admin user.
+
+### 🔐 Step 4: Access the Admin Dashboard & Secure Account
+1. Open your browser and navigate to RAuth's administration portal at `https://auth.example.com/rauthmgmt` (or `http://localhost:5980/rauthmgmt` for local development).
+2. Authenticate using your `INITIAL_USER` and `INITIAL_PASSWORD`.
+3. Follow the secure prompt to register your Multi-Factor Authentication keys (Passkey / TOTP) to fully secure the admin account.
 
 ---
 
