@@ -365,9 +365,12 @@ func initializeSystem(cfg *core.Config) {
 	go func() {
 		for {
 			// Count active sessions
-			if keys, err := core.TokenDB.Keys(core.Ctx, "X-rauth-authtoken=*").Result(); err == nil {
-				core.ActiveSessionsGauge.Set(float64(len(keys)))
+			var count int64
+			iter := core.TokenDB.Scan(core.Ctx, 0, "X-rauth-authtoken=*", 0).Iterator()
+			for iter.Next(core.Ctx) {
+				count++
 			}
+			core.ActiveSessionsGauge.Set(float64(count))
 			time.Sleep(1 * time.Minute)
 		}
 	}()

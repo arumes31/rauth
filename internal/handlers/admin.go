@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"rauth/internal/core"
 	"strings"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/labstack/echo/v4"
 )
