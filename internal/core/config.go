@@ -135,6 +135,9 @@ func (c *Config) IsAllowedHost(host string) bool {
 		var h string
 		if err == nil {
 			h = parsed.Hostname()
+			if h == "" {
+				h = o
+			}
 		} else {
 			h = o
 		}

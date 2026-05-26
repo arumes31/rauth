@@ -91,7 +91,7 @@ func TestWebAuthnCredentialManagement(t *testing.T) {
 	assert.True(t, found)
 
 	// Test Last Used Update
-	UpdateWebAuthnLastUsed(username, c2.ID)
+	assert.NoError(t, UpdateWebAuthnLastUsed(username, c2.ID))
 	stored = GetStoredCredentials(username)
 	for _, sc := range stored {
 		if fmt.Sprintf("%x", sc.ID) == fmt.Sprintf("%x", c2.ID) {
@@ -102,7 +102,7 @@ func TestWebAuthnCredentialManagement(t *testing.T) {
 	// Test Credential Update
 	c2Updated := *c2
 	c2Updated.Authenticator.SignCount = 100
-	UpdateWebAuthnCredential(username, &c2Updated)
+	assert.NoError(t, UpdateWebAuthnCredential(username, &c2Updated))
 	creds = GetWebAuthnCredentials(username)
 	found = false
 	for _, c := range creds {
