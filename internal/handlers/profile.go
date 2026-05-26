@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"github.com/redis/go-redis/v9"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -24,29 +25,40 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to load profile")
 	}
 
-	// Fetch sessions for this user
-	keys, err := core.TokenDB.Keys(core.Ctx, "X-rauth-authtoken=*").Result()
+	// Fetch sessions for this user efficiently
+	tokens, err := core.TokenDB.SMembers(core.Ctx, "user_sessions:"+username).Result()
 	if err != nil {
 		slog.Error("Failed to fetch sessions from Redis", "error", err)
 	}
 
 	var sessions []map[string]string
-	for _, k := range keys {
-		data, err := core.TokenDB.HGetAll(core.Ctx, k).Result()
-		if err != nil {
+	pipe := core.TokenDB.Pipeline()
+	cmds := make(map[string]*redis.MapStringStringCmd)
+	ttlCmds := make(map[string]*redis.DurationCmd)
+
+	for _, token := range tokens {
+		redisKey := "X-rauth-authtoken=" + token
+		cmds[token] = pipe.HGetAll(core.Ctx, redisKey)
+		ttlCmds[token] = pipe.TTL(core.Ctx, redisKey)
+	}
+	if _, err := pipe.Exec(core.Ctx); err != nil {
+		slog.Error("Failed to execute session details pipeline", "error", err)
+	}
+
+	for _, token := range tokens {
+		data, err := cmds[token].Result()
+		if err != nil || len(data) == 0 {
 			continue
 		}
-		if data["username"] == username {
-			token := k[18:] // Remove prefix "X-rauth-authtoken="
-			data["token"] = token
-			data["is_current"] = "0"
-			if token == currentToken {
-				data["is_current"] = "1"
-			}
-			data["ttl"] = fmt.Sprintf("%d", int(core.TokenDB.TTL(core.Ctx, k).Val().Seconds()))
-			data["friendly_ua"] = core.FormatUserAgent(data["user_agent"])
-			sessions = append(sessions, data)
+		data["token"] = token
+		data["is_current"] = "0"
+		if token == currentToken {
+			data["is_current"] = "1"
 		}
+		ttl := ttlCmds[token].Val()
+		data["ttl"] = fmt.Sprintf("%d", int(ttl.Seconds()))
+		data["friendly_ua"] = core.FormatUserAgent(data["user_agent"])
+		sessions = append(sessions, data)
 	}
 
 	// Personal Logs
@@ -167,6 +179,7 @@ func (h *ProfileHandler) TerminateSession(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusForbidden, "You can only terminate your own sessions")
 	}
 
+	core.RemoveSessionIndex(username, token)
 	core.TokenDB.Del(core.Ctx, redisKey)
 	core.LogAudit("USER_TERMINATE_SESSION", username, c.RealIP(), map[string]interface{}{"token": token[:8] + "..."})
 

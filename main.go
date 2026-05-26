@@ -305,6 +305,9 @@ func setupRoutes(e *echo.Echo, cfg *core.Config) {
 	protected.POST("/logout", func(c echo.Context) error {
 		// Get token from context (set by AuthMiddleware)
 		if token, ok := c.Get("token").(string); ok {
+			if username, ok := c.Get("username").(string); ok {
+				core.RemoveSessionIndex(username, token)
+			}
 			core.TokenDB.Del(core.Ctx, "X-rauth-authtoken="+token)
 		}
 

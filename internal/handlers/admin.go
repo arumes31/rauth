@@ -21,23 +21,32 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 		slog.Error("Failed to list users", "error", err)
 	}
 
-	// Fetch sessions
-	keys, err := core.TokenDB.Keys(core.Ctx, "X-rauth-authtoken=*").Result()
-	if err != nil {
-		slog.Error("Failed to fetch sessions from Redis", "error", err)
-	}
-
+	// Fetch sessions efficiently using SCAN
 	var sessions []map[string]string
-	for _, k := range keys {
-		data, err := core.TokenDB.HGetAll(core.Ctx, k).Result()
+	var cursor uint64
+	for {
+		keys, nextCursor, err := core.TokenDB.Scan(core.Ctx, cursor, "X-rauth-authtoken=*", 100).Result()
 		if err != nil {
-			continue
+			slog.Error("Failed to fetch sessions from Redis", "error", err)
+			break
 		}
-		data["token"] = k[18:] // Remove prefix "X-rauth-authtoken="
-		data["ttl"] = fmt.Sprintf("%d", int(core.TokenDB.TTL(core.Ctx, k).Val().Seconds()))
-		data["friendly_ua"] = core.FormatUserAgent(data["user_agent"])
-		data["device_icon"] = core.GetDeviceIcon(data["user_agent"])
-		sessions = append(sessions, data)
+
+		for _, k := range keys {
+			data, err := core.TokenDB.HGetAll(core.Ctx, k).Result()
+			if err != nil {
+				continue
+			}
+			data["token"] = k[18:] // Remove prefix "X-rauth-authtoken="
+			data["ttl"] = fmt.Sprintf("%d", int(core.TokenDB.TTL(core.Ctx, k).Val().Seconds()))
+			data["friendly_ua"] = core.FormatUserAgent(data["user_agent"])
+			data["device_icon"] = core.GetDeviceIcon(data["user_agent"])
+			sessions = append(sessions, data)
+		}
+
+		cursor = nextCursor
+		if cursor == 0 {
+			break
+		}
 	}
 
 	// Fetch Audit Logs
@@ -205,20 +214,25 @@ func (h *AdminHandler) InvalidateSession(c echo.Context) error {
 	}
 	admin := c.Get("username").(string)
 
-	if err := core.TokenDB.Del(core.Ctx, "X-rauth-authtoken="+token).Err(); err != nil {
+	redisKey := "X-rauth-authtoken=" + token
+	data, err := core.TokenDB.HGetAll(core.Ctx, redisKey).Result()
+	if err == nil && len(data) > 0 {
+		if username, ok := data["username"]; ok {
+			core.RemoveSessionIndex(username, token)
+		}
+	}
+
+	if err := core.TokenDB.Del(core.Ctx, redisKey).Err(); err != nil {
 		slog.Error("Failed to invalidate session", "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to invalidate session")
 	}
 
-		slog.Info("Session invalidated by admin", "admin", admin)
-
-		logToken := token
-
-		if len(token) > 8 { logToken = token[:8] + "..." }
-
-		core.LogAudit("ADMIN_INVALIDATE_SESSION", admin, c.RealIP(), map[string]interface{}{"token": logToken})
-
-		return c.Redirect(http.StatusFound, "/rauthmgmt?success=session_terminated")
-
+	slog.Info("Session invalidated by admin", "admin", admin)
+	logToken := token
+	if len(token) > 8 {
+		logToken = token[:8] + "..."
 	}
+	core.LogAudit("ADMIN_INVALIDATE_SESSION", admin, c.RealIP(), map[string]interface{}{"token": logToken})
+	return c.Redirect(http.StatusFound, "/rauthmgmt?success=session_terminated")
+}
 

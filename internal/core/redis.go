@@ -1,6 +1,7 @@
 package core
 
 import (
+	"log/slog"
 	"context"
 	"fmt"
 	"time"
@@ -47,50 +48,75 @@ func InitRedis(cfg *Config) error {
 }
 
 func InvalidateUserSessions(username string) {
-	keys, err := TokenDB.Keys(Ctx, "X-rauth-authtoken=*").Result()
+	indexKey := "user_sessions:" + username
+	tokens, err := TokenDB.SMembers(Ctx, indexKey).Result()
 	if err != nil {
 		return
 	}
 
-	for _, k := range keys {
-		data, err := TokenDB.HGetAll(Ctx, k).Result()
-		if err == nil && data["username"] == username {
-			TokenDB.Del(Ctx, k)
-		}
+	if len(tokens) == 0 {
+		return
+	}
+
+	pipe := TokenDB.Pipeline()
+	for _, token := range tokens {
+		pipe.Del(Ctx, "X-rauth-authtoken="+token)
+	}
+	pipe.Del(Ctx, indexKey)
+	if _, err := pipe.Exec(Ctx); err != nil {
+		slog.Error("Failed to execute InvalidateUserSessions pipeline", "error", err)
 	}
 }
 
 func InvalidateOtherUserSessions(username, currentToken string) {
-	keys, err := TokenDB.Keys(Ctx, "X-rauth-authtoken=*").Result()
+	indexKey := "user_sessions:" + username
+	tokens, err := TokenDB.SMembers(Ctx, indexKey).Result()
 	if err != nil {
 		return
 	}
 
-	for _, k := range keys {
-		token := k[18:] // Remove prefix "X-rauth-authtoken="
+	pipe := TokenDB.Pipeline()
+	for _, token := range tokens {
 		if token == currentToken {
 			continue
 		}
-		data, err := TokenDB.HGetAll(Ctx, k).Result()
-		if err == nil && data["username"] == username {
-			TokenDB.Del(Ctx, k)
-		}
+		pipe.Del(Ctx, "X-rauth-authtoken="+token)
+		pipe.SRem(Ctx, indexKey, token)
+	}
+	if _, err := pipe.Exec(Ctx); err != nil {
+		slog.Error("Failed to execute InvalidateOtherUserSessions pipeline", "error", err)
 	}
 }
 
 func HasActiveSessions(ip string) bool {
-	keys, err := TokenDB.Keys(Ctx, "X-rauth-authtoken=*").Result()
-	if err != nil {
-		return false
-	}
+	var cursor uint64
+	for {
+		keys, nextCursor, err := TokenDB.Scan(Ctx, cursor, "X-rauth-authtoken=*", 100).Result()
+		if err != nil {
+			return false
+		}
 
-	for _, k := range keys {
-		data, err := TokenDB.HGetAll(Ctx, k).Result()
-		if err == nil && data["ip"] == ip && data["status"] == "valid" {
-			return true
+		for _, k := range keys {
+			data, err := TokenDB.HGetAll(Ctx, k).Result()
+			if err == nil && data["ip"] == ip && data["status"] == "valid" {
+				return true
+			}
+		}
+
+		cursor = nextCursor
+		if cursor == 0 {
+			break
 		}
 	}
 	return false
+}
+
+func AddSessionIndex(username, token string) {
+	TokenDB.SAdd(Ctx, "user_sessions:"+username, token)
+}
+
+func RemoveSessionIndex(username, token string) {
+	TokenDB.SRem(Ctx, "user_sessions:"+username, token)
 }
 
 func copyOptions(base *redis.Options, db int) *redis.Options {
