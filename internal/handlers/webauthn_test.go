@@ -19,6 +19,7 @@ func TestWebAuthnHandlers(t *testing.T) {
 
 	core.TokenDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
 	core.UserDB = core.TokenDB
+	core.RateLimitDB = core.TokenDB
 
 	cfg := &core.Config{
 		CookieDomains: []string{"localhost"},
