@@ -371,6 +371,21 @@ A: Ensure RAuth and Redis are on the same Docker network. If using the default C
 **Q: How do I resolve "SMTP connection timed out" or authentication errors for security emails?**  
 A: Ensure RAuth's container can reach the SMTP host (check DNS and outbound firewall rules). Common ports are `587` (StartTLS) or `465` (SSL). Verify `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, and `SMTP_PASS` are set correctly.
 
+---
+
+### 🔑 Recovery, Metrics, & Local Testing
+**Q: How do I recover if the administrator loses their 2FA / TOTP key or gets locked out?**  
+A: You can easily boot RAuth in a recovery mode. Set `INITIAL_USER`, `INITIAL_PASSWORD`, and `INITIAL_EMAIL` environment variables inside your `.env` file and restart the container. On startup, RAuth automatically verifies if the admin credentials are valid or updates them. Alternatively, if you have access to your Redis CLI, you can manually delete the admin's WebAuthn key using:
+```bash
+redis-cli DEL user:admin:webauthn_creds
+```
+
+**Q: Why is Prometheus unable to scrape metrics from the `/metrics` endpoint?**  
+A: By default, RAuth restricts metrics access to localhost and private network CIDR blocks for security. If your Prometheus instance runs on an external network, add its IP address or subnet range to the `METRICS_ALLOWED_IPS` environment variable (e.g. `METRICS_ALLOWED_IPS=127.0.0.1,192.168.1.150`).
+
+**Q: Why is the authentication cookie not saving when testing in local non-HTTPS development?**  
+A: Modern browsers enforce the `Secure` attribute on cookies and block them over unencrypted HTTP links. However, browsers treat `localhost` and `127.0.0.1` as secure contexts even over plain HTTP. For local testing without SSL, ensure your browser URL points to `http://localhost:5980` instead of a custom local domain (e.g. `http://auth.local`) or configure an SSL reverse proxy.
+
 </details>
 
 ---
