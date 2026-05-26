@@ -79,3 +79,24 @@ func TestIsAllowedHost(t *testing.T) {
 		}
 	}
 }
+
+func TestIsCountryAllowed(t *testing.T) {
+	tests := []struct {
+		allowed  []string
+		country  string
+		expected bool
+	}{
+		{[]string{}, "US", true},           // No restriction if empty
+		{[]string{"US", "GB"}, "US", true}, // Exact match
+		{[]string{"US", "GB"}, "gb", true}, // Case-insensitive match
+		{[]string{"US", "GB"}, "FR", false}, // No match
+		{[]string{"US", "GB"}, "", false},   // Empty input
+	}
+
+	for _, tt := range tests {
+		cfg := &Config{AllowedCountries: tt.allowed}
+		if got := cfg.IsCountryAllowed(tt.country); got != tt.expected {
+			t.Errorf("IsCountryAllowed(%s) with allowed %v = %v; want %v", tt.country, tt.allowed, got, tt.expected)
+		}
+	}
+}
