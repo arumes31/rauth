@@ -24,3 +24,7 @@
 **Vulnerability:** Similar to the 2FA authentication flow, profile operations like `DisableTOTP` and `ChangePassword` were lacking pre-execution rate limit checks on 2FA validation and password checks. This allowed brute-force attacks against a user's 2FA secret or password after they had already authenticated.
 **Learning:** Rate-limiting logic must be applied consistently to all endpoints that perform cryptographic validation of user secrets, regardless of whether it's an authentication flow or a profile settings change.
 **Prevention:** Always implement `core.IsRateLimitExceeded` before executing `totp.Validate` or `core.CheckPasswordHash`, and increment the rate limit on failure, across all relevant handlers.
+## 2026-05-26 - [Refactor FinishLogin]
+**Vulnerability:** N/A (Code Refactoring)
+**Learning:** Refactoring long handlers into smaller, private helper methods improves readability and maintainability without breaking functionality. Initializing all required mock databases in tests prevents nil pointer dereferences.
+**Prevention:** Follow modular coding patterns and ensure test environments accurately reflect production configurations.

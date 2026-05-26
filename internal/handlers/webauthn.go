@@ -140,24 +140,9 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusTooManyRequests, fmt.Sprintf("Too many login attempts from this IP (%s)", clientIP))
 	}
 
-	cookie, err := c.Cookie("rauth_webauthn_session")
+	sessionData, err := h.getWebAuthnLoginSession(c)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "Session expired or invalid")
-	}
-	sessionID := cookie.Value
-	redisKey := "webauthn_login_session:" + sessionID
-
-	sessionJSON, err := core.TokenDB.Get(core.Ctx, redisKey).Result()
-	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "Session expired or invalid")
-	}
-
-	// Clean up session immediately after retrieval (one-time use)
-	core.TokenDB.Del(core.Ctx, redisKey)
-
-	var sessionData webauthn.SessionData
-	if err := json.Unmarshal([]byte(sessionJSON), &sessionData); err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to parse session data")
+		return err
 	}
 
 	parsedResponse, err := protocol.ParseCredentialRequestResponse(c.Request())
@@ -165,7 +150,65 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "Invalid assertion response")
 	}
 
-	// Identify user
+	username, userID, userRecord, err := h.identifyWebAuthnUser(c, parsedResponse)
+	if err != nil {
+		return err
+	}
+
+	// Create user object for validation.
+	// CRITICAL: The ID must match what the authenticator thinks it is (userID)
+	user := &core.WebAuthnUser{
+		ID:          userID,
+		DisplayName: userRecord.Username,
+		Credentials: core.GetWebAuthnCredentials(userRecord.Username),
+	}
+
+	// Sync sessionData.UserID with the identified userID to satisfy go-webauthn's internal checks.
+	// This prevents "ID mismatch for User and Session".
+	sessionData.UserID = userID
+
+	credential, err := core.WebAuthnInstance.ValidateLogin(user, *sessionData, parsedResponse)
+	if err != nil {
+		slog.Error("WebAuthn validation failed", "error", err, "username", username)
+		return echo.NewHTTPError(http.StatusUnauthorized, "Passkey validation failed: "+err.Error())
+	}
+
+	// Update credential sign count
+	core.UpdateWebAuthnSignCount(username, credential.ID, credential.Authenticator.SignCount)
+
+	if err := h.issuePasskeyToken(c, username, userRecord); err != nil {
+		return err
+	}
+
+	redirect := core.ValidateRedirectURL(c.QueryParam("rd"), "/rauthprofile", username, h.Cfg)
+
+	return c.JSON(http.StatusOK, map[string]string{"redirect": redirect})
+}
+
+func (h *WebAuthnHandler) getWebAuthnLoginSession(c echo.Context) (*webauthn.SessionData, error) {
+	cookie, err := c.Cookie("rauth_webauthn_session")
+	if err != nil {
+		return nil, echo.NewHTTPError(http.StatusBadRequest, "Session expired or invalid")
+	}
+	sessionID := cookie.Value
+	redisKey := "webauthn_login_session:" + sessionID
+
+	sessionJSON, err := core.TokenDB.Get(core.Ctx, redisKey).Result()
+	if err != nil {
+		return nil, echo.NewHTTPError(http.StatusBadRequest, "Session expired or invalid")
+	}
+
+	// Clean up session immediately after retrieval (one-time use)
+	core.TokenDB.Del(core.Ctx, redisKey)
+
+	var sessionData webauthn.SessionData
+	if err := json.Unmarshal([]byte(sessionJSON), &sessionData); err != nil {
+		return nil, echo.NewHTTPError(http.StatusInternalServerError, "Failed to parse session data")
+	}
+	return &sessionData, nil
+}
+
+func (h *WebAuthnHandler) identifyWebAuthnUser(c echo.Context, parsedResponse *protocol.ParsedCredentialAssertionData) (string, []byte, *core.User, error) {
 	var username string
 	var userID []byte
 	usernameParam := c.QueryParam("username")
@@ -206,12 +249,12 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 
 	if username == "" {
 		slog.Warn("Could not identify user from passkey", "userHandle", fmt.Sprintf("%x", parsedResponse.Response.UserHandle), "usernameParam", usernameParam)
-		return echo.NewHTTPError(http.StatusBadRequest, "Could not identify user from passkey")
+		return "", nil, nil, echo.NewHTTPError(http.StatusBadRequest, "Could not identify user from passkey")
 	}
 
 	userRecord, err := core.GetUser(username)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "User not found")
+		return "", nil, nil, echo.NewHTTPError(http.StatusBadRequest, "User not found")
 	}
 
 	// If the authenticator didn't provide a handle, use the record's UID
@@ -219,28 +262,11 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 		userID = []byte(userRecord.UID)
 	}
 
-	// Create user object for validation.
-	// CRITICAL: The ID must match what the authenticator thinks it is (userID)
-	user := &core.WebAuthnUser{
-		ID:          userID,
-		DisplayName: userRecord.Username,
-		Credentials: core.GetWebAuthnCredentials(userRecord.Username),
-	}
+	return username, userID, &userRecord, nil
+}
 
-	// Sync sessionData.UserID with the identified userID to satisfy go-webauthn's internal checks.
-	// This prevents "ID mismatch for User and Session".
-	sessionData.UserID = userID
-
-	credential, err := core.WebAuthnInstance.ValidateLogin(user, sessionData, parsedResponse)
-	if err != nil {
-		slog.Error("WebAuthn validation failed", "error", err, "username", username)
-		return echo.NewHTTPError(http.StatusUnauthorized, "Passkey validation failed: "+err.Error())
-	}
-
-	// Update credential sign count
-	core.UpdateWebAuthnSignCount(username, credential.ID, credential.Authenticator.SignCount)
-
-	// Issue session
+func (h *WebAuthnHandler) issuePasskeyToken(c echo.Context, username string, userRecord *core.User) error {
+	clientIP := c.RealIP()
 	ua := c.Request().UserAgent()
 	token := core.GenerateRandomString(32)
 
@@ -249,6 +275,12 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to encrypt token")
 	}
 	countryCode := core.GetCountryCode(clientIP)
+
+	if !h.Cfg.IsCountryAllowed(countryCode) {
+		slog.Warn("Passkey login attempt from blocked country", "country", countryCode, "ip", clientIP, "user", username)
+		core.LogAudit("BLOCKED_COUNTRY_PASSKEY_LOGIN_ATTEMPT", username, clientIP, map[string]interface{}{"country": countryCode})
+		return echo.NewHTTPError(http.StatusForbidden, "Access from your location is restricted")
+	}
 
 	finalRedisKey := "X-rauth-authtoken=" + token
 	core.TokenDB.HSet(core.Ctx, finalRedisKey, map[string]interface{}{
@@ -263,7 +295,7 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 	tokenValidity := time.Duration(h.Cfg.TokenValidityMinutes) * time.Minute
 	core.TokenDB.Expire(core.Ctx, finalRedisKey, tokenValidity)
 
-	cookie = &http.Cookie{
+	cookie := &http.Cookie{
 		Name:     "X-rauth-authtoken",
 		Value:    encryptedToken,
 		Path:     "/",
@@ -293,7 +325,5 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 		MaxAge:   -1,
 	})
 
-	redirect := core.ValidateRedirectURL(c.QueryParam("rd"), "/rauthprofile", username, h.Cfg)
-
-	return c.JSON(http.StatusOK, map[string]string{"redirect": redirect})
+	return nil
 }
