@@ -33,7 +33,7 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 	for _, k := range keys {
 		cmds[k] = pipe.HGetAll(core.Ctx, k)
 	}
-	pipe.Exec(core.Ctx)
+	_, _ = pipe.Exec(core.Ctx)
 
 	var sessions []map[string]string
 	for _, k := range keys {

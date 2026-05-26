@@ -27,12 +27,15 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 
 	// Fetch sessions for this user
 	keys, err := core.TokenDB.SMembers(core.Ctx, "user_sessions:"+username).Result()
+	if err != nil {
+		slog.Error("Failed to fetch sessions from Redis", "error", err)
+	}
 	pipe := core.TokenDB.Pipeline()
 	cmds := make(map[string]*redis.MapStringStringCmd)
 	for _, k := range keys {
 		cmds[k] = pipe.HGetAll(core.Ctx, k)
 	}
-	pipe.Exec(core.Ctx)
+	_, _ = pipe.Exec(core.Ctx)
 
 	var sessions []map[string]string
 	for _, k := range keys {

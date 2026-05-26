@@ -57,7 +57,7 @@ func InvalidateUserSessions(username string) {
 		pipe.Del(Ctx, k)
 	}
 	pipe.Del(Ctx, "user_sessions:"+username)
-	pipe.Exec(Ctx)
+	_, _ = pipe.Exec(Ctx)
 }
 
 func InvalidateOtherUserSessions(username, currentToken string) {
@@ -74,7 +74,7 @@ func InvalidateOtherUserSessions(username, currentToken string) {
 		pipe.Del(Ctx, k)
 		pipe.SRem(Ctx, "user_sessions:"+username, k)
 	}
-	pipe.Exec(Ctx)
+	_, _ = pipe.Exec(Ctx)
 }
 
 func HasActiveSessions(ip string) bool {
