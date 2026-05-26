@@ -65,10 +65,10 @@ func (c *GeoLRUCache) Put(key, value string) {
 }
 
 var (
-	GeoCache     = NewGeoLRUCache(1000)
-	geoReader    *geoip2.Reader
-	geoLock      sync.RWMutex
-	once         sync.Once
+	GeoCache  = NewGeoLRUCache(1000)
+	geoReader *geoip2.Reader
+	geoLock   sync.RWMutex
+	once      sync.Once
 
 	// For testing
 	geoUpdateFunc = UpdateGeoDB

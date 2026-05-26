@@ -44,8 +44,8 @@ func TestUpdateGeoDB_ConfigGeneration(t *testing.T) {
 
 	dbPath := filepath.Join(tempDir, "GeoLite2-Country.mmdb")
 	cfg := &Config{
-		MaxMindDBPath:    dbPath,
-		MaxMindAccountID: "test-id",
+		MaxMindDBPath:     dbPath,
+		MaxMindAccountID:  "test-id",
 		MaxMindLicenseKey: "test-key",
 		MaxMindEditionIDs: "test-edition",
 	}
