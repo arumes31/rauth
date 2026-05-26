@@ -145,7 +145,7 @@ RAuth is built with a "Security-First" mindset, implementing advanced system-wid
 
 ## 📦 Technical Stack
 
-*   **Runtime**: [Go 1.24+](https://golang.org/) (High-concurrency, memory-safe)
+*   **Runtime**: [Go 1.26+](https://golang.org/) (High-concurrency, memory-safe)
 *   **Web Framework**: [Echo v4](https://echo.labstack.com/)
 *   **Identity Store**: [Redis 8.0+](https://redis.io/)
 *   **MFA Core**: [go-webauthn](https://github.com/go-webauthn/webauthn) & [pquerna/otp](https://github.com/pquerna/otp)
@@ -318,7 +318,7 @@ RAuth will automatically initialize the primary admin user defined in your envir
 ## 💻 Development
 
 ### Prerequisites
-*   Go 1.24+
+*   Go 1.26+
 *   Redis (or [miniredis](https://github.com/alicebob/miniredis) for testing)
 
 ### Testing
@@ -334,17 +334,59 @@ go test -v ./...
 <details>
   <summary>❓ <b>View Troubleshooting FAQ Solutions</b></summary>
 
+### 🌐 Session & Cookie Routing
 **Q: Why am I stuck in a 401 Redirect Loop?**  
-A: This usually happens when the `COOKIE_DOMAIN` in RAuth doesn't match the domain of the app you are protecting. Ensure the cookie can be shared across subdomains.
+A: This usually happens when the `COOKIE_DOMAIN` in RAuth doesn't match the domain of the application you are protecting. Ensure the cookie domain is set to a common root domain (e.g. `example.com`) to allow cookie sharing across subdomains (e.g. `app1.example.com` and `auth.example.com`).
 
 **Q: Why is my session immediately invalidated when using a tablet or rotating my device?**  
 A: Large tablets (like the Samsung Galaxy Tab series) default to requesting the "Desktop site" (spoofing a desktop Linux UA) but dynamically switch back to a mobile UA when rotated, resized in split-screen/pop-up views, or during background/Service-Worker requests. Using **User-Agent Client Hints (UA-CH)** under secure contexts (HTTPS) and the lenient browser-engine fallback for other browsers (like Safari/Firefox) and non-secure contexts reduce false invalidations but cannot eliminate them across all device mode, rotation, split-screen, or background/request context changes.
 
+---
+
+### 🔑 Passkeys & WebAuthn
+**Q: WebAuthn/Passkey registration fails or gets rejected?**  
+A: WebAuthn requires a secure origin (HTTPS or `localhost` for development). Ensure your Nginx proxy is serving over SSL and forwarding the correct host headers (`proxy_set_header Host $host;`). Additionally, check that `WEBAUTHN_ORIGINS` is configured with the exact origin scheme and port (e.g., `https://auth.example.com`).
+
+**Q: How do I resolve signature counter/verification mismatches?**  
+A: This can happen if the hardware key was cloned or the local state fell out of sync. For security reasons, RAuth detects this as a potential clone attack. Reset the user's WebAuthn key in the administrative dashboard to register the device afresh.
+
+---
+
+### 🛡️ Geo-IP & Blocking Policies
+**Q: Why am I getting "403 Forbidden" geo-blocking errors for legitimate requests?**  
+A: This happens if the user's IP address maps to an unlisted country, or the local MaxMind database is stale or missing. Verify that `MAXMIND_ACCOUNT_ID` and `MAXMIND_LICENSE_KEY` are correct, check container logs for geo-download status, or adjust the `ALLOWED_COUNTRIES` environment variable.
+
+**Q: Why are active sessions not displaying the correct client IP addresses in the admin audits?**  
+A: Nginx is likely not propagating the user's real IP address to the RAuth validation subrequest. Ensure your Nginx configuration passes `proxy_set_header X-Real-IP $remote_addr;` and `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;` to RAuth.
+
+---
+
+### ⚡ Infrastructure & Networking
+**Q: Why are users experiencing "Rate Limit Exceeded" blockages during normal dashboard use?**  
+A: The default session validation threshold might be too aggressive for heavy single-page apps making hundreds of concurrent resource subrequests. Increase `RATE_LIMIT_VALIDATE_MAX` (e.g. to `5000`) or adjust the decay window `RATE_LIMIT_VALIDATE_DECAY` to accommodate high-volume internal reverse-proxied traffic.
+
 **Q: "Redis connection refused" in Docker?**  
 A: Ensure RAuth and Redis are on the same Docker network. If using the default Compose file, use `REDIS_HOST=rauth-auth-redis`.
 
-**Q: WebAuthn/Passkey registration fails?**  
-A: WebAuthn requires HTTPS (or `localhost` for development). Ensure your Nginx proxy is serving over SSL and forwarding the correct `Host` headers.
+**Q: How do I resolve "SMTP connection timed out" or authentication errors for security emails?**  
+A: Ensure RAuth's container can reach the SMTP host (check DNS and outbound firewall rules). Common ports are `587` (StartTLS) or `465` (SSL). Verify `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, and `SMTP_PASS` are set correctly.
+
+---
+
+### 🔑 Recovery, Metrics, & Local Testing
+**Q: How do I recover if the administrator loses their 2FA / TOTP key or gets locked out?**  
+A: You can easily boot RAuth in a recovery mode. Set `INITIAL_USER`, `INITIAL_PASSWORD`, and `INITIAL_EMAIL` environment variables inside your `.env` file and restart the container. On startup, RAuth automatically verifies if the admin credentials are valid or updates them. Alternatively, if you have access to your Redis CLI, you can manually delete the admin's WebAuthn key using:
+```bash
+redis-cli DEL user:admin:webauthn_creds
+```
+
+**Q: Why is Prometheus unable to scrape metrics from the `/metrics` endpoint?**  
+A: By default, RAuth restricts metrics access to localhost and private network CIDR blocks for security. If your Prometheus instance runs on an external network, add its IP address or subnet range to the `METRICS_ALLOWED_IPS` environment variable (e.g. `METRICS_ALLOWED_IPS=127.0.0.1,192.168.1.150`).
+
+**Q: Why is the authentication cookie not saving when testing in local non-HTTPS development?**  
+A: Modern browsers enforce the `Secure` attribute on cookies and block them over unencrypted HTTP links. However, browsers treat `localhost` and `127.0.0.1` as secure contexts even over plain HTTP. For local testing without SSL, ensure your browser URL points to `http://localhost:5980` instead of a custom local domain (e.g. `http://auth.local`) or configure an SSL reverse proxy.
+
+</details>
 
 </details>
 
