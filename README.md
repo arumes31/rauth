@@ -19,16 +19,16 @@
 
 <p align="center">
   <a href="https://github.com/arumes31/rauth/actions/workflows/tests.yml">
-    <img src="https://github.com/arumes31/rauth/actions/workflows/tests.yml/badge.svg?branch=v2_test" alt="Tests Status">
+    <img src="https://github.com/arumes31/rauth/actions/workflows/tests.yml/badge.svg?branch=main" alt="Tests Status">
   </a>
   <a href="https://github.com/arumes31/rauth/actions/workflows/build.yml">
-    <img src="https://github.com/arumes31/rauth/actions/workflows/build.yml/badge.svg?branch=v2_test" alt="Build Status">
+    <img src="https://github.com/arumes31/rauth/actions/workflows/build.yml/badge.svg?branch=main" alt="Build Status">
   </a>
   <a href="https://github.com/arumes31/rauth/actions/workflows/go-security.yml">
-    <img src="https://github.com/arumes31/rauth/actions/workflows/go-security.yml/badge.svg?branch=v2_test" alt="gsec, govul, godep,">
+    <img src="https://github.com/arumes31/rauth/actions/workflows/go-security.yml/badge.svg?branch=main" alt="gsec, govul, godep,">
   </a>
   <a href="https://github.com/arumes31/rauth/actions/workflows/security.yml">
-    <img src="https://github.com/arumes31/rauth/actions/workflows/security.yml/badge.svg?branch=v2_test" alt="Container Scan">
+    <img src="https://github.com/arumes31/rauth/actions/workflows/security.yml/badge.svg?branch=main" alt="Container Scan">
   </a>
 </p>
 
