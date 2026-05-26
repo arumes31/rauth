@@ -572,7 +572,6 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Internal Server Error")
 	}
 
-	core.AddSessionToIndex(username, redisKey)
 	validity := time.Duration(h.Cfg.TokenValidityMinutes) * time.Minute
 	core.TokenDB.Expire(core.Ctx, redisKey, validity)
 
