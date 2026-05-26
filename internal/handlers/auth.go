@@ -76,6 +76,7 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 	if !h.Cfg.IsCountryAllowed(currentCountry) {
 		slog.Warn("Access from blocked country", "country", currentCountry, "ip", clientIP)
 		core.LogAudit("BLOCKED_COUNTRY_ACCESS", data["username"], clientIP, map[string]interface{}{"country": currentCountry})
+		core.RemoveSessionIndex(data["username"], token)
 		core.TokenDB.Del(core.Ctx, redisKey)
 		return c.NoContent(http.StatusUnauthorized)
 	}
@@ -83,6 +84,7 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 	if data["country"] != "unknown" && currentCountry != "unknown" && data["country"] != currentCountry {
 		core.LogAudit("COUNTRY_CHANGE_DETECTED", data["username"], clientIP, map[string]interface{}{"old": data["country"], "new": currentCountry, "current_ip": clientIP})
 		// Expire instant if country changes
+		core.RemoveSessionIndex(data["username"], token)
 		core.TokenDB.Del(core.Ctx, redisKey)
 		return c.NoContent(http.StatusUnauthorized)
 	}
@@ -147,9 +149,10 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 			"stored_ch_platform":  storedPlatform,
 			"current_ch_platform": chPlatform,
 			"stored_ch_model":     storedModel,
-			"current_ch_model":     chModel,
+			"current_ch_model":    chModel,
 		})
 
+		core.RemoveSessionIndex(data["username"], token)
 		core.TokenDB.Del(core.Ctx, redisKey)
 		return c.NoContent(http.StatusUnauthorized)
 	}
@@ -182,8 +185,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	clientIP := c.RealIP()
 	slog.Debug("Login attempt", "ip", clientIP, "method", c.Request().Method)
 
-	// 1. Basic IP Throttling for ALL requests (GET/POST) - Very high limit to prevent DoS
-	// Using a separate key for general access to avoid blocking legitimate users.
+	// 1. Basic IP Throttling for ALL requests (GET/POST)
 	if !core.CheckRateLimit("login_access:"+clientIP, h.Cfg.RateLimitLoginAccessMax, h.Cfg.RateLimitLoginAccessDecay) {
 		slog.Warn("General login access rate limit exceeded", "ip", clientIP)
 		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many requests. Please wait a minute.", "csrf": c.Get("csrf")})
@@ -205,15 +207,43 @@ func (h *AuthHandler) Login(c echo.Context) error {
 
 	username := strings.TrimSpace(c.FormValue("username"))
 
-	// 3. Per-User Throttling (Single account brute force protection)
+	// 3. Per-User Throttling
+	if throttled, err := h.checkUserThrottling(c, username); throttled {
+		return err
+	}
+
+	password := c.FormValue("password")
+	userRecord, valid := h.verifyCredentials(username, password)
+
+	if !valid {
+		return h.handleAuthFailure(c, username)
+	}
+
+	// Success! Reset per-user penalties
+	core.ResetRateLimit("login_fail_user:" + username)
+	core.ResetRateLimit("login_post_ip:" + clientIP)
+
+	// Check if 2FA is enabled
+	if userRecord.TwoFactor != "" {
+		return h.initiate2FASession(c, username)
+	}
+
+	// Force 2FA Setup for new users (or users without 2FA)
+	return h.initiate2FASetupSession(c, username)
+}
+
+func (h *AuthHandler) checkUserThrottling(c echo.Context, username string) (bool, error) {
+	clientIP := c.RealIP()
 	if username != "" && !core.CheckRateLimit("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay) {
 		slog.Warn("Login user rate limit exceeded", "username", username, "ip", clientIP)
 		// We still do the password check work to prevent timing attacks, but we will return 429
 		core.CheckPasswordHash("dummy", "$2a$12$WJlQ/t/NbjXzEfIi2P54vecljh4fSRxYOkWj5Kbs7hM0eZFmL/Nyq")
-		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "This account is temporarily locked due to too many failed attempts.", "csrf": c.Get("csrf")})
+		return true, c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "This account is temporarily locked due to too many failed attempts.", "csrf": c.Get("csrf")})
 	}
+	return false, nil
+}
 
-	password := c.FormValue("password")
+func (h *AuthHandler) verifyCredentials(username, password string) (*core.User, bool) {
 	userRecord, err := core.GetUser(username)
 
 	// Constant time password check to prevent username enumeration
@@ -227,50 +257,49 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	}
 
 	if !valid {
-		core.LogAudit("LOGIN_FAILED", username, clientIP, nil)
-		core.LoginFailedTotal.Inc()
+		return nil, false
+	}
+	return &userRecord, true
+}
 
-		// 4. Track FAILED attempts from IP across different users (Credential stuffing protection)
-		// Optimization: Don't trigger global IP lockout if there are already other valid sessions on this IP (shared environment)
-		if !core.HasActiveSessions(clientIP) {
-			if !core.CheckRateLimit("login_fail_ip:"+clientIP, h.Cfg.RateLimitLoginFailIPMax, h.Cfg.RateLimitLoginFailIPDecay) {
-				slog.Warn("Global IP failure rate limit exceeded", "ip", clientIP)
-				return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many failed attempts from your network. Please try again later.", "csrf": c.Get("csrf")})
-			}
+func (h *AuthHandler) handleAuthFailure(c echo.Context, username string) error {
+	clientIP := c.RealIP()
+	core.LogAudit("LOGIN_FAILED", username, clientIP, nil)
+	core.LoginFailedTotal.Inc()
+
+	// 4. Track FAILED attempts from IP across different users
+	if !core.HasActiveSessions(clientIP) {
+		if !core.CheckRateLimit("login_fail_ip:"+clientIP, h.Cfg.RateLimitLoginFailIPMax, h.Cfg.RateLimitLoginFailIPDecay) {
+			slog.Warn("Global IP failure rate limit exceeded", "ip", clientIP)
+			return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many failed attempts from your network. Please try again later.", "csrf": c.Get("csrf")})
 		}
-
-		return c.Render(http.StatusOK, "login.html", map[string]interface{}{"error": "Invalid credentials", "csrf": c.Get("csrf")})
 	}
 
-	// Success! Reset per-user penalties
-	core.ResetRateLimit("login_fail_user:" + username)
-	core.ResetRateLimit("login_post_ip:" + clientIP) // Optional: allow user to keep trying if they are successful
+	return c.Render(http.StatusOK, "login.html", map[string]interface{}{"error": "Invalid credentials", "csrf": c.Get("csrf")})
+}
 
-
-	// Check if 2FA is enabled
-	if userRecord.TwoFactor != "" {
-		// Issue a temporary short-lived session for 2FA verification
-		tempToken := h.issueTempToken(username)
-		encrypted, _ := core.EncryptToken(tempToken, h.Cfg.ServerSecret)
-		cookie := &http.Cookie{
-			Name:     "rauth_2fa_pending",
-			Value:    encrypted,
-			Path:     "/",
-			HttpOnly: true,
-			Secure:   true,
-			SameSite: http.SameSiteLaxMode,
-			Expires:  time.Now().Add(5 * time.Minute),
-		}
-		c.SetCookie(cookie)
-		return c.Render(http.StatusOK, "login.html", map[string]interface{}{
-			"display2fa": true,
-			"username":   username,
-			"csrf":       c.Get("csrf"),
-			"rd":         c.QueryParam("rd"),
-		})
+func (h *AuthHandler) initiate2FASession(c echo.Context, username string) error {
+	tempToken := h.issueTempToken(username)
+	encrypted, _ := core.EncryptToken(tempToken, h.Cfg.ServerSecret)
+	cookie := &http.Cookie{
+		Name:     "rauth_2fa_pending",
+		Value:    encrypted,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+		Expires:  time.Now().Add(5 * time.Minute),
 	}
+	c.SetCookie(cookie)
+	return c.Render(http.StatusOK, "login.html", map[string]interface{}{
+		"display2fa": true,
+		"username":   username,
+		"csrf":       c.Get("csrf"),
+		"rd":         c.QueryParam("rd"),
+	})
+}
 
-	// Force 2FA Setup for new users (or users without 2FA)
+func (h *AuthHandler) initiate2FASetupSession(c echo.Context, username string) error {
 	setupToken := h.issueSetupToken(username)
 	encrypted, _ := core.EncryptToken(setupToken, h.Cfg.ServerSecret)
 	c.SetCookie(&http.Cookie{
@@ -443,14 +472,14 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 		// Cleanup
 		core.TokenDB.Del(core.Ctx, "pending_setup:"+setupToken)
 		core.TokenDB.Del(core.Ctx, "pending_setup_secret:"+setupToken)
-			c.SetCookie(&http.Cookie{
-				Name:     "rauth_setup_pending",
-				MaxAge:   -1,
-				Path:     "/",
-				HttpOnly: true,
-				Secure:   true,
-				SameSite: http.SameSiteLaxMode,
-			})
+		c.SetCookie(&http.Cookie{
+			Name:     "rauth_setup_pending",
+			MaxAge:   -1,
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   true,
+			SameSite: http.SameSiteLaxMode,
+		})
 
 		// Send notification email
 		userRecord, _ := core.GetUser(username)
@@ -535,6 +564,9 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 		"ua_ch_model":    c.Request().Header.Get("Sec-CH-UA-Model"),
 		"created_at":     time.Now().Unix(),
 	}).Err()
+	if err == nil {
+		core.AddSessionIndex(username, token)
+	}
 	if err != nil {
 		slog.Error("Failed to store token in Redis", "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Internal Server Error")

@@ -9,32 +9,32 @@ import (
 )
 
 type Config struct {
-	ServerSecret             string
-	RedisHost                string
-	RedisPort                string
-	RedisPassword            string
-	CookieDomains            []string
-	TokenValidityMinutes     int
-	AllowedHosts             []string
-	GeoApiHost               string
-	GeoApiPort               string
-	MaxMindDBPath            string
-	MetricsAllowedIPs        []string
-	InitialUser              string
-	InitialPassword          string
-	InitialEmail             string
-	Initial2FASecret         string
-	WebAuthnOrigins          []string
-	AllowedCountries         []string
+	ServerSecret         string
+	RedisHost            string
+	RedisPort            string
+	RedisPassword        string
+	CookieDomains        []string
+	TokenValidityMinutes int
+	AllowedHosts         []string
+	GeoApiHost           string
+	GeoApiPort           string
+	MaxMindDBPath        string
+	MetricsAllowedIPs    []string
+	InitialUser          string
+	InitialPassword      string
+	InitialEmail         string
+	Initial2FASecret     string
+	WebAuthnOrigins      []string
+	AllowedCountries     []string
 	// MaxMind
-	MaxMindAccountID         string
-	MaxMindLicenseKey        string
-	MaxMindEditionIDs        string
+	MaxMindAccountID  string
+	MaxMindLicenseKey string
+	MaxMindEditionIDs string
 	// Password Policy
-	MinPasswordLength    int
-	RequirePasswordUpper  bool
-	RequirePasswordLower  bool
-	RequirePasswordNumber bool
+	MinPasswordLength      int
+	RequirePasswordUpper   bool
+	RequirePasswordLower   bool
+	RequirePasswordNumber  bool
 	RequirePasswordSpecial bool
 	// SMTP Configuration
 	SMTPHost string
@@ -45,14 +45,14 @@ type Config struct {
 	// URLs
 	PublicURL string
 	// Rate Limiting
-	RateLimitLoginMax        int
-	RateLimitLoginDecay       int
-	RateLimitRegistrationMax   int
-	RateLimitRegistrationDecay int
-	RateLimitValidateMax       int
-	RateLimitValidateDecay     int
-	RateLimitLoginAccessMax    int
-	RateLimitLoginAccessDecay  int
+	RateLimitLoginMax           int
+	RateLimitLoginDecay         int
+	RateLimitRegistrationMax    int
+	RateLimitRegistrationDecay  int
+	RateLimitValidateMax        int
+	RateLimitValidateDecay      int
+	RateLimitLoginAccessMax     int
+	RateLimitLoginAccessDecay   int
 	RateLimitLoginFailUserMax   int
 	RateLimitLoginFailUserDecay int
 	RateLimitLoginFailIPMax     int
@@ -79,14 +79,14 @@ func LoadConfig() *Config {
 		WebAuthnOrigins:      getEnvSlice("WEBAUTHN_ORIGINS", []string{}),
 		AllowedCountries:     getEnvSlice("ALLOWED_COUNTRIES", []string{}),
 		// MaxMind
-		MaxMindAccountID:      getEnv("MAXMIND_ACCOUNT_ID", ""),
-		MaxMindLicenseKey:     getEnv("MAXMIND_LICENSE_KEY", ""),
-		MaxMindEditionIDs:     getEnv("MAXMIND_EDITION_IDS", "GeoLite2-Country"),
+		MaxMindAccountID:  getEnv("MAXMIND_ACCOUNT_ID", ""),
+		MaxMindLicenseKey: getEnv("MAXMIND_LICENSE_KEY", ""),
+		MaxMindEditionIDs: getEnv("MAXMIND_EDITION_IDS", "GeoLite2-Country"),
 		// Password Policy Defaults
-		MinPasswordLength:     getEnvInt("PWD_MIN_LENGTH", 8),
-		RequirePasswordUpper:  getEnvBool("PWD_REQUIRE_UPPER", true),
-		RequirePasswordLower:  getEnvBool("PWD_REQUIRE_LOWER", true),
-		RequirePasswordNumber: getEnvBool("PWD_REQUIRE_NUMBER", true),
+		MinPasswordLength:      getEnvInt("PWD_MIN_LENGTH", 8),
+		RequirePasswordUpper:   getEnvBool("PWD_REQUIRE_UPPER", true),
+		RequirePasswordLower:   getEnvBool("PWD_REQUIRE_LOWER", true),
+		RequirePasswordNumber:  getEnvBool("PWD_REQUIRE_NUMBER", true),
 		RequirePasswordSpecial: getEnvBool("PWD_REQUIRE_SPECIAL", true),
 		// SMTP Defaults
 		SMTPHost: getEnv("SMTP_HOST", ""),
@@ -97,14 +97,14 @@ func LoadConfig() *Config {
 		// URLs
 		PublicURL: getEnv("PUBLIC_URL", "http://localhost:5980"),
 		// Rate Limiting Defaults
-		RateLimitLoginMax:          getEnvInt("RATE_LIMIT_LOGIN_MAX", 30),
+		RateLimitLoginMax:           getEnvInt("RATE_LIMIT_LOGIN_MAX", 30),
 		RateLimitLoginDecay:         getEnvInt("RATE_LIMIT_LOGIN_DECAY", 300),
-		RateLimitRegistrationMax:   getEnvInt("RATE_LIMIT_REG_MAX", 10),
-		RateLimitRegistrationDecay: getEnvInt("RATE_LIMIT_REG_DECAY", 300),
-		RateLimitValidateMax:       getEnvInt("RATE_LIMIT_VALIDATE_MAX", 1000),
-		RateLimitValidateDecay:     getEnvInt("RATE_LIMIT_VALIDATE_DECAY", 60),
-		RateLimitLoginAccessMax:    getEnvInt("RATE_LIMIT_LOGIN_ACCESS_MAX", 300),
-		RateLimitLoginAccessDecay:  getEnvInt("RATE_LIMIT_LOGIN_ACCESS_DECAY", 60),
+		RateLimitRegistrationMax:    getEnvInt("RATE_LIMIT_REG_MAX", 10),
+		RateLimitRegistrationDecay:  getEnvInt("RATE_LIMIT_REG_DECAY", 300),
+		RateLimitValidateMax:        getEnvInt("RATE_LIMIT_VALIDATE_MAX", 1000),
+		RateLimitValidateDecay:      getEnvInt("RATE_LIMIT_VALIDATE_DECAY", 60),
+		RateLimitLoginAccessMax:     getEnvInt("RATE_LIMIT_LOGIN_ACCESS_MAX", 300),
+		RateLimitLoginAccessDecay:   getEnvInt("RATE_LIMIT_LOGIN_ACCESS_DECAY", 60),
 		RateLimitLoginFailUserMax:   getEnvInt("RATE_LIMIT_LOGIN_FAIL_USER_MAX", 10),
 		RateLimitLoginFailUserDecay: getEnvInt("RATE_LIMIT_LOGIN_FAIL_USER_DECAY", 300),
 		RateLimitLoginFailIPMax:     getEnvInt("RATE_LIMIT_LOGIN_FAIL_IP_MAX", 50),
@@ -118,8 +118,12 @@ func (c *Config) IsAllowedHost(host string) bool {
 		host = strings.Split(host, ":")[0]
 	}
 
+	// Normalize host: lowercase and trim trailing dot
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+
 	// Check explicit allowed hosts
 	for _, h := range c.AllowedHosts {
+		h = strings.ToLower(strings.TrimSuffix(h, "."))
 		if h == host {
 			return true
 		}
@@ -128,18 +132,26 @@ func (c *Config) IsAllowedHost(host string) bool {
 	// Also check WebAuthn origins
 	for _, o := range c.WebAuthnOrigins {
 		parsed, err := url.Parse(o)
+		var h string
 		if err == nil {
-			h := parsed.Hostname()
-			if h == host {
-				return true
+			h = parsed.Hostname()
+			if h == "" {
+				h = o
 			}
-		} else if o == host {
+		} else {
+			h = o
+		}
+		h = strings.ToLower(strings.TrimSuffix(h, "."))
+		if h == host {
 			return true
 		}
 	}
 
 	// Check if host is part of any cookie domain
 	for _, domain := range c.CookieDomains {
+		// Normalize domain: lowercase and trim leading dot
+		domain = strings.ToLower(strings.TrimPrefix(domain, "."))
+
 		// Exact match
 		if host == domain {
 			return true

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v4"
+	"github.com/redis/go-redis/v9"
 )
 
 type AdminHandler struct {
@@ -21,23 +22,46 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 		slog.Error("Failed to list users", "error", err)
 	}
 
-	// Fetch sessions
-	keys, err := core.TokenDB.Keys(core.Ctx, "X-rauth-authtoken=*").Result()
-	if err != nil {
-		slog.Error("Failed to fetch sessions from Redis", "error", err)
+	// Fetch sessions using Pipeline to avoid N+1 queries
+	var sessions []map[string]string
+	var keys []string
+	iter := core.TokenDB.Scan(core.Ctx, 0, "X-rauth-authtoken=*", 0).Iterator()
+	for iter.Next(core.Ctx) {
+		keys = append(keys, iter.Val())
+	}
+	if err := iter.Err(); err != nil {
+		slog.Error("Failed to scan sessions from Redis", "error", err)
 	}
 
-	var sessions []map[string]string
-	for _, k := range keys {
-		data, err := core.TokenDB.HGetAll(core.Ctx, k).Result()
-		if err != nil {
-			continue
+	if len(keys) > 0 {
+		pipe := core.TokenDB.Pipeline()
+		hGetAllCmds := make([]*redis.MapStringStringCmd, len(keys))
+		ttlCmds := make([]*redis.DurationCmd, len(keys))
+
+		for i, k := range keys {
+			hGetAllCmds[i] = pipe.HGetAll(core.Ctx, k)
+			ttlCmds[i] = pipe.TTL(core.Ctx, k)
 		}
-		data["token"] = k[18:] // Remove prefix "X-rauth-authtoken="
-		data["ttl"] = fmt.Sprintf("%d", int(core.TokenDB.TTL(core.Ctx, k).Val().Seconds()))
-		data["friendly_ua"] = core.FormatUserAgent(data["user_agent"])
-		data["device_icon"] = core.GetDeviceIcon(data["user_agent"])
-		sessions = append(sessions, data)
+
+		_, err := pipe.Exec(core.Ctx)
+		if err != nil && err != redis.Nil {
+			slog.Error("Pipeline execution failed", "error", err)
+		}
+
+		for i, k := range keys {
+			data, err := hGetAllCmds[i].Result()
+			if err != nil {
+				continue
+			}
+			if len(data) == 0 {
+				continue
+			}
+			data["token"] = k[18:] // Remove prefix "X-rauth-authtoken="
+			data["ttl"] = fmt.Sprintf("%d", int(ttlCmds[i].Val().Seconds()))
+			data["friendly_ua"] = core.FormatUserAgent(data["user_agent"])
+			data["device_icon"] = core.GetDeviceIcon(data["user_agent"])
+			sessions = append(sessions, data)
+		}
 	}
 
 	// Fetch Audit Logs
@@ -72,6 +96,16 @@ func (h *AdminHandler) CreateUser(c echo.Context) error {
 
 	if user == "" || pass == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "Username and password are required")
+	}
+
+	if err := core.ValidateUsername(user); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	if email != "" {
+		if err := core.ValidateEmail(email); err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		}
 	}
 
 	if err := core.ValidatePassword(pass, h.Cfg); err != nil {
@@ -183,6 +217,10 @@ func (h *AdminHandler) UpdateUserEmail(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "Username and email are required")
 	}
 
+	if err := core.ValidateEmail(newEmail); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
 	admin := c.Get("username").(string)
 	if err := core.UpdateUser(target, map[string]interface{}{"email": newEmail}); err != nil {
 		slog.Error("Failed to update user email in Redis", "user", target, "error", err)
@@ -201,20 +239,25 @@ func (h *AdminHandler) InvalidateSession(c echo.Context) error {
 	}
 	admin := c.Get("username").(string)
 
-	if err := core.TokenDB.Del(core.Ctx, "X-rauth-authtoken="+token).Err(); err != nil {
+	redisKey := "X-rauth-authtoken=" + token
+	data, err := core.TokenDB.HGetAll(core.Ctx, redisKey).Result()
+	if err == nil && len(data) > 0 {
+		if username, ok := data["username"]; ok {
+			core.RemoveSessionIndex(username, token)
+		}
+	}
+
+	if err := core.TokenDB.Del(core.Ctx, redisKey).Err(); err != nil {
 		slog.Error("Failed to invalidate session", "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to invalidate session")
 	}
 
-		slog.Info("Session invalidated by admin", "admin", admin)
-
-		logToken := token
-
-		if len(token) > 8 { logToken = token[:8] + "..." }
-
-		core.LogAudit("ADMIN_INVALIDATE_SESSION", admin, c.RealIP(), map[string]interface{}{"token": logToken})
-
-		return c.Redirect(http.StatusFound, "/rauthmgmt?success=session_terminated")
-
+	slog.Info("Session invalidated by admin", "admin", admin)
+	logToken := token
+	if len(token) > 8 {
+		logToken = token[:8] + "..."
 	}
+	core.LogAudit("ADMIN_INVALIDATE_SESSION", admin, c.RealIP(), map[string]interface{}{"token": logToken})
+	return c.Redirect(http.StatusFound, "/rauthmgmt?success=session_terminated")
+}
 

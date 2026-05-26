@@ -18,18 +18,24 @@ type WebAuthnUser struct {
 }
 
 func (u *WebAuthnUser) WebAuthnID() []byte {
-	if u == nil { return nil }
+	if u == nil {
+		return nil
+	}
 	return u.ID
 }
 
 func (u *WebAuthnUser) WebAuthnName() string {
-	if u == nil { return "" }
+	if u == nil {
+		return ""
+	}
 	return u.DisplayName
 }
 
 func (u *WebAuthnUser) WebAuthnDisplayName() string {
-	if u == nil { return u.WebAuthnName() }
-	return u.DisplayName
+	if u != nil {
+		return u.WebAuthnName()
+	}
+	return ""
 }
 
 func (u *WebAuthnUser) WebAuthnIcon() string {
@@ -37,7 +43,9 @@ func (u *WebAuthnUser) WebAuthnIcon() string {
 }
 
 func (u *WebAuthnUser) WebAuthnCredentials() []webauthn.Credential {
-	if u == nil { return nil }
+	if u == nil {
+		return nil
+	}
 	return u.Credentials
 }
 
@@ -54,6 +62,22 @@ type StoredCredential struct {
 	Nickname  string `json:"nickname"`
 	CreatedAt int64  `json:"created_at"`
 	LastUsed  int64  `json:"last_used"`
+}
+
+func (s *StoredCredential) UnmarshalJSON(data []byte) error {
+	type Alias struct {
+		Nickname  string `json:"nickname"`
+		CreatedAt int64  `json:"created_at"`
+		LastUsed  int64  `json:"last_used"`
+	}
+	var aux Alias
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	s.Nickname = aux.Nickname
+	s.CreatedAt = aux.CreatedAt
+	s.LastUsed = aux.LastUsed
+	return json.Unmarshal(data, &s.Credential)
 }
 
 var WebAuthnInstance *webauthn.WebAuthn
@@ -167,51 +191,85 @@ func UpdateWebAuthnSignCount(username string, credID []byte, newCount uint32) {
 
 func DeleteWebAuthnCredential(username string, credID string) error {
 	stored := GetStoredCredentials(username)
-	UserDB.Del(Ctx, "user:"+username+":webauthn_creds")
+	key := "user:" + username + ":webauthn_creds"
+	var toPush []interface{}
 	for _, c := range stored {
 		// We use hex encoding or base64 for ID in the request
 		if fmt.Sprintf("%x", c.ID) != credID {
-			data, _ := json.Marshal(c)
-			UserDB.RPush(Ctx, "user:"+username+":webauthn_creds", data)
+			data, err := json.Marshal(c)
+			if err != nil {
+				return err
+			}
+			toPush = append(toPush, data)
 		}
+	}
+	UserDB.Del(Ctx, key)
+	if len(toPush) > 0 {
+		return UserDB.RPush(Ctx, key, toPush...).Err()
 	}
 	return nil
 }
 
 func UpdateWebAuthnNickname(username string, credID string, nickname string) error {
 	stored := GetStoredCredentials(username)
-	UserDB.Del(Ctx, "user:"+username+":webauthn_creds")
-	for _, c := range stored {
-		if fmt.Sprintf("%x", c.ID) == credID {
-			c.Nickname = nickname
+	key := "user:" + username + ":webauthn_creds"
+	var toPush []interface{}
+	for i := range stored {
+		if fmt.Sprintf("%x", stored[i].ID) == credID {
+			stored[i].Nickname = nickname
 		}
-		data, _ := json.Marshal(c)
-		UserDB.RPush(Ctx, "user:"+username+":webauthn_creds", data)
+		data, err := json.Marshal(stored[i])
+		if err != nil {
+			return err
+		}
+		toPush = append(toPush, data)
+	}
+	UserDB.Del(Ctx, key)
+	if len(toPush) > 0 {
+		return UserDB.RPush(Ctx, key, toPush...).Err()
 	}
 	return nil
 }
 
-func UpdateWebAuthnLastUsed(username string, credID []byte) {
+func UpdateWebAuthnLastUsed(username string, credID []byte) error {
 	stored := GetStoredCredentials(username)
-	UserDB.Del(Ctx, "user:"+username+":webauthn_creds")
-	for _, c := range stored {
-		if fmt.Sprintf("%x", c.ID) == fmt.Sprintf("%x", credID) {
-			c.LastUsed = time.Now().Unix()
+	key := "user:" + username + ":webauthn_creds"
+	var toPush []interface{}
+	for i := range stored {
+		if fmt.Sprintf("%x", stored[i].ID) == fmt.Sprintf("%x", credID) {
+			stored[i].LastUsed = time.Now().Unix()
 		}
-		data, _ := json.Marshal(c)
-		UserDB.RPush(Ctx, "user:"+username+":webauthn_creds", data)
+		data, err := json.Marshal(stored[i])
+		if err != nil {
+			return err
+		}
+		toPush = append(toPush, data)
 	}
+	UserDB.Del(Ctx, key)
+	if len(toPush) > 0 {
+		return UserDB.RPush(Ctx, key, toPush...).Err()
+	}
+	return nil
 }
 
-func UpdateWebAuthnCredential(username string, cred *webauthn.Credential) {
+func UpdateWebAuthnCredential(username string, cred *webauthn.Credential) error {
 	stored := GetStoredCredentials(username)
-	UserDB.Del(Ctx, "user:"+username+":webauthn_creds")
-	for _, c := range stored {
-		if fmt.Sprintf("%x", c.ID) == fmt.Sprintf("%x", cred.ID) {
-			c.Credential = *cred
-			c.LastUsed = time.Now().Unix()
+	key := "user:" + username + ":webauthn_creds"
+	var toPush []interface{}
+	for i := range stored {
+		if fmt.Sprintf("%x", stored[i].ID) == fmt.Sprintf("%x", cred.ID) {
+			stored[i].Credential = *cred
+			stored[i].LastUsed = time.Now().Unix()
 		}
-		data, _ := json.Marshal(c)
-		UserDB.RPush(Ctx, "user:"+username+":webauthn_creds", data)
+		data, err := json.Marshal(stored[i])
+		if err != nil {
+			return err
+		}
+		toPush = append(toPush, data)
 	}
+	UserDB.Del(Ctx, key)
+	if len(toPush) > 0 {
+		return UserDB.RPush(Ctx, key, toPush...).Err()
+	}
+	return nil
 }

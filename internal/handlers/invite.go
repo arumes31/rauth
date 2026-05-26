@@ -16,8 +16,8 @@ type InviteHandler struct {
 
 func (h *InviteHandler) Create(c echo.Context) error {
 	email := c.FormValue("email")
-	if email == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "Email is required")
+	if err := core.ValidateEmail(email); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
 	// Generate token
@@ -68,6 +68,10 @@ func (h *InviteHandler) Redeem(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, "Invalid or expired invitation")
 	}
 
+
+	if err := core.ValidateUsername(username); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
 	if err := core.ValidatePassword(password, h.Cfg); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}

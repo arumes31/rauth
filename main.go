@@ -58,6 +58,28 @@ func main() {
 	e := echo.New()
 	e.HideBanner = true
 
+	// Setup everything
+	setupMiddleware(e, cfg)
+	setupRenderer(e)
+	setupRoutes(e, cfg)
+
+	go func() {
+		if err := e.Start(":80"); err != nil && err != http.ErrServerClosed {
+			e.Logger.Fatal("shutting down the server")
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt)
+	<-quit
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := e.Shutdown(ctx); err != nil {
+		e.Logger.Fatal(err)
+	}
+}
+
+func setupMiddleware(e *echo.Echo, cfg *core.Config) {
 	// Security headers and hardening
 	e.Use(echoMiddleware.Secure())
 	e.Use(echoMiddleware.BodyLimit("1M"))
@@ -66,12 +88,12 @@ func main() {
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			c.Response().Header().Set("Accept-CH", "Sec-CH-UA-Platform, Sec-CH-UA-Mobile, Sec-CH-UA-Model")
-			
+
 			// Only negotiate Critical-CH on idempotent GET/HEAD requests to prevent non-idempotent retries (like POST logins)
 			if c.Request().Method == http.MethodGet || c.Request().Method == http.MethodHead {
 				c.Response().Header().Set("Critical-CH", "Sec-CH-UA-Platform, Sec-CH-UA-Mobile, Sec-CH-UA-Model")
 			}
-			
+
 			c.Response().Header().Add("Vary", "Sec-CH-UA-Platform")
 			c.Response().Header().Add("Vary", "Sec-CH-UA-Mobile")
 			c.Response().Header().Add("Vary", "Sec-CH-UA-Model")
@@ -189,7 +211,9 @@ func main() {
 		CookieSecure:   true,
 		CookieSameSite: http.SameSiteLaxMode,
 	}))
+}
 
+func setupRenderer(e *echo.Echo) {
 	funcMap := template.FuncMap{
 		"formatTime": func(input interface{}) string {
 			var timestamp int64
@@ -217,18 +241,6 @@ func main() {
 			return string(a)
 		},
 		"statusColor": func(action string) string {
-			// Simple check: if contains SUCCESS -> green, FAILED -> red
-			// We can do exact matches or substring. Substring is robust for future actions.
-			// Using basic string contains logic since strings package isn't imported in main specifically for this,
-			// but wait, I can import "strings". Or I can just do a range of checks.
-			// Let's stick to explicit checks or just basic logic.
-			// Actually I need to add "strings" to imports if I use strings.Contains.
-			// Or just checking the suffix/substring manually.
-			// Let's assume standard actions: LOGIN_SUCCESS, LOGIN_FAILED, 2FA_FAILED.
-
-			// Re-implementing simplified contains to avoid import mess if possible, but importing "strings" is better.
-			// I will add "strings" to imports in a separate step or assume it is there?
-			// It is NOT in imports. I will just use basic if/else for known actions.
 			if action == "LOGIN_SUCCESS" || action == "2FA_SETUP_SUCCESS" {
 				return "text-success"
 			}
@@ -243,7 +255,9 @@ func main() {
 		templates: template.Must(template.New("").Funcs(funcMap).ParseFS(templateFS, "templates/*.html")),
 	}
 	e.Renderer = renderer
+}
 
+func setupRoutes(e *echo.Echo, cfg *core.Config) {
 	e.GET("/static/*", echo.WrapHandler(http.FileServer(http.FS(staticFS))))
 
 	authHandler := &handlers.AuthHandler{Cfg: cfg}
@@ -288,10 +302,12 @@ func main() {
 	protected.GET("/webauthn/register/begin", webauthnHandler.BeginRegistration)
 	protected.POST("/webauthn/register/finish", webauthnHandler.FinishRegistration)
 
-
 	protected.POST("/logout", func(c echo.Context) error {
 		// Get token from context (set by AuthMiddleware)
 		if token, ok := c.Get("token").(string); ok {
+			if username, ok := c.Get("username").(string); ok {
+				core.RemoveSessionIndex(username, token)
+			}
 			core.TokenDB.Del(core.Ctx, "X-rauth-authtoken="+token)
 		}
 
@@ -329,21 +345,6 @@ func main() {
 	admin.POST("/user/update-email", adminHandler.UpdateUserEmail)
 	admin.POST("/session/invalidate", adminHandler.InvalidateSession)
 	admin.POST("/invite/create", inviteHandler.Create)
-
-	go func() {
-		if err := e.Start(":80"); err != nil && err != http.ErrServerClosed {
-			e.Logger.Fatal("shutting down the server")
-		}
-	}()
-
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, os.Interrupt)
-	<-quit
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := e.Shutdown(ctx); err != nil {
-		e.Logger.Fatal(err)
-	}
 }
 
 func initializeSystem(cfg *core.Config) {
@@ -364,9 +365,12 @@ func initializeSystem(cfg *core.Config) {
 	go func() {
 		for {
 			// Count active sessions
-			if keys, err := core.TokenDB.Keys(core.Ctx, "X-rauth-authtoken=*").Result(); err == nil {
-				core.ActiveSessionsGauge.Set(float64(len(keys)))
+			var count int64
+			iter := core.TokenDB.Scan(core.Ctx, 0, "X-rauth-authtoken=*", 0).Iterator()
+			for iter.Next(core.Ctx) {
+				count++
 			}
+			core.ActiveSessionsGauge.Set(float64(count))
 			time.Sleep(1 * time.Minute)
 		}
 	}()

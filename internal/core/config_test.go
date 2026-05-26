@@ -79,3 +79,57 @@ func TestIsAllowedHost(t *testing.T) {
 		}
 	}
 }
+
+func TestIsCountryAllowed(t *testing.T) {
+	tests := []struct {
+		name             string
+		allowedCountries []string
+		country          string
+		want             bool
+	}{
+		{"Empty list allowed all", []string{}, "US", true},
+		{"Exact match", []string{"US", "GB"}, "US", true},
+		{"Case insensitive match", []string{"us", "gb"}, "US", true},
+		{"Case insensitive match 2", []string{"US", "GB"}, "gb", true},
+		{"No match", []string{"US", "GB"}, "FR", false},
+		{"Empty country input", []string{"US", "GB"}, "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{AllowedCountries: tt.allowedCountries}
+			if got := cfg.IsCountryAllowed(tt.country); got != tt.want {
+				t.Errorf("IsCountryAllowed() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsIPAllowed(t *testing.T) {
+	cfg := &Config{}
+	tests := []struct {
+		name        string
+		ipStr       string
+		allowedList []string
+		want        bool
+	}{
+		{"Invalid IP", "not-an-ip", []string{"127.0.0.1"}, false},
+		{"Empty IP", "", []string{"127.0.0.1"}, false},
+		{"Empty allowed list", "127.0.0.1", []string{}, false},
+		{"Exact match IPv4", "127.0.0.1", []string{"127.0.0.1"}, true},
+		{"Exact match IPv6", "::1", []string{"::1"}, true},
+		{"CIDR match IPv4", "192.168.1.5", []string{"192.168.1.0/24"}, true},
+		{"CIDR match IPv6", "2001:db8::1", []string{"2001:db8::/32"}, true},
+		{"No match", "1.1.1.1", []string{"127.0.0.1", "192.168.1.0/24"}, false},
+		{"Invalid CIDR in list", "127.0.0.1", []string{"invalid/cidr"}, false},
+		{"Mixed list match", "192.168.1.5", []string{"127.0.0.1", "192.168.1.0/24"}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := cfg.IsIPAllowed(tt.ipStr, tt.allowedList); got != tt.want {
+				t.Errorf("IsIPAllowed() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

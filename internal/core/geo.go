@@ -12,11 +12,18 @@ import (
 	"time"
 
 	"github.com/oschwald/geoip2-golang"
+	"github.com/oschwald/maxminddb-golang"
 )
 
 type lruEntry struct {
 	key   string
 	value string
+}
+
+type geoCountryReader interface {
+	Country(net.IP) (*geoip2.Country, error)
+	Metadata() maxminddb.Metadata
+	Close() error
 }
 
 type GeoLRUCache struct {
@@ -66,7 +73,7 @@ func (c *GeoLRUCache) Put(key, value string) {
 
 var (
 	GeoCache     = NewGeoLRUCache(1000)
-	geoReader    *geoip2.Reader
+	geoReader    geoCountryReader
 	geoLock      sync.RWMutex
 	once         sync.Once
 

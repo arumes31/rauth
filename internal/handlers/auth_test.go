@@ -32,14 +32,14 @@ func TestAuthHandler_Login(t *testing.T) {
 	setupHandlersTest(t)
 
 	cfg := &core.Config{
-		ServerSecret: "32byte-secret-key-for-testing-!!",
-		CookieDomains: []string{"example.com"},
-		TokenValidityMinutes: 60,
-		RateLimitLoginMax: 1000,
-		RateLimitLoginDecay: 300,
-		RateLimitLoginAccessMax: 1000,
+		ServerSecret:              "32byte-secret-key-for-testing-!!",
+		CookieDomains:             []string{"example.com"},
+		TokenValidityMinutes:      60,
+		RateLimitLoginMax:         1000,
+		RateLimitLoginDecay:       300,
+		RateLimitLoginAccessMax:   1000,
 		RateLimitLoginFailUserMax: 1000,
-		RateLimitLoginFailIPMax: 1000,
+		RateLimitLoginFailIPMax:   1000,
 	}
 	h := &AuthHandler{Cfg: cfg}
 	e := echo.New()
@@ -106,16 +106,16 @@ func TestAuthHandler_Validate(t *testing.T) {
 	setupHandlersTest(t)
 
 	cfg := &core.Config{
-		ServerSecret: "32byte-secret-key-for-testing-!!",
-		CookieDomains: []string{"example.com"},
-		TokenValidityMinutes: 60,
-		RateLimitLoginMax: 1000,
-		RateLimitLoginDecay: 60,
-		RateLimitValidateMax: 1000,
-		RateLimitValidateDecay: 60,
-		RateLimitLoginAccessMax: 1000,
+		ServerSecret:              "32byte-secret-key-for-testing-!!",
+		CookieDomains:             []string{"example.com"},
+		TokenValidityMinutes:      60,
+		RateLimitLoginMax:         1000,
+		RateLimitLoginDecay:       60,
+		RateLimitValidateMax:      1000,
+		RateLimitValidateDecay:    60,
+		RateLimitLoginAccessMax:   1000,
 		RateLimitLoginFailUserMax: 1000,
-		RateLimitLoginFailIPMax: 1000,
+		RateLimitLoginFailIPMax:   1000,
 	}
 	h := &AuthHandler{Cfg: cfg}
 	e := echo.New()
@@ -125,10 +125,10 @@ func TestAuthHandler_Validate(t *testing.T) {
 		encrypted, _ := core.EncryptToken(token, cfg.ServerSecret)
 
 		core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken="+token, map[string]interface{}{
-			"status": "valid",
+			"status":   "valid",
 			"username": "testuser",
-			"ip": "127.0.0.1",
-			"country": "unknown",
+			"ip":       "127.0.0.1",
+			"country":  "unknown",
 		})
 
 		c, rec := createTestContext(e, http.MethodGet, "/rauthvalidate", nil)
@@ -191,33 +191,157 @@ func TestAuthHandler_Validate(t *testing.T) {
 }
 
 func TestAuthHandler_CompleteSetup2FA(t *testing.T) {
-	setupHandlersTest(t)
 
 	cfg := &core.Config{
-		ServerSecret:  "32byte-secret-key-for-testing-!!",
-		CookieDomains: []string{"example.com"},
-		TokenValidityMinutes: 60,
-		RateLimitLoginMax: 1000,
-		RateLimitLoginDecay: 60,
-		RateLimitValidateMax: 1000,
-		RateLimitValidateDecay: 60,
-		RateLimitLoginAccessMax: 1000,
+		ServerSecret:              "32byte-secret-key-for-testing-!!",
+		CookieDomains:             []string{"example.com"},
+		TokenValidityMinutes:      60,
+		RateLimitLoginMax:         1000,
+		RateLimitLoginDecay:       60,
+		RateLimitValidateMax:      1000,
+		RateLimitValidateDecay:    60,
+		RateLimitLoginAccessMax:   1000,
+		RateLimitLoginAccessDecay: 60,
 		RateLimitLoginFailUserMax: 1000,
-		RateLimitLoginFailIPMax: 1000,
+		RateLimitLoginFailIPMax:   1000,
+		RateLimitLoginFailIPDecay: 60,
 	}
 	h := &AuthHandler{Cfg: cfg}
 	e := echo.New()
 	e.Renderer = &mockRenderer{}
 
-	// Setup pending user
-	username := "setupuser"
-	setupToken := "setup-token-abc"
-	encryptedToken, _ := core.EncryptToken(setupToken, cfg.ServerSecret)
-	secret := "JBSWY3DPEHPK3PXP"
-	core.TokenDB.Set(core.Ctx, "pending_setup:"+setupToken, username, 10*time.Minute)
-	core.TokenDB.Set(core.Ctx, "pending_setup_secret:"+setupToken, secret, 5*time.Minute)
+	// Helper to setup a valid pending session
+	setupPending := func(username, setupToken, secret string) string {
+		encryptedToken, _ := core.EncryptToken(setupToken, cfg.ServerSecret)
+		core.TokenDB.Set(core.Ctx, "pending_setup:"+setupToken, username, 10*time.Minute)
+		core.TokenDB.Set(core.Ctx, "pending_setup_secret:"+setupToken, secret, 5*time.Minute)
+		return encryptedToken
+	}
 
-	t.Run("Valid TOTP Setup", func(t *testing.T) {
+	t.Run("login_access rate limit", func(t *testing.T) {
+		setupHandlersTest(t)
+		clientIP := "1.2.3.4"
+		core.RateLimitDB.Set(core.Ctx, "rate_limit:login_access:"+clientIP, cfg.RateLimitLoginAccessMax+1, 0)
+
+		c, rec := createTestContext(e, http.MethodPost, "/rauthsetup2fa", nil)
+		c.Request().Header.Set(echo.HeaderXRealIP, clientIP)
+
+		err := h.CompleteSetup2FA(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusTooManyRequests, rec.Code)
+		assert.Contains(t, e.Renderer.(*mockRenderer).LastData.(map[string]interface{})["error"], "Too many requests")
+	})
+
+	t.Run("login_post_ip rate limit", func(t *testing.T) {
+		setupHandlersTest(t)
+		clientIP := "1.2.3.4"
+		core.RateLimitDB.Set(core.Ctx, "rate_limit:login_post_ip:"+clientIP, cfg.RateLimitLoginMax+1, 0)
+
+		c, rec := createTestContext(e, http.MethodPost, "/rauthsetup2fa", nil)
+		c.Request().Header.Set(echo.HeaderXRealIP, clientIP)
+
+		err := h.CompleteSetup2FA(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusTooManyRequests, rec.Code)
+		assert.Contains(t, e.Renderer.(*mockRenderer).LastData.(map[string]interface{})["error"], "Too many attempts from this IP")
+	})
+
+	t.Run("Missing cookie", func(t *testing.T) {
+		setupHandlersTest(t)
+		c, rec := createTestContext(e, http.MethodPost, "/rauthsetup2fa", nil)
+		err := h.CompleteSetup2FA(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+		assert.Equal(t, "/rauthlogin", rec.Header().Get("Location"))
+	})
+
+	t.Run("Invalid cookie decryption", func(t *testing.T) {
+		setupHandlersTest(t)
+		c, rec := createTestContext(e, http.MethodPost, "/rauthsetup2fa", nil)
+		c.Request().AddCookie(&http.Cookie{Name: "rauth_setup_pending", Value: "garbage"})
+		err := h.CompleteSetup2FA(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+		assert.Equal(t, "/rauthlogin", rec.Header().Get("Location"))
+	})
+
+	t.Run("Missing pending_setup in Redis", func(t *testing.T) {
+		setupHandlersTest(t)
+		setupToken := "valid-looking-token"
+		encrypted, _ := core.EncryptToken(setupToken, cfg.ServerSecret)
+		c, rec := createTestContext(e, http.MethodPost, "/rauthsetup2fa", nil)
+		c.Request().AddCookie(&http.Cookie{Name: "rauth_setup_pending", Value: encrypted})
+
+		err := h.CompleteSetup2FA(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+		assert.Equal(t, "/rauthlogin", rec.Header().Get("Location"))
+	})
+
+	t.Run("Missing pending_setup_secret in Redis", func(t *testing.T) {
+		setupHandlersTest(t)
+		username := "user1"
+		setupToken := "token1"
+		encrypted, _ := core.EncryptToken(setupToken, cfg.ServerSecret)
+		core.TokenDB.Set(core.Ctx, "pending_setup:"+setupToken, username, 10*time.Minute)
+
+		c, rec := createTestContext(e, http.MethodPost, "/rauthsetup2fa", nil)
+		c.Request().AddCookie(&http.Cookie{Name: "rauth_setup_pending", Value: encrypted})
+
+		err := h.CompleteSetup2FA(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+		assert.Equal(t, "/rauthsetup2fa", rec.Header().Get("Location"))
+	})
+
+	t.Run("2fa_fail_user rate limit", func(t *testing.T) {
+		setupHandlersTest(t)
+		username := "user1"
+		setupToken := "token1"
+		secret := "JBSWY3DPEHPK3PXP"
+		encrypted := setupPending(username, setupToken, secret)
+
+		core.RateLimitDB.Set(core.Ctx, "rate_limit:2fa_fail_user:"+username, cfg.RateLimitLoginFailIPMax+1, 0)
+
+		c, rec := createTestContext(e, http.MethodPost, "/rauthsetup2fa", nil)
+		c.Request().AddCookie(&http.Cookie{Name: "rauth_setup_pending", Value: encrypted})
+
+		err := h.CompleteSetup2FA(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusTooManyRequests, rec.Code)
+		assert.Contains(t, e.Renderer.(*mockRenderer).LastData.(map[string]interface{})["error"], "Too many failed attempts")
+	})
+
+	t.Run("Invalid TOTP code", func(t *testing.T) {
+		setupHandlersTest(t)
+		username := "user1"
+		setupToken := "token1"
+		secret := "JBSWY3DPEHPK3PXP"
+		encrypted := setupPending(username, setupToken, secret)
+
+		f := make(url.Values)
+		f.Set("totp_code", "000000")
+		c, rec := createTestContext(e, http.MethodPost, "/rauthsetup2fa", f)
+		c.Request().AddCookie(&http.Cookie{Name: "rauth_setup_pending", Value: encrypted})
+
+		err := h.CompleteSetup2FA(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Contains(t, e.Renderer.(*mockRenderer).LastData.(map[string]interface{})["error"], "Invalid code")
+
+		// Verify penalization (login_fail_ip should be incremented)
+		clientIP := "127.0.0.1"
+		count, _ := core.RateLimitDB.Get(core.Ctx, "rate_limit:login_fail_ip:"+clientIP).Int()
+		assert.Equal(t, 1, count)
+	})
+
+	t.Run("Successful TOTP Setup", func(t *testing.T) {
+		setupHandlersTest(t)
+		username := "setupuser"
+		setupToken := "setup-token-abc"
+		secret := "JBSWY3DPEHPK3PXP"
+		encryptedToken := setupPending(username, setupToken, secret)
+
 		code, _ := totp.GenerateCode(secret, time.Now())
 
 		f := make(url.Values)
@@ -233,6 +357,10 @@ func TestAuthHandler_CompleteSetup2FA(t *testing.T) {
 		saved, _ := core.UserDB.HGet(core.Ctx, "user:"+username, "2fa_secret").Result()
 		decrypted := core.Decrypt2FASecret(saved, cfg.ServerSecret)
 		assert.Equal(t, secret, decrypted)
+
+		// Verify cleanup
+		exists, _ := core.TokenDB.Exists(core.Ctx, "pending_setup:"+setupToken).Result()
+		assert.Equal(t, int64(0), exists)
 	})
 }
 
@@ -240,16 +368,16 @@ func TestAuthHandler_InvalidateSessionIntegration(t *testing.T) {
 	setupHandlersTest(t)
 
 	cfg := &core.Config{
-		ServerSecret: "32byte-secret-key-for-testing-!!",
-		CookieDomains: []string{"example.com"},
-		TokenValidityMinutes: 60,
-		RateLimitLoginMax: 1000,
-		RateLimitLoginDecay: 60,
-		RateLimitValidateMax: 1000,
-		RateLimitValidateDecay: 60,
-		RateLimitLoginAccessMax: 1000,
+		ServerSecret:              "32byte-secret-key-for-testing-!!",
+		CookieDomains:             []string{"example.com"},
+		TokenValidityMinutes:      60,
+		RateLimitLoginMax:         1000,
+		RateLimitLoginDecay:       60,
+		RateLimitValidateMax:      1000,
+		RateLimitValidateDecay:    60,
+		RateLimitLoginAccessMax:   1000,
 		RateLimitLoginFailUserMax: 1000,
-		RateLimitLoginFailIPMax: 1000,
+		RateLimitLoginFailIPMax:   1000,
 	}
 	h := &AuthHandler{Cfg: cfg}
 	adminH := &AdminHandler{Cfg: cfg}
@@ -265,10 +393,10 @@ func TestAuthHandler_InvalidateSessionIntegration(t *testing.T) {
 	// REDIS KEY MUST BE: X-rauth-authtoken= + token
 	redisKey := "X-rauth-authtoken=" + rawToken
 	core.TokenDB.HSet(core.Ctx, redisKey, map[string]interface{}{
-		"status": "valid",
+		"status":   "valid",
 		"username": username,
-		"ip": "127.0.0.1",
-		"country": "unknown",
+		"ip":       "127.0.0.1",
+		"country":  "unknown",
 	})
 
 	// 2. Verify it is valid
@@ -296,4 +424,71 @@ func TestAuthHandler_InvalidateSessionIntegration(t *testing.T) {
 	err = h.Validate(c3)
 	assert.NoError(t, err)
 	assert.Equal(t, http.StatusUnauthorized, rec3.Code)
+}
+
+func TestAuthHandler_Setup2FA(t *testing.T) {
+	setupHandlersTest(t)
+
+	cfg := &core.Config{
+		ServerSecret: "32byte-secret-key-for-testing-!!",
+	}
+	h := &AuthHandler{Cfg: cfg}
+	e := echo.New()
+	e.Renderer = &mockRenderer{}
+
+	t.Run("Redirect to login when cookie is missing", func(t *testing.T) {
+		c, rec := createTestContext(e, http.MethodGet, "/rauthsetup2fa", nil)
+
+		err := h.Setup2FA(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+		assert.Equal(t, "/rauthlogin", rec.Header().Get("Location"))
+	})
+
+	t.Run("Redirect to login when cookie is invalid", func(t *testing.T) {
+		c, rec := createTestContext(e, http.MethodGet, "/rauthsetup2fa", nil)
+		c.Request().AddCookie(&http.Cookie{Name: "rauth_setup_pending", Value: "invalid-token"})
+
+		err := h.Setup2FA(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+		assert.Equal(t, "/rauthlogin", rec.Header().Get("Location"))
+	})
+
+	t.Run("Redirect to login when token is not in DB", func(t *testing.T) {
+		setupToken := "missing-token"
+		encryptedToken, _ := core.EncryptToken(setupToken, cfg.ServerSecret)
+
+		c, rec := createTestContext(e, http.MethodGet, "/rauthsetup2fa", nil)
+		c.Request().AddCookie(&http.Cookie{Name: "rauth_setup_pending", Value: encryptedToken})
+
+		err := h.Setup2FA(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+		assert.Equal(t, "/rauthlogin", rec.Header().Get("Location"))
+	})
+
+	t.Run("Successful 2FA Setup page rendering", func(t *testing.T) {
+		username := "setupuser"
+		setupToken := "valid-setup-token"
+		encryptedToken, _ := core.EncryptToken(setupToken, cfg.ServerSecret)
+		core.TokenDB.Set(core.Ctx, "pending_setup:"+setupToken, username, 10*time.Minute)
+
+		c, rec := createTestContext(e, http.MethodGet, "/rauthsetup2fa", nil)
+		c.Request().AddCookie(&http.Cookie{Name: "rauth_setup_pending", Value: encryptedToken})
+
+		err := h.Setup2FA(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		// Check if secret was generated and stored
+		secret, err := core.TokenDB.Get(core.Ctx, "pending_setup_secret:"+setupToken).Result()
+		assert.NoError(t, err)
+		assert.NotEmpty(t, secret)
+
+		// Check renderer data
+		renderer := e.Renderer.(*mockRenderer)
+		data := renderer.LastData.(map[string]interface{})
+		assert.Equal(t, secret, data["secret"])
+	})
 }
