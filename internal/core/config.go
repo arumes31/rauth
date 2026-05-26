@@ -118,8 +118,12 @@ func (c *Config) IsAllowedHost(host string) bool {
 		host = strings.Split(host, ":")[0]
 	}
 
+	// Normalize host: lowercase and trim trailing dot
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+
 	// Check explicit allowed hosts
 	for _, h := range c.AllowedHosts {
+		h = strings.ToLower(strings.TrimSuffix(h, "."))
 		if h == host {
 			return true
 		}
@@ -128,18 +132,23 @@ func (c *Config) IsAllowedHost(host string) bool {
 	// Also check WebAuthn origins
 	for _, o := range c.WebAuthnOrigins {
 		parsed, err := url.Parse(o)
+		var h string
 		if err == nil {
-			h := parsed.Hostname()
-			if h == host {
-				return true
-			}
-		} else if o == host {
+			h = parsed.Hostname()
+		} else {
+			h = o
+		}
+		h = strings.ToLower(strings.TrimSuffix(h, "."))
+		if h == host {
 			return true
 		}
 	}
 
 	// Check if host is part of any cookie domain
 	for _, domain := range c.CookieDomains {
+		// Normalize domain: lowercase and trim leading dot
+		domain = strings.ToLower(strings.TrimPrefix(domain, "."))
+
 		// Exact match
 		if host == domain {
 			return true
