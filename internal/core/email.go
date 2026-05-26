@@ -19,6 +19,7 @@ const emailBaseTemplate = `
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background-color: #f4f7f6; }
         .container { max-width: 600px; margin: 20px auto; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
         .header { background: #dc3545; color: #fff; padding: 30px; text-align: center; }
+        .header img { display: block; margin: 0 auto 10px auto; border-radius: 10px; }
         .header h1 { margin: 0; font-size: 24px; letter-spacing: 1px; }
         .content { padding: 30px; }
         .footer { background: #f8f9fa; color: #6c757d; padding: 20px; text-align: center; font-size: 12px; }
@@ -32,6 +33,7 @@ const emailBaseTemplate = `
 <body>
     <div class="container">
         <div class="header">
+            <img src="{{.LogoURL}}" alt="RAuth Logo" width="64" height="64">
             <h1>RAuth Security</h1>
         </div>
         <div class="content">
@@ -69,6 +71,9 @@ func SendEmail(to, subject, body string) error {
 	if !strings.Contains(body, "<html>") {
 		body = strings.Replace(emailBaseTemplate, "{{.Content}}", body, 1)
 	}
+
+	logoURL := cfg.PublicURL + "/static/favicon.png"
+	body = strings.ReplaceAll(body, "{{.LogoURL}}", logoURL)
 
 	msg := []byte(fmt.Sprintf("From: %s\r\n"+
 		"To: %s\r\n"+
