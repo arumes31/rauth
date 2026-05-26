@@ -191,6 +191,55 @@ location @error401 {
 }
 ```
 
+---
+
+## 🔀 Caddy Integration
+
+Caddy features a built-in `forward_auth` directive that makes integrating RAuth incredibly straightforward. 
+
+### Example Caddyfile
+
+```caddy
+# Protect app.example.com using RAuth
+app.example.com {
+    # 1. Forward validation request to RAuth's endpoint
+    forward_auth http://rauth-auth-service:5980 {
+        uri /rauthvalidate
+        copy_headers X-RAuth-User
+    }
+
+    # 2. Reverse proxy to your backend service if authorized
+    reverse_proxy http://your-app-backend:8080
+}
+```
+
+---
+
+## 🚦 Traefik Integration
+
+Traefik uses a `ForwardAuth` middleware layer. You define the middleware on the RAuth service and reference it on the router of the application you want to protect.
+
+### Docker Compose Label Example
+
+```yaml
+services:
+  # 1. Define the RAuth service and middleware labels
+  rauth:
+    image: ghcr.io/arumes31/rauth-auth:latest
+    container_name: rauth-auth-service
+    labels:
+      - "traefik.http.middlewares.rauth-auth.forwardauth.address=http://rauth-auth-service:5980/rauthvalidate"
+      - "traefik.http.middlewares.rauth-auth.forwardauth.trustForwardHeader=true"
+      - "traefik.http.middlewares.rauth-auth.forwardauth.authResponseHeaders=X-RAuth-User"
+
+  # 2. Reference the middleware to protect your application
+  your-app:
+    image: your-app-image:latest
+    labels:
+      - "traefik.http.routers.your-app.rule=Host(`app.example.com`)"
+      - "traefik.http.routers.your-app.middlewares=rauth-auth"
+```
+
 ### 🌐 Proxying Multiple Domains
 RAuth can protect multiple apps across different subdomains using a single deployment. Set your `COOKIE_DOMAIN` to the root domain (e.g., `example.com`) to share session state between `app1.example.com` and `app2.example.com`.
 
