@@ -186,3 +186,48 @@ func TestAdminHandler_DeleteUser(t *testing.T) {
 		assert.Equal(t, int64(1), exists)
 	})
 }
+func TestAdminHandler_CreateUser_InvalidUsername(t *testing.T) {
+	setupHandlersTest(t)
+	cfg := &core.Config{
+		MinPasswordLength: 8,
+		RequirePasswordUpper: true,
+		RequirePasswordLower: true,
+		RequirePasswordNumber: true,
+		RequirePasswordSpecial: true,
+	}
+	h := &AdminHandler{Cfg: cfg}
+	e := echo.New()
+
+	testCases := []struct {
+		name     string
+		username string
+		expected string
+	}{
+		{"TooShort", "ab", "username must be between 3 and 32 characters long"},
+		{"TooLong", "thisusernameiswaytoolongtoobeallowedbyrauth", "username must be between 3 and 32 characters long"},
+		{"InvalidChars", "user!name", "username can only contain alphanumeric characters, dots, underscores, and hyphens"},
+		{"Spaces", "user name", "username can only contain alphanumeric characters, dots, underscores, and hyphens"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := make(url.Values)
+			f.Set("new_username", tc.username)
+			f.Set("new_password", "Password123!")
+			c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/user/create", f)
+			c.Set("username", "admin")
+
+			err := h.CreateUser(c)
+			if err != nil {
+				if he, ok := err.(*echo.HTTPError); ok {
+					assert.Equal(t, http.StatusBadRequest, he.Code)
+					assert.Contains(t, he.Message, tc.expected)
+				} else {
+					t.Errorf("expected echo.HTTPError, got %T", err)
+				}
+			} else {
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			}
+		})
+	}
+}

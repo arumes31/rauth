@@ -68,6 +68,10 @@ func (h *InviteHandler) Redeem(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, "Invalid or expired invitation")
 	}
 
+
+	if err := core.ValidateUsername(username); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
 	if err := core.ValidatePassword(password, h.Cfg); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
