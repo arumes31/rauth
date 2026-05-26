@@ -293,3 +293,15 @@ func IsUserAgentCompatible(oldUA, newUA string) bool {
 	return oldParsed.OS == newParsed.OS
 }
 
+
+func ValidateUsername(username string) error {
+	if len(username) < 3 || len(username) > 32 {
+		return fmt.Errorf("username must be between 3 and 32 characters long")
+	}
+	// Alphanumeric, underscores, hyphens, and dots
+	validUsername := regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
+	if !validUsername.MatchString(username) {
+		return fmt.Errorf("username can only contain alphanumeric characters, dots, underscores, and hyphens")
+	}
+	return nil
+}
