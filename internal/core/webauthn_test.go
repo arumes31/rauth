@@ -68,7 +68,8 @@ func TestWebAuthnOperations(t *testing.T) {
 		RedisHost: "127.0.0.1",
 		RedisPort: s.Port(),
 	}
-	InitRedis(cfg)
+	err := InitRedis(cfg)
+	assert.NoError(t, err)
 
 	username := "testuser"
 	cred1 := &webauthn.Credential{ID: []byte("cred1")}
