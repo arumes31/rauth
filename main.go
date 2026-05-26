@@ -66,12 +66,12 @@ func main() {
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			c.Response().Header().Set("Accept-CH", "Sec-CH-UA-Platform, Sec-CH-UA-Mobile, Sec-CH-UA-Model")
-			
+
 			// Only negotiate Critical-CH on idempotent GET/HEAD requests to prevent non-idempotent retries (like POST logins)
 			if c.Request().Method == http.MethodGet || c.Request().Method == http.MethodHead {
 				c.Response().Header().Set("Critical-CH", "Sec-CH-UA-Platform, Sec-CH-UA-Mobile, Sec-CH-UA-Model")
 			}
-			
+
 			c.Response().Header().Add("Vary", "Sec-CH-UA-Platform")
 			c.Response().Header().Add("Vary", "Sec-CH-UA-Mobile")
 			c.Response().Header().Add("Vary", "Sec-CH-UA-Model")
@@ -287,7 +287,6 @@ func main() {
 	// WebAuthn Protected Registration
 	protected.GET("/webauthn/register/begin", webauthnHandler.BeginRegistration)
 	protected.POST("/webauthn/register/finish", webauthnHandler.FinishRegistration)
-
 
 	protected.POST("/logout", func(c echo.Context) error {
 		// Get token from context (set by AuthMiddleware)

@@ -70,8 +70,8 @@ func TestWebAuthnCredentialManagement(t *testing.T) {
 	c1 := &webauthn.Credential{ID: []byte("id1"), Authenticator: webauthn.Authenticator{SignCount: 1}}
 	c2 := &webauthn.Credential{ID: []byte("id2"), Authenticator: webauthn.Authenticator{SignCount: 2}}
 
-	SaveWebAuthnCredential(username, c1)
-	SaveWebAuthnCredential(username, c2)
+	assert.NoError(t, SaveWebAuthnCredential(username, c1))
+	assert.NoError(t, SaveWebAuthnCredential(username, c2))
 
 	creds := GetWebAuthnCredentials(username)
 	assert.Equal(t, 2, len(creds))
