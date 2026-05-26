@@ -24,6 +24,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
+      - name: Build Docker image locally
+        run: |
+          docker build -t ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:latest .
+
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
