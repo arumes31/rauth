@@ -1,8 +1,13 @@
 package core
 
 import (
-	"testing"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"encoding/base64"
 	"github.com/stretchr/testify/assert"
+	"io"
+	"testing"
 )
 
 func TestEncryption(t *testing.T) {
@@ -61,7 +66,7 @@ func TestEncryptionLargeInput(t *testing.T) {
 
 func TestValidatePasswordComplexity(t *testing.T) {
 	cfg := &Config{
-		MinPasswordLength:     8,
+		MinPasswordLength:      8,
 		RequirePasswordUpper:   true,
 		RequirePasswordLower:   true,
 		RequirePasswordNumber:  true,
@@ -144,10 +149,10 @@ func TestValidatePasswordDetails(t *testing.T) {
 
 func FuzzValidatePassword(f *testing.F) {
 	cfg := &Config{
-		MinPasswordLength:     8,
-		RequirePasswordUpper:  true,
-		RequirePasswordLower:  true,
-		RequirePasswordNumber: true,
+		MinPasswordLength:      8,
+		RequirePasswordUpper:   true,
+		RequirePasswordLower:   true,
+		RequirePasswordNumber:  true,
 		RequirePasswordSpecial: true,
 	}
 	f.Add("Password123!")
@@ -341,3 +346,45 @@ func TestIsUserAgentCompatible(t *testing.T) {
 	}
 }
 
+func TestLegacyDecryption(t *testing.T) {
+	key := "test-secret-key"
+	plaintext := "secret-message"
+
+	// Encrypt using legacy method manually to simulate old data
+	block, err := aes.NewCipher(getAESKeyLegacy(key))
+	if err != nil {
+		t.Fatalf("Failed to create cipher: %v", err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		t.Fatalf("Failed to create GCM: %v", err)
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		t.Fatalf("Failed to read nonce: %v", err)
+	}
+	ciphertext := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
+	encrypted := base64.StdEncoding.EncodeToString(ciphertext)
+
+	// Decrypt using the updated DecryptToken
+	decrypted, err := DecryptToken(encrypted, key)
+	if err != nil {
+		t.Fatalf("Failed to decrypt legacy data: %v", err)
+	}
+	if decrypted != plaintext {
+		t.Errorf("Expected %s, got %s", plaintext, decrypted)
+	}
+
+	// Also verify that NEW encryption can be decrypted
+	newEncrypted, err := EncryptToken(plaintext, key)
+	if err != nil {
+		t.Fatalf("Failed to encrypt with new method: %v", err)
+	}
+	newDecrypted, err := DecryptToken(newEncrypted, key)
+	if err != nil {
+		t.Fatalf("Failed to decrypt new data: %v", err)
+	}
+	if newDecrypted != plaintext {
+		t.Errorf("Expected %s, got %s", plaintext, newDecrypted)
+	}
+}

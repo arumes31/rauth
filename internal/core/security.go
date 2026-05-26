@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"golang.org/x/crypto/hkdf"
 	"io"
 	"log/slog"
 	"net/url"
@@ -52,9 +53,20 @@ func CheckPasswordHash(password, hash string) bool {
 	return err == nil
 }
 
-func getAESKey(key string) []byte {
+func getAESKeyLegacy(key string) []byte {
 	hash := sha256.Sum256([]byte(key))
 	return hash[:]
+}
+
+func getAESKey(key string) []byte {
+	hash := sha256.New
+	hk := hkdf.New(hash, []byte(key), nil, []byte("rauth-aes-key"))
+	derivedKey := make([]byte, 32)
+	if _, err := io.ReadFull(hk, derivedKey); err != nil {
+		// This should never happen with HKDF unless there's a serious system failure
+		panic(err)
+	}
+	return derivedKey
 }
 
 func EncryptToken(text string, key string) (string, error) {
@@ -83,7 +95,18 @@ func DecryptToken(encryptedText string, key string) (string, error) {
 		return "", err
 	}
 
-	block, err := aes.NewCipher(getAESKey(key))
+	// Try with the new KDF first
+	plaintext, err := decryptWithKey(data, getAESKey(key))
+	if err == nil {
+		return plaintext, nil
+	}
+
+	// Fallback to legacy KDF (SHA256)
+	return decryptWithKey(data, getAESKeyLegacy(key))
+}
+
+func decryptWithKey(data []byte, key []byte) (string, error) {
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		return "", err
 	}
@@ -116,14 +139,20 @@ func GenerateRandomString(n int) string {
 }
 
 func Encrypt2FASecret(secret string, key string) string {
-	if secret == "" { return "" }
+	if secret == "" {
+		return ""
+	}
 	encrypted, err := EncryptToken(secret, key)
-	if err != nil { return secret } // Fallback to plain if encryption fails (should not happen)
+	if err != nil {
+		return secret
+	} // Fallback to plain if encryption fails (should not happen)
 	return "enc:" + encrypted
 }
 
 func Decrypt2FASecret(secret string, key string) string {
-	if secret == "" { return "" }
+	if secret == "" {
+		return ""
+	}
 	if !strings.HasPrefix(secret, "enc:") {
 		return secret // Already plain
 	}
@@ -292,4 +321,3 @@ func IsUserAgentCompatible(oldUA, newUA string) bool {
 
 	return oldParsed.OS == newParsed.OS
 }
-
