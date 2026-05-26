@@ -18,6 +18,17 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+func ValidateEmail(email string) error {
+	if email == "" {
+		return errors.New("email is required")
+	}
+	emailRegex := regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
+	if !emailRegex.MatchString(email) {
+		return errors.New("invalid email format")
+	}
+	return nil
+}
+
 func ValidatePassword(password string, cfg *Config) error {
 	if len(password) < cfg.MinPasswordLength {
 		return fmt.Errorf("password must be at least %d characters long", cfg.MinPasswordLength)
