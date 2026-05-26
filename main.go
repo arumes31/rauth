@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -15,6 +16,7 @@ import (
 	"rauth/internal/handlers"
 	"rauth/internal/middleware"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -57,6 +59,30 @@ func main() {
 
 	e := echo.New()
 	e.HideBanner = true
+
+	// Configure real IP extraction from headers behind reverse proxies
+	e.IPExtractor = func(req *http.Request) string {
+		if cfIP := req.Header.Get("CF-Connecting-IP"); cfIP != "" {
+			return cfIP
+		}
+		if realIP := req.Header.Get("X-Real-IP"); realIP != "" {
+			return realIP
+		}
+		if xff := req.Header.Get("X-Forwarded-For"); xff != "" {
+			ips := strings.Split(xff, ",")
+			if len(ips) > 0 {
+				cleaned := strings.TrimSpace(ips[0])
+				if cleaned != "" {
+					return cleaned
+				}
+			}
+		}
+		host, _, err := net.SplitHostPort(req.RemoteAddr)
+		if err == nil {
+			return host
+		}
+		return req.RemoteAddr
+	}
 
 	// Setup everything
 	setupMiddleware(e, cfg)
