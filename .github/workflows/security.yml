@@ -1,6 +1,8 @@
 name: Container Security Scan
 
 on:
+  push:
+    branches: [ main ]
   schedule:
     - cron: '0 12 * * *' # Daily at noon
   workflow_dispatch:
