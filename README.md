@@ -114,6 +114,7 @@ RAuth eliminates the complexity of full-scale identity providers while maintaini
 RAuth integrates seamlessly into your existing Nginx proxy stack using the `auth_request` module.
 
 ```mermaid
+%%{init: {'theme': 'dark', 'themeVariables': { 'primaryColor': '#dc3545', 'primaryTextColor': '#fff', 'lineColor': '#ef4444', 'nodeBorder': '#dc3545', 'mainBkg': '#1f1f1f', 'actorBkg': '#1f1f1f' }}}%%
 graph TD
     User((User)) -->|HTTPS Request| Nginx[Nginx Reverse Proxy]
     Nginx -->|1. auth_request| RAuth[RAuth Auth Service]
@@ -232,6 +233,9 @@ By default, the `/metrics` endpoint is restricted to:
 
 RAuth is configured via Environment Variables.
 
+<details>
+  <summary>🔍 <b>View Configuration Options (Environment Variables)</b></summary>
+
 | Category | Variable | Description | Default |
 |:---|:---|:---|:---|
 | **Secret** | `SERVER_SECRET` | 32+ char key for AES encryption | **REQUIRED** |
@@ -280,6 +284,8 @@ RAuth is configured via Environment Variables.
 | **Throttle**| `RATE_LIMIT_LOGIN_FAIL_IP_DECAY`| Global IP block duration (seconds) | `600` |
 | **Regional**| `TZ` | Container Timezone (e.g., `Europe/Berlin`) | `UTC` |
 
+</details>
+
 ---
 
 ## 🚀 Deployment
@@ -325,6 +331,9 @@ go test -v ./...
 
 ## ❓ Troubleshooting FAQ
 
+<details>
+  <summary>❓ <b>View Troubleshooting FAQ Solutions</b></summary>
+
 **Q: Why am I stuck in a 401 Redirect Loop?**  
 A: This usually happens when the `COOKIE_DOMAIN` in RAuth doesn't match the domain of the app you are protecting. Ensure the cookie can be shared across subdomains.
 
@@ -336,6 +345,8 @@ A: Ensure RAuth and Redis are on the same Docker network. If using the default C
 
 **Q: WebAuthn/Passkey registration fails?**  
 A: WebAuthn requires HTTPS (or `localhost` for development). Ensure your Nginx proxy is serving over SSL and forwarding the correct `Host` headers.
+
+</details>
 
 ---
 Built with ❤️ for secure, fast, and private self-hosting.
