@@ -1,8 +1,7 @@
 services:
   rauth-auth-service:
-    container_name: rauth-auth-service
-    build: .
     image: ghcr.io/arumes31/rauth-auth:latest
+    container_name: rauth-auth-service
     ports:
       - "${AUTH_PORT:-5980}:80"
     environment:
