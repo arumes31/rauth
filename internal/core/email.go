@@ -178,4 +178,5 @@ func Send2FAModifiedNotification(email, username, action, ip string) {
 	`, eAction, eUsername, eAction, eAction, eIP, time.Now().Format("Jan 02, 2006 15:04:05 MST"))
 
 	_ = SendEmail(email, subject, body)
+
 }
