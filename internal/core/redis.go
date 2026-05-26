@@ -4,8 +4,8 @@ import (
 	"log/slog"
 	"context"
 	"fmt"
-	"time"
 	"github.com/redis/go-redis/v9"
+	"time"
 )
 
 var (
