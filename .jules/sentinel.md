@@ -24,3 +24,8 @@
 **Vulnerability:** Similar to the 2FA authentication flow, profile operations like `DisableTOTP` and `ChangePassword` were lacking pre-execution rate limit checks on 2FA validation and password checks. This allowed brute-force attacks against a user's 2FA secret or password after they had already authenticated.
 **Learning:** Rate-limiting logic must be applied consistently to all endpoints that perform cryptographic validation of user secrets, regardless of whether it's an authentication flow or a profile settings change.
 **Prevention:** Always implement `core.IsRateLimitExceeded` before executing `totp.Validate` or `core.CheckPasswordHash`, and increment the rate limit on failure, across all relevant handlers.
+
+## 2024-05-30 - Handler Modularization for Maintainability
+**Issue:** The `Login` handler was overly long and complex, making it difficult to test and maintain.
+**Learning:** Extracting logical blocks into private helper methods (`checkUserThrottling`, `verifyCredentials`, `handleAuthFailure`, etc.) improves readability and allows for better reasoning about security flows.
+**Prevention:** Regularly refactor complex handlers into smaller, purpose-built private methods while ensuring all security checks (rate limiting, dummy hashes) are preserved exactly.
