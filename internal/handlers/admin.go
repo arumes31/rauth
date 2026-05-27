@@ -260,4 +260,3 @@ func (h *AdminHandler) InvalidateSession(c echo.Context) error {
 	core.LogAudit("ADMIN_INVALIDATE_SESSION", admin, c.RealIP(), map[string]interface{}{"token": logToken})
 	return c.Redirect(http.StatusFound, "/rauthmgmt?success=session_terminated")
 }
-
