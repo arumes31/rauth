@@ -29,3 +29,7 @@
 **Issue:** The `Login` handler was overly long and complex, making it difficult to test and maintain.
 **Learning:** Extracting logical blocks into private helper methods (`checkUserThrottling`, `verifyCredentials`, `handleAuthFailure`, etc.) improves readability and allows for better reasoning about security flows.
 **Prevention:** Regularly refactor complex handlers into smaller, purpose-built private methods while ensuring all security checks (rate limiting, dummy hashes) are preserved exactly.
+## 2026-05-27 - [Rate Limit Bypass & DoS in Auth]
+**Vulnerability:** Rate limiting counter incremented before validating the user password, and incorrect limit configuration used for 2FA checks.
+**Learning:** Incrementing limits before checking logic enables a trivial DoS, locking out users without needing their credentials. Furthermore, mixing configuration values (IP limit vs User limit) leads to incorrect protections.
+**Prevention:** Always perform checks using non-incrementing helpers (like `core.IsRateLimitExceeded`) first, and only increment (e.g., `core.CheckRateLimit`) when the authorization/validation check fails. Also ensure configurations are mapped securely to their intended context.

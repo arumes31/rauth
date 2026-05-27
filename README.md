@@ -568,5 +568,7 @@ A: Modern browsers enforce the `Secure` attribute on cookies and block them over
 
 </details>
 
+</details>
+
 ---
 Built with ❤️ for secure, fast, and private self-hosting.
