@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestEncryption(t *testing.T) {
@@ -387,5 +388,143 @@ func TestLegacyDecryption(t *testing.T) {
 	}
 	if newDecrypted != plaintext {
 		t.Errorf("Expected %s, got %s", plaintext, newDecrypted)
+	}
+}
+
+func TestValidateEmail(t *testing.T) {
+	tests := []struct {
+		name    string
+		email   string
+		wantErr bool
+	}{
+		{"Valid Email", "test@example.com", false},
+		{"Valid Email With Plus", "test+123@example.com", false},
+		{"Invalid Email - No At", "testexample.com", true},
+		{"Invalid Email - No Domain", "test@", true},
+		{"Invalid Email - Empty", "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateEmail(tt.email)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestGenerateRandomString(t *testing.T) {
+	str1 := GenerateRandomString(16)
+	str2 := GenerateRandomString(16)
+
+	require.NotEmpty(t, str1)
+	require.NotEmpty(t, str2)
+	require.NotEqual(t, str1, str2)
+
+	// A 16 byte string base64url encoded is 22 characters typically
+	require.GreaterOrEqual(t, len(str1), 16)
+}
+
+func TestDecrypt2FASecret(t *testing.T) {
+	key := "12345678901234567890123456789012"
+
+	tests := []struct {
+		name   string
+		secret string
+		key    string
+		want   string
+	}{
+		{"Empty Secret", "", key, ""},
+		{"Plain Secret", "plain_secret", key, "plain_secret"},
+		{"Invalid Encrypted Secret", "enc:invalid_data", key, "enc:invalid_data"}, // DecryptToken fails, returns secret as-is
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := Decrypt2FASecret(tt.secret, tt.key)
+			require.Equal(t, tt.want, got)
+		})
+	}
+
+	t.Run("Valid Encrypted Secret", func(t *testing.T) {
+		plain := "my_secret"
+		enc, err := EncryptToken(plain, key)
+		require.NoError(t, err)
+
+		got := Decrypt2FASecret("enc:"+enc, key)
+		require.Equal(t, plain, got)
+	})
+}
+
+func TestFormatUserAgent(t *testing.T) {
+	tests := []struct {
+		name string
+		ua   string
+		want string
+	}{
+		{"Empty", "", "Unknown Device"},
+		{"Chrome on Windows", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36", "Chrome on Windows"},
+		{"Firefox on macOS", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:89.0) Gecko/20100101 Firefox/89.0", "Firefox on macOS"},
+		{"Safari on iOS", "Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1", "Safari on iOS"},
+		{"Chrome on Android", "Mozilla/5.0 (Linux; Android 11; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36", "Chrome on Android"},
+		{"Opera on Linux", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36 OPR/77.0.4054.172", "Opera on Linux"},
+		{"Edge on Windows", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36 Edg/91.0.864.59", "Edge on Windows"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := FormatUserAgent(tt.ua)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestGetDeviceIcon(t *testing.T) {
+	tests := []struct {
+		name string
+		ua   string
+		want string
+	}{
+		{"Android", "Mozilla/5.0 (Linux; Android 11)", "bi-android2"},
+		{"iPhone", "Mozilla/5.0 (iPhone; CPU iPhone OS 14_6)", "bi-apple"},
+		{"iPad", "Mozilla/5.0 (iPad; CPU OS 14_6)", "bi-apple"},
+		{"Windows", "Mozilla/5.0 (Windows NT 10.0)", "bi-microsoft"},
+		{"Macintosh", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15)", "bi-apple"},
+		{"Linux", "Mozilla/5.0 (X11; Linux x86_64)", "bi-ubuntu"},
+		{"Unknown", "Unknown UA", "bi-display"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := GetDeviceIcon(tt.ua)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestValidateUsername(t *testing.T) {
+	tests := []struct {
+		name    string
+		user    string
+		wantErr bool
+	}{
+		{"Valid User", "test_user.123-abc", false},
+		{"Too Short", "ab", true},
+		{"Too Long", "thisusernameiswaytoolongtobevalid33", true},
+		{"Invalid Characters", "user@name!", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateUsername(tt.user)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
 	}
 }

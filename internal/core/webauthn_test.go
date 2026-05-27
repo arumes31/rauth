@@ -1,6 +1,8 @@
 package core
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -8,6 +10,7 @@ import (
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestInitWebAuthn(t *testing.T) {
@@ -119,4 +122,83 @@ func TestWebAuthnCredentialManagement(t *testing.T) {
 	creds = GetWebAuthnCredentials(username)
 	assert.Equal(t, 1, len(creds))
 	assert.Equal(t, string(c2.ID), string(creds[0].ID))
+}
+
+func TestWebAuthnUserInterface(t *testing.T) {
+	u := &WebAuthnUser{
+		ID:          []byte("123"),
+		DisplayName: "Test User",
+		Credentials: []webauthn.Credential{},
+	}
+
+	require.Equal(t, []byte("123"), u.WebAuthnID())
+	require.Equal(t, "Test User", u.WebAuthnName())
+	require.Equal(t, "Test User", u.WebAuthnDisplayName())
+	require.Equal(t, "", u.WebAuthnIcon())
+	require.Equal(t, []webauthn.Credential{}, u.WebAuthnCredentials())
+
+	// Nil receiver tests
+	var nilUser *WebAuthnUser
+	require.Nil(t, nilUser.WebAuthnID())
+	require.Equal(t, "", nilUser.WebAuthnName())
+}
+
+func TestNewWebAuthnUser(t *testing.T) {
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	client := redis.NewClient(&redis.Options{
+		Addr: mr.Addr(),
+	})
+	UserDB = client
+	Ctx = context.Background()
+
+	user := User{
+		UID:      "123",
+		Username: "testuser",
+	}
+
+	wu := NewWebAuthnUser(user)
+	require.NotNil(t, wu)
+	require.Equal(t, []byte("123"), wu.ID)
+	require.Equal(t, "testuser", wu.DisplayName)
+}
+
+func TestUpdateWebAuthnSignCount(t *testing.T) {
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	client := redis.NewClient(&redis.Options{
+		Addr: mr.Addr(),
+	})
+	UserDB = client
+	Ctx = context.Background()
+
+	cred := webauthn.Credential{
+		ID: []byte("cred1"),
+		Authenticator: webauthn.Authenticator{
+			SignCount: 10,
+		},
+	}
+	stored := StoredCredential{
+		Credential: cred,
+	}
+
+	data, err := json.Marshal(stored)
+	require.NoError(t, err)
+
+	UserDB.RPush(Ctx, "user:testuser:webauthn_creds", string(data))
+
+	UpdateWebAuthnSignCount("testuser", []byte("cred1"), 20)
+
+	results, err := UserDB.LRange(Ctx, "user:testuser:webauthn_creds", 0, -1).Result()
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+
+	var updated StoredCredential
+	err = json.Unmarshal([]byte(results[0]), &updated)
+	require.NoError(t, err)
+	require.Equal(t, uint32(20), updated.Authenticator.SignCount)
 }
