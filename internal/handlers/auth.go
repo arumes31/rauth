@@ -185,20 +185,12 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	clientIP := c.RealIP()
 	slog.Debug("Login attempt", "ip", clientIP, "method", c.Request().Method)
 
-	// 1. Basic IP Throttling for ALL requests (GET/POST)
-	if !core.CheckRateLimit("login_access:"+clientIP, h.Cfg.RateLimitLoginAccessMax, h.Cfg.RateLimitLoginAccessDecay) {
-		slog.Warn("General login access rate limit exceeded", "ip", clientIP)
-		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many requests. Please wait a minute.", "csrf": c.Get("csrf")})
+	if err := h.checkIPRateLimits(c, "login.html", nil, true); err != nil || c.Response().Committed {
+		return err
 	}
 
 	if c.Request().Method == http.MethodGet {
 		return c.Render(http.StatusOK, "login.html", map[string]interface{}{"csrf": c.Get("csrf"), "rd": c.QueryParam("rd")})
-	}
-
-	// 2. Strict Throttling for POST (Authentication Attempts)
-	if !core.CheckRateLimit("login_post_ip:"+clientIP, h.Cfg.RateLimitLoginMax, h.Cfg.RateLimitLoginDecay) {
-		slog.Warn("Login POST rate limit exceeded", "ip", clientIP)
-		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": fmt.Sprintf("Too many login attempts from this IP (%s).", clientIP), "csrf": c.Get("csrf")})
 	}
 
 	if c.FormValue("action") == "verify_2fa" {
@@ -207,28 +199,64 @@ func (h *AuthHandler) Login(c echo.Context) error {
 
 	username := strings.TrimSpace(c.FormValue("username"))
 
-	// 3. Per-User Throttling
 	if throttled, err := h.checkUserThrottling(c, username); throttled {
 		return err
 	}
 
-	password := c.FormValue("password")
-	userRecord, valid := h.verifyCredentials(username, password)
-
+	userRecord, valid := h.verifyCredentials(username, c.FormValue("password"))
 	if !valid {
 		return h.handleAuthFailure(c, username)
 	}
 
-	// Success! Reset per-user penalties
+	return h.handleAuthSuccess(c, username, userRecord)
+}
+
+func (h *AuthHandler) checkIPRateLimits(c echo.Context, template string, data map[string]interface{}, increment bool) error {
+	clientIP := c.RealIP()
+
+	check := func(key string, max int, decay int) bool {
+		if increment {
+			return core.CheckRateLimit(key, max, decay)
+		}
+		count, _ := core.RateLimitDB.Get(core.Ctx, "rate_limit:"+key).Int()
+		return count <= max
+	}
+
+	if !check("login_access:"+clientIP, h.Cfg.RateLimitLoginAccessMax, h.Cfg.RateLimitLoginAccessDecay) {
+		slog.Warn("General login access rate limit exceeded", "ip", clientIP)
+		respData := map[string]interface{}{"error": "Too many requests. Please wait a minute.", "csrf": c.Get("csrf")}
+		for k, v := range data {
+			respData[k] = v
+		}
+		return c.Render(http.StatusTooManyRequests, template, respData)
+	}
+
+	if c.Request().Method == http.MethodPost {
+		if !check("login_post_ip:"+clientIP, h.Cfg.RateLimitLoginMax, h.Cfg.RateLimitLoginDecay) {
+			slog.Warn("Login POST rate limit exceeded", "ip", clientIP)
+			errorMsg := fmt.Sprintf("Too many login attempts from this IP (%s).", clientIP)
+			if template != "login.html" {
+				errorMsg = fmt.Sprintf("Too many attempts from this IP (%s). Please try again later.", clientIP)
+			}
+			respData := map[string]interface{}{"error": errorMsg, "csrf": c.Get("csrf")}
+			for k, v := range data {
+				respData[k] = v
+			}
+			return c.Render(http.StatusTooManyRequests, template, respData)
+		}
+	}
+	return nil
+}
+
+func (h *AuthHandler) handleAuthSuccess(c echo.Context, username string, userRecord *core.User) error {
+	clientIP := c.RealIP()
 	core.ResetRateLimit("login_fail_user:" + username)
 	core.ResetRateLimit("login_post_ip:" + clientIP)
 
-	// Check if 2FA is enabled
 	if userRecord.TwoFactor != "" {
 		return h.initiate2FASession(c, username)
 	}
 
-	// Force 2FA Setup for new users (or users without 2FA)
 	return h.initiate2FASetupSession(c, username)
 }
 
@@ -236,7 +264,6 @@ func (h *AuthHandler) checkUserThrottling(c echo.Context, username string) (bool
 	clientIP := c.RealIP()
 	if username != "" && !core.CheckRateLimit("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay) {
 		slog.Warn("Login user rate limit exceeded", "username", username, "ip", clientIP)
-		// We still do the password check work to prevent timing attacks, but we will return 429
 		core.CheckPasswordHash("dummy", "$2a$12$WJlQ/t/NbjXzEfIi2P54vecljh4fSRxYOkWj5Kbs7hM0eZFmL/Nyq")
 		return true, c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "This account is temporarily locked due to too many failed attempts.", "csrf": c.Get("csrf")})
 	}
@@ -245,17 +272,13 @@ func (h *AuthHandler) checkUserThrottling(c echo.Context, username string) (bool
 
 func (h *AuthHandler) verifyCredentials(username, password string) (*core.User, bool) {
 	userRecord, err := core.GetUser(username)
-
-	// Constant time password check to prevent username enumeration
 	var valid bool
 	if err == nil {
 		valid = core.CheckPasswordHash(password, userRecord.Password)
 	} else {
-		// Dummy hash to simulate work
 		core.CheckPasswordHash(password, "$2a$12$WJlQ/t/NbjXzEfIi2P54vecljh4fSRxYOkWj5Kbs7hM0eZFmL/Nyq")
 		valid = false
 	}
-
 	if !valid {
 		return nil, false
 	}
@@ -267,7 +290,10 @@ func (h *AuthHandler) handleAuthFailure(c echo.Context, username string) error {
 	core.LogAudit("LOGIN_FAILED", username, clientIP, nil)
 	core.LoginFailedTotal.Inc()
 
-	// 4. Track FAILED attempts from IP across different users
+	if err := h.checkIPRateLimits(c, "login.html", nil, false); err != nil || c.Response().Committed {
+		return err
+	}
+
 	if !core.HasActiveSessions(clientIP) {
 		if !core.CheckRateLimit("login_fail_ip:"+clientIP, h.Cfg.RateLimitLoginFailIPMax, h.Cfg.RateLimitLoginFailIPDecay) {
 			slog.Warn("Global IP failure rate limit exceeded", "ip", clientIP)
@@ -321,11 +347,8 @@ func (h *AuthHandler) initiate2FASetupSession(c echo.Context, username string) e
 
 func (h *AuthHandler) Verify2FA(c echo.Context) error {
 	clientIP := c.RealIP()
-	if !core.CheckRateLimit("login_access:"+clientIP, h.Cfg.RateLimitLoginAccessMax, h.Cfg.RateLimitLoginAccessDecay) {
-		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many requests. Please wait a minute.", "csrf": c.Get("csrf")})
-	}
-	if !core.CheckRateLimit("login_post_ip:"+clientIP, h.Cfg.RateLimitLoginMax, h.Cfg.RateLimitLoginDecay) {
-		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": fmt.Sprintf("Too many attempts from this IP (%s). Please try again later.", clientIP), "csrf": c.Get("csrf"), "display2fa": true})
+	if err := h.checkIPRateLimits(c, "login.html", map[string]interface{}{"display2fa": true}, true); err != nil || c.Response().Committed {
+		return err
 	}
 
 	code := c.FormValue("totp_code")
@@ -426,11 +449,8 @@ func (h *AuthHandler) Setup2FA(c echo.Context) error {
 
 func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 	clientIP := c.RealIP()
-	if !core.CheckRateLimit("login_access:"+clientIP, h.Cfg.RateLimitLoginAccessMax, h.Cfg.RateLimitLoginAccessDecay) {
-		return c.Render(http.StatusTooManyRequests, "setup_2fa.html", map[string]interface{}{"error": "Too many requests. Please wait a minute.", "csrf": c.Get("csrf")})
-	}
-	if !core.CheckRateLimit("login_post_ip:"+clientIP, h.Cfg.RateLimitLoginMax, h.Cfg.RateLimitLoginDecay) {
-		return c.Render(http.StatusTooManyRequests, "setup_2fa.html", map[string]interface{}{"error": fmt.Sprintf("Too many attempts from this IP (%s). Please try again later.", clientIP), "csrf": c.Get("csrf")})
+	if err := h.checkIPRateLimits(c, "setup_2fa.html", nil, true); err != nil || c.Response().Committed {
+		return err
 	}
 
 	cookie, err := c.Cookie("rauth_setup_pending")
