@@ -1,6 +1,8 @@
 package core
 
 import (
+	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -142,13 +144,16 @@ func InitWebAuthn(cfg *Config) error {
 }
 
 func SaveWebAuthnCredential(username string, cred *webauthn.Credential) error {
+	key := "user:" + username + ":webauthn_creds"
+	count, _ := UserDB.LLen(Ctx, key).Result()
 	stored := StoredCredential{
 		Credential: *cred,
-		Nickname:   fmt.Sprintf("Key %d", len(GetWebAuthnCredentials(username))+1),
+		Nickname:   fmt.Sprintf("Key %d", count+1),
 		CreatedAt:  time.Now().Unix(),
 	}
-	data, _ := json.Marshal(stored)
-	return UserDB.RPush(Ctx, "user:"+username+":webauthn_creds", data).Err()
+	type jsc StoredCredential
+	data, _ := json.Marshal(jsc(stored))
+	return UserDB.RPush(Ctx, key, data).Err()
 }
 
 func GetWebAuthnCredentials(username string) []webauthn.Credential {
@@ -178,10 +183,11 @@ func UpdateWebAuthnSignCount(username string, credID []byte, newCount uint32) {
 	for i, r := range results {
 		var c StoredCredential
 		if err := json.Unmarshal([]byte(r), &c); err == nil {
-			if string(c.ID) == string(credID) {
+			if bytes.Equal(c.ID, credID) {
 				c.Authenticator.SignCount = newCount
 				c.LastUsed = time.Now().Unix()
-				data, _ := json.Marshal(c)
+				type jsc StoredCredential
+				data, _ := json.Marshal(jsc(c))
 				UserDB.LSet(Ctx, key, int64(i), data)
 				return
 			}
@@ -194,20 +200,22 @@ func DeleteWebAuthnCredential(username string, credID string) error {
 	key := "user:" + username + ":webauthn_creds"
 	var toPush []interface{}
 	for _, c := range stored {
-		// We use hex encoding or base64 for ID in the request
-		if fmt.Sprintf("%x", c.ID) != credID {
-			data, err := json.Marshal(c)
+		if hex.EncodeToString(c.ID) != credID {
+			type jsc StoredCredential
+			data, err := json.Marshal(jsc(c))
 			if err != nil {
 				return err
 			}
 			toPush = append(toPush, data)
 		}
 	}
-	UserDB.Del(Ctx, key)
+	pipe := UserDB.Pipeline()
+	pipe.Del(Ctx, key)
 	if len(toPush) > 0 {
-		return UserDB.RPush(Ctx, key, toPush...).Err()
+		pipe.RPush(Ctx, key, toPush...)
 	}
-	return nil
+	_, err := pipe.Exec(Ctx)
+	return err
 }
 
 func UpdateWebAuthnNickname(username string, credID string, nickname string) error {
@@ -215,20 +223,23 @@ func UpdateWebAuthnNickname(username string, credID string, nickname string) err
 	key := "user:" + username + ":webauthn_creds"
 	var toPush []interface{}
 	for i := range stored {
-		if fmt.Sprintf("%x", stored[i].ID) == credID {
+		if hex.EncodeToString(stored[i].ID) == credID {
 			stored[i].Nickname = nickname
 		}
-		data, err := json.Marshal(stored[i])
+		type jsc StoredCredential
+		data, err := json.Marshal(jsc(stored[i]))
 		if err != nil {
 			return err
 		}
 		toPush = append(toPush, data)
 	}
-	UserDB.Del(Ctx, key)
+	pipe := UserDB.Pipeline()
+	pipe.Del(Ctx, key)
 	if len(toPush) > 0 {
-		return UserDB.RPush(Ctx, key, toPush...).Err()
+		pipe.RPush(Ctx, key, toPush...)
 	}
-	return nil
+	_, err := pipe.Exec(Ctx)
+	return err
 }
 
 func UpdateWebAuthnLastUsed(username string, credID []byte) error {
@@ -236,20 +247,23 @@ func UpdateWebAuthnLastUsed(username string, credID []byte) error {
 	key := "user:" + username + ":webauthn_creds"
 	var toPush []interface{}
 	for i := range stored {
-		if fmt.Sprintf("%x", stored[i].ID) == fmt.Sprintf("%x", credID) {
+		if bytes.Equal(stored[i].ID, credID) {
 			stored[i].LastUsed = time.Now().Unix()
 		}
-		data, err := json.Marshal(stored[i])
+		type jsc StoredCredential
+		data, err := json.Marshal(jsc(stored[i]))
 		if err != nil {
 			return err
 		}
 		toPush = append(toPush, data)
 	}
-	UserDB.Del(Ctx, key)
+	pipe := UserDB.Pipeline()
+	pipe.Del(Ctx, key)
 	if len(toPush) > 0 {
-		return UserDB.RPush(Ctx, key, toPush...).Err()
+		pipe.RPush(Ctx, key, toPush...)
 	}
-	return nil
+	_, err := pipe.Exec(Ctx)
+	return err
 }
 
 func UpdateWebAuthnCredential(username string, cred *webauthn.Credential) error {
@@ -257,19 +271,22 @@ func UpdateWebAuthnCredential(username string, cred *webauthn.Credential) error 
 	key := "user:" + username + ":webauthn_creds"
 	var toPush []interface{}
 	for i := range stored {
-		if fmt.Sprintf("%x", stored[i].ID) == fmt.Sprintf("%x", cred.ID) {
+		if bytes.Equal(stored[i].ID, cred.ID) {
 			stored[i].Credential = *cred
 			stored[i].LastUsed = time.Now().Unix()
 		}
-		data, err := json.Marshal(stored[i])
+		type jsc StoredCredential
+		data, err := json.Marshal(jsc(stored[i]))
 		if err != nil {
 			return err
 		}
 		toPush = append(toPush, data)
 	}
-	UserDB.Del(Ctx, key)
+	pipe := UserDB.Pipeline()
+	pipe.Del(Ctx, key)
 	if len(toPush) > 0 {
-		return UserDB.RPush(Ctx, key, toPush...).Err()
+		pipe.RPush(Ctx, key, toPush...)
 	}
-	return nil
+	_, err := pipe.Exec(Ctx)
+	return err
 }
