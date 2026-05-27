@@ -1,10 +1,10 @@
 package core
 
 import (
-	"log/slog"
 	"context"
 	"fmt"
 	"github.com/redis/go-redis/v9"
+	"log/slog"
 	"time"
 )
 
@@ -96,10 +96,23 @@ func HasActiveSessions(ip string) bool {
 			return false
 		}
 
-		for _, k := range keys {
-			data, err := TokenDB.HGetAll(Ctx, k).Result()
-			if err == nil && data["ip"] == ip && data["status"] == "valid" {
-				return true
+		if len(keys) > 0 {
+			pipe := TokenDB.Pipeline()
+			cmds := make([]*redis.MapStringStringCmd, len(keys))
+			for i, k := range keys {
+				cmds[i] = pipe.HGetAll(Ctx, k)
+			}
+
+			_, err := pipe.Exec(Ctx)
+			if err != nil && err != redis.Nil {
+				slog.Error("Pipeline execution failed in HasActiveSessions", "error", err)
+			}
+
+			for _, cmd := range cmds {
+				data, err := cmd.Result()
+				if err == nil && data["ip"] == ip && data["status"] == "valid" {
+					return true
+				}
 			}
 		}
 

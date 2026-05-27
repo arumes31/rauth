@@ -18,7 +18,7 @@ func TestAuthMiddleware(t *testing.T) {
 	core.UserDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
 
 	e := echo.New()
-	cfg := &core.Config{ServerSecret: "32byte-secret-key-for-testing-!!" }
+	cfg := &core.Config{ServerSecret: "32byte-secret-key-for-testing-!!"}
 
 	handler := AuthMiddleware(cfg)(func(c echo.Context) error {
 		return c.String(http.StatusOK, "OK")
@@ -40,9 +40,9 @@ func TestAuthMiddleware(t *testing.T) {
 		encrypted, _ := core.EncryptToken(token, cfg.ServerSecret)
 
 		core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken="+token, map[string]interface{}{
-			"status": "valid",
+			"status":   "valid",
 			"username": "testuser",
-			"groups": "admin",
+			"groups":   "admin",
 		})
 
 		req := httptest.NewRequest(http.MethodGet, "/", nil)

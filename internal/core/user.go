@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 	"time"
 )
 
@@ -23,16 +24,39 @@ func ListUsers() ([]User, error) {
 		return nil, err
 	}
 
+	if len(usernames) == 0 {
+		return nil, nil
+	}
+
+	pipe := UserDB.Pipeline()
+	cmds := make([]*redis.MapStringStringCmd, len(usernames))
+	for i, username := range usernames {
+		cmds[i] = pipe.HGetAll(Ctx, "user:"+username)
+	}
+
+	_, err = pipe.Exec(Ctx)
+	if err != nil && err != redis.Nil {
+		return nil, err
+	}
+
 	var users []User
-	for _, username := range usernames {
-		user, err := GetUser(username)
-		if err == nil {
-			users = append(users, user)
+	for i, cmd := range cmds {
+		var user User
+		err := cmd.Scan(&user)
+		if err != nil {
+			continue
 		}
+		if user.Username == "" || user.UID == "" {
+			// Fallback for missing fields or legacy records missing UID
+			if u, err := GetUser(usernames[i]); err == nil {
+				users = append(users, u)
+			}
+			continue
+		}
+		users = append(users, user)
 	}
 	return users, nil
 }
-
 func GetUser(username string) (User, error) {
 	var user User
 	err := UserDB.HGetAll(Ctx, "user:"+username).Scan(&user)
