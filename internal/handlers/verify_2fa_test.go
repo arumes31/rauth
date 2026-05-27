@@ -18,14 +18,14 @@ func TestAuthHandler_Verify2FA_Reproduction(t *testing.T) {
 	setupHandlersTest(t)
 
 	cfg := &core.Config{
-		ServerSecret: "32byte-secret-key-for-testing-!!",
-		CookieDomains: []string{"example.com"},
-		TokenValidityMinutes: 60,
-		RateLimitLoginMax: 1000,
-		RateLimitLoginDecay: 60,
-		RateLimitLoginAccessMax: 1000,
+		ServerSecret:              "32byte-secret-key-for-testing-!!",
+		CookieDomains:             []string{"example.com"},
+		TokenValidityMinutes:      60,
+		RateLimitLoginMax:         1000,
+		RateLimitLoginDecay:       60,
+		RateLimitLoginAccessMax:   1000,
 		RateLimitLoginFailUserMax: 1000,
-		RateLimitLoginFailIPMax: 1000,
+		RateLimitLoginFailIPMax:   1000,
 	}
 	h := &AuthHandler{Cfg: cfg}
 	e := echo.New()
