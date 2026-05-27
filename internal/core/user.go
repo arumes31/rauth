@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"time"
+	"github.com/redis/go-redis/v9"
 )
 
 type User struct {
@@ -23,10 +24,32 @@ func ListUsers() ([]User, error) {
 		return nil, err
 	}
 
+	if len(usernames) == 0 {
+		return []User{}, nil
+	}
+
+	pipe := UserDB.Pipeline()
+	cmds := make([]*redis.MapStringStringCmd, len(usernames))
+	for i, username := range usernames {
+		cmds[i] = pipe.HGetAll(Ctx, "user:"+username)
+	}
+
+	// We ignore the pipeline error and check per-command
+	_, _ = pipe.Exec(Ctx)
+
 	var users []User
-	for _, username := range usernames {
-		user, err := GetUser(username)
-		if err == nil {
+	for i, cmd := range cmds {
+		username := usernames[i]
+		var user User
+		err := cmd.Scan(&user)
+
+		if err != nil || user.Username == "" || user.UID == "" {
+			// Fallback to GetUser if HGetAll failed or is missing fields (lazy migration)
+			user, err = GetUser(username)
+			if err == nil {
+				users = append(users, user)
+			}
+		} else {
 			users = append(users, user)
 		}
 	}

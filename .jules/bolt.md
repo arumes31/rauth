@@ -1,0 +1,3 @@
+## 2024-05-19 - Use Redis Pipeline to Eliminate N+1 Queries
+**Learning:** Found multiple instances where we iterated over a list of identifiers (usernames, session tokens) and made sequential Redis queries for each item using operations like `HGetAll` or `GetUser` inside loops (`HasActiveSessions` and `ListUsers`). This caused an N+1 query problem, increasing network overhead.
+**Action:** Always batch related Redis queries using `Client.Pipeline()`. Make a single `pipe.Exec()` call, and process the returned commands instead of individual round-trips. Keep a fallback when dealing with lazy migrations (e.g. creating `UID` lazily in `GetUser`).
