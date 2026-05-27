@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
+	"github.com/redis/go-redis/v9"
 )
 
 // WebAuthnUser implements the webauthn.User interface
@@ -194,7 +195,6 @@ func DeleteWebAuthnCredential(username string, credID string) error {
 	key := "user:" + username + ":webauthn_creds"
 	var toPush []interface{}
 	for _, c := range stored {
-		// We use hex encoding or base64 for ID in the request
 		if fmt.Sprintf("%x", c.ID) != credID {
 			data, err := json.Marshal(c)
 			if err != nil {
@@ -203,11 +203,14 @@ func DeleteWebAuthnCredential(username string, credID string) error {
 			toPush = append(toPush, data)
 		}
 	}
-	UserDB.Del(Ctx, key)
-	if len(toPush) > 0 {
-		return UserDB.RPush(Ctx, key, toPush...).Err()
-	}
-	return nil
+	_, err := UserDB.TxPipelined(Ctx, func(pipe redis.Pipeliner) error {
+		pipe.Del(Ctx, key)
+		if len(toPush) > 0 {
+			pipe.RPush(Ctx, key, toPush...)
+		}
+		return nil
+	})
+	return err
 }
 
 func UpdateWebAuthnNickname(username string, credID string, nickname string) error {
@@ -224,11 +227,14 @@ func UpdateWebAuthnNickname(username string, credID string, nickname string) err
 		}
 		toPush = append(toPush, data)
 	}
-	UserDB.Del(Ctx, key)
-	if len(toPush) > 0 {
-		return UserDB.RPush(Ctx, key, toPush...).Err()
-	}
-	return nil
+	_, err := UserDB.TxPipelined(Ctx, func(pipe redis.Pipeliner) error {
+		pipe.Del(Ctx, key)
+		if len(toPush) > 0 {
+			pipe.RPush(Ctx, key, toPush...)
+		}
+		return nil
+	})
+	return err
 }
 
 func UpdateWebAuthnLastUsed(username string, credID []byte) error {
@@ -245,11 +251,14 @@ func UpdateWebAuthnLastUsed(username string, credID []byte) error {
 		}
 		toPush = append(toPush, data)
 	}
-	UserDB.Del(Ctx, key)
-	if len(toPush) > 0 {
-		return UserDB.RPush(Ctx, key, toPush...).Err()
-	}
-	return nil
+	_, err := UserDB.TxPipelined(Ctx, func(pipe redis.Pipeliner) error {
+		pipe.Del(Ctx, key)
+		if len(toPush) > 0 {
+			pipe.RPush(Ctx, key, toPush...)
+		}
+		return nil
+	})
+	return err
 }
 
 func UpdateWebAuthnCredential(username string, cred *webauthn.Credential) error {
@@ -267,9 +276,12 @@ func UpdateWebAuthnCredential(username string, cred *webauthn.Credential) error 
 		}
 		toPush = append(toPush, data)
 	}
-	UserDB.Del(Ctx, key)
-	if len(toPush) > 0 {
-		return UserDB.RPush(Ctx, key, toPush...).Err()
-	}
-	return nil
+	_, err := UserDB.TxPipelined(Ctx, func(pipe redis.Pipeliner) error {
+		pipe.Del(Ctx, key)
+		if len(toPush) > 0 {
+			pipe.RPush(Ctx, key, toPush...)
+		}
+		return nil
+	})
+	return err
 }
