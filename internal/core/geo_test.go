@@ -5,6 +5,8 @@ import (
 	"net"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/oschwald/geoip2-golang"
 	"github.com/oschwald/maxminddb-golang"
 	"github.com/stretchr/testify/assert"
@@ -130,4 +132,18 @@ func TestGetCountryCode_InvalidIP(t *testing.T) {
 
 	// Test an IP that net.ParseIP fails on but IsPrivateIP handles
 	assert.Equal(t, "Internal", GetCountryCode("999.999.999.999"))
+}
+
+func TestGetGeoMetadataAndStatus(t *testing.T) {
+	// Not loaded initially
+	status := GetGeoReaderStatus()
+	require.False(t, status)
+
+	metadata := GetGeoMetadata()
+	require.False(t, metadata["loaded"].(bool))
+	require.Equal(t, uint64(0), metadata["build_date"])
+	require.Equal(t, "", metadata["path"])
+
+	// Note: Fully testing when loaded requires setting up a real maxminddb,
+	// which is complex for a unit test. We cover the not-loaded path.
 }

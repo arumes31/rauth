@@ -1,9 +1,12 @@
 package core
 
 import (
+	"context"
+	"testing"
+
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
-	"testing"
+	"github.com/stretchr/testify/require"
 )
 
 func TestUserManagement(t *testing.T) {
@@ -68,5 +71,38 @@ func TestUpdateUser(t *testing.T) {
 		if userData["groups"] != "admins,users" {
 			t.Errorf("Expected groups admins,users, got %s", userData["groups"])
 		}
+	})
+}
+
+func TestGetUsernameByUID(t *testing.T) {
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	client := redis.NewClient(&redis.Options{
+		Addr: mr.Addr(),
+	})
+	UserDB = client
+	Ctx = context.Background()
+
+	t.Run("String Lookup", func(t *testing.T) {
+		UserDB.Set(Ctx, "uid:12345", "testuser", 0)
+
+		username, err := GetUsernameByUID("12345")
+		require.NoError(t, err)
+		require.Equal(t, "testuser", username)
+	})
+
+	t.Run("Binary Lookup", func(t *testing.T) {
+		UserDB.Set(Ctx, "uid_bin:67890", "binuser", 0)
+
+		username, err := GetUsernameByUID("67890")
+		require.NoError(t, err)
+		require.Equal(t, "binuser", username)
+	})
+
+	t.Run("Not Found", func(t *testing.T) {
+		_, err := GetUsernameByUID("99999")
+		require.Error(t, err)
 	})
 }
