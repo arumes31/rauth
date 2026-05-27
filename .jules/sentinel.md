@@ -29,3 +29,8 @@
 **Issue:** The `Login` handler was overly long and complex, making it difficult to test and maintain.
 **Learning:** Extracting logical blocks into private helper methods (`checkUserThrottling`, `verifyCredentials`, `handleAuthFailure`, etc.) improves readability and allows for better reasoning about security flows.
 **Prevention:** Regularly refactor complex handlers into smaller, purpose-built private methods while ensuring all security checks (rate limiting, dummy hashes) are preserved exactly.
+
+## 2024-05-30 - Open Redirect via Unescaped Query Parameter
+**Vulnerability:** The open redirect fix in `ValidateRedirectURL` failed to account for unsanitized query parameters during login flows. In `internal/middleware/auth.go`, if an unauthenticated user accessed a path with query parameters (e.g. `/profile?foo=bar`), they would be redirected to `/rauthlogin?rd=/profile?foo=bar`. A malicious actor could provide a URL like `/rauthlogin?rd=http://evil.com`.
+**Learning:** Query parameters that hold entire URLs or paths must be URL encoded using `url.QueryEscape` when constructing a new URL. Without it, special characters (`?`, `=`, `&`) can be misinterpreted, and an open redirect check might be bypassed or ignored depending on the parser.
+**Prevention:** Always URL encode query parameters when building redirect URLs (e.g., `url.QueryEscape(rd)`).
