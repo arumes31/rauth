@@ -29,3 +29,7 @@
 **Issue:** The `Login` handler was overly long and complex, making it difficult to test and maintain.
 **Learning:** Extracting logical blocks into private helper methods (`checkUserThrottling`, `verifyCredentials`, `handleAuthFailure`, etc.) improves readability and allows for better reasoning about security flows.
 **Prevention:** Regularly refactor complex handlers into smaller, purpose-built private methods while ensuring all security checks (rate limiting, dummy hashes) are preserved exactly.
+## 2024-05-27 - AuthMiddleware Parameter Injection Vulnerability
+**Vulnerability:** The `AuthMiddleware` redirected unauthenticated users to `/rauthlogin?rd=` and appended `c.Request().RequestURI` directly without escaping it. This allowed attackers to inject HTTP parameters (e.g. `&`) into the redirect URL, potentially causing open redirects or other injection-based issues.
+**Learning:** Raw URIs from incoming requests cannot be trusted when constructing new URLs, especially within query parameters. They must always be URL-encoded (query escaped).
+**Prevention:** Always use `url.QueryEscape` when taking user input or raw request attributes (like `RequestURI`) and appending them as query parameters in redirect flows.
