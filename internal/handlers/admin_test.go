@@ -13,11 +13,11 @@ import (
 func TestAdminHandler_Dashboard(t *testing.T) {
 	setupHandlersTest(t)
 	cfg := &core.Config{
-		RateLimitLoginMax: 1000,
-		RateLimitLoginDecay: 60,
-		RateLimitLoginAccessMax: 1000,
+		RateLimitLoginMax:         1000,
+		RateLimitLoginDecay:       60,
+		RateLimitLoginAccessMax:   1000,
 		RateLimitLoginFailUserMax: 1000,
-		RateLimitLoginFailIPMax: 1000,
+		RateLimitLoginFailIPMax:   1000,
 	}
 	h := &AdminHandler{Cfg: cfg}
 	e := echo.New()
@@ -36,11 +36,11 @@ func TestAdminHandler_Dashboard(t *testing.T) {
 func TestAdminHandler_InvalidateSession(t *testing.T) {
 	setupHandlersTest(t)
 	cfg := &core.Config{
-		RateLimitLoginMax: 1000,
-		RateLimitLoginDecay: 60,
-		RateLimitLoginAccessMax: 1000,
+		RateLimitLoginMax:         1000,
+		RateLimitLoginDecay:       60,
+		RateLimitLoginAccessMax:   1000,
 		RateLimitLoginFailUserMax: 1000,
-		RateLimitLoginFailIPMax: 1000,
+		RateLimitLoginFailIPMax:   1000,
 	}
 	h := &AdminHandler{Cfg: cfg}
 	e := echo.New()
@@ -66,12 +66,12 @@ func TestAdminHandler_InvalidateSession(t *testing.T) {
 func TestAdminHandler_CreateUser(t *testing.T) {
 	setupHandlersTest(t)
 	cfg := &core.Config{
-		MinPasswordLength: 8,
-		RateLimitLoginMax: 1000,
-		RateLimitLoginDecay: 60,
-		RateLimitLoginAccessMax: 1000,
+		MinPasswordLength:         8,
+		RateLimitLoginMax:         1000,
+		RateLimitLoginDecay:       60,
+		RateLimitLoginAccessMax:   1000,
 		RateLimitLoginFailUserMax: 1000,
-		RateLimitLoginFailIPMax: 1000,
+		RateLimitLoginFailIPMax:   1000,
 	}
 	h := &AdminHandler{Cfg: cfg}
 	e := echo.New()
@@ -139,11 +139,11 @@ func TestAdminHandler_CreateUser(t *testing.T) {
 func TestAdminHandler_DeleteUser(t *testing.T) {
 	setupHandlersTest(t)
 	cfg := &core.Config{
-		RateLimitLoginMax: 1000,
-		RateLimitLoginDecay: 60,
-		RateLimitLoginAccessMax: 1000,
+		RateLimitLoginMax:         1000,
+		RateLimitLoginDecay:       60,
+		RateLimitLoginAccessMax:   1000,
 		RateLimitLoginFailUserMax: 1000,
-		RateLimitLoginFailIPMax: 1000,
+		RateLimitLoginFailIPMax:   1000,
 	}
 	h := &AdminHandler{Cfg: cfg}
 	e := echo.New()
@@ -189,10 +189,10 @@ func TestAdminHandler_DeleteUser(t *testing.T) {
 func TestAdminHandler_CreateUser_InvalidUsername(t *testing.T) {
 	setupHandlersTest(t)
 	cfg := &core.Config{
-		MinPasswordLength: 8,
-		RequirePasswordUpper: true,
-		RequirePasswordLower: true,
-		RequirePasswordNumber: true,
+		MinPasswordLength:      8,
+		RequirePasswordUpper:   true,
+		RequirePasswordLower:   true,
+		RequirePasswordNumber:  true,
 		RequirePasswordSpecial: true,
 	}
 	h := &AdminHandler{Cfg: cfg}
@@ -230,4 +230,73 @@ func TestAdminHandler_CreateUser_InvalidUsername(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAdminHandler_TargetUsernameValidation(t *testing.T) {
+	setupHandlersTest(t)
+	cfg := &core.Config{
+		MinPasswordLength: 8,
+	}
+	h := &AdminHandler{Cfg: cfg}
+	e := echo.New()
+
+	testCases := []struct {
+		name     string
+		handler  func(echo.Context) error
+		username string
+		formKey  string
+		extra    map[string]string
+	}{
+		{"DeleteUser_Invalid", h.DeleteUser, "ab", "username", nil},
+		{"ResetUser2FA_Invalid", h.ResetUser2FA, "user!name", "username", nil},
+		{"ChangeUserPassword_Invalid", h.ChangeUserPassword, "too_long_username_that_exceeds_32_chars", "username", map[string]string{"new_password": "SecurePass123!"}},
+		{"UpdateUserEmail_Invalid", h.UpdateUserEmail, "  ", "username", map[string]string{"new_email": "test@example.com"}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := make(url.Values)
+			f.Set(tc.formKey, tc.username)
+			for k, v := range tc.extra {
+				f.Set(k, v)
+			}
+			c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/action", f)
+			c.Set("username", "admin")
+
+			err := tc.handler(c)
+			if err != nil {
+				if he, ok := err.(*echo.HTTPError); ok {
+					assert.Equal(t, http.StatusBadRequest, he.Code)
+				} else {
+					t.Errorf("expected echo.HTTPError, got %T", err)
+				}
+			} else {
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			}
+		})
+	}
+}
+
+func TestAdminHandler_UpdateUserEmail_SelfUpdate(t *testing.T) {
+	setupHandlersTest(t)
+	h := &AdminHandler{Cfg: &core.Config{}}
+	e := echo.New()
+
+	t.Run("Update self email - should fail", func(t *testing.T) {
+		f := make(url.Values)
+		f.Set("username", "admin")
+		f.Set("new_email", "admin-new@example.com")
+		c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/user/email", f)
+		c.Set("username", "admin")
+
+		err := h.UpdateUserEmail(c)
+		if err != nil {
+			if he, ok := err.(*echo.HTTPError); ok {
+				assert.Equal(t, http.StatusBadRequest, he.Code)
+				assert.Contains(t, he.Message, "Cannot update your own email")
+			}
+		} else {
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		}
+	})
 }

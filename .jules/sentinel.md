@@ -29,3 +29,8 @@
 **Issue:** The `Login` handler was overly long and complex, making it difficult to test and maintain.
 **Learning:** Extracting logical blocks into private helper methods (`checkUserThrottling`, `verifyCredentials`, `handleAuthFailure`, etc.) improves readability and allows for better reasoning about security flows.
 **Prevention:** Regularly refactor complex handlers into smaller, purpose-built private methods while ensuring all security checks (rate limiting, dummy hashes) are preserved exactly.
+
+## 2024-05-27 - Missing Input Validation in Administrative Actions
+**Vulnerability:** Administrative handlers for deleting users, resetting 2FA, changing passwords, and updating emails lacked input validation for the target username. This could lead to inconsistent database states or errors when processing malformed or un-sanitized input.
+**Learning:** Administrative interfaces often inherit trust, but they must still enforce the same strict input validation rules as user-facing interfaces to ensure data integrity and system stability.
+**Prevention:** Centralize validation logic (e.g., `core.ValidateUsername`) and apply it consistently across all handlers that accept user identifiers, regardless of the user's privilege level.

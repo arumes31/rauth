@@ -128,9 +128,13 @@ func (h *AdminHandler) CreateUser(c echo.Context) error {
 }
 
 func (h *AdminHandler) DeleteUser(c echo.Context) error {
-	target := c.FormValue("username")
+	target := strings.TrimSpace(c.FormValue("username"))
 	if target == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "Username is required")
+	}
+
+	if err := core.ValidateUsername(target); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
 	admin := c.Get("username").(string)
@@ -149,9 +153,13 @@ func (h *AdminHandler) DeleteUser(c echo.Context) error {
 }
 
 func (h *AdminHandler) ResetUser2FA(c echo.Context) error {
-	target := c.FormValue("username")
+	target := strings.TrimSpace(c.FormValue("username"))
 	if target == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "Username is required")
+	}
+
+	if err := core.ValidateUsername(target); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
 	admin := c.Get("username").(string)
@@ -174,11 +182,15 @@ func (h *AdminHandler) ResetUser2FA(c echo.Context) error {
 }
 
 func (h *AdminHandler) ChangeUserPassword(c echo.Context) error {
-	target := c.FormValue("username")
+	target := strings.TrimSpace(c.FormValue("username"))
 	newPass := c.FormValue("new_password")
 
 	if target == "" || newPass == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "Username and password are required")
+	}
+
+	if err := core.ValidateUsername(target); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
 	admin := c.Get("username").(string)
@@ -210,11 +222,15 @@ func (h *AdminHandler) ChangeUserPassword(c echo.Context) error {
 }
 
 func (h *AdminHandler) UpdateUserEmail(c echo.Context) error {
-	target := c.FormValue("username")
+	target := strings.TrimSpace(c.FormValue("username"))
 	newEmail := strings.TrimSpace(c.FormValue("new_email"))
 
 	if target == "" || newEmail == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "Username and email are required")
+	}
+
+	if err := core.ValidateUsername(target); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
 	if err := core.ValidateEmail(newEmail); err != nil {
@@ -222,6 +238,10 @@ func (h *AdminHandler) UpdateUserEmail(c echo.Context) error {
 	}
 
 	admin := c.Get("username").(string)
+	if target == admin {
+		return echo.NewHTTPError(http.StatusBadRequest, "Cannot update your own email via management. Use profile settings.")
+	}
+
 	if err := core.UpdateUser(target, map[string]interface{}{"email": newEmail}); err != nil {
 		slog.Error("Failed to update user email in Redis", "user", target, "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to update email")
@@ -260,4 +280,3 @@ func (h *AdminHandler) InvalidateSession(c echo.Context) error {
 	core.LogAudit("ADMIN_INVALIDATE_SESSION", admin, c.RealIP(), map[string]interface{}{"token": logToken})
 	return c.Redirect(http.StatusFound, "/rauthmgmt?success=session_terminated")
 }
-
