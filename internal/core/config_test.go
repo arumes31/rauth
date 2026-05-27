@@ -93,13 +93,20 @@ func TestIsCountryAllowed(t *testing.T) {
 		{"Case insensitive match 2", []string{"US", "GB"}, "gb", true},
 		{"No match", []string{"US", "GB"}, "FR", false},
 		{"Empty country input", []string{"US", "GB"}, "", false},
+		{"Internal access match", []string{"Internal", "US"}, "Internal", true},
+		{"Internal access case insensitive", []string{"internal", "us"}, "Internal", true},
+		{"Tailscale access match", []string{"Tailscale", "US"}, "Tailscale", true},
+		{"Unknown country match", []string{"unknown", "US"}, "unknown", true},
+		{"Whitespace in allowed list", []string{" US ", "GB"}, "US", true},
+		{"Whitespace in input", []string{"US", "GB"}, " US ", true},
+		{"Whitespace in both", []string{" US ", "GB"}, " US ", true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &Config{AllowedCountries: tt.allowedCountries}
 			if got := cfg.IsCountryAllowed(tt.country); got != tt.want {
-				t.Errorf("IsCountryAllowed() = %v, want %v", got, tt.want)
+				t.Errorf("IsCountryAllowed(%s) with allowed %v = %v, want %v", tt.country, tt.allowedCountries, got, tt.want)
 			}
 		})
 	}
