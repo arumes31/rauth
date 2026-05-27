@@ -604,3 +604,26 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 	redirect := core.ValidateRedirectURL(c.QueryParam("rd"), "/rauthprofile", username, h.Cfg)
 	return c.Redirect(http.StatusFound, redirect)
 }
+
+func (h *AuthHandler) Logout(c echo.Context) error {
+	// Get token from context (set by AuthMiddleware)
+	if token, ok := c.Get("token").(string); ok {
+		if username, ok := c.Get("username").(string); ok {
+			core.RemoveSessionIndex(username, token)
+		}
+		core.TokenDB.Del(core.Ctx, "X-rauth-authtoken="+token)
+	}
+
+	cookie := &http.Cookie{
+		Name:     "X-rauth-authtoken",
+		Value:    "",
+		Path:     "/",
+		Domain:   h.Cfg.CookieDomains[0],
+		Expires:  time.Now().Add(-1 * time.Hour),
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	}
+	c.SetCookie(cookie)
+	return c.Redirect(http.StatusFound, "/rauthlogin")
+}
