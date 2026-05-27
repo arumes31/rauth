@@ -22,7 +22,7 @@ func TestIsPrivateIP(t *testing.T) {
 		{"100.64.0.5", false}, // Tailscale is not "private" in the RFC1918 sense for this function
 		{"8.8.8.8", false},
 		{"1.1.1.1", false},
-		{"invalid", true}, // Invalid parses to nil, returns true
+		{"invalid", false}, // Invalid parses to nil, returns false
 	}
 
 	for _, tt := range tests {
@@ -125,9 +125,112 @@ func TestGetCountryCode_EdgeCases(t *testing.T) {
 }
 
 func TestGetCountryCode_InvalidIP(t *testing.T) {
-	// IsPrivateIP returns true for "invalid", so GetCountryCode should return "Internal"
-	assert.Equal(t, "Internal", GetCountryCode("invalid"))
+	assert.Equal(t, "unknown", GetCountryCode("invalid"))
+	assert.Equal(t, "unknown", GetCountryCode("999.999.999.999"))
+}
 
-	// Test an IP that net.ParseIP fails on but IsPrivateIP handles
-	assert.Equal(t, "Internal", GetCountryCode("999.999.999.999"))
+func TestGetGeoMetadata(t *testing.T) {
+	// 1. Unloaded
+	geoLock.Lock()
+	oldReader := geoReader
+	geoReader = nil
+	geoLock.Unlock()
+
+	defer func() {
+		geoLock.Lock()
+		geoReader = oldReader
+		geoLock.Unlock()
+	}()
+
+	meta := GetGeoMetadata()
+	assert.False(t, meta["loaded"].(bool))
+
+	// 2. Loaded (Mock)
+	mock := &mockGeoReader{
+		metadataFunc: func() maxminddb.Metadata {
+			return maxminddb.Metadata{BuildEpoch: 123456789}
+		},
+	}
+	geoLock.Lock()
+	geoReader = mock
+	geoLock.Unlock()
+
+	meta = GetGeoMetadata()
+	assert.True(t, meta["loaded"].(bool))
+	assert.Equal(t, uint64(123456789), meta["build_date"].(uint64))
+}
+
+func TestGetGeoReaderStatus(t *testing.T) {
+	geoLock.Lock()
+	oldReader := geoReader
+	geoReader = nil
+	geoLock.Unlock()
+
+	defer func() {
+		geoLock.Lock()
+		geoReader = oldReader
+		geoLock.Unlock()
+	}()
+
+	assert.False(t, GetGeoReaderStatus())
+
+	geoLock.Lock()
+	geoReader = &mockGeoReader{}
+	geoLock.Unlock()
+
+	assert.True(t, GetGeoReaderStatus())
+}
+
+func TestGeoLRUCache_Eviction(t *testing.T) {
+	cache := NewGeoLRUCache(2)
+	cache.Put("a", "1")
+	cache.Put("b", "2")
+	cache.Put("c", "3") // Should evict "a"
+
+	_, ok := cache.Get("a")
+	assert.False(t, ok)
+	val, ok := cache.Get("b")
+	assert.True(t, ok)
+	assert.Equal(t, "2", val)
+	val, ok = cache.Get("c")
+	assert.True(t, ok)
+	assert.Equal(t, "3", val)
+
+	// Test update existing
+	cache.Put("b", "22")
+	val, ok = cache.Get("b")
+	assert.True(t, ok)
+	assert.Equal(t, "22", val)
+}
+
+func TestReloadReader_Errors(t *testing.T) {
+	geoLock.Lock()
+	oldReader := geoReader
+	geoReader = nil
+	geoLock.Unlock()
+
+	defer func() {
+		geoLock.Lock()
+		geoReader = oldReader
+		geoLock.Unlock()
+	}()
+
+	// 1. Invalid path
+	reloadReader("/nonexistent/path")
+	assert.Nil(t, geoReader)
+
+	// 2. Close error
+	closeCalled := false
+	mock := &mockGeoReader{
+		closeFunc: func() error {
+			closeCalled = true
+			return fmt.Errorf("close error")
+		},
+	}
+	geoLock.Lock()
+	geoReader = mock
+	geoLock.Unlock()
+
+	reloadReader("/nonexistent/path/2")
+	assert.True(t, closeCalled)
 }
