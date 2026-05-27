@@ -54,8 +54,8 @@ func TestGetEnvHelpers(t *testing.T) {
 
 func TestIsAllowedHost(t *testing.T) {
 	cfg := &Config{
-		CookieDomains: []string{"example.com", "other.org"},
-		AllowedHosts:  []string{"localhost"},
+		CookieDomains: []string{"example.com", "other.org", ".dotprefix.com"},
+		AllowedHosts:  []string{"localhost", "127.0.0.1", "::1"},
 	}
 
 	tests := []struct {
@@ -67,10 +67,21 @@ func TestIsAllowedHost(t *testing.T) {
 		{"sub.app.example.com", true},
 		{"other.org", true},
 		{"localhost", true},
+		{"127.0.0.1", true},
+		{"127.0.0.1:8080", true},
+		{"::1", true},
+		{"[::1]", true},
+		{"[::1]:8080", true},
+		{"dotprefix.com", true},
+		{"app.dotprefix.com", true},
 		{"evil.com", false},
 		{"notexample.com", false},
 		{"evil-example.com", false},
 		{"example.com.evil.com", false},
+		{"example.com..", true},
+		{"..example.com", true},
+		{".example.com.", true},
+		{"   example.com   ", true},
 	}
 
 	for _, tt := range tests {
@@ -131,5 +142,33 @@ func TestIsIPAllowed(t *testing.T) {
 				t.Errorf("IsIPAllowed() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestNormalizeHostname(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"EXAMPLE.COM", "example.com"},
+		{"  example.com  ", "example.com"},
+		{"example.com:8080", "example.com"},
+		{"127.0.0.1", "127.0.0.1"},
+		{"127.0.0.1:80", "127.0.0.1"},
+		{"::1", "::1"},
+		{"[::1]", "::1"},
+		{"[::1]:443", "::1"},
+		{"example.com..", "example.com"},
+		{"..example.com", "example.com"},
+		{".example.com.", "example.com"},
+		{"", ""},
+		{".", ""},
+		{"...", ""},
+	}
+
+	for _, tt := range tests {
+		if got := normalizeHostname(tt.input); got != tt.expected {
+			t.Errorf("normalizeHostname(%s) = %s; want %s", tt.input, got, tt.expected)
+		}
 	}
 }

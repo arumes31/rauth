@@ -113,18 +113,14 @@ func LoadConfig() *Config {
 }
 
 func (c *Config) IsAllowedHost(host string) bool {
-	// Remove port if present
-	if strings.Contains(host, ":") {
-		host = strings.Split(host, ":")[0]
+	host = normalizeHostname(host)
+	if host == "" {
+		return false
 	}
-
-	// Normalize host: lowercase and trim trailing dot
-	host = strings.ToLower(strings.TrimSuffix(host, "."))
 
 	// Check explicit allowed hosts
 	for _, h := range c.AllowedHosts {
-		h = strings.ToLower(strings.TrimSuffix(h, "."))
-		if h == host {
+		if normalizeHostname(h) == host {
 			return true
 		}
 	}
@@ -141,16 +137,18 @@ func (c *Config) IsAllowedHost(host string) bool {
 		} else {
 			h = o
 		}
-		h = strings.ToLower(strings.TrimSuffix(h, "."))
-		if h == host {
+		if normalizeHostname(h) == host {
 			return true
 		}
 	}
 
 	// Check if host is part of any cookie domain
 	for _, domain := range c.CookieDomains {
-		// Normalize domain: lowercase and trim leading dot
-		domain = strings.ToLower(strings.TrimPrefix(domain, "."))
+		// Normalize domain
+		domain = normalizeHostname(domain)
+		if domain == "" {
+			continue
+		}
 
 		// Exact match
 		if host == domain {
@@ -199,6 +197,30 @@ func (c *Config) IsIPAllowed(ipStr string, allowedList []string) bool {
 		}
 	}
 	return false
+}
+
+func normalizeHostname(h string) string {
+	h = strings.TrimSpace(strings.ToLower(h))
+
+	// Remove port if present. net.SplitHostPort is the robust way.
+	if host, _, err := net.SplitHostPort(h); err == nil {
+		h = host
+	} else {
+		// No port, or invalid format.
+		// Strip brackets if it's an IPv6 literal like [::1]
+		h = strings.TrimPrefix(h, "[")
+		h = strings.TrimSuffix(h, "]")
+	}
+
+	// Trim all leading/trailing dots (handles example.com.. and .example.com)
+	h = strings.Trim(h, ".")
+
+	// Normalize IP addresses to their canonical string representation
+	if ip := net.ParseIP(h); ip != nil {
+		return ip.String()
+	}
+
+	return h
 }
 
 func getEnv(key, fallback string) string {
