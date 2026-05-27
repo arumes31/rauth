@@ -61,19 +61,33 @@ func main() {
 	e.HideBanner = true
 
 	// Configure real IP extraction from headers behind reverse proxies
+	// SECURITY: These headers are only trusted if the deployment is behind a verified
+	// reverse proxy that scrubs these headers from external clients.
 	e.IPExtractor = func(req *http.Request) string {
-		if cfIP := req.Header.Get("CF-Connecting-IP"); cfIP != "" {
-			return cfIP
+		if cfg.TrustCloudflareIP {
+			if cfIP := req.Header.Get("CF-Connecting-IP"); cfIP != "" {
+				if ip := net.ParseIP(cfIP); ip != nil {
+					return ip.String()
+				}
+			}
 		}
-		if realIP := req.Header.Get("X-Real-IP"); realIP != "" {
-			return realIP
+		if cfg.TrustXRealIP {
+			if realIP := req.Header.Get("X-Real-IP"); realIP != "" {
+				if ip := net.ParseIP(realIP); ip != nil {
+					return ip.String()
+				}
+			}
 		}
-		if xff := req.Header.Get("X-Forwarded-For"); xff != "" {
-			ips := strings.Split(xff, ",")
-			if len(ips) > 0 {
-				cleaned := strings.TrimSpace(ips[0])
-				if cleaned != "" {
-					return cleaned
+		if cfg.TrustXForwardedFor {
+			if xff := req.Header.Get("X-Forwarded-For"); xff != "" {
+				ips := strings.Split(xff, ",")
+				if len(ips) > 0 {
+					cleaned := strings.TrimSpace(ips[0])
+					if cleaned != "" {
+						if ip := net.ParseIP(cleaned); ip != nil {
+							return ip.String()
+						}
+					}
 				}
 			}
 		}
@@ -387,15 +401,10 @@ func initializeSystem(cfg *core.Config) {
 		}
 	}
 
-	// Background metrics updater
+	// Background metrics and index synchronization
 	go func() {
 		for {
-			// Count active sessions
-			var count int64
-			iter := core.TokenDB.Scan(core.Ctx, 0, "X-rauth-authtoken=*", 0).Iterator()
-			for iter.Next(core.Ctx) {
-				count++
-			}
+			count := core.SyncSessionIndexes()
 			core.ActiveSessionsGauge.Set(float64(count))
 			time.Sleep(1 * time.Minute)
 		}

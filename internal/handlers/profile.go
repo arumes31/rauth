@@ -25,17 +25,6 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to load profile")
 	}
 
-	// Self-healing: Scan all active tokens to ensure the index set is complete for this user
-	iter := core.TokenDB.Scan(core.Ctx, 0, "X-rauth-authtoken=*", 0).Iterator()
-	for iter.Next(core.Ctx) {
-		key := iter.Val()
-		token := key[18:] // Strip "X-rauth-authtoken="
-		data, err := core.TokenDB.HGetAll(core.Ctx, key).Result()
-		if err == nil && data["username"] == username && data["status"] == "valid" {
-			core.TokenDB.SAdd(core.Ctx, "user_sessions:"+username, token)
-		}
-	}
-
 	// Fetch sessions for this user efficiently
 	tokens, err := core.TokenDB.SMembers(core.Ctx, "user_sessions:"+username).Result()
 	if err != nil {
@@ -59,6 +48,8 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 	for _, token := range tokens {
 		data, err := cmds[token].Result()
 		if err != nil || len(data) == 0 {
+			// Token might have expired but still in index, or invalid
+			core.RemoveSessionIndex(username, token)
 			continue
 		}
 		data["token"] = token

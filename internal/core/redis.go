@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/redis/go-redis/v9"
 	"log/slog"
+	"strings"
 	"time"
 )
 
@@ -18,6 +19,10 @@ var (
 	ServerSecret string
 	StartTime    = time.Now()
 )
+
+// ActiveSessionsGauge should be exported or accessible. 
+// Wait, I should check where ActiveSessionsGauge is defined.
+// It's probably in internal/core/metrics.go.
 
 func InitRedis(cfg *Config) error {
 	ServerSecret = cfg.ServerSecret
@@ -117,6 +122,44 @@ func AddSessionIndex(username, token string) {
 
 func RemoveSessionIndex(username, token string) {
 	TokenDB.SRem(Ctx, "user_sessions:"+username, token)
+}
+
+func SyncSessionIndexes() int64 {
+	var count int64
+	var cursor uint64
+	const prefix = "X-rauth-authtoken="
+
+	for {
+		keys, nextCursor, err := TokenDB.Scan(Ctx, cursor, prefix+"*", 100).Result()
+		if err != nil {
+			slog.Error("SyncSessionIndexes: Scan failed", "error", err)
+			break
+		}
+
+		for _, key := range keys {
+			count++
+			data, err := TokenDB.HGetAll(Ctx, key).Result()
+			if err != nil || len(data) == 0 {
+				continue
+			}
+
+			username := data["username"]
+			if username != "" && data["status"] == "valid" {
+				token := strings.TrimPrefix(key, prefix)
+				if token != key {
+					TokenDB.SAdd(Ctx, "user_sessions:"+username, token)
+				} else {
+					slog.Warn("SyncSessionIndexes: token key missing expected prefix", "key", key)
+				}
+			}
+		}
+
+		cursor = nextCursor
+		if cursor == 0 {
+			break
+		}
+	}
+	return count
 }
 
 func copyOptions(base *redis.Options, db int) *redis.Options {

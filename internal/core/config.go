@@ -45,6 +45,10 @@ type Config struct {
 	SMTPFrom string
 	// URLs
 	PublicURL string
+	// IP Trust
+	TrustCloudflareIP  bool
+	TrustXRealIP       bool
+	TrustXForwardedFor bool
 	// Rate Limiting
 	RateLimitLoginMax           int
 	RateLimitLoginDecay         int
@@ -97,6 +101,10 @@ func LoadConfig() *Config {
 		SMTPFrom: getEnv("SMTP_FROM", ""),
 		// URLs
 		PublicURL: getEnv("PUBLIC_URL", "http://localhost:5980"),
+		// IP Trust
+		TrustCloudflareIP:  getEnvBool("TRUST_CLOUDFLARE_IP", false),
+		TrustXRealIP:       getEnvBool("TRUST_X_REAL_IP", false),
+		TrustXForwardedFor: getEnvBool("TRUST_X_FORWARDED_FOR", false),
 		// Rate Limiting Defaults
 		RateLimitLoginMax:           getEnvInt("RATE_LIMIT_LOGIN_MAX", 30),
 		RateLimitLoginDecay:         getEnvInt("RATE_LIMIT_LOGIN_DECAY", 300),

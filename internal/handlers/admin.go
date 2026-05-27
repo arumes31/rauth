@@ -56,7 +56,10 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 			if len(data) == 0 {
 				continue
 			}
-			data["token"] = k[18:] // Remove prefix "X-rauth-authtoken="
+			data["token"] = strings.TrimPrefix(k, "X-rauth-authtoken=")
+			if data["token"] == k {
+				slog.Warn("AdminDashboard: token key missing expected prefix", "key", k)
+			}
 			data["ttl"] = fmt.Sprintf("%d", int(ttlCmds[i].Val().Seconds()))
 			data["friendly_ua"] = core.FormatUserAgent(data["user_agent"])
 			data["device_icon"] = core.GetDeviceIcon(data["user_agent"])
