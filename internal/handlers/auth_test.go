@@ -301,7 +301,7 @@ func TestAuthHandler_CompleteSetup2FA(t *testing.T) {
 		secret := "JBSWY3DPEHPK3PXP"
 		encrypted := setupPending(username, setupToken, secret)
 
-		core.RateLimitDB.Set(core.Ctx, "rate_limit:2fa_fail_user:"+username, cfg.RateLimitLoginFailIPMax+1, 0)
+		core.RateLimitDB.Set(core.Ctx, "rate_limit:2fa_fail_user:"+username, cfg.RateLimitLoginFailUserMax+1, 0)
 
 		c, rec := createTestContext(e, http.MethodPost, "/rauthsetup2fa", nil)
 		c.Request().AddCookie(&http.Cookie{Name: "rauth_setup_pending", Value: encrypted})
