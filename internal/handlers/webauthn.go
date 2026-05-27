@@ -174,7 +174,9 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 	}
 
 	// Update credential sign count
-	core.UpdateWebAuthnSignCount(username, credential.ID, credential.Authenticator.SignCount)
+		if err := core.UpdateWebAuthnSignCount(username, credential.ID, credential.Authenticator.SignCount); err != nil {
+			slog.Error("Failed to update sign count", "error", err, "username", username)
+		}
 
 	if err := h.issuePasskeyToken(c, username, userRecord); err != nil {
 		return err
