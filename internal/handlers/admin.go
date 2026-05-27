@@ -91,7 +91,7 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 func (h *AdminHandler) CreateUser(c echo.Context) error {
 	user := strings.TrimSpace(c.FormValue("new_username"))
 	pass := c.FormValue("new_password")
-	email := c.FormValue("new_email")
+	email := strings.TrimSpace(c.FormValue("new_email"))
 	isAdmin := c.FormValue("is_admin") == "on"
 
 	if user == "" || pass == "" {
