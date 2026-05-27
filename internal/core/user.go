@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 	"time"
 )
 
@@ -23,12 +24,37 @@ func ListUsers() ([]User, error) {
 		return nil, err
 	}
 
+	if len(usernames) == 0 {
+		return []User{}, nil
+	}
+
+	pipe := UserDB.Pipeline()
+	cmds := make(map[string]*redis.MapStringStringCmd, len(usernames))
+	for _, username := range usernames {
+		cmds[username] = pipe.HGetAll(Ctx, "user:"+username)
+	}
+
+	if _, err := pipe.Exec(Ctx); err != nil {
+		return nil, err
+	}
+
 	var users []User
 	for _, username := range usernames {
-		user, err := GetUser(username)
-		if err == nil {
-			users = append(users, user)
+		var user User
+		err := cmds[username].Scan(&user)
+		if err != nil || user.Username == "" {
+			continue
 		}
+
+		// Ensure UID exists for older users (fallback to GetUser to trigger mutation)
+		if user.UID == "" {
+			user, err = GetUser(username)
+			if err != nil {
+				continue
+			}
+		}
+
+		users = append(users, user)
 	}
 	return users, nil
 }
