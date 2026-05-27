@@ -194,8 +194,8 @@ func (c *Config) IsIPAllowed(ipStr string, allowedList []string) bool {
 				return true
 			}
 		} else {
-			// Check for exact IP match
-			if allowed == ipStr {
+			allowedIP := net.ParseIP(allowed)
+			if allowedIP != nil && allowedIP.Equal(ip) {
 				return true
 			}
 		}

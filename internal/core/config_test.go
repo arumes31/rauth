@@ -130,6 +130,14 @@ func TestIsIPAllowed(t *testing.T) {
 		{"No match", "1.1.1.1", []string{"127.0.0.1", "192.168.1.0/24"}, false},
 		{"Invalid CIDR in list", "127.0.0.1", []string{"invalid/cidr"}, false},
 		{"Mixed list match", "192.168.1.5", []string{"127.0.0.1", "192.168.1.0/24"}, true},
+		{"IPv4-mapped IPv6 match", "::ffff:127.0.0.1", []string{"127.0.0.1"}, true},
+		{"IPv4-mapped IPv6 match reversed", "127.0.0.1", []string{"::ffff:127.0.0.1"}, true},
+		{"Expanded IPv6 match", "0:0:0:0:0:0:0:1", []string{"::1"}, true},
+		{"Compressed IPv6 match", "::1", []string{"0:0:0:0:0:0:0:1"}, true},
+		{"CIDR IPv4-mapped IPv6 match", "::ffff:192.168.1.5", []string{"192.168.1.0/24"}, true},
+		{"CIDR match with host bits set", "192.168.1.5", []string{"192.168.1.5/24"}, true},
+		{"IPv4 in IPv6 range match", "2001:db8::1", []string{"2001:db8::/32"}, true},
+		{"Mismatch IPv4 and IPv6", "127.0.0.1", []string{"::1"}, false},
 	}
 
 	for _, tt := range tests {
