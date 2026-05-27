@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 )
 
@@ -211,14 +212,12 @@ func getEnv(key, fallback string) string {
 func getEnvSlice(key string, fallback []string) []string {
 	if value, ok := os.LookupEnv(key); ok {
 		parts := strings.Split(value, ",")
-		var result []string
-		for _, p := range parts {
-			trimmed := strings.TrimSpace(p)
-			if trimmed != "" {
-				result = append(result, trimmed)
-			}
+		for i := range parts {
+			parts[i] = strings.TrimSpace(parts[i])
 		}
-		return result
+		return slices.DeleteFunc(parts, func(p string) bool {
+			return p == ""
+		})
 	}
 	return fallback
 }
