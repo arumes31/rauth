@@ -1,6 +1,7 @@
 package core
 
 import (
+	"github.com/redis/go-redis/v9"
 	"fmt"
 	"github.com/google/uuid"
 	"time"
@@ -23,12 +24,32 @@ func ListUsers() ([]User, error) {
 		return nil, err
 	}
 
+	if len(usernames) == 0 {
+		return []User{}, nil
+	}
+
+	pipe := UserDB.Pipeline()
+	cmds := make([]*redis.MapStringStringCmd, len(usernames))
+	for i, username := range usernames {
+		cmds[i] = pipe.HGetAll(Ctx, "user:"+username)
+	}
+	_, _ = pipe.Exec(Ctx)
+
 	var users []User
-	for _, username := range usernames {
-		user, err := GetUser(username)
-		if err == nil {
-			users = append(users, user)
+	for i, username := range usernames {
+		var user User
+		_ = cmds[i].Scan(&user)
+		if user.Username == "" {
+			continue
 		}
+		// Ensure UID exists for older users (lazy migration)
+		if user.UID == "" {
+			user, err = GetUser(username)
+			if err != nil {
+				continue
+			}
+		}
+		users = append(users, user)
 	}
 	return users, nil
 }

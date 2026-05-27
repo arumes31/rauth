@@ -32,6 +32,7 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 	}
 
 	var sessions []map[string]string
+	var staleTokens []string
 	pipe := core.TokenDB.Pipeline()
 	cmds := make(map[string]*redis.MapStringStringCmd)
 	ttlCmds := make(map[string]*redis.DurationCmd)
@@ -41,13 +42,14 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 		cmds[token] = pipe.HGetAll(core.Ctx, redisKey)
 		ttlCmds[token] = pipe.TTL(core.Ctx, redisKey)
 	}
-	if _, err := pipe.Exec(core.Ctx); err != nil {
+	if _, err := pipe.Exec(core.Ctx); err != nil && err != redis.Nil {
 		slog.Error("Failed to execute session details pipeline", "error", err)
 	}
 
 	for _, token := range tokens {
 		data, err := cmds[token].Result()
 		if err != nil || len(data) == 0 {
+			staleTokens = append(staleTokens, token)
 			continue
 		}
 		data["token"] = token
@@ -59,6 +61,17 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 		data["ttl"] = fmt.Sprintf("%d", int(ttl.Seconds()))
 		data["friendly_ua"] = core.FormatUserAgent(data["user_agent"])
 		sessions = append(sessions, data)
+	}
+
+	// Self-healing: Remove stale session tokens from index
+	if len(staleTokens) > 0 {
+		go func(u string, ts []string) {
+			pipe := core.TokenDB.Pipeline()
+			for _, t := range ts {
+				pipe.SRem(core.Ctx, "user_sessions:"+u, t)
+			}
+			_, _ = pipe.Exec(core.Ctx)
+		}(username, staleTokens)
 	}
 
 	// Personal Logs

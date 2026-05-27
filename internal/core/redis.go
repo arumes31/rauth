@@ -96,10 +96,19 @@ func HasActiveSessions(ip string) bool {
 			return false
 		}
 
-		for _, k := range keys {
-			data, err := TokenDB.HGetAll(Ctx, k).Result()
-			if err == nil && data["ip"] == ip && data["status"] == "valid" {
-				return true
+		if len(keys) > 0 {
+			pipe := TokenDB.Pipeline()
+			cmds := make([]*redis.MapStringStringCmd, len(keys))
+			for i, k := range keys {
+				cmds[i] = pipe.HGetAll(Ctx, k)
+			}
+			_, _ = pipe.Exec(Ctx)
+
+			for _, cmd := range cmds {
+				data, err := cmd.Result()
+				if err == nil && data["ip"] == ip && data["status"] == "valid" {
+					return true
+				}
 			}
 		}
 
@@ -117,6 +126,23 @@ func AddSessionIndex(username, token string) {
 
 func RemoveSessionIndex(username, token string) {
 	TokenDB.SRem(Ctx, "user_sessions:"+username, token)
+}
+
+func GetActiveSessionsCount() int64 {
+	var count int64
+	var cursor uint64
+	for {
+		keys, nextCursor, err := TokenDB.Scan(Ctx, cursor, "X-rauth-authtoken=*", 100).Result()
+		if err != nil {
+			return count
+		}
+		count += int64(len(keys))
+		cursor = nextCursor
+		if cursor == 0 {
+			break
+		}
+	}
+	return count
 }
 
 func copyOptions(base *redis.Options, db int) *redis.Options {

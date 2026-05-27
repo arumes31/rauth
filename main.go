@@ -364,13 +364,7 @@ func initializeSystem(cfg *core.Config) {
 	// Background metrics updater
 	go func() {
 		for {
-			// Count active sessions
-			var count int64
-			iter := core.TokenDB.Scan(core.Ctx, 0, "X-rauth-authtoken=*", 0).Iterator()
-			for iter.Next(core.Ctx) {
-				count++
-			}
-			core.ActiveSessionsGauge.Set(float64(count))
+			core.ActiveSessionsGauge.Set(float64(core.GetActiveSessionsCount()))
 			time.Sleep(1 * time.Minute)
 		}
 	}()
