@@ -1,10 +1,10 @@
 package core
 
 import (
-	"log/slog"
 	"context"
 	"fmt"
 	"github.com/redis/go-redis/v9"
+	"log/slog"
 	"time"
 )
 
@@ -50,18 +50,16 @@ func InitRedis(cfg *Config) error {
 func InvalidateUserSessions(username string) {
 	indexKey := "user_sessions:" + username
 	tokens, err := TokenDB.SMembers(Ctx, indexKey).Result()
-	if err != nil {
-		return
-	}
-
-	if len(tokens) == 0 {
+	if err != nil || len(tokens) == 0 {
 		return
 	}
 
 	pipe := TokenDB.Pipeline()
-	for _, token := range tokens {
-		pipe.Del(Ctx, "X-rauth-authtoken="+token)
+	sessionKeys := make([]string, len(tokens))
+	for i, token := range tokens {
+		sessionKeys[i] = "X-rauth-authtoken=" + token
 	}
+	pipe.Del(Ctx, sessionKeys...)
 	pipe.Del(Ctx, indexKey)
 	if _, err := pipe.Exec(Ctx); err != nil {
 		slog.Error("Failed to execute InvalidateUserSessions pipeline", "error", err)
@@ -71,18 +69,27 @@ func InvalidateUserSessions(username string) {
 func InvalidateOtherUserSessions(username, currentToken string) {
 	indexKey := "user_sessions:" + username
 	tokens, err := TokenDB.SMembers(Ctx, indexKey).Result()
-	if err != nil {
+	if err != nil || len(tokens) == 0 {
 		return
 	}
 
-	pipe := TokenDB.Pipeline()
+	var sessionKeys []string
+	var tokensToRemove []interface{}
 	for _, token := range tokens {
 		if token == currentToken {
 			continue
 		}
-		pipe.Del(Ctx, "X-rauth-authtoken="+token)
-		pipe.SRem(Ctx, indexKey, token)
+		sessionKeys = append(sessionKeys, "X-rauth-authtoken="+token)
+		tokensToRemove = append(tokensToRemove, token)
 	}
+
+	if len(sessionKeys) == 0 {
+		return
+	}
+
+	pipe := TokenDB.Pipeline()
+	pipe.Del(Ctx, sessionKeys...)
+	pipe.SRem(Ctx, indexKey, tokensToRemove...)
 	if _, err := pipe.Exec(Ctx); err != nil {
 		slog.Error("Failed to execute InvalidateOtherUserSessions pipeline", "error", err)
 	}
@@ -96,10 +103,19 @@ func HasActiveSessions(ip string) bool {
 			return false
 		}
 
-		for _, k := range keys {
-			data, err := TokenDB.HGetAll(Ctx, k).Result()
-			if err == nil && data["ip"] == ip && data["status"] == "valid" {
-				return true
+		if len(keys) > 0 {
+			pipe := TokenDB.Pipeline()
+			cmds := make([]*redis.MapStringStringCmd, len(keys))
+			for i, k := range keys {
+				cmds[i] = pipe.HGetAll(Ctx, k)
+			}
+			_, _ = pipe.Exec(Ctx)
+
+			for _, cmd := range cmds {
+				data, err := cmd.Result()
+				if err == nil && data["ip"] == ip && data["status"] == "valid" {
+					return true
+				}
 			}
 		}
 
