@@ -16,17 +16,17 @@ func TestBruteForceProtection(t *testing.T) {
 	setupHandlersTest(t)
 
 	cfg := &core.Config{
-		ServerSecret: "32byte-secret-key-for-testing-!!",
-		CookieDomains: []string{"example.com"},
-		RateLimitLoginMax: 100,
-		RateLimitLoginDecay: 300,
-		RateLimitValidateMax: 100,
-		RateLimitValidateDecay: 60,
-		RateLimitLoginAccessMax: 1000,
-		RateLimitLoginFailUserMax: 5,
+		ServerSecret:                "32byte-secret-key-for-testing-!!",
+		CookieDomains:               []string{"example.com"},
+		RateLimitLoginMax:           100,
+		RateLimitLoginDecay:         300,
+		RateLimitValidateMax:        100,
+		RateLimitValidateDecay:      60,
+		RateLimitLoginAccessMax:     1000,
+		RateLimitLoginFailUserMax:   5,
 		RateLimitLoginFailUserDecay: 300,
-		RateLimitLoginFailIPMax: 20,
-		RateLimitLoginFailIPDecay: 600,
+		RateLimitLoginFailIPMax:     20,
+		RateLimitLoginFailIPDecay:   600,
 	}
 	h := &AuthHandler{Cfg: cfg}
 	e := echo.New()

@@ -3,6 +3,7 @@ package core
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -192,17 +193,20 @@ func UpdateWebAuthnSignCount(username string, credID []byte, newCount uint32) {
 func DeleteWebAuthnCredential(username string, credID string) error {
 	stored := GetStoredCredentials(username)
 	key := "user:" + username + ":webauthn_creds"
+
+	stored = slices.DeleteFunc(stored, func(c StoredCredential) bool {
+		return fmt.Sprintf("%x", c.ID) == credID
+	})
+
 	var toPush []interface{}
 	for _, c := range stored {
-		// We use hex encoding or base64 for ID in the request
-		if fmt.Sprintf("%x", c.ID) != credID {
-			data, err := json.Marshal(c)
-			if err != nil {
-				return err
-			}
-			toPush = append(toPush, data)
+		data, err := json.Marshal(c)
+		if err != nil {
+			return err
 		}
+		toPush = append(toPush, data)
 	}
+
 	UserDB.Del(Ctx, key)
 	if len(toPush) > 0 {
 		return UserDB.RPush(Ctx, key, toPush...).Err()

@@ -15,7 +15,7 @@ import (
 )
 
 var (
-	globalTestMu sync.Mutex
+	globalTestMu    sync.Mutex
 	sharedMiniredis *miniredis.Miniredis
 )
 
