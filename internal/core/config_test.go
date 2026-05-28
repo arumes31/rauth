@@ -149,6 +149,11 @@ func TestIsIPAllowed(t *testing.T) {
 		{"CIDR match with host bits set", "192.168.1.5", []string{"192.168.1.5/24"}, true},
 		{"IPv4 in IPv6 range match", "2001:db8::1", []string{"2001:db8::/32"}, true},
 		{"Mismatch IPv4 and IPv6", "127.0.0.1", []string{"::1"}, false},
+		{"Whitespace in input IP", "  127.0.0.1  ", []string{"127.0.0.1"}, true},
+		{"Whitespace in allowed list", "127.0.0.1", []string{"  127.0.0.1  "}, true},
+		{"Whitespace in allowed CIDR", "192.168.1.5", []string{"  192.168.1.0/24  "}, true},
+		{"Invalid IP in allowed list", "127.0.0.1", []string{"not-an-ip", "127.0.0.1"}, true},
+		{"Malformed CIDR in list", "127.0.0.1", []string{"127.0.0.1/33"}, false},
 	}
 
 	for _, tt := range tests {
