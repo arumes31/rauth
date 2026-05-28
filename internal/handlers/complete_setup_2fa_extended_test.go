@@ -50,8 +50,9 @@ func TestCompleteSetup2FA_Extended(t *testing.T) {
 			"email":    "user@example.com",
 		})
 
-		os.Setenv("SMTP_HOST", "mock")
-		defer os.Unsetenv("SMTP_HOST")
+		// Mock email and bypass check
+		assert.NoError(t, os.Setenv("SMTP_HOST", "mock"))
+		defer func() { assert.NoError(t, os.Unsetenv("SMTP_HOST")) }()
 
 		var emailSentCount int
 		origSendMail := core.TestingSendMail
@@ -97,7 +98,6 @@ func TestCompleteSetup2FA_Extended(t *testing.T) {
 		c.Request().AddCookie(&http.Cookie{Name: "rauth_setup_pending", Value: encryptedToken})
 
 		err := h.CompleteSetup2FA(c)
-		// Echo returns HTTPError for 500s usually if returned from handler
 		if err != nil {
 			he, ok := err.(*echo.HTTPError)
 			if ok {
