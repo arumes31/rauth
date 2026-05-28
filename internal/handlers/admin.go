@@ -22,15 +22,27 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 		slog.Error("Failed to list users", "error", err)
 	}
 
-	// Fetch sessions using Pipeline to avoid N+1 queries
+	// Fetch sessions using Pipeline to avoid N+1 queries and keyspace scans
 	var sessions []map[string]string
 	var keys []string
-	iter := core.TokenDB.Scan(core.Ctx, 0, "X-rauth-authtoken=*", 0).Iterator()
-	for iter.Next(core.Ctx) {
-		keys = append(keys, iter.Val())
+
+	// Collect session keys using the user index
+	indexPipe := core.TokenDB.Pipeline()
+	var smembersCmds []*redis.StringSliceCmd
+	for _, u := range users {
+		cmd := indexPipe.SMembers(core.Ctx, "user_sessions:"+u.Username)
+		smembersCmds = append(smembersCmds, cmd)
 	}
-	if err := iter.Err(); err != nil {
-		slog.Error("Failed to scan sessions from Redis", "error", err)
+	if _, err := indexPipe.Exec(core.Ctx); err != nil && err != redis.Nil {
+		slog.Error("Failed to fetch session indexes", "error", err)
+	}
+	for _, cmd := range smembersCmds {
+		tokens, err := cmd.Result()
+		if err == nil {
+			for _, token := range tokens {
+				keys = append(keys, "X-rauth-authtoken="+token)
+			}
+		}
 	}
 
 	if len(keys) > 0 {
@@ -260,4 +272,3 @@ func (h *AdminHandler) InvalidateSession(c echo.Context) error {
 	core.LogAudit("ADMIN_INVALIDATE_SESSION", admin, c.RealIP(), map[string]interface{}{"token": logToken})
 	return c.Redirect(http.StatusFound, "/rauthmgmt?success=session_terminated")
 }
-

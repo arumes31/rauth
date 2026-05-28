@@ -1,0 +1,3 @@
+## 2024-05-28 - Replace Inefficient Redis Keyspace Scans with Batched Index Lookups
+**Learning:** O(N keyspace) `SCAN` operations (e.g., finding all tokens with `X-rauth-authtoken=*`) become severe performance bottlenecks as the Redis database grows, particularly in administrative endpoints that list global sessions.
+**Action:** When a global list of entities (like users) is already available in the handler, utilize existing secondary indexes (e.g., `user_sessions:{username}`) alongside a Redis pipeline to batch `SMembers` queries. This replaces the O(N) keyspace scan with O(1) batched lookups, drastically reducing network round trips and Redis CPU load.
