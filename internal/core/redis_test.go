@@ -109,4 +109,34 @@ func TestSessionManagement(t *testing.T) {
 		require.True(t, HasActiveSessions("192.168.1.1"))
 		require.False(t, HasActiveSessions("10.0.0.1"))
 	})
+
+	t.Run("HasActiveSessionsPipelined", func(t *testing.T) {
+		// Add multiple sessions to trigger pipelined HGetAll
+		sessions := []struct {
+			token string
+			ip    string
+			valid bool
+		}{
+			{"token1", "192.168.1.1", true},
+			{"token2", "192.168.1.2", true},
+			{"token3", "192.168.1.1", false},
+			{"token4", "10.0.0.1", true},
+		}
+
+		for _, s := range sessions {
+			status := "invalid"
+			if s.valid {
+				status = "valid"
+			}
+			TokenDB.HSet(Ctx, "X-rauth-authtoken="+s.token, map[string]interface{}{
+				"ip":     s.ip,
+				"status": status,
+			})
+		}
+
+		assert.True(t, HasActiveSessions("192.168.1.1"))
+		assert.True(t, HasActiveSessions("192.168.1.2"))
+		assert.True(t, HasActiveSessions("10.0.0.1"))
+		assert.False(t, HasActiveSessions("192.168.1.3"))
+	})
 }

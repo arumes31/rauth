@@ -1,3 +1,6 @@
 ## 2026-05-27 - Redis Pipeline Batching with Mutation Fallback
 **Learning:** When optimizing an N+1 query loop into a batched Redis Pipeline (e.g., retrieving users), you must be careful if the original individual getter (e.g., `GetUser`) performed lazy migrations or state mutations (like backfilling a `UID`). Directly replacing it with a pure `HGetAll` pipeline strips out this logic.
 **Action:** Use a hybrid approach: Batch all reads using the pipeline, and then iterate through the results. If a result indicates the record is legacy/incomplete (e.g., missing `UID`), selectively fallback to calling the individual mutating getter just for that specific record. This provides the performance win of batching while safely preserving necessary state migrations.
+## 2026-05-28 - Pipelined Active Session Scanning
+**Learning:** Checking for active sessions across all keys in Redis using `SCAN` followed by individual `HGetAll` calls leads to an N+1 query problem, increasing latency as the number of sessions grows.
+**Action:** Implement Redis Pipelines within the `SCAN` loop to batch `HGetAll` commands for each batch of keys returned by `SCAN`. This significantly reduces round-trip time while maintaining the scalability of the `SCAN` command.
