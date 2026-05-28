@@ -1,0 +1,1935 @@
+?   	rauth	[no test files]
+=== RUN   TestLogAudit
+=== RUN   TestLogAudit/Record_log_entry
+2026/05/28 19:30:56 INFO audit log action=TEST_ACTION username=testuser ip=1.2.3.4 details="map[country:unknown foo:bar]"
+=== RUN   TestLogAudit/Log_trimming
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:30:56 INFO audit log action=FILL username=user ip=127.0.0.1 details=map[country:Internal]
+--- PASS: TestLogAudit (0.18s)
+    --- PASS: TestLogAudit/Record_log_entry (0.01s)
+    --- PASS: TestLogAudit/Log_trimming (0.17s)
+=== RUN   TestLoadConfig
+--- PASS: TestLoadConfig (0.00s)
+=== RUN   TestGetEnvHelpers
+--- PASS: TestGetEnvHelpers (0.00s)
+=== RUN   TestIsAllowedHost
+--- PASS: TestIsAllowedHost (0.00s)
+=== RUN   TestIsCountryAllowed
+=== RUN   TestIsCountryAllowed/Empty_list_allowed_all
+=== RUN   TestIsCountryAllowed/Exact_match
+=== RUN   TestIsCountryAllowed/Case_insensitive_match
+=== RUN   TestIsCountryAllowed/Case_insensitive_match_2
+=== RUN   TestIsCountryAllowed/No_match
+=== RUN   TestIsCountryAllowed/Empty_country_input
+=== RUN   TestIsCountryAllowed/Internal_access_match
+=== RUN   TestIsCountryAllowed/Internal_access_case_insensitive
+=== RUN   TestIsCountryAllowed/Tailscale_access_match
+=== RUN   TestIsCountryAllowed/Unknown_country_match
+=== RUN   TestIsCountryAllowed/Whitespace_in_allowed_list
+=== RUN   TestIsCountryAllowed/Whitespace_in_input
+=== RUN   TestIsCountryAllowed/Whitespace_in_both
+--- PASS: TestIsCountryAllowed (0.00s)
+    --- PASS: TestIsCountryAllowed/Empty_list_allowed_all (0.00s)
+    --- PASS: TestIsCountryAllowed/Exact_match (0.00s)
+    --- PASS: TestIsCountryAllowed/Case_insensitive_match (0.00s)
+    --- PASS: TestIsCountryAllowed/Case_insensitive_match_2 (0.00s)
+    --- PASS: TestIsCountryAllowed/No_match (0.00s)
+    --- PASS: TestIsCountryAllowed/Empty_country_input (0.00s)
+    --- PASS: TestIsCountryAllowed/Internal_access_match (0.00s)
+    --- PASS: TestIsCountryAllowed/Internal_access_case_insensitive (0.00s)
+    --- PASS: TestIsCountryAllowed/Tailscale_access_match (0.00s)
+    --- PASS: TestIsCountryAllowed/Unknown_country_match (0.00s)
+    --- PASS: TestIsCountryAllowed/Whitespace_in_allowed_list (0.00s)
+    --- PASS: TestIsCountryAllowed/Whitespace_in_input (0.00s)
+    --- PASS: TestIsCountryAllowed/Whitespace_in_both (0.00s)
+=== RUN   TestIsIPAllowed
+=== RUN   TestIsIPAllowed/Invalid_IP
+=== RUN   TestIsIPAllowed/Empty_IP
+=== RUN   TestIsIPAllowed/Empty_allowed_list
+=== RUN   TestIsIPAllowed/Exact_match_IPv4
+=== RUN   TestIsIPAllowed/Exact_match_IPv6
+=== RUN   TestIsIPAllowed/CIDR_match_IPv4
+=== RUN   TestIsIPAllowed/CIDR_match_IPv6
+=== RUN   TestIsIPAllowed/No_match
+=== RUN   TestIsIPAllowed/Invalid_CIDR_in_list
+=== RUN   TestIsIPAllowed/Mixed_list_match
+=== RUN   TestIsIPAllowed/IPv4-mapped_IPv6_match
+=== RUN   TestIsIPAllowed/IPv4-mapped_IPv6_match_reversed
+=== RUN   TestIsIPAllowed/Expanded_IPv6_match
+=== RUN   TestIsIPAllowed/Compressed_IPv6_match
+=== RUN   TestIsIPAllowed/CIDR_IPv4-mapped_IPv6_match
+=== RUN   TestIsIPAllowed/CIDR_match_with_host_bits_set
+=== RUN   TestIsIPAllowed/IPv4_in_IPv6_range_match
+=== RUN   TestIsIPAllowed/Mismatch_IPv4_and_IPv6
+--- PASS: TestIsIPAllowed (0.00s)
+    --- PASS: TestIsIPAllowed/Invalid_IP (0.00s)
+    --- PASS: TestIsIPAllowed/Empty_IP (0.00s)
+    --- PASS: TestIsIPAllowed/Empty_allowed_list (0.00s)
+    --- PASS: TestIsIPAllowed/Exact_match_IPv4 (0.00s)
+    --- PASS: TestIsIPAllowed/Exact_match_IPv6 (0.00s)
+    --- PASS: TestIsIPAllowed/CIDR_match_IPv4 (0.00s)
+    --- PASS: TestIsIPAllowed/CIDR_match_IPv6 (0.00s)
+    --- PASS: TestIsIPAllowed/No_match (0.00s)
+    --- PASS: TestIsIPAllowed/Invalid_CIDR_in_list (0.00s)
+    --- PASS: TestIsIPAllowed/Mixed_list_match (0.00s)
+    --- PASS: TestIsIPAllowed/IPv4-mapped_IPv6_match (0.00s)
+    --- PASS: TestIsIPAllowed/IPv4-mapped_IPv6_match_reversed (0.00s)
+    --- PASS: TestIsIPAllowed/Expanded_IPv6_match (0.00s)
+    --- PASS: TestIsIPAllowed/Compressed_IPv6_match (0.00s)
+    --- PASS: TestIsIPAllowed/CIDR_IPv4-mapped_IPv6_match (0.00s)
+    --- PASS: TestIsIPAllowed/CIDR_match_with_host_bits_set (0.00s)
+    --- PASS: TestIsIPAllowed/IPv4_in_IPv6_range_match (0.00s)
+    --- PASS: TestIsIPAllowed/Mismatch_IPv4_and_IPv6 (0.00s)
+=== RUN   TestNormalizeHostname
+--- PASS: TestNormalizeHostname (0.00s)
+=== RUN   TestSend2FAModifiedNotification_Detailed
+=== RUN   TestSend2FAModifiedNotification_Detailed/Standard_Enabled
+2026/05/28 19:30:56 INFO Email sent successfully to=user@example.com subject="[RAuth] Security Alert: 2FA Enabled"
+=== RUN   TestSend2FAModifiedNotification_Detailed/HTML_Escaping
+2026/05/28 19:30:56 INFO Email sent successfully to=attacker@example.com subject="[RAuth] Security Alert: 2FA <b>Disabled</b>"
+=== RUN   TestSend2FAModifiedNotification_Detailed/Header_Injection_Prevention
+2026/05/28 19:30:56 INFO Email sent successfully to=user@example.com subject="[RAuth] Security Alert: 2FA EnabledBcc: spy@evil.com"
+--- PASS: TestSend2FAModifiedNotification_Detailed (0.00s)
+    --- PASS: TestSend2FAModifiedNotification_Detailed/Standard_Enabled (0.00s)
+    --- PASS: TestSend2FAModifiedNotification_Detailed/HTML_Escaping (0.00s)
+    --- PASS: TestSend2FAModifiedNotification_Detailed/Header_Injection_Prevention (0.00s)
+=== RUN   TestEmailHeaderInjection_Fixed
+--- PASS: TestEmailHeaderInjection_Fixed (0.00s)
+=== RUN   TestEmailHTMLInjection_Fixed
+--- PASS: TestEmailHTMLInjection_Fixed (0.00s)
+=== RUN   TestSendEmail_NotConfigured
+2026/05/28 19:30:56 WARN SMTP not configured, skipping email to=test@example.com subject="Test Subject"
+--- PASS: TestSendEmail_NotConfigured (0.00s)
+=== RUN   TestNotifications
+=== RUN   TestNotifications/SendLoginNotification
+2026/05/28 19:30:56 INFO Email sent successfully to=user@example.com subject="[RAuth] Security Alert: New Login Detected"
+=== RUN   TestNotifications/SendPasswordChangeNotification
+2026/05/28 19:30:56 INFO Email sent successfully to=user@example.com subject="[RAuth] Security Alert: Password Changed"
+=== RUN   TestNotifications/SendAccountCreatedNotification
+2026/05/28 19:30:56 INFO Email sent successfully to=user@example.com subject="[RAuth] Welcome: Your Account is Ready"
+=== RUN   TestNotifications/Send2FAModifiedNotification
+2026/05/28 19:30:56 INFO Email sent successfully to=user@example.com subject="[RAuth] Security Alert: 2FA Enabled"
+--- PASS: TestNotifications (0.00s)
+    --- PASS: TestNotifications/SendLoginNotification (0.00s)
+    --- PASS: TestNotifications/SendPasswordChangeNotification (0.00s)
+    --- PASS: TestNotifications/SendAccountCreatedNotification (0.00s)
+    --- PASS: TestNotifications/Send2FAModifiedNotification (0.00s)
+=== RUN   TestSendEmail_HTMLWrap
+2026/05/28 19:30:56 INFO Email sent successfully to=test@example.com subject="Plain Subject"
+2026/05/28 19:30:56 INFO Email sent successfully to=test@example.com subject="HTML Subject"
+--- PASS: TestSendEmail_HTMLWrap (0.00s)
+=== RUN   TestSendAccountCreatedNotificationRobust
+2026/05/28 19:30:56 INFO Email sent successfully to=newuser@example.com subject="[RAuth] Welcome: Your Account is Ready"
+--- PASS: TestSendAccountCreatedNotificationRobust (0.00s)
+=== RUN   TestSendLoginNotificationRobust
+2026/05/28 19:30:56 INFO Email sent successfully to=user@example.com subject="[RAuth] Security Alert: New Login Detected"
+--- PASS: TestSendLoginNotificationRobust (0.00s)
+=== RUN   TestSendPasswordChangeNotificationRobust
+2026/05/28 19:30:56 INFO Email sent successfully to=user@example.com subject="[RAuth] Security Alert: Password Changed"
+--- PASS: TestSendPasswordChangeNotificationRobust (0.00s)
+=== RUN   TestSend2FAModifiedNotificationRobust
+2026/05/28 19:30:56 INFO Email sent successfully to=user@example.com subject="[RAuth] Security Alert: 2FA Enabled"
+--- PASS: TestSend2FAModifiedNotificationRobust (0.00s)
+=== RUN   TestSanitizeEmailHeader
+=== RUN   TestSanitizeEmailHeader/Normal_Subject
+=== RUN   TestSanitizeEmailHeader/Subject__With__Newlines
+=== RUN   TestSanitizeEmailHeader/To:_test@example.com__Bcc:_evil@example.com
+--- PASS: TestSanitizeEmailHeader (0.00s)
+    --- PASS: TestSanitizeEmailHeader/Normal_Subject (0.00s)
+    --- PASS: TestSanitizeEmailHeader/Subject__With__Newlines (0.00s)
+    --- PASS: TestSanitizeEmailHeader/To:_test@example.com__Bcc:_evil@example.com (0.00s)
+=== RUN   TestSendEmail_Error
+2026/05/28 19:30:56 ERROR Failed to send email error="smtp error" to=user@example.com
+--- PASS: TestSendEmail_Error (0.00s)
+=== RUN   TestIsPrivateIP
+--- PASS: TestIsPrivateIP (0.00s)
+=== RUN   TestGetCountryCode
+--- PASS: TestGetCountryCode (0.00s)
+=== RUN   TestGetCountryCode_EdgeCases
+--- PASS: TestGetCountryCode_EdgeCases (0.00s)
+=== RUN   TestGetCountryCode_InvalidIP
+--- PASS: TestGetCountryCode_InvalidIP (0.00s)
+=== RUN   TestGetGeoMetadata
+--- PASS: TestGetGeoMetadata (0.00s)
+=== RUN   TestGetGeoReaderStatus
+--- PASS: TestGetGeoReaderStatus (0.00s)
+=== RUN   TestGeoLRUCache_Eviction
+--- PASS: TestGeoLRUCache_Eviction (0.00s)
+=== RUN   TestReloadReader_Errors
+2026/05/28 19:30:56 WARN Failed to open MaxMind database path=/nonexistent/path error="open /nonexistent/path: no such file or directory"
+2026/05/28 19:30:56 WARN Failed to close MaxMind database error="close error"
+2026/05/28 19:30:56 WARN Failed to open MaxMind database path=/nonexistent/path/2 error="open /nonexistent/path/2: no such file or directory"
+--- PASS: TestReloadReader_Errors (0.00s)
+=== RUN   TestGetGeoMetadataAndStatus
+--- PASS: TestGetGeoMetadataAndStatus (0.00s)
+=== RUN   TestStartGeoUpdater_Logic
+2026/05/28 19:30:56 INFO GeoIP database missing, performing initial download
+2026/05/28 19:30:56 WARN Failed to open MaxMind database path=/tmp/geotest2287762780/GeoLite2-Country.mmdb error="error opening database: invalid MaxMind DB file"
+2026/05/28 19:30:56 INFO GeoIP database exists, skipping initial download
+2026/05/28 19:30:56 WARN Failed to open MaxMind database path=/app/geoip/GeoLite2-Country.mmdb error="open /app/geoip/GeoLite2-Country.mmdb: no such file or directory"
+--- PASS: TestStartGeoUpdater_Logic (0.00s)
+=== RUN   TestUpdateGeoDB_ConfigGeneration
+--- PASS: TestUpdateGeoDB_ConfigGeneration (0.00s)
+=== RUN   TestUpdateGeoDB_ConfigErrors
+=== RUN   TestUpdateGeoDB_ConfigErrors/Missing_AccountID
+=== RUN   TestUpdateGeoDB_ConfigErrors/Missing_LicenseKey
+--- PASS: TestUpdateGeoDB_ConfigErrors (0.00s)
+    --- PASS: TestUpdateGeoDB_ConfigErrors/Missing_AccountID (0.00s)
+    --- PASS: TestUpdateGeoDB_ConfigErrors/Missing_LicenseKey (0.00s)
+=== RUN   TestRateLimiter
+--- PASS: TestRateLimiter (0.01s)
+=== RUN   TestIsRateLimitExceeded
+redis: 2026/05/28 19:30:57 pool.go:715: redis: connection pool: failed to dial after 5 attempts: dial tcp [::1]:12345: connect: connection refused
+redis: 2026/05/28 19:30:57 pool.go:715: redis: connection pool: failed to dial after 5 attempts: dial tcp [::1]:12345: connect: connection refused
+redis: 2026/05/28 19:30:58 pool.go:715: redis: connection pool: failed to dial after 5 attempts: dial tcp [::1]:12345: connect: connection refused
+redis: 2026/05/28 19:30:58 pool.go:715: redis: connection pool: failed to dial after 5 attempts: dial tcp [::1]:12345: connect: connection refused
+2026/05/28 19:30:58 ERROR Redis rate limit check failed key=test_exceed_ip error="dial tcp [::1]:12345: connect: connection refused"
+--- PASS: TestIsRateLimitExceeded (1.69s)
+=== RUN   TestReserveRateLimitAttempt
+--- PASS: TestReserveRateLimitAttempt (0.00s)
+=== RUN   TestInitRedis
+--- PASS: TestInitRedis (0.01s)
+=== RUN   TestSessionManagement
+=== RUN   TestSessionManagement/AddSessionIndex
+=== RUN   TestSessionManagement/RemoveSessionIndex
+=== RUN   TestSessionManagement/InvalidateUserSessions
+=== RUN   TestSessionManagement/InvalidateOtherUserSessions
+=== RUN   TestSessionManagement/HasActiveSessions
+--- PASS: TestSessionManagement (0.00s)
+    --- PASS: TestSessionManagement/AddSessionIndex (0.00s)
+    --- PASS: TestSessionManagement/RemoveSessionIndex (0.00s)
+    --- PASS: TestSessionManagement/InvalidateUserSessions (0.00s)
+    --- PASS: TestSessionManagement/InvalidateOtherUserSessions (0.00s)
+    --- PASS: TestSessionManagement/HasActiveSessions (0.00s)
+=== RUN   TestEncryption
+--- PASS: TestEncryption (0.00s)
+=== RUN   TestDecryptTokenErrors
+=== RUN   TestDecryptTokenErrors/Invalid_base64
+=== RUN   TestDecryptTokenErrors/Wrong_key_size
+=== RUN   TestDecryptTokenErrors/Invalid_ciphertext
+--- PASS: TestDecryptTokenErrors (0.00s)
+    --- PASS: TestDecryptTokenErrors/Invalid_base64 (0.00s)
+    --- PASS: TestDecryptTokenErrors/Wrong_key_size (0.00s)
+    --- PASS: TestDecryptTokenErrors/Invalid_ciphertext (0.00s)
+=== RUN   TestEncryptionLargeInput
+--- PASS: TestEncryptionLargeInput (0.03s)
+=== RUN   TestValidatePasswordComplexity
+=== RUN   TestValidatePasswordComplexity/Valid_password
+=== RUN   TestValidatePasswordComplexity/Too_short
+=== RUN   TestValidatePasswordComplexity/Missing_upper
+=== RUN   TestValidatePasswordComplexity/Missing_lower
+=== RUN   TestValidatePasswordComplexity/Missing_number
+=== RUN   TestValidatePasswordComplexity/Missing_special
+=== RUN   TestValidatePasswordComplexity/Only_special_and_numbers
+--- PASS: TestValidatePasswordComplexity (0.00s)
+    --- PASS: TestValidatePasswordComplexity/Valid_password (0.00s)
+    --- PASS: TestValidatePasswordComplexity/Too_short (0.00s)
+    --- PASS: TestValidatePasswordComplexity/Missing_upper (0.00s)
+    --- PASS: TestValidatePasswordComplexity/Missing_lower (0.00s)
+    --- PASS: TestValidatePasswordComplexity/Missing_number (0.00s)
+    --- PASS: TestValidatePasswordComplexity/Missing_special (0.00s)
+    --- PASS: TestValidatePasswordComplexity/Only_special_and_numbers (0.00s)
+=== RUN   TestPasswordHashing
+--- PASS: TestPasswordHashing (0.99s)
+=== RUN   TestValidatePasswordDetails
+--- PASS: TestValidatePasswordDetails (0.00s)
+=== RUN   TestValidateRedirectURL
+=== RUN   TestValidateRedirectURL/Empty_string
+=== RUN   TestValidateRedirectURL/Valid_relative_path
+=== RUN   TestValidateRedirectURL/Valid_absolute_URL
+=== RUN   TestValidateRedirectURL/Protocol_relative_double_slash
+2026/05/28 19:30:59 WARN Protocol-relative redirect attempted url=//evil.com user=testuser
+=== RUN   TestValidateRedirectURL/Protocol_relative_slash_backslash
+2026/05/28 19:30:59 WARN Protocol-relative redirect attempted url=/\evil.com user=testuser
+=== RUN   TestValidateRedirectURL/Protocol_relative_double_backslash
+2026/05/28 19:30:59 WARN Protocol-relative redirect attempted url=\\evil.com user=testuser
+=== RUN   TestValidateRedirectURL/Protocol_relative_backslash_slash
+2026/05/28 19:30:59 WARN Protocol-relative redirect attempted url=\/evil.com user=testuser
+=== RUN   TestValidateRedirectURL/Protocol_relative_single_backslash
+2026/05/28 19:30:59 WARN Protocol-relative redirect attempted url=\evil.com user=testuser
+=== RUN   TestValidateRedirectURL/Leading_space_double_slash
+2026/05/28 19:30:59 WARN Protocol-relative redirect attempted url=//evil.com user=testuser
+=== RUN   TestValidateRedirectURL/Leading_space_relative_path
+=== RUN   TestValidateRedirectURL/Missing_leading_slash
+=== RUN   TestValidateRedirectURL/Invalid_scheme_XSS
+2026/05/28 19:30:59 WARN Unsafe absolute redirect attempted host="" scheme=javascript user=testuser
+=== RUN   TestValidateRedirectURL/Unallowed_host
+2026/05/28 19:30:59 WARN Unsafe absolute redirect attempted host=evil.com scheme=https user=testuser
+--- PASS: TestValidateRedirectURL (0.00s)
+    --- PASS: TestValidateRedirectURL/Empty_string (0.00s)
+    --- PASS: TestValidateRedirectURL/Valid_relative_path (0.00s)
+    --- PASS: TestValidateRedirectURL/Valid_absolute_URL (0.00s)
+    --- PASS: TestValidateRedirectURL/Protocol_relative_double_slash (0.00s)
+    --- PASS: TestValidateRedirectURL/Protocol_relative_slash_backslash (0.00s)
+    --- PASS: TestValidateRedirectURL/Protocol_relative_double_backslash (0.00s)
+    --- PASS: TestValidateRedirectURL/Protocol_relative_backslash_slash (0.00s)
+    --- PASS: TestValidateRedirectURL/Protocol_relative_single_backslash (0.00s)
+    --- PASS: TestValidateRedirectURL/Leading_space_double_slash (0.00s)
+    --- PASS: TestValidateRedirectURL/Leading_space_relative_path (0.00s)
+    --- PASS: TestValidateRedirectURL/Missing_leading_slash (0.00s)
+    --- PASS: TestValidateRedirectURL/Invalid_scheme_XSS (0.00s)
+    --- PASS: TestValidateRedirectURL/Unallowed_host (0.00s)
+=== RUN   TestIsUserAgentCompatible
+=== RUN   TestIsUserAgentCompatible/Exactly_identical_UAs
+=== RUN   TestIsUserAgentCompatible/Android_to_Linux_Chrome_(Tablet_Desktop_Mode_Toggle)
+=== RUN   TestIsUserAgentCompatible/Android_to_Linux_Firefox_(Tablet_Desktop_Mode_Toggle)
+=== RUN   TestIsUserAgentCompatible/Chrome_vs_Firefox_on_same_OS
+=== RUN   TestIsUserAgentCompatible/Chrome_Linux_to_Chrome_Windows_(Different_OS)
+=== RUN   TestIsUserAgentCompatible/Chrome_Android_to_Chrome_macOS_(Different_OS)
+=== RUN   TestIsUserAgentCompatible/Empty_strings
+=== RUN   TestIsUserAgentCompatible/Different_Unknown_UAs_(Strict_Fallback)
+=== RUN   TestIsUserAgentCompatible/Identical_Unknown_UAs_(Strict_Fallback)
+=== RUN   TestIsUserAgentCompatible/Opera_Linux_to_Opera_Android_(Compatible_Platforms)
+=== RUN   TestIsUserAgentCompatible/Opera_vs_Chrome_(Incompatible_Brands)
+=== RUN   TestIsUserAgentCompatible/CriOS_(Chrome_iOS)_vs_Chrome_Android_(Different_OS)
+=== RUN   TestIsUserAgentCompatible/FxiOS_(Firefox_iOS)_vs_Firefox_Android_(Different_OS)
+=== RUN   TestIsUserAgentCompatible/CriOS_vs_FxiOS_on_iOS_(Different_Brands)
+=== RUN   TestIsUserAgentCompatible/CriOS_vs_Safari_on_iOS_(Different_Brands)
+--- PASS: TestIsUserAgentCompatible (0.00s)
+    --- PASS: TestIsUserAgentCompatible/Exactly_identical_UAs (0.00s)
+    --- PASS: TestIsUserAgentCompatible/Android_to_Linux_Chrome_(Tablet_Desktop_Mode_Toggle) (0.00s)
+    --- PASS: TestIsUserAgentCompatible/Android_to_Linux_Firefox_(Tablet_Desktop_Mode_Toggle) (0.00s)
+    --- PASS: TestIsUserAgentCompatible/Chrome_vs_Firefox_on_same_OS (0.00s)
+    --- PASS: TestIsUserAgentCompatible/Chrome_Linux_to_Chrome_Windows_(Different_OS) (0.00s)
+    --- PASS: TestIsUserAgentCompatible/Chrome_Android_to_Chrome_macOS_(Different_OS) (0.00s)
+    --- PASS: TestIsUserAgentCompatible/Empty_strings (0.00s)
+    --- PASS: TestIsUserAgentCompatible/Different_Unknown_UAs_(Strict_Fallback) (0.00s)
+    --- PASS: TestIsUserAgentCompatible/Identical_Unknown_UAs_(Strict_Fallback) (0.00s)
+    --- PASS: TestIsUserAgentCompatible/Opera_Linux_to_Opera_Android_(Compatible_Platforms) (0.00s)
+    --- PASS: TestIsUserAgentCompatible/Opera_vs_Chrome_(Incompatible_Brands) (0.00s)
+    --- PASS: TestIsUserAgentCompatible/CriOS_(Chrome_iOS)_vs_Chrome_Android_(Different_OS) (0.00s)
+    --- PASS: TestIsUserAgentCompatible/FxiOS_(Firefox_iOS)_vs_Firefox_Android_(Different_OS) (0.00s)
+    --- PASS: TestIsUserAgentCompatible/CriOS_vs_FxiOS_on_iOS_(Different_Brands) (0.00s)
+    --- PASS: TestIsUserAgentCompatible/CriOS_vs_Safari_on_iOS_(Different_Brands) (0.00s)
+=== RUN   TestLegacyDecryption
+--- PASS: TestLegacyDecryption (0.00s)
+=== RUN   TestValidateEmail
+=== RUN   TestValidateEmail/Valid_Email
+=== RUN   TestValidateEmail/Valid_Email_With_Plus
+=== RUN   TestValidateEmail/Valid_email_with_dots
+=== RUN   TestValidateEmail/Empty_email
+=== RUN   TestValidateEmail/Invalid_Email_-_No_At
+=== RUN   TestValidateEmail/Invalid_Email_-_No_Domain
+=== RUN   TestValidateEmail/Missing_TLD
+=== RUN   TestValidateEmail/Invalid_characters
+--- PASS: TestValidateEmail (0.00s)
+    --- PASS: TestValidateEmail/Valid_Email (0.00s)
+    --- PASS: TestValidateEmail/Valid_Email_With_Plus (0.00s)
+    --- PASS: TestValidateEmail/Valid_email_with_dots (0.00s)
+    --- PASS: TestValidateEmail/Empty_email (0.00s)
+    --- PASS: TestValidateEmail/Invalid_Email_-_No_At (0.00s)
+    --- PASS: TestValidateEmail/Invalid_Email_-_No_Domain (0.00s)
+    --- PASS: TestValidateEmail/Missing_TLD (0.00s)
+    --- PASS: TestValidateEmail/Invalid_characters (0.00s)
+=== RUN   TestGenerateRandomString
+=== RUN   TestGenerateRandomString/Length_10
+=== RUN   TestGenerateRandomString/Length_32
+=== RUN   TestGenerateRandomString/Length_64
+--- PASS: TestGenerateRandomString (0.00s)
+    --- PASS: TestGenerateRandomString/Length_10 (0.00s)
+    --- PASS: TestGenerateRandomString/Length_32 (0.00s)
+    --- PASS: TestGenerateRandomString/Length_64 (0.00s)
+=== RUN   TestDecrypt2FASecret
+=== RUN   TestDecrypt2FASecret/Empty_Secret
+=== RUN   TestDecrypt2FASecret/Plain_Secret
+=== RUN   TestDecrypt2FASecret/Valid_Encrypted_Secret
+=== RUN   TestDecrypt2FASecret/Invalid_Encrypted_Secret
+--- PASS: TestDecrypt2FASecret (0.00s)
+    --- PASS: TestDecrypt2FASecret/Empty_Secret (0.00s)
+    --- PASS: TestDecrypt2FASecret/Plain_Secret (0.00s)
+    --- PASS: TestDecrypt2FASecret/Valid_Encrypted_Secret (0.00s)
+    --- PASS: TestDecrypt2FASecret/Invalid_Encrypted_Secret (0.00s)
+=== RUN   TestFormatUserAgent
+=== RUN   TestFormatUserAgent/Empty
+=== RUN   TestFormatUserAgent/Chrome_on_Windows
+=== RUN   TestFormatUserAgent/Firefox_on_macOS
+=== RUN   TestFormatUserAgent/Safari_on_iOS
+=== RUN   TestFormatUserAgent/Chrome_on_Android
+=== RUN   TestFormatUserAgent/Opera_on_Linux
+=== RUN   TestFormatUserAgent/Edge_on_Windows
+=== RUN   TestFormatUserAgent/CriOS_on_iPad
+=== RUN   TestFormatUserAgent/FxiOS_on_iPhone
+--- PASS: TestFormatUserAgent (0.00s)
+    --- PASS: TestFormatUserAgent/Empty (0.00s)
+    --- PASS: TestFormatUserAgent/Chrome_on_Windows (0.00s)
+    --- PASS: TestFormatUserAgent/Firefox_on_macOS (0.00s)
+    --- PASS: TestFormatUserAgent/Safari_on_iOS (0.00s)
+    --- PASS: TestFormatUserAgent/Chrome_on_Android (0.00s)
+    --- PASS: TestFormatUserAgent/Opera_on_Linux (0.00s)
+    --- PASS: TestFormatUserAgent/Edge_on_Windows (0.00s)
+    --- PASS: TestFormatUserAgent/CriOS_on_iPad (0.00s)
+    --- PASS: TestFormatUserAgent/FxiOS_on_iPhone (0.00s)
+=== RUN   TestGetDeviceIcon
+=== RUN   TestGetDeviceIcon/Android
+=== RUN   TestGetDeviceIcon/iPhone
+=== RUN   TestGetDeviceIcon/iPad
+=== RUN   TestGetDeviceIcon/Windows
+=== RUN   TestGetDeviceIcon/Macintosh
+=== RUN   TestGetDeviceIcon/Linux
+=== RUN   TestGetDeviceIcon/Unknown
+=== RUN   TestGetDeviceIcon/Android_direct
+=== RUN   TestGetDeviceIcon/iPhone_direct
+=== RUN   TestGetDeviceIcon/iPad_direct
+=== RUN   TestGetDeviceIcon/Windows_direct
+=== RUN   TestGetDeviceIcon/Macintosh_direct
+=== RUN   TestGetDeviceIcon/Linux_direct
+=== RUN   TestGetDeviceIcon/Unknown_direct
+--- PASS: TestGetDeviceIcon (0.00s)
+    --- PASS: TestGetDeviceIcon/Android (0.00s)
+    --- PASS: TestGetDeviceIcon/iPhone (0.00s)
+    --- PASS: TestGetDeviceIcon/iPad (0.00s)
+    --- PASS: TestGetDeviceIcon/Windows (0.00s)
+    --- PASS: TestGetDeviceIcon/Macintosh (0.00s)
+    --- PASS: TestGetDeviceIcon/Linux (0.00s)
+    --- PASS: TestGetDeviceIcon/Unknown (0.00s)
+    --- PASS: TestGetDeviceIcon/Android_direct (0.00s)
+    --- PASS: TestGetDeviceIcon/iPhone_direct (0.00s)
+    --- PASS: TestGetDeviceIcon/iPad_direct (0.00s)
+    --- PASS: TestGetDeviceIcon/Windows_direct (0.00s)
+    --- PASS: TestGetDeviceIcon/Macintosh_direct (0.00s)
+    --- PASS: TestGetDeviceIcon/Linux_direct (0.00s)
+    --- PASS: TestGetDeviceIcon/Unknown_direct (0.00s)
+=== RUN   TestValidateUsername
+=== RUN   TestValidateUsername/Valid_User
+=== RUN   TestValidateUsername/Valid_username_short
+=== RUN   TestValidateUsername/Valid_with_dot
+=== RUN   TestValidateUsername/Valid_with_hyphen
+=== RUN   TestValidateUsername/Valid_with_underscore
+=== RUN   TestValidateUsername/Too_Short
+=== RUN   TestValidateUsername/Too_Long
+=== RUN   TestValidateUsername/Too_long_2
+=== RUN   TestValidateUsername/Invalid_Characters
+=== RUN   TestValidateUsername/Invalid_characters_2
+--- PASS: TestValidateUsername (0.00s)
+    --- PASS: TestValidateUsername/Valid_User (0.00s)
+    --- PASS: TestValidateUsername/Valid_username_short (0.00s)
+    --- PASS: TestValidateUsername/Valid_with_dot (0.00s)
+    --- PASS: TestValidateUsername/Valid_with_hyphen (0.00s)
+    --- PASS: TestValidateUsername/Valid_with_underscore (0.00s)
+    --- PASS: TestValidateUsername/Too_Short (0.00s)
+    --- PASS: TestValidateUsername/Too_Long (0.00s)
+    --- PASS: TestValidateUsername/Too_long_2 (0.00s)
+    --- PASS: TestValidateUsername/Invalid_Characters (0.00s)
+    --- PASS: TestValidateUsername/Invalid_characters_2 (0.00s)
+=== RUN   TestUserManagement
+--- PASS: TestUserManagement (0.33s)
+=== RUN   TestUpdateUser
+=== RUN   TestUpdateUser/Update_email_and_group
+--- PASS: TestUpdateUser (0.33s)
+    --- PASS: TestUpdateUser/Update_email_and_group (0.00s)
+=== RUN   TestGetUsernameByUID
+=== RUN   TestGetUsernameByUID/String_Lookup
+=== RUN   TestGetUsernameByUID/Binary_Lookup
+=== RUN   TestGetUsernameByUID/Not_Found
+--- PASS: TestGetUsernameByUID (0.00s)
+    --- PASS: TestGetUsernameByUID/String_Lookup (0.00s)
+    --- PASS: TestGetUsernameByUID/Binary_Lookup (0.00s)
+    --- PASS: TestGetUsernameByUID/Not_Found (0.00s)
+=== RUN   TestInitWebAuthn
+=== RUN   TestInitWebAuthn/Default_origins_from_CookieDomains
+WebAuthn Registered Origins: [https://example.com https://example.com:5980 http://example.com:5980 https://auth.example.com:5980 http://localhost:5980 http://127.0.0.1:5980 http://localhost http://127.0.0.1 http://example.com https://auth.example.com http://auth.example.com http://auth.example.com:5980]
+=== RUN   TestInitWebAuthn/Normalization_of_origins
+WebAuthn Registered Origins: [http://domain2.com https://domain3.com http://domain3.com https://domain.com https://domain2.com]
+--- PASS: TestInitWebAuthn (0.00s)
+    --- PASS: TestInitWebAuthn/Default_origins_from_CookieDomains (0.00s)
+    --- PASS: TestInitWebAuthn/Normalization_of_origins (0.00s)
+=== RUN   TestWebAuthnCredentialManagement
+--- PASS: TestWebAuthnCredentialManagement (0.00s)
+=== RUN   TestWebAuthnUserInterface
+--- PASS: TestWebAuthnUserInterface (0.00s)
+=== RUN   TestNewWebAuthnUser
+--- PASS: TestNewWebAuthnUser (0.00s)
+=== RUN   TestUpdateWebAuthnSignCount
+--- PASS: TestUpdateWebAuthnSignCount (0.00s)
+=== RUN   FuzzValidatePassword
+=== RUN   FuzzValidatePassword/seed#0
+=== RUN   FuzzValidatePassword/seed#1
+=== RUN   FuzzValidatePassword/seed#2
+--- PASS: FuzzValidatePassword (0.00s)
+    --- PASS: FuzzValidatePassword/seed#0 (0.00s)
+    --- PASS: FuzzValidatePassword/seed#1 (0.00s)
+    --- PASS: FuzzValidatePassword/seed#2 (0.00s)
+=== RUN   FuzzDecryptToken
+=== RUN   FuzzDecryptToken/seed#0
+=== RUN   FuzzDecryptToken/seed#1
+--- PASS: FuzzDecryptToken (0.00s)
+    --- PASS: FuzzDecryptToken/seed#0 (0.00s)
+    --- PASS: FuzzDecryptToken/seed#1 (0.00s)
+PASS
+ok  	rauth/internal/core	3.619s
+=== RUN   TestAdminHandler_Dashboard
+=== RUN   TestAdminHandler_Dashboard/Access_Dashboard
+--- PASS: TestAdminHandler_Dashboard (0.00s)
+    --- PASS: TestAdminHandler_Dashboard/Access_Dashboard (0.00s)
+=== RUN   TestAdminHandler_InvalidateSession
+=== RUN   TestAdminHandler_InvalidateSession/Invalidate_active_session
+2026/05/28 19:30:57 INFO Session invalidated by admin admin=admin
+2026/05/28 19:30:57 INFO audit log action=ADMIN_INVALIDATE_SESSION username=admin ip=127.0.0.1 details="map[country:Internal token:session-...]"
+--- PASS: TestAdminHandler_InvalidateSession (0.00s)
+    --- PASS: TestAdminHandler_InvalidateSession/Invalidate_active_session (0.00s)
+=== RUN   TestAdminHandler_CreateUser
+=== RUN   TestAdminHandler_CreateUser/Create_valid_user
+2026/05/28 19:30:58 INFO User created by admin admin=admin user=brandnew
+2026/05/28 19:30:58 INFO audit log action=ADMIN_CREATE_USER username=admin ip=127.0.0.1 details="map[country:Internal target:brandnew]"
+2026/05/28 19:30:58 WARN SMTP not configured, skipping email to=new@example.com subject="[RAuth] Welcome: Your Account is Ready"
+=== RUN   TestAdminHandler_CreateUser/Create_user_-_invalid_password
+=== RUN   TestAdminHandler_CreateUser/Create_user_-_duplicate
+2026/05/28 19:30:58 WARN Failed to create user user=duplicate error="user already exists"
+--- PASS: TestAdminHandler_CreateUser (0.33s)
+    --- PASS: TestAdminHandler_CreateUser/Create_valid_user (0.33s)
+    --- PASS: TestAdminHandler_CreateUser/Create_user_-_invalid_password (0.00s)
+    --- PASS: TestAdminHandler_CreateUser/Create_user_-_duplicate (0.00s)
+=== RUN   TestAdminHandler_DeleteUser
+=== RUN   TestAdminHandler_DeleteUser/Delete_other_user
+2026/05/28 19:30:58 INFO User deleted by admin admin=admin user=victim
+2026/05/28 19:30:58 INFO audit log action=ADMIN_DELETE_USER username=admin ip=127.0.0.1 details="map[country:Internal target:victim]"
+=== RUN   TestAdminHandler_DeleteUser/Delete_self_-_should_fail
+--- PASS: TestAdminHandler_DeleteUser (0.00s)
+    --- PASS: TestAdminHandler_DeleteUser/Delete_other_user (0.00s)
+    --- PASS: TestAdminHandler_DeleteUser/Delete_self_-_should_fail (0.00s)
+=== RUN   TestAdminHandler_CreateUser_InvalidUsername
+=== RUN   TestAdminHandler_CreateUser_InvalidUsername/TooShort
+=== RUN   TestAdminHandler_CreateUser_InvalidUsername/TooLong
+=== RUN   TestAdminHandler_CreateUser_InvalidUsername/InvalidChars
+=== RUN   TestAdminHandler_CreateUser_InvalidUsername/Spaces
+--- PASS: TestAdminHandler_CreateUser_InvalidUsername (0.00s)
+    --- PASS: TestAdminHandler_CreateUser_InvalidUsername/TooShort (0.00s)
+    --- PASS: TestAdminHandler_CreateUser_InvalidUsername/TooLong (0.00s)
+    --- PASS: TestAdminHandler_CreateUser_InvalidUsername/InvalidChars (0.00s)
+    --- PASS: TestAdminHandler_CreateUser_InvalidUsername/Spaces (0.00s)
+=== RUN   TestAuthHandler_Root
+=== RUN   TestAuthHandler_Root/Redirect_to_login_when_no_cookie
+--- PASS: TestAuthHandler_Root (0.00s)
+    --- PASS: TestAuthHandler_Root/Redirect_to_login_when_no_cookie (0.00s)
+=== RUN   TestAuthHandler_Login
+=== RUN   TestAuthHandler_Login/Successful_login
+=== RUN   TestAuthHandler_Login/Failed_login_-_wrong_password
+2026/05/28 19:30:59 INFO audit log action=LOGIN_FAILED username=testuser ip=127.0.0.1 details=map[country:Internal]
+=== RUN   TestAuthHandler_Login/Rate_limit_exceeded
+2026/05/28 19:30:59 WARN Login POST rate limit exceeded ip=192.168.1.100
+=== RUN   TestAuthHandler_Login/Login_triggers_2FA_session
+=== RUN   TestAuthHandler_Login/Login_triggers_2FA_setup_session_with_rd
+--- PASS: TestAuthHandler_Login (2.31s)
+    --- PASS: TestAuthHandler_Login/Successful_login (0.33s)
+    --- PASS: TestAuthHandler_Login/Failed_login_-_wrong_password (0.33s)
+    --- PASS: TestAuthHandler_Login/Rate_limit_exceeded (0.00s)
+    --- PASS: TestAuthHandler_Login/Login_triggers_2FA_session (0.66s)
+    --- PASS: TestAuthHandler_Login/Login_triggers_2FA_setup_session_with_rd (0.66s)
+=== RUN   TestAuthHandler_Validate
+=== RUN   TestAuthHandler_Validate/Valid_token
+=== RUN   TestAuthHandler_Validate/Geo-check_failure
+2026/05/28 19:31:00 INFO audit log action=COUNTRY_CHANGE_DETECTED username=testuser ip=8.8.8.8 details="map[country:US current_ip:8.8.8.8 new:US old:DE]"
+=== RUN   TestAuthHandler_Validate/User-Agent_mismatch_invalidates_session
+2026/05/28 19:31:00 WARN Session validation failed due to User-Agent/Client-Hint mismatch, invalidating session username=testuser use_ch=false stored_ua="Mozilla/5.0 (Original Browser)" current_ua="Mozilla/5.0 (Attacker Browser)" stored_ch_platform="" current_ch_platform="" stored_ch_model="" current_ch_model=""
+2026/05/28 19:31:00 INFO audit log action=USER_AGENT_MISMATCH_INVALIDATED username=testuser ip=127.0.0.1 details="map[country:Internal current_ch_model: current_ch_platform: current_ua:Mozilla/5.0 (Attacker Browser) stored_ch_model: stored_ch_platform: stored_ua:Mozilla/5.0 (Original Browser) use_ch:false]"
+--- PASS: TestAuthHandler_Validate (0.00s)
+    --- PASS: TestAuthHandler_Validate/Valid_token (0.00s)
+    --- PASS: TestAuthHandler_Validate/Geo-check_failure (0.00s)
+    --- PASS: TestAuthHandler_Validate/User-Agent_mismatch_invalidates_session (0.00s)
+=== RUN   TestAuthHandler_CompleteSetup2FA
+=== RUN   TestAuthHandler_CompleteSetup2FA/login_access_rate_limit
+=== RUN   TestAuthHandler_CompleteSetup2FA/login_post_ip_rate_limit
+=== RUN   TestAuthHandler_CompleteSetup2FA/Missing_cookie
+=== RUN   TestAuthHandler_CompleteSetup2FA/Invalid_cookie_decryption
+=== RUN   TestAuthHandler_CompleteSetup2FA/Missing_pending_setup_in_Redis
+=== RUN   TestAuthHandler_CompleteSetup2FA/Missing_pending_setup_secret_in_Redis
+=== RUN   TestAuthHandler_CompleteSetup2FA/2fa_fail_user_rate_limit
+=== RUN   TestAuthHandler_CompleteSetup2FA/Invalid_TOTP_code
+=== RUN   TestAuthHandler_CompleteSetup2FA/Successful_TOTP_Setup
+2026/05/28 19:31:00 INFO audit log action=2FA_SETUP_SUCCESS username=setupuser ip=127.0.0.1 details=map[country:Internal]
+2026/05/28 19:31:00 INFO audit log action=LOGIN_SUCCESS username=setupuser ip=127.0.0.1 details=map[country:Internal]
+--- PASS: TestAuthHandler_CompleteSetup2FA (0.02s)
+    --- PASS: TestAuthHandler_CompleteSetup2FA/login_access_rate_limit (0.00s)
+    --- PASS: TestAuthHandler_CompleteSetup2FA/login_post_ip_rate_limit (0.00s)
+    --- PASS: TestAuthHandler_CompleteSetup2FA/Missing_cookie (0.00s)
+    --- PASS: TestAuthHandler_CompleteSetup2FA/Invalid_cookie_decryption (0.00s)
+    --- PASS: TestAuthHandler_CompleteSetup2FA/Missing_pending_setup_in_Redis (0.00s)
+    --- PASS: TestAuthHandler_CompleteSetup2FA/Missing_pending_setup_secret_in_Redis (0.00s)
+    --- PASS: TestAuthHandler_CompleteSetup2FA/2fa_fail_user_rate_limit (0.00s)
+    --- PASS: TestAuthHandler_CompleteSetup2FA/Invalid_TOTP_code (0.00s)
+    --- PASS: TestAuthHandler_CompleteSetup2FA/Successful_TOTP_Setup (0.00s)
+=== RUN   TestAuthHandler_InvalidateSessionIntegration
+2026/05/28 19:31:00 INFO Session invalidated by admin admin=admin
+2026/05/28 19:31:00 INFO audit log action=ADMIN_INVALIDATE_SESSION username=admin ip=127.0.0.1 details="map[country:Internal token:integrat...]"
+--- PASS: TestAuthHandler_InvalidateSessionIntegration (0.00s)
+=== RUN   TestAuthHandler_Setup2FA
+=== RUN   TestAuthHandler_Setup2FA/Redirect_to_login_when_cookie_is_missing
+=== RUN   TestAuthHandler_Setup2FA/Redirect_to_login_when_cookie_is_invalid
+=== RUN   TestAuthHandler_Setup2FA/Redirect_to_login_when_token_is_not_in_DB
+=== RUN   TestAuthHandler_Setup2FA/Successful_2FA_Setup_page_rendering
+=== RUN   TestAuthHandler_Setup2FA/Setup2FA_handles_rd_parameter
+--- PASS: TestAuthHandler_Setup2FA (0.00s)
+    --- PASS: TestAuthHandler_Setup2FA/Redirect_to_login_when_cookie_is_missing (0.00s)
+    --- PASS: TestAuthHandler_Setup2FA/Redirect_to_login_when_cookie_is_invalid (0.00s)
+    --- PASS: TestAuthHandler_Setup2FA/Redirect_to_login_when_token_is_not_in_DB (0.00s)
+    --- PASS: TestAuthHandler_Setup2FA/Successful_2FA_Setup_page_rendering (0.00s)
+    --- PASS: TestAuthHandler_Setup2FA/Setup2FA_handles_rd_parameter (0.00s)
+=== RUN   TestBruteForceProtection
+=== RUN   TestBruteForceProtection/Login_IP_Brute_Force
+2026/05/28 19:31:00 INFO audit log action=LOGIN_FAILED username=user_ip_0 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:01 INFO audit log action=LOGIN_FAILED username=user_ip_1 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:01 INFO audit log action=LOGIN_FAILED username=user_ip_2 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:01 INFO audit log action=LOGIN_FAILED username=user_ip_3 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:02 INFO audit log action=LOGIN_FAILED username=user_ip_4 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:02 INFO audit log action=LOGIN_FAILED username=user_ip_5 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:02 INFO audit log action=LOGIN_FAILED username=user_ip_6 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:03 INFO audit log action=LOGIN_FAILED username=user_ip_7 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:03 INFO audit log action=LOGIN_FAILED username=user_ip_8 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:03 INFO audit log action=LOGIN_FAILED username=user_ip_9 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:04 INFO audit log action=LOGIN_FAILED username=user_ip_10 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:04 INFO audit log action=LOGIN_FAILED username=user_ip_11 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:04 INFO audit log action=LOGIN_FAILED username=user_ip_12 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:05 INFO audit log action=LOGIN_FAILED username=user_ip_13 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:05 INFO audit log action=LOGIN_FAILED username=user_ip_14 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:05 INFO audit log action=LOGIN_FAILED username=user_ip_15 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:06 INFO audit log action=LOGIN_FAILED username=user_ip_16 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:06 INFO audit log action=LOGIN_FAILED username=user_ip_17 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:06 INFO audit log action=LOGIN_FAILED username=user_ip_18 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:07 INFO audit log action=LOGIN_FAILED username=user_ip_19 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:07 INFO audit log action=LOGIN_FAILED username=user_ip_20 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:07 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:07 INFO audit log action=LOGIN_FAILED username=user_ip_21 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:07 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:08 INFO audit log action=LOGIN_FAILED username=user_ip_22 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:08 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:08 INFO audit log action=LOGIN_FAILED username=user_ip_23 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:08 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:08 INFO audit log action=LOGIN_FAILED username=user_ip_24 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:08 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:09 INFO audit log action=LOGIN_FAILED username=user_ip_25 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:09 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:09 INFO audit log action=LOGIN_FAILED username=user_ip_26 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:09 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:09 INFO audit log action=LOGIN_FAILED username=user_ip_27 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:09 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:10 INFO audit log action=LOGIN_FAILED username=user_ip_28 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:10 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:10 INFO audit log action=LOGIN_FAILED username=user_ip_29 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:10 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:10 INFO audit log action=LOGIN_FAILED username=user_ip_30 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:10 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:11 INFO audit log action=LOGIN_FAILED username=user_ip_31 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:11 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:11 INFO audit log action=LOGIN_FAILED username=user_ip_32 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:11 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:11 INFO audit log action=LOGIN_FAILED username=user_ip_33 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:11 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:12 INFO audit log action=LOGIN_FAILED username=user_ip_34 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:12 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:12 INFO audit log action=LOGIN_FAILED username=user_ip_35 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:12 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:12 INFO audit log action=LOGIN_FAILED username=user_ip_36 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:12 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:13 INFO audit log action=LOGIN_FAILED username=user_ip_37 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:13 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:13 INFO audit log action=LOGIN_FAILED username=user_ip_38 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:13 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:13 INFO audit log action=LOGIN_FAILED username=user_ip_39 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:13 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:14 INFO audit log action=LOGIN_FAILED username=user_ip_40 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:14 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:14 INFO audit log action=LOGIN_FAILED username=user_ip_41 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:14 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:14 INFO audit log action=LOGIN_FAILED username=user_ip_42 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:14 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:15 INFO audit log action=LOGIN_FAILED username=user_ip_43 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:15 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:15 INFO audit log action=LOGIN_FAILED username=user_ip_44 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:15 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:15 INFO audit log action=LOGIN_FAILED username=user_ip_45 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:15 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:16 INFO audit log action=LOGIN_FAILED username=user_ip_46 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:16 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:16 INFO audit log action=LOGIN_FAILED username=user_ip_47 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:16 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:16 INFO audit log action=LOGIN_FAILED username=user_ip_48 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:16 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:17 INFO audit log action=LOGIN_FAILED username=user_ip_49 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:17 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:17 INFO audit log action=LOGIN_FAILED username=user_ip_50 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:17 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:17 INFO audit log action=LOGIN_FAILED username=user_ip_51 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:17 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:18 INFO audit log action=LOGIN_FAILED username=user_ip_52 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:18 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:18 INFO audit log action=LOGIN_FAILED username=user_ip_53 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:18 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:18 INFO audit log action=LOGIN_FAILED username=user_ip_54 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:18 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:19 INFO audit log action=LOGIN_FAILED username=user_ip_55 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:19 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:19 INFO audit log action=LOGIN_FAILED username=user_ip_56 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:19 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:19 INFO audit log action=LOGIN_FAILED username=user_ip_57 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:19 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:20 INFO audit log action=LOGIN_FAILED username=user_ip_58 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:20 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:20 INFO audit log action=LOGIN_FAILED username=user_ip_59 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:20 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:20 INFO audit log action=LOGIN_FAILED username=user_ip_60 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:20 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:21 INFO audit log action=LOGIN_FAILED username=user_ip_61 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:21 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:21 INFO audit log action=LOGIN_FAILED username=user_ip_62 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:21 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:21 INFO audit log action=LOGIN_FAILED username=user_ip_63 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:21 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:22 INFO audit log action=LOGIN_FAILED username=user_ip_64 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:22 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:22 INFO audit log action=LOGIN_FAILED username=user_ip_65 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:22 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:22 INFO audit log action=LOGIN_FAILED username=user_ip_66 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:22 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:23 INFO audit log action=LOGIN_FAILED username=user_ip_67 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:23 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:23 INFO audit log action=LOGIN_FAILED username=user_ip_68 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:23 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:23 INFO audit log action=LOGIN_FAILED username=user_ip_69 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:23 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:24 INFO audit log action=LOGIN_FAILED username=user_ip_70 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:24 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:24 INFO audit log action=LOGIN_FAILED username=user_ip_71 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:24 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:24 INFO audit log action=LOGIN_FAILED username=user_ip_72 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:24 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:25 INFO audit log action=LOGIN_FAILED username=user_ip_73 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:25 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:25 INFO audit log action=LOGIN_FAILED username=user_ip_74 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:25 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:25 INFO audit log action=LOGIN_FAILED username=user_ip_75 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:25 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:26 INFO audit log action=LOGIN_FAILED username=user_ip_76 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:26 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:26 INFO audit log action=LOGIN_FAILED username=user_ip_77 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:26 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:26 INFO audit log action=LOGIN_FAILED username=user_ip_78 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:26 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:27 INFO audit log action=LOGIN_FAILED username=user_ip_79 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:27 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:27 INFO audit log action=LOGIN_FAILED username=user_ip_80 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:27 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:27 INFO audit log action=LOGIN_FAILED username=user_ip_81 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:27 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:28 INFO audit log action=LOGIN_FAILED username=user_ip_82 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:28 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:28 INFO audit log action=LOGIN_FAILED username=user_ip_83 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:28 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:28 INFO audit log action=LOGIN_FAILED username=user_ip_84 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:28 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:29 INFO audit log action=LOGIN_FAILED username=user_ip_85 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:29 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:29 INFO audit log action=LOGIN_FAILED username=user_ip_86 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:29 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:29 INFO audit log action=LOGIN_FAILED username=user_ip_87 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:29 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:30 INFO audit log action=LOGIN_FAILED username=user_ip_88 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:30 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:30 INFO audit log action=LOGIN_FAILED username=user_ip_89 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:30 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:30 INFO audit log action=LOGIN_FAILED username=user_ip_90 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:30 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:31 INFO audit log action=LOGIN_FAILED username=user_ip_91 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:31 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:31 INFO audit log action=LOGIN_FAILED username=user_ip_92 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:31 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:31 INFO audit log action=LOGIN_FAILED username=user_ip_93 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:31 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:32 INFO audit log action=LOGIN_FAILED username=user_ip_94 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:32 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:32 INFO audit log action=LOGIN_FAILED username=user_ip_95 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:32 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:32 INFO audit log action=LOGIN_FAILED username=user_ip_96 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:32 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:33 INFO audit log action=LOGIN_FAILED username=user_ip_97 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:33 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:33 INFO audit log action=LOGIN_FAILED username=user_ip_98 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:33 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:33 INFO audit log action=LOGIN_FAILED username=user_ip_99 ip=1.2.3.4 details=map[country:unknown]
+2026/05/28 19:31:33 WARN Global IP failure rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:33 WARN Login POST rate limit exceeded ip=1.2.3.4
+2026/05/28 19:31:33 WARN Login POST rate limit exceeded ip=1.2.3.4
+=== RUN   TestBruteForceProtection/Account_Lockout_Protection
+2026/05/28 19:31:34 INFO audit log action=LOGIN_FAILED username=lockeduser ip=1.1.1.1 details=map[country:unknown]
+2026/05/28 19:31:34 INFO audit log action=LOGIN_FAILED username=lockeduser ip=1.1.1.1 details=map[country:unknown]
+2026/05/28 19:31:34 INFO audit log action=LOGIN_FAILED username=lockeduser ip=1.1.1.1 details=map[country:unknown]
+2026/05/28 19:31:35 INFO audit log action=LOGIN_FAILED username=lockeduser ip=1.1.1.1 details=map[country:unknown]
+2026/05/28 19:31:35 INFO audit log action=LOGIN_FAILED username=lockeduser ip=1.1.1.1 details=map[country:unknown]
+2026/05/28 19:31:35 WARN Login user rate limit exceeded username=lockeduser ip=1.1.1.1
+=== RUN   TestBruteForceProtection/Global_IP_Failure_Protection
+2026/05/28 19:31:36 INFO audit log action=LOGIN_FAILED username=user_global_0 ip=2.2.2.2 details=map[country:unknown]
+2026/05/28 19:31:36 INFO audit log action=LOGIN_FAILED username=user_global_1 ip=2.2.2.2 details=map[country:unknown]
+2026/05/28 19:31:36 INFO audit log action=LOGIN_FAILED username=user_global_2 ip=2.2.2.2 details=map[country:unknown]
+2026/05/28 19:31:36 INFO audit log action=LOGIN_FAILED username=user_global_3 ip=2.2.2.2 details=map[country:unknown]
+2026/05/28 19:31:37 INFO audit log action=LOGIN_FAILED username=user_global_4 ip=2.2.2.2 details=map[country:unknown]
+2026/05/28 19:31:37 INFO audit log action=LOGIN_FAILED username=user_global_5 ip=2.2.2.2 details=map[country:unknown]
+2026/05/28 19:31:37 INFO audit log action=LOGIN_FAILED username=user_global_6 ip=2.2.2.2 details=map[country:unknown]
+2026/05/28 19:31:38 INFO audit log action=LOGIN_FAILED username=user_global_7 ip=2.2.2.2 details=map[country:unknown]
+2026/05/28 19:31:38 INFO audit log action=LOGIN_FAILED username=user_global_8 ip=2.2.2.2 details=map[country:unknown]
+2026/05/28 19:31:38 INFO audit log action=LOGIN_FAILED username=user_global_9 ip=2.2.2.2 details=map[country:unknown]
+2026/05/28 19:31:39 INFO audit log action=LOGIN_FAILED username=user_global_10 ip=2.2.2.2 details=map[country:unknown]
+2026/05/28 19:31:39 INFO audit log action=LOGIN_FAILED username=user_global_11 ip=2.2.2.2 details=map[country:unknown]
+2026/05/28 19:31:39 INFO audit log action=LOGIN_FAILED username=user_global_12 ip=2.2.2.2 details=map[country:unknown]
+2026/05/28 19:31:40 INFO audit log action=LOGIN_FAILED username=user_global_13 ip=2.2.2.2 details=map[country:unknown]
+2026/05/28 19:31:40 INFO audit log action=LOGIN_FAILED username=user_global_14 ip=2.2.2.2 details=map[country:unknown]
+2026/05/28 19:31:40 INFO audit log action=LOGIN_FAILED username=user_global_15 ip=2.2.2.2 details=map[country:unknown]
+2026/05/28 19:31:41 INFO audit log action=LOGIN_FAILED username=user_global_16 ip=2.2.2.2 details=map[country:unknown]
+2026/05/28 19:31:41 INFO audit log action=LOGIN_FAILED username=user_global_17 ip=2.2.2.2 details=map[country:unknown]
+2026/05/28 19:31:41 INFO audit log action=LOGIN_FAILED username=user_global_18 ip=2.2.2.2 details=map[country:unknown]
+2026/05/28 19:31:42 INFO audit log action=LOGIN_FAILED username=user_global_19 ip=2.2.2.2 details=map[country:unknown]
+2026/05/28 19:31:42 INFO audit log action=LOGIN_FAILED username=user_global_20 ip=2.2.2.2 details=map[country:unknown]
+2026/05/28 19:31:42 WARN Global IP failure rate limit exceeded ip=2.2.2.2
+2026/05/28 19:31:42 INFO audit log action=LOGIN_FAILED username=user_global_21 ip=2.2.2.2 details=map[country:unknown]
+2026/05/28 19:31:42 WARN Global IP failure rate limit exceeded ip=2.2.2.2
+=== RUN   TestBruteForceProtection/Validate_Rate_Limiting
+=== RUN   TestBruteForceProtection/Independent_Rate_Limits
+2026/05/28 19:31:42 WARN Login POST rate limit exceeded ip=10.10.10.10
+=== RUN   TestBruteForceProtection/2FA_Brute_Force_Protection
+2026/05/28 19:31:42 INFO audit log action=2FA_FAILED username=bruteuser ip=9.9.9.9 details=map[country:unknown]
+2026/05/28 19:31:42 INFO audit log action=2FA_FAILED username=bruteuser ip=9.9.9.9 details=map[country:unknown]
+2026/05/28 19:31:42 INFO audit log action=2FA_FAILED username=bruteuser ip=9.9.9.9 details=map[country:unknown]
+2026/05/28 19:31:42 INFO audit log action=2FA_FAILED username=bruteuser ip=9.9.9.9 details=map[country:unknown]
+2026/05/28 19:31:42 INFO audit log action=2FA_FAILED username=bruteuser ip=9.9.9.9 details=map[country:unknown]
+--- PASS: TestBruteForceProtection (42.29s)
+    --- PASS: TestBruteForceProtection/Login_IP_Brute_Force (33.03s)
+    --- PASS: TestBruteForceProtection/Account_Lockout_Protection (1.97s)
+    --- PASS: TestBruteForceProtection/Global_IP_Failure_Protection (7.26s)
+    --- PASS: TestBruteForceProtection/Validate_Rate_Limiting (0.01s)
+    --- PASS: TestBruteForceProtection/Independent_Rate_Limits (0.00s)
+    --- PASS: TestBruteForceProtection/2FA_Brute_Force_Protection (0.02s)
+=== RUN   TestCSRFProtection
+=== RUN   TestCSRFProtection/POST_without_CSRF_fails
+=== RUN   TestCSRFProtection/POST_with_invalid_CSRF_fails
+--- PASS: TestCSRFProtection (0.00s)
+    --- PASS: TestCSRFProtection/POST_without_CSRF_fails (0.00s)
+    --- PASS: TestCSRFProtection/POST_with_invalid_CSRF_fails (0.00s)
+=== RUN   TestCustomNotFoundHandler
+--- PASS: TestCustomNotFoundHandler (0.00s)
+=== RUN   TestHealthCheck
+=== RUN   TestHealthCheck/Success_or_GeoIP_Degraded
+=== RUN   TestHealthCheck/Redis_UserDB_Failure
+redis: 2026/05/28 19:31:43 pool.go:715: redis: connection pool: failed to dial after 5 attempts: dial tcp [::1]:1: connect: connection refused
+redis: 2026/05/28 19:31:43 pool.go:715: redis: connection pool: failed to dial after 5 attempts: dial tcp [::1]:1: connect: connection refused
+redis: 2026/05/28 19:31:44 pool.go:715: redis: connection pool: failed to dial after 5 attempts: dial tcp [::1]:1: connect: connection refused
+redis: 2026/05/28 19:31:44 pool.go:715: redis: connection pool: failed to dial after 5 attempts: dial tcp [::1]:1: connect: connection refused
+=== RUN   TestHealthCheck/Redis_TokenDB_Failure
+redis: 2026/05/28 19:31:45 pool.go:715: redis: connection pool: failed to dial after 5 attempts: dial tcp [::1]:1: connect: connection refused
+redis: 2026/05/28 19:31:45 pool.go:715: redis: connection pool: failed to dial after 5 attempts: dial tcp [::1]:1: connect: connection refused
+redis: 2026/05/28 19:31:45 pool.go:715: redis: connection pool: failed to dial after 5 attempts: dial tcp [::1]:1: connect: connection refused
+redis: 2026/05/28 19:31:46 pool.go:715: redis: connection pool: failed to dial after 5 attempts: dial tcp [::1]:1: connect: connection refused
+--- PASS: TestHealthCheck (3.41s)
+    --- PASS: TestHealthCheck/Success_or_GeoIP_Degraded (0.00s)
+    --- PASS: TestHealthCheck/Redis_UserDB_Failure (1.72s)
+    --- PASS: TestHealthCheck/Redis_TokenDB_Failure (1.70s)
+=== RUN   TestInviteHandler_Create
+=== RUN   TestInviteHandler_Create/Successful_invite_creation
+=== RUN   TestInviteHandler_Create/Missing_email
+--- PASS: TestInviteHandler_Create (0.00s)
+    --- PASS: TestInviteHandler_Create/Successful_invite_creation (0.00s)
+    --- PASS: TestInviteHandler_Create/Missing_email (0.00s)
+=== RUN   TestInviteHandler_RedeemPage
+=== RUN   TestInviteHandler_RedeemPage/Valid_token
+=== RUN   TestInviteHandler_RedeemPage/Missing_token
+=== RUN   TestInviteHandler_RedeemPage/Invalid_token
+--- PASS: TestInviteHandler_RedeemPage (0.00s)
+    --- PASS: TestInviteHandler_RedeemPage/Valid_token (0.00s)
+    --- PASS: TestInviteHandler_RedeemPage/Missing_token (0.00s)
+    --- PASS: TestInviteHandler_RedeemPage/Invalid_token (0.00s)
+=== RUN   TestInviteHandler_Redeem
+=== RUN   TestInviteHandler_Redeem/Successful_redemption
+2026/05/28 19:31:46 INFO audit log action=USER_INVITE_REDEEMED username=newuser ip=127.0.0.1 details="map[country:Internal email:test@example.com]"
+=== RUN   TestInviteHandler_Redeem/Invalid_token
+=== RUN   TestInviteHandler_Redeem/Weak_password
+=== RUN   TestInviteHandler_Redeem/Username_already_taken
+--- PASS: TestInviteHandler_Redeem (0.33s)
+    --- PASS: TestInviteHandler_Redeem/Successful_redemption (0.33s)
+    --- PASS: TestInviteHandler_Redeem/Invalid_token (0.00s)
+    --- PASS: TestInviteHandler_Redeem/Weak_password (0.00s)
+    --- PASS: TestInviteHandler_Redeem/Username_already_taken (0.00s)
+=== RUN   TestPentest_OpenRedirect_Fixed
+=== RUN   TestPentest_OpenRedirect_Fixed/Safe_redirect_to_subdomain
+=== RUN   TestPentest_OpenRedirect_Fixed/Safe_redirect_to_exact_domain
+=== RUN   TestPentest_OpenRedirect_Fixed/FIXED:_Suffix_abuse_is_now_rejected
+=== RUN   TestPentest_OpenRedirect_Fixed/URL_with_protocol_should_not_be_allowed_directly
+--- PASS: TestPentest_OpenRedirect_Fixed (0.00s)
+    --- PASS: TestPentest_OpenRedirect_Fixed/Safe_redirect_to_subdomain (0.00s)
+    --- PASS: TestPentest_OpenRedirect_Fixed/Safe_redirect_to_exact_domain (0.00s)
+    --- PASS: TestPentest_OpenRedirect_Fixed/FIXED:_Suffix_abuse_is_now_rejected (0.00s)
+    --- PASS: TestPentest_OpenRedirect_Fixed/URL_with_protocol_should_not_be_allowed_directly (0.00s)
+=== RUN   TestPentest_TokenEncryption
+--- PASS: TestPentest_TokenEncryption (0.00s)
+=== RUN   TestPentest_SSRF_GeoIP
+=== RUN   TestPentest_SSRF_GeoIP/IP_validation_prevents_SSRF
+--- PASS: TestPentest_SSRF_GeoIP (0.00s)
+    --- PASS: TestPentest_SSRF_GeoIP/IP_validation_prevents_SSRF (0.00s)
+=== RUN   TestPentest_WebAuthn_Replay_Prevention
+WebAuthn Registered Origins: [http://localhost https://localhost:5980 http://localhost:5980 http://127.0.0.1:5980 http://127.0.0.1 https://localhost]
+=== RUN   TestPentest_WebAuthn_Replay_Prevention/Challenge_is_deleted_after_first_retrieval
+--- PASS: TestPentest_WebAuthn_Replay_Prevention (0.33s)
+    --- PASS: TestPentest_WebAuthn_Replay_Prevention/Challenge_is_deleted_after_first_retrieval (0.33s)
+=== RUN   TestPentest_CSRF_Protection
+--- PASS: TestPentest_CSRF_Protection (0.00s)
+=== RUN   TestProfileHandler_Show
+=== RUN   TestProfileHandler_Show/View_Profile
+=== RUN   TestProfileHandler_Show/Logs_are_filtered_by_username
+2026/05/28 19:31:47 INFO audit log action=MY_ACTION username=profileuser ip=1.1.1.1 details=map[country:unknown]
+2026/05/28 19:31:47 INFO audit log action=OTHER_ACTION username=otheruser ip=2.2.2.2 details=map[country:unknown]
+--- PASS: TestProfileHandler_Show (0.00s)
+    --- PASS: TestProfileHandler_Show/View_Profile (0.00s)
+    --- PASS: TestProfileHandler_Show/Logs_are_filtered_by_username (0.00s)
+=== RUN   TestProfileHandler_TerminateSession
+=== RUN   TestProfileHandler_TerminateSession/Successfully_terminate_own_session
+2026/05/28 19:31:47 INFO audit log action=USER_TERMINATE_SESSION username=profileuser ip=127.0.0.1 details="map[country:Internal token:my-sessi...]"
+=== RUN   TestProfileHandler_TerminateSession/Fail_to_terminate_others_session
+2026/05/28 19:31:47 WARN Unauthorized session termination attempt user=profileuser target_token=others-session-token
+--- PASS: TestProfileHandler_TerminateSession (0.00s)
+    --- PASS: TestProfileHandler_TerminateSession/Successfully_terminate_own_session (0.00s)
+    --- PASS: TestProfileHandler_TerminateSession/Fail_to_terminate_others_session (0.00s)
+=== RUN   TestProfileHandler_ChangePassword
+=== RUN   TestProfileHandler_ChangePassword/Successful_password_change
+2026/05/28 19:31:48 INFO Password changed by user user=passuser
+2026/05/28 19:31:48 INFO audit log action=USER_CHANGE_PASSWORD username=passuser ip=127.0.0.1 details=map[country:Internal]
+=== RUN   TestProfileHandler_ChangePassword/Incorrect_current_password
+=== RUN   TestProfileHandler_ChangePassword/Password_mismatch
+--- PASS: TestProfileHandler_ChangePassword (1.97s)
+    --- PASS: TestProfileHandler_ChangePassword/Successful_password_change (0.98s)
+    --- PASS: TestProfileHandler_ChangePassword/Incorrect_current_password (0.33s)
+    --- PASS: TestProfileHandler_ChangePassword/Password_mismatch (0.33s)
+=== RUN   TestSecurityHeaders
+--- PASS: TestSecurityHeaders (0.00s)
+=== RUN   TestAuthHandler_Verify2FA_Reproduction
+=== RUN   TestAuthHandler_Verify2FA_Reproduction/Valid_TOTP_Code
+--- PASS: TestAuthHandler_Verify2FA_Reproduction (0.00s)
+    --- PASS: TestAuthHandler_Verify2FA_Reproduction/Valid_TOTP_Code (0.00s)
+=== RUN   TestWebAuthnHandlers
+WebAuthn Registered Origins: [http://127.0.0.1 https://localhost http://localhost https://localhost:5980 http://localhost:5980 http://127.0.0.1:5980]
+=== RUN   TestWebAuthnHandlers/BeginRegistration_Unauthorized
+=== RUN   TestWebAuthnHandlers/BeginRegistration_Success
+=== RUN   TestWebAuthnHandlers/BeginLogin_Nameless_Success
+=== RUN   TestWebAuthnHandlers/FinishLogin_MissingSession
+--- PASS: TestWebAuthnHandlers (0.33s)
+    --- PASS: TestWebAuthnHandlers/BeginRegistration_Unauthorized (0.00s)
+    --- PASS: TestWebAuthnHandlers/BeginRegistration_Success (0.33s)
+    --- PASS: TestWebAuthnHandlers/BeginLogin_Nameless_Success (0.00s)
+    --- PASS: TestWebAuthnHandlers/FinishLogin_MissingSession (0.00s)
+=== RUN   TestXSSProtection
+--- PASS: TestXSSProtection (0.00s)
+PASS
+ok  	rauth/internal/handlers	51.390s
+=== RUN   TestAuthMiddleware
+=== RUN   TestAuthMiddleware/Redirect_if_no_cookie
+=== RUN   TestAuthMiddleware/Success_with_valid_token
+--- PASS: TestAuthMiddleware (0.00s)
+    --- PASS: TestAuthMiddleware/Redirect_if_no_cookie (0.00s)
+    --- PASS: TestAuthMiddleware/Success_with_valid_token (0.00s)
+=== RUN   TestAdminMiddleware
+=== RUN   TestAdminMiddleware/Forbidden_if_not_admin
+2026/05/28 19:30:57 WARN Unauthorized admin access attempt user=normal ip=192.0.2.1
+=== RUN   TestAdminMiddleware/Success_if_admin
+--- PASS: TestAdminMiddleware (0.00s)
+    --- PASS: TestAdminMiddleware/Forbidden_if_not_admin (0.00s)
+    --- PASS: TestAdminMiddleware/Success_if_admin (0.00s)
+PASS
+ok  	rauth/internal/middleware	0.016s

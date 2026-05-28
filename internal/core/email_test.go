@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"net/smtp"
 	"os"
 	"strings"
@@ -147,4 +148,123 @@ func TestSendAccountCreatedNotificationRobust(t *testing.T) {
 	// Verify it's wrapped in the template
 	assert.Contains(t, capturedMsg, "<!DOCTYPE html>")
 	assert.Contains(t, capturedMsg, "RAuth Security</h1>")
+}
+
+func TestSendLoginNotificationRobust(t *testing.T) {
+	t.Setenv("SMTP_HOST", "smtp.example.com")
+	t.Setenv("SMTP_FROM", "noreply@rauth.example.com")
+	t.Setenv("PUBLIC_URL", "https://auth.example.com")
+
+	var capturedFrom string
+	var capturedTo []string
+	var capturedMsg string
+
+	origSendMail := sendMail
+	defer func() { sendMail = origSendMail }()
+
+	sendMail = func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
+		capturedFrom = from
+		capturedTo = to
+		capturedMsg = string(msg)
+		return nil
+	}
+
+	testEmail := "user@example.com"
+	testUsername := "testuser<script>alert(1)</script>"
+	testIP := "1.2.3.4"
+	testCountry := "Testland"
+
+	SendLoginNotification(testEmail, testUsername, testIP, testCountry)
+
+	assert.Equal(t, "noreply@rauth.example.com", capturedFrom)
+	assert.Equal(t, []string{testEmail}, capturedTo)
+	assert.Contains(t, capturedMsg, "Subject: [RAuth] Security Alert: New Login Detected")
+
+	// Verify HTML escaping
+	assert.Contains(t, capturedMsg, "testuser&lt;script&gt;alert(1)&lt;/script&gt;")
+	assert.NotContains(t, capturedMsg, "<script>")
+	assert.Contains(t, capturedMsg, testIP)
+	assert.Contains(t, capturedMsg, testCountry)
+
+	// Verify Public URL usage
+	assert.Contains(t, capturedMsg, "https://auth.example.com/rauthprofile")
+
+	// Verify logo URL replacement
+	assert.Contains(t, capturedMsg, "https://auth.example.com/static/favicon.png")
+
+	// Verify it's wrapped in the template
+	assert.Contains(t, capturedMsg, "<!DOCTYPE html>")
+	assert.Contains(t, capturedMsg, "RAuth Security</h1>")
+}
+
+func TestSendPasswordChangeNotificationRobust(t *testing.T) {
+	t.Setenv("SMTP_HOST", "smtp.example.com")
+	t.Setenv("SMTP_FROM", "noreply@rauth.example.com")
+
+	var capturedMsg string
+	origSendMail := sendMail
+	defer func() { sendMail = origSendMail }()
+
+	sendMail = func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
+		capturedMsg = string(msg)
+		return nil
+	}
+
+	SendPasswordChangeNotification("user@example.com", "testuser<b>", "8.8.8.8")
+
+	assert.Contains(t, capturedMsg, "Subject: [RAuth] Security Alert: Password Changed")
+	assert.Contains(t, capturedMsg, "testuser&lt;b&gt;")
+	assert.Contains(t, capturedMsg, "8.8.8.8")
+}
+
+func TestSend2FAModifiedNotificationRobust(t *testing.T) {
+	t.Setenv("SMTP_HOST", "smtp.example.com")
+	t.Setenv("SMTP_FROM", "noreply@rauth.example.com")
+
+	var capturedMsg string
+	origSendMail := sendMail
+	defer func() { sendMail = origSendMail }()
+
+	sendMail = func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
+		capturedMsg = string(msg)
+		return nil
+	}
+
+	Send2FAModifiedNotification("user@example.com", "testuser", "Enabled", "1.1.1.1")
+
+	assert.Contains(t, capturedMsg, "Subject: [RAuth] Security Alert: 2FA Enabled")
+	assert.Contains(t, capturedMsg, "Two-Factor Authentication Enabled")
+	assert.Contains(t, capturedMsg, "1.1.1.1")
+}
+
+func TestSanitizeEmailHeader(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"Normal Subject", "Normal Subject"},
+		{"Subject\r\nWith\r\nNewlines", "SubjectWithNewlines"},
+		{"To: test@example.com\r\nBcc: evil@example.com", "To: test@example.comBcc: evil@example.com"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			assert.Equal(t, tt.expected, sanitizeEmailHeader(tt.input))
+		})
+	}
+}
+
+func TestSendEmail_Error(t *testing.T) {
+	t.Setenv("SMTP_HOST", "smtp.example.com")
+
+	origSendMail := sendMail
+	defer func() { sendMail = origSendMail }()
+
+	sendMail = func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
+		return fmt.Errorf("smtp error")
+	}
+
+	err := SendEmail("user@example.com", "Subject", "Body")
+	assert.Error(t, err)
+	assert.Equal(t, "smtp error", err.Error())
 }
