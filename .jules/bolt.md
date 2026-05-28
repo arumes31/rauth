@@ -1,3 +1,7 @@
 ## 2026-05-27 - Redis Pipeline Batching with Mutation Fallback
 **Learning:** When optimizing an N+1 query loop into a batched Redis Pipeline (e.g., retrieving users), you must be careful if the original individual getter (e.g., `GetUser`) performed lazy migrations or state mutations (like backfilling a `UID`). Directly replacing it with a pure `HGetAll` pipeline strips out this logic.
 **Action:** Use a hybrid approach: Batch all reads using the pipeline, and then iterate through the results. If a result indicates the record is legacy/incomplete (e.g., missing `UID`), selectively fallback to calling the individual mutating getter just for that specific record. This provides the performance win of batching while safely preserving necessary state migrations.
+
+## 2026-05-28 - Atomic Batch List Updates in Redis
+**Learning:** Sequential `RPush` operations and `LSet`-based updates (O(N)) for list management create excessive network round-trips and performance bottlenecks. Furthermore, deleting a list followed by sequential pushes is non-atomic and can lead to data loss or inconsistent states if a crash occurs between operations.
+**Action:** Replace iterative updates with `TxPipelined` transactions. Collect items into a slice and use a single variadic `RPush` call. Use `LLen` (O(1)) instead of loading the entire list (O(N)) when only the element count is needed (e.g., for generating nicknames).
