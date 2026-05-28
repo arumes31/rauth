@@ -389,3 +389,150 @@ func TestLegacyDecryption(t *testing.T) {
 		t.Errorf("Expected %s, got %s", plaintext, newDecrypted)
 	}
 }
+
+func TestValidateEmail(t *testing.T) {
+	tests := []struct {
+		name    string
+		email   string
+		wantErr bool
+	}{
+		{"Valid email", "test@example.com", false},
+		{"Valid email with dots", "test.name@example.com", false},
+		{"Valid email with plus", "test+tag@example.com", false},
+		{"Empty email", "", true},
+		{"Missing @", "testexample.com", true},
+		{"Missing domain", "test@", true},
+		{"Missing TLD", "test@example", true},
+		{"Invalid characters", "test!@example.com", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateEmail(tt.email)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateEmail() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestGenerateRandomString(t *testing.T) {
+	tests := []struct {
+		name   string
+		length int
+	}{
+		{"Length 10", 10},
+		{"Length 32", 32},
+		{"Length 64", 64},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := GenerateRandomString(tt.length)
+			if got == "" {
+				t.Errorf("GenerateRandomString() returned empty string")
+			}
+			got2 := GenerateRandomString(tt.length)
+			if got == got2 {
+				t.Errorf("GenerateRandomString() generated duplicate string")
+			}
+		})
+	}
+}
+
+func TestDecrypt2FASecret(t *testing.T) {
+	key := "32byte-secret-key-for-testing-!!"
+	plainSecret := "my-plain-secret"
+	encryptedSecret, _ := EncryptToken(plainSecret, key)
+	encSecret := "enc:" + encryptedSecret
+
+	tests := []struct {
+		name   string
+		secret string
+		key    string
+		want   string
+	}{
+		{"Empty secret", "", key, ""},
+		{"Plain secret", "plain-secret", key, "plain-secret"},
+		{"Encrypted secret", encSecret, key, plainSecret},
+		{"Invalid encrypted secret", "enc:invalid-base64-data", key, "enc:invalid-base64-data"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := Decrypt2FASecret(tt.secret, tt.key); got != tt.want {
+				t.Errorf("Decrypt2FASecret() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFormatUserAgent(t *testing.T) {
+	tests := []struct {
+		name string
+		ua   string
+		want string
+	}{
+		{"Empty UA", "", "Unknown Device"},
+		{"Chrome on Windows", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36", "Chrome on Windows"},
+		{"Firefox on Mac", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:89.0) Gecko/20100101 Firefox/89.0", "Firefox on macOS"},
+		{"Safari on iPhone", "Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1", "Safari on iOS"},
+		{"Chrome on Android", "Mozilla/5.0 (Linux; Android 11; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36", "Chrome on Android"},
+		{"Opera on Linux", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36 OPR/77.0.4054.172", "Opera on Linux"},
+		{"Edge on Windows", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36 Edg/91.0.864.59", "Edge on Windows"},
+		{"CriOS on iPad", "Mozilla/5.0 (iPad; CPU OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/91.0.4472.80 Mobile/15E148 Safari/604.1", "Chrome on iOS"},
+		{"FxiOS on iPhone", "Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/34.0 Mobile/15E148 Safari/605.1.15", "Firefox on iOS"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := FormatUserAgent(tt.ua); got != tt.want {
+				t.Errorf("FormatUserAgent() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetDeviceIcon(t *testing.T) {
+	tests := []struct {
+		name string
+		ua   string
+		want string
+	}{
+		{"Android", "Android", "bi-android2"},
+		{"iPhone", "iPhone", "bi-apple"},
+		{"iPad", "iPad", "bi-apple"},
+		{"Windows", "Windows", "bi-microsoft"},
+		{"Macintosh", "Macintosh", "bi-apple"},
+		{"Linux", "Linux", "bi-ubuntu"},
+		{"Unknown", "Unknown", "bi-display"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := GetDeviceIcon(tt.ua); got != tt.want {
+				t.Errorf("GetDeviceIcon() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidateUsername(t *testing.T) {
+	tests := []struct {
+		name    string
+		user    string
+		wantErr bool
+	}{
+		{"Valid username", "testuser", false},
+		{"Valid with dot", "test.user", false},
+		{"Valid with hyphen", "test-user", false},
+		{"Valid with underscore", "test_user", false},
+		{"Too short", "ab", true},
+		{"Too long", "thisusernameiswaytoolongtobeconsideredvalid", true},
+		{"Invalid characters", "test@user", true},
+		{"Invalid characters 2", "test user", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateUsername(tt.user)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateUsername() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
