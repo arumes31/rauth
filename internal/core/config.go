@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 )
 
@@ -44,6 +45,10 @@ type Config struct {
 	SMTPFrom string
 	// URLs
 	PublicURL string
+	// IP Trust
+	TrustCloudflareIP  bool
+	TrustXRealIP       bool
+	TrustXForwardedFor bool
 	// Rate Limiting
 	RateLimitLoginMax           int
 	RateLimitLoginDecay         int
@@ -96,6 +101,10 @@ func LoadConfig() *Config {
 		SMTPFrom: getEnv("SMTP_FROM", ""),
 		// URLs
 		PublicURL: getEnv("PUBLIC_URL", "http://localhost:5980"),
+		// IP Trust
+		TrustCloudflareIP:  getEnvBool("TRUST_CLOUDFLARE_IP", false),
+		TrustXRealIP:       getEnvBool("TRUST_X_REAL_IP", false),
+		TrustXForwardedFor: getEnvBool("TRUST_X_FORWARDED_FOR", false),
 		// Rate Limiting Defaults
 		RateLimitLoginMax:           getEnvInt("RATE_LIMIT_LOGIN_MAX", 30),
 		RateLimitLoginDecay:         getEnvInt("RATE_LIMIT_LOGIN_DECAY", 300),
@@ -113,18 +122,14 @@ func LoadConfig() *Config {
 }
 
 func (c *Config) IsAllowedHost(host string) bool {
-	// Remove port if present
-	if strings.Contains(host, ":") {
-		host = strings.Split(host, ":")[0]
+	host = normalizeHostname(host)
+	if host == "" {
+		return false
 	}
-
-	// Normalize host: lowercase and trim trailing dot
-	host = strings.ToLower(strings.TrimSuffix(host, "."))
 
 	// Check explicit allowed hosts
 	for _, h := range c.AllowedHosts {
-		h = strings.ToLower(strings.TrimSuffix(h, "."))
-		if h == host {
+		if normalizeHostname(h) == host {
 			return true
 		}
 	}
@@ -141,16 +146,18 @@ func (c *Config) IsAllowedHost(host string) bool {
 		} else {
 			h = o
 		}
-		h = strings.ToLower(strings.TrimSuffix(h, "."))
-		if h == host {
+		if normalizeHostname(h) == host {
 			return true
 		}
 	}
 
 	// Check if host is part of any cookie domain
 	for _, domain := range c.CookieDomains {
-		// Normalize domain: lowercase and trim leading dot
-		domain = strings.ToLower(strings.TrimPrefix(domain, "."))
+		// Normalize domain
+		domain = normalizeHostname(domain)
+		if domain == "" {
+			continue
+		}
 
 		// Exact match
 		if host == domain {
@@ -170,8 +177,9 @@ func (c *Config) IsCountryAllowed(country string) bool {
 	if len(c.AllowedCountries) == 0 {
 		return true // No restriction if empty
 	}
+	country = strings.TrimSpace(country)
 	for _, allowed := range c.AllowedCountries {
-		if strings.EqualFold(allowed, country) {
+		if strings.EqualFold(strings.TrimSpace(allowed), country) {
 			return true
 		}
 	}
@@ -192,13 +200,37 @@ func (c *Config) IsIPAllowed(ipStr string, allowedList []string) bool {
 				return true
 			}
 		} else {
-			// Check for exact IP match
-			if allowed == ipStr {
+			allowedIP := net.ParseIP(allowed)
+			if allowedIP != nil && allowedIP.Equal(ip) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+func normalizeHostname(h string) string {
+	h = strings.TrimSpace(strings.ToLower(h))
+
+	// Remove port if present. net.SplitHostPort is the robust way.
+	if host, _, err := net.SplitHostPort(h); err == nil {
+		h = host
+	} else {
+		// No port, or invalid format.
+		// Strip brackets if it's an IPv6 literal like [::1]
+		h = strings.TrimPrefix(h, "[")
+		h = strings.TrimSuffix(h, "]")
+	}
+
+	// Trim all leading/trailing dots (handles example.com.. and .example.com)
+	h = strings.Trim(h, ".")
+
+	// Normalize IP addresses to their canonical string representation
+	if ip := net.ParseIP(h); ip != nil {
+		return ip.String()
+	}
+
+	return h
 }
 
 func getEnv(key, fallback string) string {
@@ -211,14 +243,12 @@ func getEnv(key, fallback string) string {
 func getEnvSlice(key string, fallback []string) []string {
 	if value, ok := os.LookupEnv(key); ok {
 		parts := strings.Split(value, ",")
-		var result []string
-		for _, p := range parts {
-			trimmed := strings.TrimSpace(p)
-			if trimmed != "" {
-				result = append(result, trimmed)
-			}
+		for i := range parts {
+			parts[i] = strings.TrimSpace(parts[i])
 		}
-		return result
+		return slices.DeleteFunc(parts, func(p string) bool {
+			return p == ""
+		})
 	}
 	return fallback
 }

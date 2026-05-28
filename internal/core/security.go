@@ -18,11 +18,15 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+var (
+	emailRegex    = regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$`)
+	usernameRegex = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
+)
+
 func ValidateEmail(email string) error {
 	if email == "" {
 		return errors.New("email is required")
 	}
-	emailRegex := regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
 	if !emailRegex.MatchString(email) {
 		return errors.New("invalid email format")
 	}
@@ -332,15 +336,14 @@ func IsUserAgentCompatible(oldUA, newUA string) bool {
 
 	return oldParsed.OS == newParsed.OS
 }
+
 func ValidateUsername(username string) error {
 	if len(username) < 3 || len(username) > 32 {
 		return fmt.Errorf("username must be between 3 and 32 characters long")
 	}
 	// Alphanumeric, underscores, hyphens, and dots
-	validUsername := regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
-	if !validUsername.MatchString(username) {
+	if !usernameRegex.MatchString(username) {
 		return fmt.Errorf("username can only contain alphanumeric characters, dots, underscores, and hyphens")
 	}
 	return nil
 }
-

@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -15,6 +16,7 @@ import (
 	"rauth/internal/handlers"
 	"rauth/internal/middleware"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -57,6 +59,44 @@ func main() {
 
 	e := echo.New()
 	e.HideBanner = true
+
+	// Configure real IP extraction from headers behind reverse proxies
+	// SECURITY: These headers are only trusted if the deployment is behind a verified
+	// reverse proxy that scrubs these headers from external clients.
+	e.IPExtractor = func(req *http.Request) string {
+		if cfg.TrustCloudflareIP {
+			if cfIP := req.Header.Get("CF-Connecting-IP"); cfIP != "" {
+				if ip := net.ParseIP(cfIP); ip != nil {
+					return ip.String()
+				}
+			}
+		}
+		if cfg.TrustXRealIP {
+			if realIP := req.Header.Get("X-Real-IP"); realIP != "" {
+				if ip := net.ParseIP(realIP); ip != nil {
+					return ip.String()
+				}
+			}
+		}
+		if cfg.TrustXForwardedFor {
+			if xff := req.Header.Get("X-Forwarded-For"); xff != "" {
+				ips := strings.Split(xff, ",")
+				for i := len(ips) - 1; i >= 0; i-- {
+					cleaned := strings.TrimSpace(ips[i])
+					if cleaned != "" {
+						if ip := net.ParseIP(cleaned); ip != nil {
+							return ip.String()
+						}
+					}
+				}
+			}
+		}
+		host, _, err := net.SplitHostPort(req.RemoteAddr)
+		if err == nil {
+			return host
+		}
+		return req.RemoteAddr
+	}
 
 	// Setup everything
 	setupMiddleware(e, cfg)
@@ -361,15 +401,10 @@ func initializeSystem(cfg *core.Config) {
 		}
 	}
 
-	// Background metrics updater
+	// Background metrics and index synchronization
 	go func() {
 		for {
-			// Count active sessions
-			var count int64
-			iter := core.TokenDB.Scan(core.Ctx, 0, "X-rauth-authtoken=*", 0).Iterator()
-			for iter.Next(core.Ctx) {
-				count++
-			}
+			count := core.SyncSessionIndexes()
 			core.ActiveSessionsGauge.Set(float64(count))
 			time.Sleep(1 * time.Minute)
 		}

@@ -3,6 +3,7 @@ package middleware
 import (
 	"log/slog"
 	"net/http"
+	"net/url"
 	"rauth/internal/core"
 
 	"github.com/labstack/echo/v4"
@@ -14,7 +15,7 @@ func AuthMiddleware(cfg *core.Config) echo.MiddlewareFunc {
 			cookie, err := c.Cookie("X-rauth-authtoken")
 			if err != nil {
 				// Sanitize the redirect URI to prevent open redirect in the rd param itself
-				rd := c.Request().RequestURI
+				rd := url.QueryEscape(c.Request().RequestURI)
 				return c.Redirect(http.StatusFound, "/rauthlogin?rd="+rd)
 			}
 

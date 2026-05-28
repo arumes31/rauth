@@ -1,9 +1,9 @@
 package handlers
 
 import (
-	"github.com/redis/go-redis/v9"
 	"encoding/json"
 	"fmt"
+	"github.com/redis/go-redis/v9"
 	"log/slog"
 	"net/http"
 	"rauth/internal/core"
@@ -41,13 +41,19 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 		cmds[token] = pipe.HGetAll(core.Ctx, redisKey)
 		ttlCmds[token] = pipe.TTL(core.Ctx, redisKey)
 	}
-	if _, err := pipe.Exec(core.Ctx); err != nil {
-		slog.Error("Failed to execute session details pipeline", "error", err)
+	_, pipeErr := pipe.Exec(core.Ctx)
+	if pipeErr != nil {
+		slog.Error("Failed to execute session details pipeline", "error", pipeErr)
 	}
 
 	for _, token := range tokens {
 		data, err := cmds[token].Result()
 		if err != nil || len(data) == 0 {
+			// Only clean up stale index entries if the pipeline succeeded
+			// (individual key miss), not on a wholesale pipeline failure.
+			if pipeErr == nil {
+				core.RemoveSessionIndex(username, token)
+			}
 			continue
 		}
 		data["token"] = token
@@ -58,6 +64,7 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 		ttl := ttlCmds[token].Val()
 		data["ttl"] = fmt.Sprintf("%d", int(ttl.Seconds()))
 		data["friendly_ua"] = core.FormatUserAgent(data["user_agent"])
+		data["device_icon"] = core.GetDeviceIcon(data["user_agent"])
 		sessions = append(sessions, data)
 	}
 
@@ -81,15 +88,15 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 	passkeys := core.GetStoredCredentials(username)
 
 	return c.Render(http.StatusOK, "profile.html", map[string]interface{}{
-		"username":  username,
-		"email":     userData["email"],
-		"groups":    userData["groups"],
-		"isAdmin":   userData["is_admin"] == "1",
-		"has2FA":    userData["2fa_secret"] != "",
-		"sessions":  sessions,
-		"logs":      logs,
-		"passkeys":  passkeys,
-		"csrf":      c.Get("csrf"),
+		"username": username,
+		"email":    userData["email"],
+		"groups":   userData["groups"],
+		"isAdmin":  userData["is_admin"] == "1",
+		"has2FA":   userData["2fa_secret"] != "",
+		"sessions": sessions,
+		"logs":     logs,
+		"passkeys": passkeys,
+		"csrf":     c.Get("csrf"),
 	})
 }
 

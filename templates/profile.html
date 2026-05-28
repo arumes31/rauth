@@ -290,13 +290,20 @@
                                     {{range .sessions}}
                                     <tr class="align-middle {{if eq .is_current "1"}}bg-primary bg-opacity-10{{end}}">
                                         <td class="ps-4">
-                                            <div class="small fw-bold">
-                                                {{if eq .is_current "1"}}<span class="badge bg-primary me-2">Current</span>{{end}}
-                                                {{.friendly_ua}}
-                                            </div>
-                                            <div class="extra-small text-muted" title="{{.user_agent}}">
-                                                <i class="bi bi-geo-alt me-1"></i> {{.ip}} 
-                                                <span class="ms-1 badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25">{{.country}}</span>
+                                            <div class="d-flex align-items-center">
+                                                <div class="fs-5 me-3 text-primary opacity-50">
+                                                    <i class="bi {{.device_icon}}"></i>
+                                                </div>
+                                                <div>
+                                                    <div class="small fw-bold">
+                                                        {{if eq .is_current "1"}}<span class="badge bg-primary me-2">Current</span>{{end}}
+                                                        {{.friendly_ua}}
+                                                    </div>
+                                                    <div class="extra-small text-muted" title="{{.user_agent}}">
+                                                        <i class="bi bi-geo-alt me-1"></i> {{.ip}} 
+                                                        {{if .country}}<span class="ms-1 badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25">{{.country}}</span>{{end}}
+                                                    </div>
+                                                </div>
                                             </div>
                                         </td>
                                         <td class="text-muted small">

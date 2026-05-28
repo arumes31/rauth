@@ -100,6 +100,68 @@ func TestAuthHandler_Login(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusTooManyRequests, rec.Code)
 	})
+
+	t.Run("Login triggers 2FA session", func(t *testing.T) {
+		// Create user with 2FA enabled
+		password := "testpass"
+		hash, _ := core.HashPassword(password)
+		core.UserDB.HSet(core.Ctx, "user:2fauser", map[string]interface{}{
+			"username":   "2fauser",
+			"password":   hash,
+			"2fa_secret": "JBSWY3DPEHPK3PXP",
+		})
+
+		f := make(url.Values)
+		f.Set("username", "2fauser")
+		f.Set("password", "testpass")
+
+		c, rec := createTestContext(e, http.MethodPost, "/rauthlogin", f)
+
+		err := h.Login(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		// Should set rauth_2fa_pending cookie
+		cookies := rec.Result().Cookies()
+		found := false
+		for _, ck := range cookies {
+			if ck.Name == "rauth_2fa_pending" {
+				found = true
+				break
+			}
+		}
+		assert.True(t, found)
+
+		// Check renderer data
+		renderer := e.Renderer.(*mockRenderer)
+		data := renderer.LastData.(map[string]interface{})
+		assert.True(t, data["display2fa"].(bool))
+		assert.Equal(t, "2fauser", data["username"])
+	})
+
+	t.Run("Login triggers 2FA setup session with rd", func(t *testing.T) {
+		// User with no 2FA
+		password := "testpass"
+		hash, _ := core.HashPassword(password)
+		core.UserDB.HSet(core.Ctx, "user:newuser", map[string]interface{}{
+			"username": "newuser",
+			"password": hash,
+		})
+
+		rd := "/after-setup"
+		f := make(url.Values)
+		f.Set("username", "newuser")
+		f.Set("password", "testpass")
+
+		c, rec := createTestContext(e, http.MethodPost, "/rauthlogin?rd="+url.QueryEscape(rd), f)
+
+		err := h.Login(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+		assert.Contains(t, rec.Header().Get("Location"), "/rauthsetup2fa")
+		assert.Contains(t, rec.Header().Get("Location"), "rd="+url.QueryEscape(rd))
+	})
+
 }
 
 func TestAuthHandler_Validate(t *testing.T) {
@@ -301,7 +363,7 @@ func TestAuthHandler_CompleteSetup2FA(t *testing.T) {
 		secret := "JBSWY3DPEHPK3PXP"
 		encrypted := setupPending(username, setupToken, secret)
 
-		core.RateLimitDB.Set(core.Ctx, "rate_limit:2fa_fail_user:"+username, cfg.RateLimitLoginFailIPMax+1, 0)
+		core.RateLimitDB.Set(core.Ctx, "rate_limit:2fa_fail_user:"+username, cfg.RateLimitLoginFailUserMax+1, 0)
 
 		c, rec := createTestContext(e, http.MethodPost, "/rauthsetup2fa", nil)
 		c.Request().AddCookie(&http.Cookie{Name: "rauth_setup_pending", Value: encrypted})
@@ -491,4 +553,24 @@ func TestAuthHandler_Setup2FA(t *testing.T) {
 		data := renderer.LastData.(map[string]interface{})
 		assert.Equal(t, secret, data["secret"])
 	})
+
+	t.Run("Setup2FA handles rd parameter", func(t *testing.T) {
+		username := "setupuser"
+		setupToken := "valid-setup-token-rd"
+		encryptedToken, _ := core.EncryptToken(setupToken, cfg.ServerSecret)
+		core.TokenDB.Set(core.Ctx, "pending_setup:"+setupToken, username, 10*time.Minute)
+
+		rd := "/custom-redirect"
+		c, rec := createTestContext(e, http.MethodGet, "/rauthsetup2fa?rd="+url.QueryEscape(rd), nil)
+		c.Request().AddCookie(&http.Cookie{Name: "rauth_setup_pending", Value: encryptedToken})
+
+		err := h.Setup2FA(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		renderer := e.Renderer.(*mockRenderer)
+		data := renderer.LastData.(map[string]interface{})
+		assert.Equal(t, rd, data["rd"])
+	})
+
 }

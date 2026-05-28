@@ -54,8 +54,8 @@ func TestGetEnvHelpers(t *testing.T) {
 
 func TestIsAllowedHost(t *testing.T) {
 	cfg := &Config{
-		CookieDomains: []string{"example.com", "other.org"},
-		AllowedHosts:  []string{"localhost"},
+		CookieDomains: []string{"example.com", "other.org", ".dotprefix.com"},
+		AllowedHosts:  []string{"localhost", "127.0.0.1", "::1"},
 	}
 
 	tests := []struct {
@@ -67,10 +67,21 @@ func TestIsAllowedHost(t *testing.T) {
 		{"sub.app.example.com", true},
 		{"other.org", true},
 		{"localhost", true},
+		{"127.0.0.1", true},
+		{"127.0.0.1:8080", true},
+		{"::1", true},
+		{"[::1]", true},
+		{"[::1]:8080", true},
+		{"dotprefix.com", true},
+		{"app.dotprefix.com", true},
 		{"evil.com", false},
 		{"notexample.com", false},
 		{"evil-example.com", false},
 		{"example.com.evil.com", false},
+		{"example.com..", true},
+		{"..example.com", true},
+		{".example.com.", true},
+		{"   example.com   ", true},
 	}
 
 	for _, tt := range tests {
@@ -93,13 +104,20 @@ func TestIsCountryAllowed(t *testing.T) {
 		{"Case insensitive match 2", []string{"US", "GB"}, "gb", true},
 		{"No match", []string{"US", "GB"}, "FR", false},
 		{"Empty country input", []string{"US", "GB"}, "", false},
+		{"Internal access match", []string{"Internal", "US"}, "Internal", true},
+		{"Internal access case insensitive", []string{"internal", "us"}, "Internal", true},
+		{"Tailscale access match", []string{"Tailscale", "US"}, "Tailscale", true},
+		{"Unknown country match", []string{"unknown", "US"}, "unknown", true},
+		{"Whitespace in allowed list", []string{" US ", "GB"}, "US", true},
+		{"Whitespace in input", []string{"US", "GB"}, " US ", true},
+		{"Whitespace in both", []string{" US ", "GB"}, " US ", true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &Config{AllowedCountries: tt.allowedCountries}
 			if got := cfg.IsCountryAllowed(tt.country); got != tt.want {
-				t.Errorf("IsCountryAllowed() = %v, want %v", got, tt.want)
+				t.Errorf("IsCountryAllowed(%s) with allowed %v = %v, want %v", tt.country, tt.allowedCountries, got, tt.want)
 			}
 		})
 	}
@@ -123,6 +141,14 @@ func TestIsIPAllowed(t *testing.T) {
 		{"No match", "1.1.1.1", []string{"127.0.0.1", "192.168.1.0/24"}, false},
 		{"Invalid CIDR in list", "127.0.0.1", []string{"invalid/cidr"}, false},
 		{"Mixed list match", "192.168.1.5", []string{"127.0.0.1", "192.168.1.0/24"}, true},
+		{"IPv4-mapped IPv6 match", "::ffff:127.0.0.1", []string{"127.0.0.1"}, true},
+		{"IPv4-mapped IPv6 match reversed", "127.0.0.1", []string{"::ffff:127.0.0.1"}, true},
+		{"Expanded IPv6 match", "0:0:0:0:0:0:0:1", []string{"::1"}, true},
+		{"Compressed IPv6 match", "::1", []string{"0:0:0:0:0:0:0:1"}, true},
+		{"CIDR IPv4-mapped IPv6 match", "::ffff:192.168.1.5", []string{"192.168.1.0/24"}, true},
+		{"CIDR match with host bits set", "192.168.1.5", []string{"192.168.1.5/24"}, true},
+		{"IPv4 in IPv6 range match", "2001:db8::1", []string{"2001:db8::/32"}, true},
+		{"Mismatch IPv4 and IPv6", "127.0.0.1", []string{"::1"}, false},
 	}
 
 	for _, tt := range tests {
@@ -131,5 +157,33 @@ func TestIsIPAllowed(t *testing.T) {
 				t.Errorf("IsIPAllowed() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestNormalizeHostname(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"EXAMPLE.COM", "example.com"},
+		{"  example.com  ", "example.com"},
+		{"example.com:8080", "example.com"},
+		{"127.0.0.1", "127.0.0.1"},
+		{"127.0.0.1:80", "127.0.0.1"},
+		{"::1", "::1"},
+		{"[::1]", "::1"},
+		{"[::1]:443", "::1"},
+		{"example.com..", "example.com"},
+		{"..example.com", "example.com"},
+		{".example.com.", "example.com"},
+		{"", ""},
+		{".", ""},
+		{"...", ""},
+	}
+
+	for _, tt := range tests {
+		if got := normalizeHostname(tt.input); got != tt.expected {
+			t.Errorf("normalizeHostname(%s) = %s; want %s", tt.input, got, tt.expected)
+		}
 	}
 }

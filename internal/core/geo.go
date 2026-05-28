@@ -72,10 +72,10 @@ func (c *GeoLRUCache) Put(key, value string) {
 }
 
 var (
-	GeoCache     = NewGeoLRUCache(1000)
-	geoReader    geoCountryReader
-	geoLock      sync.RWMutex
-	once         sync.Once
+	GeoCache  = NewGeoLRUCache(1000)
+	geoReader geoCountryReader
+	geoLock   sync.RWMutex
+	once      sync.Once
 
 	// For testing
 	geoUpdateFunc = UpdateGeoDB
@@ -181,15 +181,15 @@ func UpdateGeoDB(cfg *Config) error {
 }
 
 func GetCountryCode(ipStr string) string {
-	if IsPrivateIP(ipStr) {
-		GeoIPLookupsTotal.WithLabelValues("internal").Inc()
-		return "Internal"
-	}
-
 	parsedIP := net.ParseIP(ipStr)
 	if parsedIP == nil {
 		GeoIPLookupsTotal.WithLabelValues("invalid").Inc()
 		return "unknown"
+	}
+
+	if isPrivateNetIP(parsedIP) {
+		GeoIPLookupsTotal.WithLabelValues("internal").Inc()
+		return "Internal"
 	}
 
 	// Check for Tailscale (CGNAT range 100.64.0.0/10)
@@ -265,9 +265,12 @@ func GetGeoReaderStatus() bool {
 func IsPrivateIP(ipStr string) bool {
 	ip := net.ParseIP(ipStr)
 	if ip == nil {
-		return true
+		return false
 	}
+	return isPrivateNetIP(ip)
+}
 
+func isPrivateNetIP(ip net.IP) bool {
 	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
 		return true
 	}

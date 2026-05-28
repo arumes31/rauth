@@ -56,7 +56,10 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 			if len(data) == 0 {
 				continue
 			}
-			data["token"] = k[18:] // Remove prefix "X-rauth-authtoken="
+			data["token"] = strings.TrimPrefix(k, "X-rauth-authtoken=")
+			if data["token"] == k {
+				slog.Warn("AdminDashboard: token key missing expected prefix", "key", k)
+			}
 			data["ttl"] = fmt.Sprintf("%d", int(ttlCmds[i].Val().Seconds()))
 			data["friendly_ua"] = core.FormatUserAgent(data["user_agent"])
 			data["device_icon"] = core.GetDeviceIcon(data["user_agent"])
@@ -91,7 +94,7 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 func (h *AdminHandler) CreateUser(c echo.Context) error {
 	user := strings.TrimSpace(c.FormValue("new_username"))
 	pass := c.FormValue("new_password")
-	email := c.FormValue("new_email")
+	email := strings.TrimSpace(c.FormValue("new_email"))
 	isAdmin := c.FormValue("is_admin") == "on"
 
 	if user == "" || pass == "" {
@@ -260,4 +263,3 @@ func (h *AdminHandler) InvalidateSession(c echo.Context) error {
 	core.LogAudit("ADMIN_INVALIDATE_SESSION", admin, c.RealIP(), map[string]interface{}{"token": logToken})
 	return c.Redirect(http.StatusFound, "/rauthmgmt?success=session_terminated")
 }
-

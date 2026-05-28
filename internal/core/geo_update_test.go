@@ -66,3 +66,27 @@ func TestUpdateGeoDB_ConfigGeneration(t *testing.T) {
 	assert.Contains(t, string(content), "AccountID test-id")
 	assert.Contains(t, string(content), "LicenseKey test-key")
 }
+
+func TestUpdateGeoDB_ConfigErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  *Config
+	}{
+		{
+			name: "Missing AccountID",
+			cfg:  &Config{MaxMindLicenseKey: "key"},
+		},
+		{
+			name: "Missing LicenseKey",
+			cfg:  &Config{MaxMindAccountID: "id"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := UpdateGeoDB(tt.cfg)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), "not set")
+		})
+	}
+}
