@@ -29,3 +29,8 @@
 **Issue:** The `Login` handler was overly long and complex, making it difficult to test and maintain.
 **Learning:** Extracting logical blocks into private helper methods (`checkUserThrottling`, `verifyCredentials`, `handleAuthFailure`, etc.) improves readability and allows for better reasoning about security flows.
 **Prevention:** Regularly refactor complex handlers into smaller, purpose-built private methods while ensuring all security checks (rate limiting, dummy hashes) are preserved exactly.
+
+## 2024-05-30 - HTTP Parameter Injection in Redirects
+**Vulnerability:** The application was appending raw user-provided data (e.g., `c.Request().RequestURI`) directly to redirect URLs in query parameters (e.g., `/rauthlogin?rd=` + `rd`) without URL encoding.
+**Learning:** Concatenating raw URIs or request data into query parameters can lead to HTTP parameter injection vulnerabilities. If the original URI contained query parameters (like `&`), they could be parsed as separate parameters in the resulting redirect URL, breaking the intended redirect logic or allowing attackers to inject arbitrary parameters.
+**Prevention:** Always use `url.QueryEscape` when taking user input or request paths and embedding them as values within a query string during redirects.
