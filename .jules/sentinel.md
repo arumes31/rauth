@@ -33,3 +33,8 @@
 **Vulnerability:** Rate limiting counter incremented before validating the user password, and incorrect limit configuration used for 2FA checks.
 **Learning:** Incrementing limits before checking logic enables a trivial DoS, locking out users without needing their credentials. Furthermore, mixing configuration values (IP limit vs User limit) leads to incorrect protections.
 **Prevention:** Always perform checks using non-incrementing helpers (like `core.IsRateLimitExceeded`) first, and only increment (e.g., `core.CheckRateLimit`) when the authorization/validation check fails. Also ensure configurations are mapped securely to their intended context.
+
+## 2025-02-27 - Open Redirect / HTTP Parameter Injection in Auth Middleware
+**Vulnerability:** In `internal/middleware/auth.go`, when a request was unauthorized, the middleware would redirect the user to `/rauthlogin?rd=` appended directly with `c.Request().RequestURI`. An attacker could exploit this by appending characters like `&` and `=` to manipulate parameters, causing HTTP Parameter Injection, or potentially bypass open redirect mitigations depending on how `rd` was processed by the login handler.
+**Learning:** Raw request URIs or arbitrary user inputs must be properly URL-encoded before being interpolated into a new URL's query parameters to ensure they are treated purely as data and not structural characters.
+**Prevention:** Always use `url.QueryEscape` when passing URIs or paths as query parameters in redirect flows.

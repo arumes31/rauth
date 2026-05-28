@@ -32,7 +32,7 @@ func TestAuthMiddleware(t *testing.T) {
 		err := handler(c)
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusFound, rec.Code)
-		assert.Contains(t, rec.Header().Get("Location"), "/rauthlogin")
+		assert.Equal(t, "/rauthlogin?rd=%2Frauthprofile", rec.Header().Get("Location"))
 	})
 
 	t.Run("Success with valid token", func(t *testing.T) {
