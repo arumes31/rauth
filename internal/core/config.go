@@ -146,12 +146,21 @@ func (c *Config) IsAllowedHost(host string) bool {
 		} else {
 			h = o
 		}
-		if normalizeHostname(h) == host {
+		h = normalizeHostname(h)
+		if h == "" {
+			continue
+		}
+
+		// Exact match
+		if host == h {
+			return true
+		}
+		// Subdomain match
+		if strings.HasSuffix(host, "."+h) {
 			return true
 		}
 	}
 
-	// Check if host is part of any cookie domain
 	for _, domain := range c.CookieDomains {
 		// Normalize domain
 		domain = normalizeHostname(domain)

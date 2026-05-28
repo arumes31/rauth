@@ -187,3 +187,31 @@ func TestNormalizeHostname(t *testing.T) {
 		}
 	}
 }
+
+
+func TestIsAllowedHost_WebAuthn(t *testing.T) {
+	cfg := &Config{
+		WebAuthnOrigins: []string{"https://example.com", "http://localhost:5980"},
+	}
+
+	tests := []struct {
+		host     string
+		expected bool
+	}{
+		{"example.com", true},
+		{"app.example.com", true},
+		{"sub.app.example.com", true},
+		{"localhost", true},
+		{"evil-example.com", false},
+		{"example.com.evil.com", false},
+		{"other.org", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.host, func(t *testing.T) {
+			if got := cfg.IsAllowedHost(tt.host); got != tt.expected {
+				t.Errorf("IsAllowedHost(%s) = %v; want %v", tt.host, got, tt.expected)
+			}
+		})
+	}
+}
