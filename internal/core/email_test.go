@@ -32,10 +32,10 @@ func TestNotifications(t *testing.T) {
 	var capturedTo []string
 	var capturedMsg string
 
-	origSendMail := sendMail
-	defer func() { sendMail = origSendMail }()
+	origSendMail := TestingSendMail
+	defer func() { TestingSendMail = origSendMail }()
 
-	sendMail = func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
+	TestingSendMail = func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
 		capturedFrom = from
 		capturedTo = to
 		capturedMsg = string(msg)
@@ -89,12 +89,12 @@ func TestSendEmail_HTMLWrap(t *testing.T) {
 	}()
 
 	var capturedMsg string
-	oldSendMail := sendMail
-	sendMail = func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
+	oldSendMail := TestingSendMail
+	TestingSendMail = func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
 		capturedMsg = string(msg)
 		return nil
 	}
-	defer func() { sendMail = oldSendMail }()
+	defer func() { TestingSendMail = oldSendMail }()
 
 	err = SendEmail("test@example.com", "Plain Subject", "This is plain text")
 	assert.NoError(t, err)
@@ -115,10 +115,10 @@ func TestSendAccountCreatedNotificationRobust(t *testing.T) {
 	var capturedTo []string
 	var capturedMsg string
 
-	origSendMail := sendMail
-	defer func() { sendMail = origSendMail }()
+	origSendMail := TestingSendMail
+	defer func() { TestingSendMail = origSendMail }()
 
-	sendMail = func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
+	TestingSendMail = func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
 		capturedFrom = from
 		capturedTo = to
 		capturedMsg = string(msg)

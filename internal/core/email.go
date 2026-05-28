@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-var sendMail = smtp.SendMail
+var TestingSendMail = smtp.SendMail
 
 const emailBaseTemplate = `
 <!DOCTYPE html>
@@ -85,7 +85,7 @@ func SendEmail(to, subject, body string) error {
 
 	addr := fmt.Sprintf("%s:%d", cfg.SMTPHost, cfg.SMTPPort)
 
-	err := sendMail(addr, auth, cfg.SMTPFrom, []string{to}, msg)
+	err := TestingSendMail(addr, auth, cfg.SMTPFrom, []string{to}, msg)
 
 	if err != nil {
 		slog.Error("Failed to send email", "error", err, "to", to)

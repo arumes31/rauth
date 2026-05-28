@@ -15,10 +15,10 @@ func TestSend2FAModifiedNotification_Detailed(t *testing.T) {
 	var capturedTo []string
 	var capturedMsg string
 
-	origSendMail := sendMail
-	defer func() { sendMail = origSendMail }()
+	origSendMail := TestingSendMail
+	defer func() { TestingSendMail = origSendMail }()
 
-	sendMail = func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
+	TestingSendMail = func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
 		capturedTo = to
 		capturedMsg = string(msg)
 		return nil
