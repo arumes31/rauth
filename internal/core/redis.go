@@ -64,6 +64,7 @@ func InvalidateUserSessions(username string) {
 		pipe.Del(Ctx, "X-rauth-authtoken="+token)
 	}
 	pipe.Del(Ctx, indexKey)
+	pipe.SRem(Ctx, "all_sessions", tokens)
 	if _, err := pipe.Exec(Ctx); err != nil {
 		slog.Error("Failed to execute InvalidateUserSessions pipeline", "error", err)
 	}
@@ -83,6 +84,7 @@ func InvalidateOtherUserSessions(username, currentToken string) {
 		}
 		pipe.Del(Ctx, "X-rauth-authtoken="+token)
 		pipe.SRem(Ctx, indexKey, token)
+		pipe.SRem(Ctx, "all_sessions", token)
 	}
 	if _, err := pipe.Exec(Ctx); err != nil {
 		slog.Error("Failed to execute InvalidateOtherUserSessions pipeline", "error", err)
@@ -113,11 +115,21 @@ func HasActiveSessions(ip string) bool {
 }
 
 func AddSessionIndex(username, token string) {
-	TokenDB.SAdd(Ctx, "user_sessions:"+username, token)
+	pipe := TokenDB.Pipeline()
+	pipe.SAdd(Ctx, "user_sessions:"+username, token)
+	pipe.SAdd(Ctx, "all_sessions", token)
+	if _, err := pipe.Exec(Ctx); err != nil {
+		slog.Error("AddSessionIndex: pipeline failed", "error", err)
+	}
 }
 
 func RemoveSessionIndex(username, token string) {
-	TokenDB.SRem(Ctx, "user_sessions:"+username, token)
+	pipe := TokenDB.Pipeline()
+	pipe.SRem(Ctx, "user_sessions:"+username, token)
+	pipe.SRem(Ctx, "all_sessions", token)
+	if _, err := pipe.Exec(Ctx); err != nil {
+		slog.Error("RemoveSessionIndex: pipeline failed", "error", err)
+	}
 }
 
 func SyncSessionIndexes() int64 {
@@ -142,7 +154,10 @@ func SyncSessionIndexes() int64 {
 			if username != "" && data["status"] == "valid" {
 				token := strings.TrimPrefix(key, prefix)
 				if token != key {
-					if err := TokenDB.SAdd(Ctx, "user_sessions:"+username, token).Err(); err != nil {
+					pipe := TokenDB.Pipeline()
+					pipe.SAdd(Ctx, "user_sessions:"+username, token)
+					pipe.SAdd(Ctx, "all_sessions", token)
+					if _, err := pipe.Exec(Ctx); err != nil {
 						slog.Warn("SyncSessionIndexes: SAdd failed", "username", username, "error", err)
 						continue
 					}

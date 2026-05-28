@@ -22,45 +22,40 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 		slog.Error("Failed to list users", "error", err)
 	}
 
-	// Fetch sessions using Pipeline to avoid N+1 queries
+	// Fetch sessions using global index and pipeline to avoid O(N) SCAN and N+1 queries
 	var sessions []map[string]string
-	var keys []string
-	iter := core.TokenDB.Scan(core.Ctx, 0, "X-rauth-authtoken=*", 0).Iterator()
-	for iter.Next(core.Ctx) {
-		keys = append(keys, iter.Val())
-	}
-	if err := iter.Err(); err != nil {
-		slog.Error("Failed to scan sessions from Redis", "error", err)
+	tokens, err := core.TokenDB.SMembers(core.Ctx, "all_sessions").Result()
+	if err != nil {
+		slog.Error("Failed to fetch sessions from global index", "error", err)
 	}
 
-	if len(keys) > 0 {
+	if len(tokens) > 0 {
 		pipe := core.TokenDB.Pipeline()
-		hGetAllCmds := make([]*redis.MapStringStringCmd, len(keys))
-		ttlCmds := make([]*redis.DurationCmd, len(keys))
+		hGetAllCmds := make(map[string]*redis.MapStringStringCmd)
+		ttlCmds := make(map[string]*redis.DurationCmd)
 
-		for i, k := range keys {
-			hGetAllCmds[i] = pipe.HGetAll(core.Ctx, k)
-			ttlCmds[i] = pipe.TTL(core.Ctx, k)
+		for _, token := range tokens {
+			redisKey := "X-rauth-authtoken=" + token
+			hGetAllCmds[token] = pipe.HGetAll(core.Ctx, redisKey)
+			ttlCmds[token] = pipe.TTL(core.Ctx, redisKey)
 		}
 
-		_, err := pipe.Exec(core.Ctx)
-		if err != nil && err != redis.Nil {
-			slog.Error("Pipeline execution failed", "error", err)
+		_, pipeErr := pipe.Exec(core.Ctx)
+		if pipeErr != nil && pipeErr != redis.Nil {
+			slog.Error("Pipeline execution failed", "error", pipeErr)
 		}
 
-		for i, k := range keys {
-			data, err := hGetAllCmds[i].Result()
-			if err != nil {
+		for _, token := range tokens {
+			data, err := hGetAllCmds[token].Result()
+			if err != nil || len(data) == 0 {
+				// Cleanup stale index entry if pipeline succeeded but key is missing
+				if pipeErr == nil {
+					core.TokenDB.SRem(core.Ctx, "all_sessions", token)
+				}
 				continue
 			}
-			if len(data) == 0 {
-				continue
-			}
-			data["token"] = strings.TrimPrefix(k, "X-rauth-authtoken=")
-			if data["token"] == k {
-				slog.Warn("AdminDashboard: token key missing expected prefix", "key", k)
-			}
-			data["ttl"] = fmt.Sprintf("%d", int(ttlCmds[i].Val().Seconds()))
+			data["token"] = token
+			data["ttl"] = fmt.Sprintf("%d", int(ttlCmds[token].Val().Seconds()))
 			data["friendly_ua"] = core.FormatUserAgent(data["user_agent"])
 			data["device_icon"] = core.GetDeviceIcon(data["user_agent"])
 			sessions = append(sessions, data)
