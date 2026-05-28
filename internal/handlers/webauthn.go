@@ -135,9 +135,8 @@ func (h *WebAuthnHandler) BeginLogin(c echo.Context) error {
 }
 
 func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
-	clientIP := c.RealIP()
-	if !core.CheckRateLimit("login_ip:"+clientIP, h.Cfg.RateLimitLoginMax, h.Cfg.RateLimitLoginDecay) {
-		return echo.NewHTTPError(http.StatusTooManyRequests, fmt.Sprintf("Too many login attempts from this IP (%s)", clientIP))
+	if err := h.checkLoginIPRateLimit(c); err != nil {
+		return err
 	}
 
 	sessionData, err := h.getWebAuthnLoginSession(c)
@@ -155,26 +154,9 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 		return err
 	}
 
-	// Create user object for validation.
-	// CRITICAL: The ID must match what the authenticator thinks it is (userID)
-	user := &core.WebAuthnUser{
-		ID:          userID,
-		DisplayName: userRecord.Username,
-		Credentials: core.GetWebAuthnCredentials(userRecord.Username),
+	if _, err := h.validateWebAuthnLogin(username, userID, userRecord, sessionData, parsedResponse); err != nil {
+		return err
 	}
-
-	// Sync sessionData.UserID with the identified userID to satisfy go-webauthn's internal checks.
-	// This prevents "ID mismatch for User and Session".
-	sessionData.UserID = userID
-
-	credential, err := core.WebAuthnInstance.ValidateLogin(user, *sessionData, parsedResponse)
-	if err != nil {
-		slog.Error("WebAuthn validation failed", "error", err, "username", username)
-		return echo.NewHTTPError(http.StatusUnauthorized, "Passkey validation failed: "+err.Error())
-	}
-
-	// Update credential sign count
-	core.UpdateWebAuthnSignCount(username, credential.ID, credential.Authenticator.SignCount)
 
 	if err := h.issuePasskeyToken(c, username, userRecord); err != nil {
 		return err
@@ -327,4 +309,36 @@ func (h *WebAuthnHandler) issuePasskeyToken(c echo.Context, username string, use
 	})
 
 	return nil
+}
+
+func (h *WebAuthnHandler) checkLoginIPRateLimit(c echo.Context) error {
+	clientIP := c.RealIP()
+	if !core.CheckRateLimit("login_ip:"+clientIP, h.Cfg.RateLimitLoginMax, h.Cfg.RateLimitLoginDecay) {
+		return echo.NewHTTPError(http.StatusTooManyRequests, fmt.Sprintf("Too many login attempts from this IP (%s)", clientIP))
+	}
+	return nil
+}
+
+func (h *WebAuthnHandler) validateWebAuthnLogin(username string, userID []byte, userRecord *core.User, sessionData *webauthn.SessionData, parsedResponse *protocol.ParsedCredentialAssertionData) (*webauthn.Credential, error) {
+	// Create user object for validation.
+	// CRITICAL: The ID must match what the authenticator thinks it is (userID)
+	user := &core.WebAuthnUser{
+		ID:          userID,
+		DisplayName: userRecord.Username,
+		Credentials: core.GetWebAuthnCredentials(userRecord.Username),
+	}
+
+	// Sync sessionData.UserID with the identified userID to satisfy go-webauthn's internal checks.
+	// This prevents "ID mismatch for User and Session".
+	sessionData.UserID = userID
+
+	credential, err := core.WebAuthnInstance.ValidateLogin(user, *sessionData, parsedResponse)
+	if err != nil {
+		slog.Error("WebAuthn validation failed", "error", err, "username", username)
+		return nil, echo.NewHTTPError(http.StatusUnauthorized, "Passkey validation failed: "+err.Error())
+	}
+
+	// Update credential sign count
+	core.UpdateWebAuthnSignCount(username, credential.ID, credential.Authenticator.SignCount)
+	return credential, nil
 }
