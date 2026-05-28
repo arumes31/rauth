@@ -238,7 +238,19 @@ func TestReloadReader_Errors(t *testing.T) {
 }
 
 func TestGetGeoMetadataAndStatus(t *testing.T) {
-	// Not loaded initially
+	// Isolate from global state
+	geoLock.Lock()
+	oldReader := geoReader
+	geoReader = nil
+	geoLock.Unlock()
+
+	defer func() {
+		geoLock.Lock()
+		geoReader = oldReader
+		geoLock.Unlock()
+	}()
+
+	// Not loaded
 	status := GetGeoReaderStatus()
 	require.False(t, status)
 

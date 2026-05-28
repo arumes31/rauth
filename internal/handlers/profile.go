@@ -41,15 +41,19 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 		cmds[token] = pipe.HGetAll(core.Ctx, redisKey)
 		ttlCmds[token] = pipe.TTL(core.Ctx, redisKey)
 	}
-	if _, err := pipe.Exec(core.Ctx); err != nil {
-		slog.Error("Failed to execute session details pipeline", "error", err)
+	_, pipeErr := pipe.Exec(core.Ctx)
+	if pipeErr != nil {
+		slog.Error("Failed to execute session details pipeline", "error", pipeErr)
 	}
 
 	for _, token := range tokens {
 		data, err := cmds[token].Result()
 		if err != nil || len(data) == 0 {
-			// Token might have expired but still in index, or invalid
-			core.RemoveSessionIndex(username, token)
+			// Only clean up stale index entries if the pipeline succeeded
+			// (individual key miss), not on a wholesale pipeline failure.
+			if pipeErr == nil {
+				core.RemoveSessionIndex(username, token)
+			}
 			continue
 		}
 		data["token"] = token

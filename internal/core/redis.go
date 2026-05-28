@@ -133,7 +133,6 @@ func SyncSessionIndexes() int64 {
 		}
 
 		for _, key := range keys {
-			count++
 			data, err := TokenDB.HGetAll(Ctx, key).Result()
 			if err != nil || len(data) == 0 {
 				continue
@@ -143,7 +142,11 @@ func SyncSessionIndexes() int64 {
 			if username != "" && data["status"] == "valid" {
 				token := strings.TrimPrefix(key, prefix)
 				if token != key {
-					TokenDB.SAdd(Ctx, "user_sessions:"+username, token)
+					if err := TokenDB.SAdd(Ctx, "user_sessions:"+username, token).Err(); err != nil {
+						slog.Warn("SyncSessionIndexes: SAdd failed", "username", username, "error", err)
+						continue
+					}
+					count++
 				} else {
 					slog.Warn("SyncSessionIndexes: token key missing expected prefix", "key", key)
 				}

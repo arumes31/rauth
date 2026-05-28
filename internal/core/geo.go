@@ -187,7 +187,7 @@ func GetCountryCode(ipStr string) string {
 		return "unknown"
 	}
 
-	if IsPrivateIP(ipStr) {
+	if isPrivateNetIP(parsedIP) {
 		GeoIPLookupsTotal.WithLabelValues("internal").Inc()
 		return "Internal"
 	}
@@ -267,6 +267,10 @@ func IsPrivateIP(ipStr string) bool {
 	if ip == nil {
 		return false
 	}
+	return isPrivateNetIP(ip)
+}
+
+func isPrivateNetIP(ip net.IP) bool {
 	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
 		return true
 	}
