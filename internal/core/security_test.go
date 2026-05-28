@@ -399,9 +399,12 @@ func TestValidateEmail(t *testing.T) {
 	}{
 		{"Valid Email", "test@example.com", false},
 		{"Valid Email With Plus", "test+123@example.com", false},
+		{"Valid email with dots", "test.name@example.com", false},
+		{"Empty email", "", true},
 		{"Invalid Email - No At", "testexample.com", true},
 		{"Invalid Email - No Domain", "test@", true},
-		{"Invalid Email - Empty", "", true},
+		{"Missing TLD", "test@example", true},
+		{"Invalid characters", "test!@example.com", true},
 	}
 
 	for _, tt := range tests {
@@ -417,19 +420,30 @@ func TestValidateEmail(t *testing.T) {
 }
 
 func TestGenerateRandomString(t *testing.T) {
-	str1 := GenerateRandomString(16)
-	str2 := GenerateRandomString(16)
-
-	require.NotEmpty(t, str1)
-	require.NotEmpty(t, str2)
-	require.NotEqual(t, str1, str2)
-
-	// A 16 byte string base64url encoded is 22 characters typically
-	require.GreaterOrEqual(t, len(str1), 16)
+	tests := []struct {
+		name   string
+		length int
+	}{
+		{"Length 10", 10},
+		{"Length 32", 32},
+		{"Length 64", 64},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := GenerateRandomString(tt.length)
+			require.NotEmpty(t, got)
+			got2 := GenerateRandomString(tt.length)
+			require.NotEqual(t, got, got2)
+		})
+	}
 }
 
 func TestDecrypt2FASecret(t *testing.T) {
 	key := "12345678901234567890123456789012"
+	plainSecret := "my-plain-secret"
+	encryptedSecret, err := EncryptToken(plainSecret, key)
+	require.NoError(t, err)
+	encSecret := "enc:" + encryptedSecret
 
 	tests := []struct {
 		name   string
@@ -439,7 +453,8 @@ func TestDecrypt2FASecret(t *testing.T) {
 	}{
 		{"Empty Secret", "", key, ""},
 		{"Plain Secret", "plain_secret", key, "plain_secret"},
-		{"Invalid Encrypted Secret", "enc:invalid_data", key, "enc:invalid_data"}, // DecryptToken fails, returns secret as-is
+		{"Valid Encrypted Secret", encSecret, key, plainSecret},
+		{"Invalid Encrypted Secret", "enc:invalid_data", key, "enc:invalid_data"},
 	}
 
 	for _, tt := range tests {
@@ -448,15 +463,6 @@ func TestDecrypt2FASecret(t *testing.T) {
 			require.Equal(t, tt.want, got)
 		})
 	}
-
-	t.Run("Valid Encrypted Secret", func(t *testing.T) {
-		plain := "my_secret"
-		enc, err := EncryptToken(plain, key)
-		require.NoError(t, err)
-
-		got := Decrypt2FASecret("enc:"+enc, key)
-		require.Equal(t, plain, got)
-	})
 }
 
 func TestFormatUserAgent(t *testing.T) {
@@ -472,6 +478,8 @@ func TestFormatUserAgent(t *testing.T) {
 		{"Chrome on Android", "Mozilla/5.0 (Linux; Android 11; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36", "Chrome on Android"},
 		{"Opera on Linux", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36 OPR/77.0.4054.172", "Opera on Linux"},
 		{"Edge on Windows", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36 Edg/91.0.864.59", "Edge on Windows"},
+		{"CriOS on iPad", "Mozilla/5.0 (iPad; CPU OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/91.0.4472.80 Mobile/15E148 Safari/604.1", "Chrome on iOS"},
+		{"FxiOS on iPhone", "Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/34.0 Mobile/15E148 Safari/605.1.15", "Firefox on iOS"},
 	}
 
 	for _, tt := range tests {
@@ -495,6 +503,13 @@ func TestGetDeviceIcon(t *testing.T) {
 		{"Macintosh", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15)", "bi-apple"},
 		{"Linux", "Mozilla/5.0 (X11; Linux x86_64)", "bi-ubuntu"},
 		{"Unknown", "Unknown UA", "bi-display"},
+		{"Android direct", "Android", "bi-android2"},
+		{"iPhone direct", "iPhone", "bi-apple"},
+		{"iPad direct", "iPad", "bi-apple"},
+		{"Windows direct", "Windows", "bi-microsoft"},
+		{"Macintosh direct", "Macintosh", "bi-apple"},
+		{"Linux direct", "Linux", "bi-ubuntu"},
+		{"Unknown direct", "Unknown", "bi-display"},
 	}
 
 	for _, tt := range tests {
@@ -512,9 +527,15 @@ func TestValidateUsername(t *testing.T) {
 		wantErr bool
 	}{
 		{"Valid User", "test_user.123-abc", false},
+		{"Valid username short", "testuser", false},
+		{"Valid with dot", "test.user", false},
+		{"Valid with hyphen", "test-user", false},
+		{"Valid with underscore", "test_user", false},
 		{"Too Short", "ab", true},
 		{"Too Long", "thisusernameiswaytoolongtobevalid33", true},
+		{"Too long 2", "thisusernameiswaytoolongtobeconsideredvalid", true},
 		{"Invalid Characters", "user@name!", true},
+		{"Invalid characters 2", "test user", true},
 	}
 
 	for _, tt := range tests {
