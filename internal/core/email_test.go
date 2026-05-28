@@ -70,14 +70,6 @@ func TestNotifications(t *testing.T) {
 		assert.Contains(t, capturedMsg, "https://rauth.example.com/rauthlogin")
 	})
 
-	t.Run("Send2FAModifiedNotification", func(t *testing.T) {
-		Send2FAModifiedNotification("user@example.com", "testuser", "Enabled", "9.10.11.12")
-
-		assert.Contains(t, capturedMsg, "Subject: [RAuth] Security Alert: 2FA Enabled")
-		assert.Contains(t, capturedMsg, "testuser")
-		assert.Contains(t, capturedMsg, "Enabled")
-		assert.Contains(t, capturedMsg, "9.10.11.12")
-	})
 }
 
 func TestSendEmail_HTMLWrap(t *testing.T) {
@@ -147,4 +139,81 @@ func TestSendAccountCreatedNotificationRobust(t *testing.T) {
 	// Verify it's wrapped in the template
 	assert.Contains(t, capturedMsg, "<!DOCTYPE html>")
 	assert.Contains(t, capturedMsg, "RAuth Security</h1>")
+}
+
+func TestSend2FAModifiedNotificationRobust(t *testing.T) {
+	t.Setenv("SMTP_HOST", "smtp.example.com")
+	t.Setenv("SMTP_FROM", "noreply@rauth.example.com")
+	t.Setenv("PUBLIC_URL", "https://auth.example.com")
+
+	var capturedFrom string
+	var capturedTo []string
+	var capturedMsg string
+
+	origSendMail := sendMail
+	defer func() { sendMail = origSendMail }()
+
+	sendMail = func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
+		capturedFrom = from
+		capturedTo = to
+		capturedMsg = string(msg)
+		return nil
+	}
+
+	tests := []struct {
+		name     string
+		email    string
+		username string
+		action   string
+		ip       string
+		wantSub  string
+		wantBody []string
+	}{
+		{
+			name:     "Standard Enabled",
+			email:    "user@example.com",
+			username: "testuser",
+			action:   "Enabled",
+			ip:       "1.2.3.4",
+			wantSub:  "Subject: [RAuth] Security Alert: 2FA Enabled",
+			wantBody: []string{"testuser", "Enabled", "1.2.3.4"},
+		},
+		{
+			name:     "HTML Escaping",
+			email:    "attacker@example.com",
+			username: "<script>alert(1)</script>",
+			action:   "<b>Disabled</b>",
+			ip:       "127.0.0.1",
+			wantSub:  "Subject: [RAuth] Security Alert: 2FA <b>Disabled</b>",
+			wantBody: []string{"&lt;script&gt;alert(1)&lt;/script&gt;", "&lt;b&gt;Disabled&lt;/b&gt;", "127.0.0.1"},
+		},
+		{
+			name:     "Header Injection Prevention",
+			email:    "user@example.com",
+			username: "testuser",
+			action:   "Enabled\r\nBcc: spy@evil.com",
+			ip:       "1.2.3.4",
+			wantSub:  "Subject: [RAuth] Security Alert: 2FA EnabledBcc: spy@evil.com",
+			wantBody: []string{"testuser", "Enabled\r\nBcc: spy@evil.com", "1.2.3.4"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Clear captured values for each subtest
+			capturedFrom = ""
+			capturedTo = nil
+			capturedMsg = ""
+
+			Send2FAModifiedNotification(tt.email, tt.username, tt.action, tt.ip)
+
+			assert.Equal(t, "noreply@rauth.example.com", capturedFrom)
+			assert.Equal(t, []string{tt.email}, capturedTo)
+			assert.Contains(t, capturedMsg, tt.wantSub)
+			for _, content := range tt.wantBody {
+				assert.Contains(t, capturedMsg, content)
+			}
+			assert.Contains(t, capturedMsg, "https://auth.example.com/static/favicon.png")
+		})
+	}
 }
