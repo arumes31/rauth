@@ -131,9 +131,13 @@ func (h *AdminHandler) CreateUser(c echo.Context) error {
 }
 
 func (h *AdminHandler) DeleteUser(c echo.Context) error {
-	target := c.FormValue("username")
+	target := strings.TrimSpace(c.FormValue("username"))
 	if target == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "Username is required")
+	}
+
+	if err := core.ValidateUsername(target); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
 	admin := c.Get("username").(string)
@@ -152,9 +156,13 @@ func (h *AdminHandler) DeleteUser(c echo.Context) error {
 }
 
 func (h *AdminHandler) ResetUser2FA(c echo.Context) error {
-	target := c.FormValue("username")
+	target := strings.TrimSpace(c.FormValue("username"))
 	if target == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "Username is required")
+	}
+
+	if err := core.ValidateUsername(target); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
 	admin := c.Get("username").(string)
@@ -177,11 +185,15 @@ func (h *AdminHandler) ResetUser2FA(c echo.Context) error {
 }
 
 func (h *AdminHandler) ChangeUserPassword(c echo.Context) error {
-	target := c.FormValue("username")
+	target := strings.TrimSpace(c.FormValue("username"))
 	newPass := c.FormValue("new_password")
 
 	if target == "" || newPass == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "Username and password are required")
+	}
+
+	if err := core.ValidateUsername(target); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
 	admin := c.Get("username").(string)
@@ -213,11 +225,15 @@ func (h *AdminHandler) ChangeUserPassword(c echo.Context) error {
 }
 
 func (h *AdminHandler) UpdateUserEmail(c echo.Context) error {
-	target := c.FormValue("username")
+	target := strings.TrimSpace(c.FormValue("username"))
 	newEmail := strings.TrimSpace(c.FormValue("new_email"))
 
 	if target == "" || newEmail == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "Username and email are required")
+	}
+
+	if err := core.ValidateUsername(target); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
 	if err := core.ValidateEmail(newEmail); err != nil {

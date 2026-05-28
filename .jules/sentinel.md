@@ -38,3 +38,7 @@
 **Vulnerability:** In `internal/middleware/auth.go`, when a request was unauthorized, the middleware would redirect the user to `/rauthlogin?rd=` appended directly with `c.Request().RequestURI`. An attacker could exploit this by appending characters like `&` and `=` to manipulate parameters, causing HTTP Parameter Injection, or potentially bypass open redirect mitigations depending on how `rd` was processed by the login handler.
 **Learning:** Raw request URIs or arbitrary user inputs must be properly URL-encoded before being interpolated into a new URL's query parameters to ensure they are treated purely as data and not structural characters.
 **Prevention:** Always use `url.QueryEscape` when passing URIs or paths as query parameters in redirect flows.
+## 2026-05-28 - [Missing Username Validation]
+**Vulnerability:** Admin handlers (`DeleteUser`, `ResetUser2FA`, `ChangeUserPassword`, `UpdateUserEmail`) were accepting user-provided usernames without validation or trimming.
+**Learning:** Even admin-only APIs should strictly validate inputs to prevent unexpected behavior or potential injection attacks if an admin account is compromised or if there is an oversight in the backend logic.
+**Prevention:** Always use centralized validation logic (like `core.ValidateUsername`) for all user-identifying inputs across all handlers, regardless of the user's privilege level.

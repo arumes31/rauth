@@ -231,3 +231,88 @@ func TestAdminHandler_CreateUser_InvalidUsername(t *testing.T) {
 		})
 	}
 }
+
+func TestAdminHandler_UsernameValidation(t *testing.T) {
+	setupHandlersTest(t)
+	cfg := &core.Config{
+		MinPasswordLength: 8,
+	}
+	h := &AdminHandler{Cfg: cfg}
+	e := echo.New()
+
+	invalidUsernames := []string{"ab", "thisusernameiswaytoolongtoobeallowedbyrauth", "user!name", "user name"}
+
+	t.Run("DeleteUser", func(t *testing.T) {
+		for _, username := range invalidUsernames {
+			f := make(url.Values)
+			f.Set("username", username)
+			c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/user/delete", f)
+			c.Set("username", "admin")
+
+			err := h.DeleteUser(c)
+			if err != nil {
+				if he, ok := err.(*echo.HTTPError); ok {
+					assert.Equal(t, http.StatusBadRequest, he.Code)
+				}
+			} else {
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			}
+		}
+	})
+
+	t.Run("ResetUser2FA", func(t *testing.T) {
+		for _, username := range invalidUsernames {
+			f := make(url.Values)
+			f.Set("username", username)
+			c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/user/reset2fa", f)
+			c.Set("username", "admin")
+
+			err := h.ResetUser2FA(c)
+			if err != nil {
+				if he, ok := err.(*echo.HTTPError); ok {
+					assert.Equal(t, http.StatusBadRequest, he.Code)
+				}
+			} else {
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			}
+		}
+	})
+
+	t.Run("ChangeUserPassword", func(t *testing.T) {
+		for _, username := range invalidUsernames {
+			f := make(url.Values)
+			f.Set("username", username)
+			f.Set("new_password", "SecurePass123!")
+			c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/user/password", f)
+			c.Set("username", "admin")
+
+			err := h.ChangeUserPassword(c)
+			if err != nil {
+				if he, ok := err.(*echo.HTTPError); ok {
+					assert.Equal(t, http.StatusBadRequest, he.Code)
+				}
+			} else {
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			}
+		}
+	})
+
+	t.Run("UpdateUserEmail", func(t *testing.T) {
+		for _, username := range invalidUsernames {
+			f := make(url.Values)
+			f.Set("username", username)
+			f.Set("new_email", "valid@example.com")
+			c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/user/email", f)
+			c.Set("username", "admin")
+
+			err := h.UpdateUserEmail(c)
+			if err != nil {
+				if he, ok := err.(*echo.HTTPError); ok {
+					assert.Equal(t, http.StatusBadRequest, he.Code)
+				}
+			} else {
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			}
+		}
+	})
+}
