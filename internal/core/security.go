@@ -343,4 +343,3 @@ func ValidateUsername(username string) error {
 	}
 	return nil
 }
-
