@@ -104,6 +104,7 @@ func TestIsCountryAllowed(t *testing.T) {
 		{"Case insensitive match 2", []string{"US", "GB"}, "gb", true},
 		{"No match", []string{"US", "GB"}, "FR", false},
 		{"Empty country input", []string{"US", "GB"}, "", false},
+		{"Whitespace country input", []string{"US", "GB"}, "   ", false},
 		{"Internal access match", []string{"Internal", "US"}, "Internal", true},
 		{"Internal access case insensitive", []string{"internal", "us"}, "Internal", true},
 		{"Tailscale access match", []string{"Tailscale", "US"}, "Tailscale", true},
@@ -111,6 +112,15 @@ func TestIsCountryAllowed(t *testing.T) {
 		{"Whitespace in allowed list", []string{" US ", "GB"}, "US", true},
 		{"Whitespace in input", []string{"US", "GB"}, " US ", true},
 		{"Whitespace in both", []string{" US ", "GB"}, " US ", true},
+		{"Tabs in input", []string{"US", "GB"}, "\tUS\t", true},
+		{"Tabs in allowed list", []string{"\tUS\t", "GB"}, "US", true},
+		{"Unicode country match", []string{"España", "FR"}, "España", true},
+		{"Unicode country case insensitive", []string{"ESPAÑA", "FR"}, "españa", true},
+		{"Internal space match", []string{"United States", "GB"}, "United States", true},
+		{"Internal space mismatch", []string{"United States", "GB"}, "UnitedStates", false},
+		{"Very long country name", []string{"Averylongcountrynamethatshouldstillworkfineeventhoughitisunusuallylong", "GB"}, "Averylongcountrynamethatshouldstillworkfineeventhoughitisunusuallylong", true},
+		{"Allowed list with empty string", []string{"", "US"}, "US", true},
+		{"Allowed list with empty string matching empty input", []string{"", "US"}, "", false},
 	}
 
 	for _, tt := range tests {

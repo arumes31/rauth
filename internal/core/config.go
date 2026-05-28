@@ -178,6 +178,9 @@ func (c *Config) IsCountryAllowed(country string) bool {
 		return true // No restriction if empty
 	}
 	country = strings.TrimSpace(country)
+	if country == "" {
+		return false
+	}
 	for _, allowed := range c.AllowedCountries {
 		if strings.EqualFold(strings.TrimSpace(allowed), country) {
 			return true
