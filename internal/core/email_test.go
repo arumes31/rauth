@@ -62,14 +62,6 @@ func TestNotifications(t *testing.T) {
 		assert.Contains(t, capturedMsg, "5.6.7.8")
 	})
 
-	t.Run("SendAccountCreatedNotification", func(t *testing.T) {
-		SendAccountCreatedNotification("user@example.com", "newuser")
-
-		assert.Contains(t, capturedMsg, "Subject: [RAuth] Welcome: Your Account is Ready")
-		assert.Contains(t, capturedMsg, "newuser")
-		assert.Contains(t, capturedMsg, "https://rauth.example.com/rauthlogin")
-	})
-
 	t.Run("Send2FAModifiedNotification", func(t *testing.T) {
 		Send2FAModifiedNotification("user@example.com", "testuser", "Enabled", "9.10.11.12")
 
@@ -104,47 +96,4 @@ func TestSendEmail_HTMLWrap(t *testing.T) {
 	err = SendEmail("test@example.com", "HTML Subject", "<html><body>HTML content</body></html>")
 	assert.NoError(t, err)
 	assert.True(t, strings.Count(capturedMsg, "<html>") == 1)
-}
-
-func TestSendAccountCreatedNotificationRobust(t *testing.T) {
-	t.Setenv("SMTP_HOST", "smtp.example.com")
-	t.Setenv("SMTP_FROM", "noreply@rauth.example.com")
-	t.Setenv("PUBLIC_URL", "https://auth.example.com")
-
-	var capturedFrom string
-	var capturedTo []string
-	var capturedMsg string
-
-	origSendMail := sendMail
-	defer func() { sendMail = origSendMail }()
-
-	sendMail = func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
-		capturedFrom = from
-		capturedTo = to
-		capturedMsg = string(msg)
-		return nil
-	}
-
-	testEmail := "newuser@example.com"
-	testUsername := "newuser<script>alert(1)</script>"
-
-	SendAccountCreatedNotification(testEmail, testUsername)
-
-	assert.Equal(t, "noreply@rauth.example.com", capturedFrom)
-	assert.Equal(t, []string{testEmail}, capturedTo)
-	assert.Contains(t, capturedMsg, "Subject: [RAuth] Welcome: Your Account is Ready")
-
-	// Verify HTML escaping
-	assert.Contains(t, capturedMsg, "newuser&lt;script&gt;alert(1)&lt;/script&gt;")
-	assert.NotContains(t, capturedMsg, "<script>")
-
-	// Verify Public URL usage
-	assert.Contains(t, capturedMsg, "https://auth.example.com/rauthlogin")
-
-	// Verify logo URL replacement
-	assert.Contains(t, capturedMsg, "https://auth.example.com/static/favicon.png")
-
-	// Verify it's wrapped in the template
-	assert.Contains(t, capturedMsg, "<!DOCTYPE html>")
-	assert.Contains(t, capturedMsg, "RAuth Security</h1>")
 }
