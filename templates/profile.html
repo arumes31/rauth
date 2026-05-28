@@ -301,7 +301,7 @@
                                                     </div>
                                                     <div class="extra-small text-muted" title="{{.user_agent}}">
                                                         <i class="bi bi-geo-alt me-1"></i> {{.ip}} 
-                                                        <span class="ms-1 badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25">{{.country}}</span>
+                                                        {{if .country}}<span class="ms-1 badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25">{{.country}}</span>{{end}}
                                                     </div>
                                                 </div>
                                             </div>

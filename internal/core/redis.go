@@ -20,10 +20,6 @@ var (
 	StartTime    = time.Now()
 )
 
-// ActiveSessionsGauge should be exported or accessible. 
-// Wait, I should check where ActiveSessionsGauge is defined.
-// It's probably in internal/core/metrics.go.
-
 func InitRedis(cfg *Config) error {
 	ServerSecret = cfg.ServerSecret
 	opts := &redis.Options{

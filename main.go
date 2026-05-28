@@ -81,8 +81,8 @@ func main() {
 		if cfg.TrustXForwardedFor {
 			if xff := req.Header.Get("X-Forwarded-For"); xff != "" {
 				ips := strings.Split(xff, ",")
-				if len(ips) > 0 {
-					cleaned := strings.TrimSpace(ips[0])
+				for i := len(ips) - 1; i >= 0; i-- {
+					cleaned := strings.TrimSpace(ips[i])
 					if cleaned != "" {
 						if ip := net.ParseIP(cleaned); ip != nil {
 							return ip.String()
