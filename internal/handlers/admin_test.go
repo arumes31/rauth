@@ -231,3 +231,85 @@ func TestAdminHandler_CreateUser_InvalidUsername(t *testing.T) {
 		})
 	}
 }
+
+func TestAdminHandler_UpdateUserEmail(t *testing.T) {
+	setupHandlersTest(t)
+	cfg := &core.Config{
+		RateLimitLoginMax:         1000,
+		RateLimitLoginDecay:       60,
+		RateLimitLoginAccessMax:   1000,
+		RateLimitLoginFailUserMax: 1000,
+		RateLimitLoginFailIPMax:   1000,
+	}
+	h := &AdminHandler{Cfg: cfg}
+	e := echo.New()
+
+	t.Run("Update user email - valid", func(t *testing.T) {
+		core.UserDB.HSet(core.Ctx, "user:victim", "username", "victim", "email", "old@example.com")
+
+		f := make(url.Values)
+		f.Set("username", "victim")
+		f.Set("new_email", "new@example.com")
+		c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/user/update-email", f)
+		c.Set("username", "admin")
+
+		err := h.UpdateUserEmail(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+
+		newEmail := core.UserDB.HGet(core.Ctx, "user:victim", "email").Val()
+		assert.Equal(t, "new@example.com", newEmail)
+	})
+
+	t.Run("Update user email - invalid format", func(t *testing.T) {
+		f := make(url.Values)
+		f.Set("username", "victim")
+		f.Set("new_email", "invalid-email")
+		c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/user/update-email", f)
+		c.Set("username", "admin")
+
+		err := h.UpdateUserEmail(c)
+		if err != nil {
+			if he, ok := err.(*echo.HTTPError); ok {
+				assert.Equal(t, http.StatusBadRequest, he.Code)
+				assert.Contains(t, he.Message, "invalid email format")
+			}
+		} else {
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		}
+	})
+
+	t.Run("Update user email - missing parameters", func(t *testing.T) {
+		f := make(url.Values)
+		f.Set("username", "victim")
+		// new_email missing
+		c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/user/update-email", f)
+		c.Set("username", "admin")
+
+		err := h.UpdateUserEmail(c)
+		if err != nil {
+			if he, ok := err.(*echo.HTTPError); ok {
+				assert.Equal(t, http.StatusBadRequest, he.Code)
+			}
+		} else {
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		}
+	})
+
+	t.Run("Update user email - user not found", func(t *testing.T) {
+		f := make(url.Values)
+		f.Set("username", "nonexistent")
+		f.Set("new_email", "valid@example.com")
+		c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/user/update-email", f)
+		c.Set("username", "admin")
+
+		err := h.UpdateUserEmail(c)
+		if err != nil {
+			if he, ok := err.(*echo.HTTPError); ok {
+				assert.Equal(t, http.StatusNotFound, he.Code)
+			}
+		} else {
+			assert.Equal(t, http.StatusNotFound, rec.Code)
+		}
+	})
+}
