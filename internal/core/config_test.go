@@ -111,6 +111,10 @@ func TestIsCountryAllowed(t *testing.T) {
 		{"Whitespace in allowed list", []string{" US ", "GB"}, "US", true},
 		{"Whitespace in input", []string{"US", "GB"}, " US ", true},
 		{"Whitespace in both", []string{" US ", "GB"}, " US ", true},
+		{"Unicode match", []string{"España", "FR"}, "España", true},
+		{"Nil list allowed all", nil, "US", true},
+		{"Only whitespace country input", []string{"US", "GB"}, "   ", false},
+		{"Match at second position", []string{"GB", "US"}, "US", true},
 	}
 
 	for _, tt := range tests {
