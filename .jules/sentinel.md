@@ -38,3 +38,8 @@
 **Vulnerability:** In `internal/middleware/auth.go`, when a request was unauthorized, the middleware would redirect the user to `/rauthlogin?rd=` appended directly with `c.Request().RequestURI`. An attacker could exploit this by appending characters like `&` and `=` to manipulate parameters, causing HTTP Parameter Injection, or potentially bypass open redirect mitigations depending on how `rd` was processed by the login handler.
 **Learning:** Raw request URIs or arbitrary user inputs must be properly URL-encoded before being interpolated into a new URL's query parameters to ensure they are treated purely as data and not structural characters.
 **Prevention:** Always use `url.QueryEscape` when passing URIs or paths as query parameters in redirect flows.
+
+## 2024-05-30 - Fix G124 WebAuthn Cookie Cleanup missing SameSite
+**Vulnerability:** Gosec reported G124: http.Cookie missing or has insecure Secure, HttpOnly, or SameSite attribute. The `rauth_webauthn_session` cookie was being deleted but without the `SameSite: http.SameSiteLaxMode` attribute that was used when it was created.
+**Learning:** To properly delete a cookie with SameSite attributes, the cleanup cookie must also match the `SameSite` attribute of the original cookie to satisfy strict security requirements and static analysis tools.
+**Prevention:** Always mirror the security attributes (Secure, HttpOnly, SameSite) of the original cookie when issuing a deletion/cleanup cookie.
