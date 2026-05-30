@@ -187,12 +187,16 @@ func (c *Config) IsCountryAllowed(country string) bool {
 }
 
 func (c *Config) IsIPAllowed(ipStr string, allowedList []string) bool {
-	ip := net.ParseIP(ipStr)
+	ip := net.ParseIP(strings.TrimSpace(ipStr))
 	if ip == nil {
 		return false
 	}
 
 	for _, allowed := range allowedList {
+		allowed = strings.TrimSpace(allowed)
+		if allowed == "" {
+			continue
+		}
 		// Check if it's a CIDR
 		if strings.Contains(allowed, "/") {
 			_, ipNet, err := net.ParseCIDR(allowed)
