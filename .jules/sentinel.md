@@ -38,3 +38,9 @@
 **Vulnerability:** In `internal/middleware/auth.go`, when a request was unauthorized, the middleware would redirect the user to `/rauthlogin?rd=` appended directly with `c.Request().RequestURI`. An attacker could exploit this by appending characters like `&` and `=` to manipulate parameters, causing HTTP Parameter Injection, or potentially bypass open redirect mitigations depending on how `rd` was processed by the login handler.
 **Learning:** Raw request URIs or arbitrary user inputs must be properly URL-encoded before being interpolated into a new URL's query parameters to ensure they are treated purely as data and not structural characters.
 **Prevention:** Always use `url.QueryEscape` when passing URIs or paths as query parameters in redirect flows.
+
+
+## 2025-06-15 - Suffix Abuse in Domain Matching
+**Vulnerability:** In `internal/core/config.go`, the `IsAllowedHost` function's subdomain matching was only correctly implemented for `CookieDomains`. `AllowedHosts` and `WebAuthnOrigins` were missing suffix abuse prevention (or missing subdomain support entirely), which could lead to unauthorized hosts being accepted (e.g., `evil-example.com` matching `example.com`) if implemented naively.
+**Learning:** Matching subdomains by checking for a suffix (e.g., `strings.HasSuffix(host, domain)`) is dangerous without ensuring a dot prefix. `evil-example.com` ends with `example.com`, but it is not a subdomain.
+**Prevention:** Always ensure subdomain matching uses a dot-prefixed domain string (e.g., `strings.HasSuffix(host, "."+domain)`) to guarantee it only matches actual subdomains of the target domain. Consistency across all host/domain validation logic is critical.

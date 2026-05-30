@@ -187,3 +187,37 @@ func TestNormalizeHostname(t *testing.T) {
 		}
 	}
 }
+
+func TestIsAllowedHost_Subdomains(t *testing.T) {
+	cfg := &Config{
+		AllowedHosts:    []string{"example.com"},
+		WebAuthnOrigins: []string{"https://other.io"},
+		CookieDomains:   []string{"cookie.net"},
+	}
+
+	tests := []struct {
+		host     string
+		expected bool
+		name     string
+	}{
+		{"example.com", true, "AllowedHosts exact"},
+		{"sub.example.com", true, "AllowedHosts subdomain"},
+		{"evil-example.com", false, "AllowedHosts suffix abuse"},
+
+		{"other.io", true, "WebAuthnOrigins exact"},
+		{"sub.other.io", true, "WebAuthnOrigins subdomain"},
+		{"evil-other.io", false, "WebAuthnOrigins suffix abuse"},
+
+		{"cookie.net", true, "CookieDomains exact"},
+		{"sub.cookie.net", true, "CookieDomains subdomain"},
+		{"evil-cookie.net", false, "CookieDomains suffix abuse"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := cfg.IsAllowedHost(tt.host); got != tt.expected {
+				t.Errorf("IsAllowedHost(%s) = %v; want %v", tt.host, got, tt.expected)
+			}
+		})
+	}
+}

@@ -129,7 +129,15 @@ func (c *Config) IsAllowedHost(host string) bool {
 
 	// Check explicit allowed hosts
 	for _, h := range c.AllowedHosts {
-		if normalizeHostname(h) == host {
+		h = normalizeHostname(h)
+		if h == "" {
+			continue
+		}
+		if h == host {
+			return true
+		}
+		// Subdomain match with suffix abuse prevention
+		if strings.HasSuffix(host, "."+h) {
 			return true
 		}
 	}
@@ -146,7 +154,15 @@ func (c *Config) IsAllowedHost(host string) bool {
 		} else {
 			h = o
 		}
-		if normalizeHostname(h) == host {
+		h = normalizeHostname(h)
+		if h == "" {
+			continue
+		}
+		if h == host {
+			return true
+		}
+		// Subdomain match with suffix abuse prevention
+		if strings.HasSuffix(host, "."+h) {
 			return true
 		}
 	}
