@@ -191,7 +191,7 @@ func TestUpdateWebAuthnSignCount(t *testing.T) {
 
 	UserDB.RPush(Ctx, "user:testuser:webauthn_creds", string(data))
 
-	UpdateWebAuthnSignCount("testuser", []byte("cred1"), 20)
+	require.NoError(t, UpdateWebAuthnSignCount("testuser", []byte("cred1"), 20))
 
 	results, err := UserDB.LRange(Ctx, "user:testuser:webauthn_creds", 0, -1).Result()
 	require.NoError(t, err)
