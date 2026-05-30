@@ -53,7 +53,8 @@ func TestWebAuthnHandlers(t *testing.T) {
 	})
 
 	t.Run("BeginRegistration_Success", func(t *testing.T) {
-		_ = core.CreateUser("testuser", "password123", "test@example.com", false, "")
+		err := core.CreateUser("testuser", "password123", "test@example.com", false, "")
+		assert.NoError(t, err)
 		req := httptest.NewRequest(http.MethodGet, "/webauthn/register/begin", nil)
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
@@ -107,7 +108,8 @@ func TestWebAuthnHandler_identifyWebAuthnUser(t *testing.T) {
 	h := &WebAuthnHandler{Cfg: &core.Config{}}
 	e := echo.New()
 
-	core.CreateUser("knownuser", "pass", "email@example.com", false, "")
+	err := core.CreateUser("knownuser", "pass", "email@example.com", false, "")
+	assert.NoError(t, err)
 	knownUserRecord, _ := core.GetUser("knownuser")
 	uidBytes := []byte(knownUserRecord.UID)
 
@@ -157,7 +159,8 @@ func TestWebAuthnHandler_issuePasskeyToken(t *testing.T) {
 	h := &WebAuthnHandler{Cfg: cfg}
 	e := echo.New()
 
-	core.CreateUser("passkeyuser", "pass", "email@example.com", false, "")
+	err := core.CreateUser("passkeyuser", "pass", "email@example.com", false, "")
+	assert.NoError(t, err)
 	userRecord, _ := core.GetUser("passkeyuser")
 
 	t.Run("Issue token successfully", func(t *testing.T) {
