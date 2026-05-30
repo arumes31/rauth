@@ -39,12 +39,34 @@ func (t *TemplateRenderer) Render(w io.Writer, name string, data interface{}, c 
 }
 
 func main() {
-	// Initialize slog
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	slog.SetDefault(logger)
+	setupLogger()
 
 	cfg := core.LoadConfig()
 
+	initDependencies(cfg)
+
+	// Startup Initialization
+	initializeSystem(cfg)
+
+	e := echo.New()
+	e.HideBanner = true
+
+	setupIPExtractor(e, cfg)
+
+	// Setup everything
+	setupMiddleware(e, cfg)
+	setupRenderer(e)
+	setupRoutes(e, cfg)
+
+	runServer(e)
+}
+
+func setupLogger() {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	slog.SetDefault(logger)
+}
+
+func initDependencies(cfg *core.Config) {
 	if err := core.InitRedis(cfg); err != nil {
 		slog.Error("Redis initialization failed", "error", err)
 		os.Exit(1)
@@ -53,13 +75,9 @@ func main() {
 	if err := core.InitWebAuthn(cfg); err != nil {
 		slog.Error("WebAuthn initialization failed", "error", err)
 	}
+}
 
-	// Startup Initialization
-	initializeSystem(cfg)
-
-	e := echo.New()
-	e.HideBanner = true
-
+func setupIPExtractor(e *echo.Echo, cfg *core.Config) {
 	// Configure real IP extraction from headers behind reverse proxies
 	// SECURITY: These headers are only trusted if the deployment is behind a verified
 	// reverse proxy that scrubs these headers from external clients.
@@ -97,12 +115,9 @@ func main() {
 		}
 		return req.RemoteAddr
 	}
+}
 
-	// Setup everything
-	setupMiddleware(e, cfg)
-	setupRenderer(e)
-	setupRoutes(e, cfg)
-
+func runServer(e *echo.Echo) {
 	go func() {
 		if err := e.Start(":80"); err != nil && err != http.ErrServerClosed {
 			e.Logger.Fatal("shutting down the server")
@@ -124,6 +139,16 @@ func setupMiddleware(e *echo.Echo, cfg *core.Config) {
 	e.Use(echoMiddleware.Secure())
 	e.Use(echoMiddleware.BodyLimit("1M"))
 
+	setupClientHintsMiddleware(e)
+	setupLoggingMiddleware(e)
+
+	e.Use(echoMiddleware.Recover())
+
+	setupErrorHandler(e)
+	setupCSRF(e)
+}
+
+func setupClientHintsMiddleware(e *echo.Echo) {
 	// User-Agent Client Hints negotiation middleware
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
@@ -140,7 +165,9 @@ func setupMiddleware(e *echo.Echo, cfg *core.Config) {
 			return next(c)
 		}
 	})
+}
 
+func setupLoggingMiddleware(e *echo.Echo) {
 	// Structured logging middleware
 	e.Use(echoMiddleware.RequestLoggerWithConfig(echoMiddleware.RequestLoggerConfig{
 		LogStatus:   true,
@@ -190,9 +217,9 @@ func setupMiddleware(e *echo.Echo, cfg *core.Config) {
 			return nil
 		},
 	}))
+}
 
-	e.Use(echoMiddleware.Recover())
-
+func setupErrorHandler(e *echo.Echo) {
 	// Custom HTTP Error Handler
 	e.HTTPErrorHandler = func(err error, c echo.Context) {
 		if c.Response().Committed {
@@ -241,7 +268,9 @@ func setupMiddleware(e *echo.Echo, cfg *core.Config) {
 	echo.NotFoundHandler = func(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound)
 	}
+}
 
+func setupCSRF(e *echo.Echo) {
 	// CSRF Protection
 	e.Use(echoMiddleware.CSRFWithConfig(echoMiddleware.CSRFConfig{ // #nosec G101
 		TokenLookup:    "header:X-CSRF-Token,form:csrf",
@@ -307,7 +336,16 @@ func setupRoutes(e *echo.Echo, cfg *core.Config) {
 	healthHandler := &handlers.HealthHandler{Cfg: cfg}
 	inviteHandler := &handlers.InviteHandler{Cfg: cfg}
 
-	// Public Routes
+	setupPublicRoutes(e, cfg, authHandler, inviteHandler, healthHandler, webauthnHandler)
+
+	// Protected Routes
+	protected := e.Group("")
+	protected.Use(middleware.AuthMiddleware(cfg))
+
+	setupProtectedRoutes(protected, cfg, authHandler, webauthnHandler, profileHandler, adminHandler, inviteHandler)
+}
+
+func setupPublicRoutes(e *echo.Echo, cfg *core.Config, authHandler *handlers.AuthHandler, inviteHandler *handlers.InviteHandler, healthHandler *handlers.HealthHandler, webauthnHandler *handlers.WebAuthnHandler) {
 	e.GET("/", authHandler.Root)
 	e.GET("/rauthvalidate", authHandler.Validate)
 	e.GET("/rauthlogin", authHandler.Login)
@@ -333,16 +371,14 @@ func setupRoutes(e *echo.Echo, cfg *core.Config) {
 			return echo.NewHTTPError(http.StatusForbidden, "Access Denied")
 		}
 	})
+}
 
-	// Protected Routes
-	protected := e.Group("")
-	protected.Use(middleware.AuthMiddleware(cfg))
-
+func setupProtectedRoutes(g *echo.Group, cfg *core.Config, authHandler *handlers.AuthHandler, webauthnHandler *handlers.WebAuthnHandler, profileHandler *handlers.ProfileHandler, adminHandler *handlers.AdminHandler, inviteHandler *handlers.InviteHandler) {
 	// WebAuthn Protected Registration
-	protected.GET("/webauthn/register/begin", webauthnHandler.BeginRegistration)
-	protected.POST("/webauthn/register/finish", webauthnHandler.FinishRegistration)
+	g.GET("/webauthn/register/begin", webauthnHandler.BeginRegistration)
+	g.POST("/webauthn/register/finish", webauthnHandler.FinishRegistration)
 
-	protected.POST("/logout", func(c echo.Context) error {
+	g.POST("/logout", func(c echo.Context) error {
 		// Get token from context (set by AuthMiddleware)
 		if token, ok := c.Get("token").(string); ok {
 			if username, ok := c.Get("username").(string); ok {
@@ -365,17 +401,22 @@ func setupRoutes(e *echo.Echo, cfg *core.Config) {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	})
 
-	// Profile Routes
-	protected.GET("/rauthprofile", profileHandler.Show)
-	protected.POST("/rauthprofile/password", profileHandler.ChangePassword)
-	protected.POST("/rauthprofile/session/terminate", profileHandler.TerminateSession)
-	protected.POST("/rauthprofile/session/terminate-others", profileHandler.TerminateAllOtherSessions)
-	protected.POST("/rauthprofile/passkey/rename", profileHandler.RenamePasskey)
-	protected.POST("/rauthprofile/passkey/revoke", profileHandler.RevokePasskey)
-	protected.POST("/rauthprofile/disable-totp", profileHandler.DisableTOTP)
+	setupProfileRoutes(g, profileHandler)
+	setupAdminRoutes(g, adminHandler, inviteHandler)
+}
 
-	// Admin Routes
-	admin := protected.Group("/rauthmgmt")
+func setupProfileRoutes(g *echo.Group, profileHandler *handlers.ProfileHandler) {
+	g.GET("/rauthprofile", profileHandler.Show)
+	g.POST("/rauthprofile/password", profileHandler.ChangePassword)
+	g.POST("/rauthprofile/session/terminate", profileHandler.TerminateSession)
+	g.POST("/rauthprofile/session/terminate-others", profileHandler.TerminateAllOtherSessions)
+	g.POST("/rauthprofile/passkey/rename", profileHandler.RenamePasskey)
+	g.POST("/rauthprofile/passkey/revoke", profileHandler.RevokePasskey)
+	g.POST("/rauthprofile/disable-totp", profileHandler.DisableTOTP)
+}
+
+func setupAdminRoutes(g *echo.Group, adminHandler *handlers.AdminHandler, inviteHandler *handlers.InviteHandler) {
+	admin := g.Group("/rauthmgmt")
 	admin.Use(middleware.AdminMiddleware)
 	admin.GET("", adminHandler.Dashboard)
 	admin.POST("/user/create", adminHandler.CreateUser)
