@@ -56,16 +56,19 @@ func InvalidateUserSessions(username string) {
 	}
 
 	if len(tokens) == 0 {
+		// Even if no tokens, we should ensure index key is gone, though SMembers empty usually means it is.
+		TokenDB.Del(Ctx, indexKey)
 		return
 	}
 
-	pipe := TokenDB.Pipeline()
+	keysToDelete := make([]string, 0, len(tokens)+1)
 	for _, token := range tokens {
-		pipe.Del(Ctx, "X-rauth-authtoken="+token)
+		keysToDelete = append(keysToDelete, "X-rauth-authtoken="+token)
 	}
-	pipe.Del(Ctx, indexKey)
-	if _, err := pipe.Exec(Ctx); err != nil {
-		slog.Error("Failed to execute InvalidateUserSessions pipeline", "error", err)
+	keysToDelete = append(keysToDelete, indexKey)
+
+	if err := TokenDB.Del(Ctx, keysToDelete...).Err(); err != nil {
+		slog.Error("Failed to execute InvalidateUserSessions variadic Del", "error", err)
 	}
 }
 
@@ -76,14 +79,23 @@ func InvalidateOtherUserSessions(username, currentToken string) {
 		return
 	}
 
-	pipe := TokenDB.Pipeline()
+	var tokensToRemove []string
+	var keysToDelete []string
 	for _, token := range tokens {
 		if token == currentToken {
 			continue
 		}
-		pipe.Del(Ctx, "X-rauth-authtoken="+token)
-		pipe.SRem(Ctx, indexKey, token)
+		tokensToRemove = append(tokensToRemove, token)
+		keysToDelete = append(keysToDelete, "X-rauth-authtoken="+token)
 	}
+
+	if len(tokensToRemove) == 0 {
+		return
+	}
+
+	pipe := TokenDB.Pipeline()
+	pipe.Del(Ctx, keysToDelete...)
+	pipe.SRem(Ctx, indexKey, tokensToRemove)
 	if _, err := pipe.Exec(Ctx); err != nil {
 		slog.Error("Failed to execute InvalidateOtherUserSessions pipeline", "error", err)
 	}
@@ -97,10 +109,19 @@ func HasActiveSessions(ip string) bool {
 			return false
 		}
 
-		for _, k := range keys {
-			data, err := TokenDB.HGetAll(Ctx, k).Result()
-			if err == nil && data["ip"] == ip && data["status"] == "valid" {
-				return true
+		if len(keys) > 0 {
+			pipe := TokenDB.Pipeline()
+			cmds := make([]*redis.MapStringStringCmd, len(keys))
+			for i, k := range keys {
+				cmds[i] = pipe.HGetAll(Ctx, k)
+			}
+			_, _ = pipe.Exec(Ctx)
+
+			for _, cmd := range cmds {
+				data, err := cmd.Result()
+				if err == nil && data["ip"] == ip && data["status"] == "valid" {
+					return true
+				}
 			}
 		}
 
@@ -116,8 +137,11 @@ func AddSessionIndex(username, token string) {
 	TokenDB.SAdd(Ctx, "user_sessions:"+username, token)
 }
 
-func RemoveSessionIndex(username, token string) {
-	TokenDB.SRem(Ctx, "user_sessions:"+username, token)
+func RemoveSessionIndex(username string, tokens ...string) {
+	if len(tokens) == 0 {
+		return
+	}
+	TokenDB.SRem(Ctx, "user_sessions:"+username, tokens)
 }
 
 func SyncSessionIndexes() int64 {
@@ -132,23 +156,32 @@ func SyncSessionIndexes() int64 {
 			break
 		}
 
-		for _, key := range keys {
-			data, err := TokenDB.HGetAll(Ctx, key).Result()
-			if err != nil || len(data) == 0 {
-				continue
+		if len(keys) > 0 {
+			pipe := TokenDB.Pipeline()
+			cmds := make([]*redis.MapStringStringCmd, len(keys))
+			for i, key := range keys {
+				cmds[i] = pipe.HGetAll(Ctx, key)
 			}
+			_, _ = pipe.Exec(Ctx)
 
-			username := data["username"]
-			if username != "" && data["status"] == "valid" {
-				token := strings.TrimPrefix(key, prefix)
-				if token != key {
-					if err := TokenDB.SAdd(Ctx, "user_sessions:"+username, token).Err(); err != nil {
-						slog.Warn("SyncSessionIndexes: SAdd failed", "username", username, "error", err)
-						continue
+			for i, key := range keys {
+				data, err := cmds[i].Result()
+				if err != nil || len(data) == 0 {
+					continue
+				}
+
+				username := data["username"]
+				if username != "" && data["status"] == "valid" {
+					token := strings.TrimPrefix(key, prefix)
+					if token != key {
+						if err := TokenDB.SAdd(Ctx, "user_sessions:"+username, token).Err(); err != nil {
+							slog.Warn("SyncSessionIndexes: SAdd failed", "username", username, "error", err)
+							continue
+						}
+						count++
+					} else {
+						slog.Warn("SyncSessionIndexes: token key missing expected prefix", "key", key)
 					}
-					count++
-				} else {
-					slog.Warn("SyncSessionIndexes: token key missing expected prefix", "key", key)
 				}
 			}
 		}

@@ -46,13 +46,14 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 		slog.Error("Failed to execute session details pipeline", "error", pipeErr)
 	}
 
+	var staleTokens []string
 	for _, token := range tokens {
 		data, err := cmds[token].Result()
 		if err != nil || len(data) == 0 {
 			// Only clean up stale index entries if the pipeline succeeded
 			// (individual key miss), not on a wholesale pipeline failure.
 			if pipeErr == nil {
-				core.RemoveSessionIndex(username, token)
+				staleTokens = append(staleTokens, token)
 			}
 			continue
 		}
@@ -66,6 +67,10 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 		data["friendly_ua"] = core.FormatUserAgent(data["user_agent"])
 		data["device_icon"] = core.GetDeviceIcon(data["user_agent"])
 		sessions = append(sessions, data)
+	}
+
+	if len(staleTokens) > 0 {
+		core.RemoveSessionIndex(username, staleTokens...)
 	}
 
 	// Personal Logs
