@@ -323,6 +323,7 @@ func (h *WebAuthnHandler) issuePasskeyToken(c echo.Context, username string, use
 		Expires:  time.Unix(0, 0),
 		HttpOnly: true,
 		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 	})
 
