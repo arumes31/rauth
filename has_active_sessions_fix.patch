@@ -1,0 +1,59 @@
+<<<<<<< SEARCH
+func HasActiveSessions(ip string) bool {
+	var cursor uint64
+	for {
+		keys, nextCursor, err := TokenDB.Scan(Ctx, cursor, "X-rauth-authtoken=*", 100).Result()
+		if err != nil {
+			return false
+		}
+
+		for _, k := range keys {
+			data, err := TokenDB.HGetAll(Ctx, k).Result()
+			if err == nil && data["ip"] == ip && data["status"] == "valid" {
+				return true
+			}
+		}
+
+		cursor = nextCursor
+		if cursor == 0 {
+			break
+		}
+	}
+	return false
+}
+=======
+func HasActiveSessions(ip string) bool {
+	var cursor uint64
+	for {
+		keys, nextCursor, err := TokenDB.Scan(Ctx, cursor, "X-rauth-authtoken=*", 100).Result()
+		if err != nil {
+			return false
+		}
+
+		if len(keys) > 0 {
+			pipe := TokenDB.Pipeline()
+			cmds := make([]*redis.MapStringStringCmd, len(keys))
+			for i, k := range keys {
+				cmds[i] = pipe.HGetAll(Ctx, k)
+			}
+
+			if _, err := pipe.Exec(Ctx); err != nil && err != redis.Nil {
+				slog.Error("HasActiveSessions: pipeline execution failed", "error", err)
+			}
+
+			for _, cmd := range cmds {
+				data, err := cmd.Result()
+				if err == nil && data["ip"] == ip && data["status"] == "valid" {
+					return true
+				}
+			}
+		}
+
+		cursor = nextCursor
+		if cursor == 0 {
+			break
+		}
+	}
+	return false
+}
+>>>>>>> REPLACE

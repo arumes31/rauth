@@ -6,9 +6,8 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
-	"github.com/stretchr/testify/require"
-
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestInitRedis(t *testing.T) {
@@ -108,5 +107,105 @@ func TestSessionManagement(t *testing.T) {
 
 		require.True(t, HasActiveSessions("192.168.1.1"))
 		require.False(t, HasActiveSessions("10.0.0.1"))
+	})
+}
+
+func TestHasActiveSessionsTable(t *testing.T) {
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	client := redis.NewClient(&redis.Options{
+		Addr: mr.Addr(),
+	})
+	TokenDB = client
+	Ctx = context.Background()
+
+	tests := []struct {
+		name     string
+		sessions map[string]map[string]interface{}
+		searchIP string
+		expected bool
+	}{
+		{
+			name: "Single active session",
+			sessions: map[string]map[string]interface{}{
+				"X-rauth-authtoken=t1": {"ip": "1.1.1.1", "status": "valid"},
+			},
+			searchIP: "1.1.1.1",
+			expected: true,
+		},
+		{
+			name: "Multiple sessions, one active for IP",
+			sessions: map[string]map[string]interface{}{
+				"X-rauth-authtoken=t1": {"ip": "1.1.1.1", "status": "expired"},
+				"X-rauth-authtoken=t2": {"ip": "1.1.1.1", "status": "valid"},
+				"X-rauth-authtoken=t3": {"ip": "2.2.2.2", "status": "valid"},
+			},
+			searchIP: "1.1.1.1",
+			expected: true,
+		},
+		{
+			name: "No active session for IP",
+			sessions: map[string]map[string]interface{}{
+				"X-rauth-authtoken=t1": {"ip": "1.1.1.1", "status": "expired"},
+				"X-rauth-authtoken=t2": {"ip": "2.2.2.2", "status": "valid"},
+			},
+			searchIP: "1.1.1.1",
+			expected: false,
+		},
+		{
+			name: "Empty DB",
+			sessions: map[string]map[string]interface{}{},
+			searchIP: "1.1.1.1",
+			expected: false,
+		},
+		{
+			name: "Malformed session data",
+			sessions: map[string]map[string]interface{}{
+				"X-rauth-authtoken=t1": {"something": "else"},
+			},
+			searchIP: "1.1.1.1",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mr.FlushAll()
+			for key, data := range tt.sessions {
+				TokenDB.HSet(Ctx, key, data)
+			}
+			assert.Equal(t, tt.expected, HasActiveSessions(tt.searchIP))
+		})
+	}
+}
+
+func TestSyncSessionIndexesTable(t *testing.T) {
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	client := redis.NewClient(&redis.Options{
+		Addr: mr.Addr(),
+	})
+	TokenDB = client
+	Ctx = context.Background()
+
+	t.Run("Sync indexes correctly", func(t *testing.T) {
+		mr.FlushAll()
+		TokenDB.HSet(Ctx, "X-rauth-authtoken=t1", map[string]interface{}{"username": "user1", "status": "valid"})
+		TokenDB.HSet(Ctx, "X-rauth-authtoken=t2", map[string]interface{}{"username": "user1", "status": "expired"})
+		TokenDB.HSet(Ctx, "X-rauth-authtoken=t3", map[string]interface{}{"username": "user2", "status": "valid"})
+
+		count := SyncSessionIndexes()
+		assert.Equal(t, int64(2), count)
+
+		u1Sessions, _ := TokenDB.SMembers(Ctx, "user_sessions:user1").Result()
+		assert.Contains(t, u1Sessions, "t1")
+		assert.NotContains(t, u1Sessions, "t2")
+
+		u2Sessions, _ := TokenDB.SMembers(Ctx, "user_sessions:user2").Result()
+		assert.Contains(t, u2Sessions, "t3")
 	})
 }

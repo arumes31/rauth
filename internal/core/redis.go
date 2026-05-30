@@ -97,10 +97,22 @@ func HasActiveSessions(ip string) bool {
 			return false
 		}
 
-		for _, k := range keys {
-			data, err := TokenDB.HGetAll(Ctx, k).Result()
-			if err == nil && data["ip"] == ip && data["status"] == "valid" {
-				return true
+		if len(keys) > 0 {
+			pipe := TokenDB.Pipeline()
+			cmds := make([]*redis.MapStringStringCmd, len(keys))
+			for i, k := range keys {
+				cmds[i] = pipe.HGetAll(Ctx, k)
+			}
+
+			if _, err := pipe.Exec(Ctx); err != nil && err != redis.Nil {
+				slog.Error("HasActiveSessions: pipeline execution failed", "error", err)
+			}
+
+			for _, cmd := range cmds {
+				data, err := cmd.Result()
+				if err == nil && data["ip"] == ip && data["status"] == "valid" {
+					return true
+				}
 			}
 		}
 
@@ -132,23 +144,36 @@ func SyncSessionIndexes() int64 {
 			break
 		}
 
-		for _, key := range keys {
-			data, err := TokenDB.HGetAll(Ctx, key).Result()
-			if err != nil || len(data) == 0 {
-				continue
+		if len(keys) > 0 {
+			pipe := TokenDB.Pipeline()
+			cmds := make([]*redis.MapStringStringCmd, len(keys))
+			for i, key := range keys {
+				cmds[i] = pipe.HGetAll(Ctx, key)
 			}
 
-			username := data["username"]
-			if username != "" && data["status"] == "valid" {
-				token := strings.TrimPrefix(key, prefix)
-				if token != key {
-					if err := TokenDB.SAdd(Ctx, "user_sessions:"+username, token).Err(); err != nil {
-						slog.Warn("SyncSessionIndexes: SAdd failed", "username", username, "error", err)
-						continue
+			if _, err := pipe.Exec(Ctx); err != nil && err != redis.Nil {
+				slog.Error("SyncSessionIndexes: pipeline execution failed", "error", err)
+			}
+
+			for i, cmd := range cmds {
+				data, err := cmd.Result()
+				if err != nil || len(data) == 0 {
+					continue
+				}
+
+				username := data["username"]
+				if username != "" && data["status"] == "valid" {
+					key := keys[i]
+					token := strings.TrimPrefix(key, prefix)
+					if token != key {
+						if err := TokenDB.SAdd(Ctx, "user_sessions:"+username, token).Err(); err != nil {
+							slog.Warn("SyncSessionIndexes: SAdd failed", "username", username, "error", err)
+							continue
+						}
+						count++
+					} else {
+						slog.Warn("SyncSessionIndexes: token key missing expected prefix", "key", key)
 					}
-					count++
-				} else {
-					slog.Warn("SyncSessionIndexes: token key missing expected prefix", "key", key)
 				}
 			}
 		}
