@@ -231,3 +231,169 @@ func TestAdminHandler_CreateUser_InvalidUsername(t *testing.T) {
 		})
 	}
 }
+
+func TestAdminHandler_ResetUser2FA(t *testing.T) {
+	setupHandlersTest(t)
+	h := &AdminHandler{Cfg: &core.Config{}}
+	e := echo.New()
+
+	core.UserDB.HSet(core.Ctx, "user:testuser", "2fa_secret", "secret_value")
+
+	t.Run("Reset successful", func(t *testing.T) {
+		f := make(url.Values)
+		f.Set("username", "testuser")
+		c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/user/reset-2fa", f)
+		c.Set("username", "admin")
+
+		err := h.ResetUser2FA(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+
+		val, _ := core.UserDB.HGet(core.Ctx, "user:testuser", "2fa_secret").Result()
+		assert.Equal(t, "", val)
+	})
+
+	t.Run("Missing username", func(t *testing.T) {
+		f := make(url.Values)
+		c, _ := createTestContext(e, http.MethodPost, "/rauthmgmt/user/reset-2fa", f)
+		c.Set("username", "admin")
+
+		err := h.ResetUser2FA(c)
+		assert.Error(t, err)
+		if he, ok := err.(*echo.HTTPError); ok {
+			assert.Equal(t, http.StatusBadRequest, he.Code)
+		}
+	})
+
+	t.Run("Reset self not allowed", func(t *testing.T) {
+		f := make(url.Values)
+		f.Set("username", "admin")
+		c, _ := createTestContext(e, http.MethodPost, "/rauthmgmt/user/reset-2fa", f)
+		c.Set("username", "admin")
+
+		err := h.ResetUser2FA(c)
+		assert.Error(t, err)
+		if he, ok := err.(*echo.HTTPError); ok {
+			assert.Equal(t, http.StatusBadRequest, he.Code)
+		}
+	})
+}
+
+func TestAdminHandler_ChangeUserPassword(t *testing.T) {
+	setupHandlersTest(t)
+	cfg := &core.Config{
+		MinPasswordLength: 8,
+	}
+	h := &AdminHandler{Cfg: cfg}
+	e := echo.New()
+
+	core.UserDB.HSet(core.Ctx, "user:testuser", "password", "old_hash")
+
+	t.Run("Change password successful", func(t *testing.T) {
+		f := make(url.Values)
+		f.Set("username", "testuser")
+		f.Set("new_password", "NewPass123!")
+		c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/user/change-password", f)
+		c.Set("username", "admin")
+
+		err := h.ChangeUserPassword(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+
+		newHash, _ := core.UserDB.HGet(core.Ctx, "user:testuser", "password").Result()
+		assert.NotEqual(t, "old_hash", newHash)
+		assert.True(t, core.CheckPasswordHash("NewPass123!", newHash))
+	})
+
+	t.Run("Missing parameters", func(t *testing.T) {
+		f := make(url.Values)
+		f.Set("username", "testuser")
+		// Missing new_password
+		c, _ := createTestContext(e, http.MethodPost, "/rauthmgmt/user/change-password", f)
+		c.Set("username", "admin")
+
+		err := h.ChangeUserPassword(c)
+		assert.Error(t, err)
+		if he, ok := err.(*echo.HTTPError); ok {
+			assert.Equal(t, http.StatusBadRequest, he.Code)
+		}
+	})
+
+	t.Run("Change self not allowed", func(t *testing.T) {
+		f := make(url.Values)
+		f.Set("username", "admin")
+		f.Set("new_password", "NewPass123!")
+		c, _ := createTestContext(e, http.MethodPost, "/rauthmgmt/user/change-password", f)
+		c.Set("username", "admin")
+
+		err := h.ChangeUserPassword(c)
+		assert.Error(t, err)
+		if he, ok := err.(*echo.HTTPError); ok {
+			assert.Equal(t, http.StatusBadRequest, he.Code)
+		}
+	})
+
+	t.Run("Invalid password format", func(t *testing.T) {
+		f := make(url.Values)
+		f.Set("username", "testuser")
+		f.Set("new_password", "short")
+		c, _ := createTestContext(e, http.MethodPost, "/rauthmgmt/user/change-password", f)
+		c.Set("username", "admin")
+
+		err := h.ChangeUserPassword(c)
+		assert.Error(t, err)
+		if he, ok := err.(*echo.HTTPError); ok {
+			assert.Equal(t, http.StatusBadRequest, he.Code)
+		}
+	})
+}
+
+func TestAdminHandler_UpdateUserEmail(t *testing.T) {
+	setupHandlersTest(t)
+	h := &AdminHandler{Cfg: &core.Config{}}
+	e := echo.New()
+
+	core.UserDB.HSet(core.Ctx, "user:testuser", "email", "old@example.com")
+
+	t.Run("Update email successful", func(t *testing.T) {
+		f := make(url.Values)
+		f.Set("username", "testuser")
+		f.Set("new_email", "new@example.com")
+		c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/user/update-email", f)
+		c.Set("username", "admin")
+
+		err := h.UpdateUserEmail(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+
+		val, _ := core.UserDB.HGet(core.Ctx, "user:testuser", "email").Result()
+		assert.Equal(t, "new@example.com", val)
+	})
+
+	t.Run("Missing parameters", func(t *testing.T) {
+		f := make(url.Values)
+		f.Set("username", "testuser")
+		c, _ := createTestContext(e, http.MethodPost, "/rauthmgmt/user/update-email", f)
+		c.Set("username", "admin")
+
+		err := h.UpdateUserEmail(c)
+		assert.Error(t, err)
+		if he, ok := err.(*echo.HTTPError); ok {
+			assert.Equal(t, http.StatusBadRequest, he.Code)
+		}
+	})
+
+	t.Run("Invalid email format", func(t *testing.T) {
+		f := make(url.Values)
+		f.Set("username", "testuser")
+		f.Set("new_email", "not-an-email")
+		c, _ := createTestContext(e, http.MethodPost, "/rauthmgmt/user/update-email", f)
+		c.Set("username", "admin")
+
+		err := h.UpdateUserEmail(c)
+		assert.Error(t, err)
+		if he, ok := err.(*echo.HTTPError); ok {
+			assert.Equal(t, http.StatusBadRequest, he.Code)
+		}
+	})
+}

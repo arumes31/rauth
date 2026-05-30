@@ -109,4 +109,38 @@ func TestSessionManagement(t *testing.T) {
 		require.True(t, HasActiveSessions("192.168.1.1"))
 		require.False(t, HasActiveSessions("10.0.0.1"))
 	})
+
+	t.Run("SyncSessionIndexes", func(t *testing.T) {
+		TokenDB.FlushAll(Ctx)
+
+		// Set up data for SyncSessionIndexes
+		testCases := []struct {
+			key      string
+			username string
+			status   string
+			expected int64
+		}{
+			{"X-rauth-authtoken=valid1", "user1", "valid", 1},
+			{"X-rauth-authtoken=valid2", "user2", "valid", 1},
+			{"X-rauth-authtoken=invalid_status", "user3", "invalid", 0},
+			{"X-rauth-authtoken=missing_username", "", "valid", 0},
+			{"bad_prefix=malformed", "user4", "valid", 0}, // Should not be picked up by scan
+		}
+
+		for _, tc := range testCases {
+			TokenDB.HSet(Ctx, tc.key, map[string]interface{}{
+				"username": tc.username,
+				"status":   tc.status,
+			})
+		}
+
+		count := SyncSessionIndexes()
+		assert.Equal(t, int64(2), count)
+
+		members1, _ := TokenDB.SMembers(Ctx, "user_sessions:user1").Result()
+		assert.Contains(t, members1, "valid1")
+
+		members2, _ := TokenDB.SMembers(Ctx, "user_sessions:user2").Result()
+		assert.Contains(t, members2, "valid2")
+	})
 }
