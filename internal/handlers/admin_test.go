@@ -186,6 +186,69 @@ func TestAdminHandler_DeleteUser(t *testing.T) {
 		assert.Equal(t, int64(1), exists)
 	})
 }
+
+func TestAdminHandler_UpdateUserEmail(t *testing.T) {
+	setupHandlersTest(t)
+	cfg := &core.Config{}
+	h := &AdminHandler{Cfg: cfg}
+	e := echo.New()
+
+	t.Run("Success", func(t *testing.T) {
+		core.UserDB.HSet(core.Ctx, "user:testuser", "username", "testuser", "email", "old@example.com")
+		core.UserDB.SAdd(core.Ctx, "users", "testuser")
+
+		f := make(url.Values)
+		f.Set("username", " testuser ")
+		f.Set("new_email", "new@example.com")
+
+		c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/user/update-email", f)
+		c.Set("username", "admin")
+
+		err := h.UpdateUserEmail(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+
+		email := core.UserDB.HGet(core.Ctx, "user:testuser", "email").Val()
+		assert.Equal(t, "new@example.com", email)
+	})
+
+	testCases := []struct {
+		name     string
+		username string
+		email    string
+		expected int
+	}{
+		{"InvalidEmail", "testuser", "invalid-email", http.StatusBadRequest},
+		{"MissingUsername", "", "new@example.com", http.StatusBadRequest},
+		{"MissingEmail", "testuser", "", http.StatusBadRequest},
+		{"UserNotFound", "nonexistent", "new@example.com", http.StatusNotFound},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := make(url.Values)
+			if tc.username != "" {
+				f.Set("username", tc.username)
+			}
+			if tc.email != "" {
+				f.Set("new_email", tc.email)
+			}
+
+			c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/user/update-email", f)
+			c.Set("username", "admin")
+
+			err := h.UpdateUserEmail(c)
+			if err != nil {
+				if he, ok := err.(*echo.HTTPError); ok {
+					assert.Equal(t, tc.expected, he.Code)
+				}
+			} else {
+				assert.Equal(t, tc.expected, rec.Code)
+			}
+		})
+	}
+}
+
 func TestAdminHandler_CreateUser_InvalidUsername(t *testing.T) {
 	setupHandlersTest(t)
 	cfg := &core.Config{

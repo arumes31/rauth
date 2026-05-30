@@ -7,8 +7,8 @@ import (
 	"rauth/internal/core"
 	"time"
 
-	"strings"
 	"github.com/labstack/echo/v4"
+	"strings"
 )
 
 type InviteHandler struct {

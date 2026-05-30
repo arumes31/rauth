@@ -38,3 +38,8 @@
 **Vulnerability:** In `internal/middleware/auth.go`, when a request was unauthorized, the middleware would redirect the user to `/rauthlogin?rd=` appended directly with `c.Request().RequestURI`. An attacker could exploit this by appending characters like `&` and `=` to manipulate parameters, causing HTTP Parameter Injection, or potentially bypass open redirect mitigations depending on how `rd` was processed by the login handler.
 **Learning:** Raw request URIs or arbitrary user inputs must be properly URL-encoded before being interpolated into a new URL's query parameters to ensure they are treated purely as data and not structural characters.
 **Prevention:** Always use `url.QueryEscape` when passing URIs or paths as query parameters in redirect flows.
+
+## 2026-05-30 - User Record Corruption via UpdateUserEmail
+**Vulnerability:** The `UpdateUserEmail` handler in `internal/handlers/admin.go` was updating user email records in Redis without verifying if the target user actually existed. Because `core.UpdateUser` uses Redis `HSet`, this operation could create "orphan" or "ghost" user hashes (e.g., `user:nonexistent`) that only contain an email field, lacking usernames, passwords, and UIDs.
+**Learning:** Functions that perform partial updates on hash records must ensure the entity's existence first to maintain data integrity and prevent the creation of incomplete or corrupted records in the data store.
+**Prevention:** Always use `core.GetUser` or an equivalent existence check before calling `core.UpdateUser` to ensure the target record is valid and fully initialized.

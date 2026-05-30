@@ -213,7 +213,7 @@ func (h *AdminHandler) ChangeUserPassword(c echo.Context) error {
 }
 
 func (h *AdminHandler) UpdateUserEmail(c echo.Context) error {
-	target := c.FormValue("username")
+	target := strings.TrimSpace(c.FormValue("username"))
 	newEmail := strings.TrimSpace(c.FormValue("new_email"))
 
 	if target == "" || newEmail == "" {
@@ -222,6 +222,11 @@ func (h *AdminHandler) UpdateUserEmail(c echo.Context) error {
 
 	if err := core.ValidateEmail(newEmail); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	// Verify target user exists to prevent orphan records
+	if _, err := core.GetUser(target); err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, "User not found")
 	}
 
 	admin := c.Get("username").(string)
