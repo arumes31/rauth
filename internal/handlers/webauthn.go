@@ -135,9 +135,8 @@ func (h *WebAuthnHandler) BeginLogin(c echo.Context) error {
 }
 
 func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
-	clientIP := c.RealIP()
-	if !core.CheckRateLimit("login_ip:"+clientIP, h.Cfg.RateLimitLoginMax, h.Cfg.RateLimitLoginDecay) {
-		return echo.NewHTTPError(http.StatusTooManyRequests, fmt.Sprintf("Too many login attempts from this IP (%s)", clientIP))
+	if err := h.checkLoginIPRateLimit(c); err != nil {
+		return err
 	}
 
 	sessionData, err := h.getWebAuthnLoginSession(c)
@@ -145,14 +144,40 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 		return err
 	}
 
+	username, userRecord, credential, err := h.validateWebAuthnLogin(c, sessionData)
+	if err != nil {
+		return err
+	}
+
+	// Update credential sign count
+	core.UpdateWebAuthnSignCount(username, credential.ID, credential.Authenticator.SignCount)
+
+	if err := h.issuePasskeyToken(c, username, userRecord); err != nil {
+		return err
+	}
+
+	redirect := core.ValidateRedirectURL(c.QueryParam("rd"), "/rauthprofile", username, h.Cfg)
+
+	return c.JSON(http.StatusOK, map[string]string{"redirect": redirect})
+}
+
+func (h *WebAuthnHandler) checkLoginIPRateLimit(c echo.Context) error {
+	clientIP := c.RealIP()
+	if !core.CheckRateLimit("login_ip:"+clientIP, h.Cfg.RateLimitLoginMax, h.Cfg.RateLimitLoginDecay) {
+		return echo.NewHTTPError(http.StatusTooManyRequests, fmt.Sprintf("Too many login attempts from this IP (%s)", clientIP))
+	}
+	return nil
+}
+
+func (h *WebAuthnHandler) validateWebAuthnLogin(c echo.Context, sessionData *webauthn.SessionData) (string, *core.User, *webauthn.Credential, error) {
 	parsedResponse, err := protocol.ParseCredentialRequestResponse(c.Request())
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "Invalid assertion response")
+		return "", nil, nil, echo.NewHTTPError(http.StatusBadRequest, "Invalid assertion response")
 	}
 
 	username, userID, userRecord, err := h.identifyWebAuthnUser(c, parsedResponse)
 	if err != nil {
-		return err
+		return "", nil, nil, err
 	}
 
 	// Create user object for validation.
@@ -170,19 +195,10 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 	credential, err := core.WebAuthnInstance.ValidateLogin(user, *sessionData, parsedResponse)
 	if err != nil {
 		slog.Error("WebAuthn validation failed", "error", err, "username", username)
-		return echo.NewHTTPError(http.StatusUnauthorized, "Passkey validation failed: "+err.Error())
+		return "", nil, nil, echo.NewHTTPError(http.StatusUnauthorized, "Passkey validation failed: "+err.Error())
 	}
 
-	// Update credential sign count
-	core.UpdateWebAuthnSignCount(username, credential.ID, credential.Authenticator.SignCount)
-
-	if err := h.issuePasskeyToken(c, username, userRecord); err != nil {
-		return err
-	}
-
-	redirect := core.ValidateRedirectURL(c.QueryParam("rd"), "/rauthprofile", username, h.Cfg)
-
-	return c.JSON(http.StatusOK, map[string]string{"redirect": redirect})
+	return username, userRecord, credential, nil
 }
 
 func (h *WebAuthnHandler) getWebAuthnLoginSession(c echo.Context) (*webauthn.SessionData, error) {
