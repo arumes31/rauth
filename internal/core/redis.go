@@ -60,10 +60,13 @@ func InvalidateUserSessions(username string) {
 	}
 
 	pipe := TokenDB.Pipeline()
+	keysToDel := make([]string, 0, len(tokens)+1)
 	for _, token := range tokens {
-		pipe.Del(Ctx, "X-rauth-authtoken="+token)
+		keysToDel = append(keysToDel, "X-rauth-authtoken="+token)
 	}
-	pipe.Del(Ctx, indexKey)
+	keysToDel = append(keysToDel, indexKey)
+
+	pipe.Del(Ctx, keysToDel...)
 	if _, err := pipe.Exec(Ctx); err != nil {
 		slog.Error("Failed to execute InvalidateUserSessions pipeline", "error", err)
 	}
@@ -76,14 +79,28 @@ func InvalidateOtherUserSessions(username, currentToken string) {
 		return
 	}
 
-	pipe := TokenDB.Pipeline()
+	if len(tokens) == 0 {
+		return
+	}
+
+	keysToDel := make([]string, 0, len(tokens))
+	tokensToRemove := make([]interface{}, 0, len(tokens))
+
 	for _, token := range tokens {
 		if token == currentToken {
 			continue
 		}
-		pipe.Del(Ctx, "X-rauth-authtoken="+token)
-		pipe.SRem(Ctx, indexKey, token)
+		keysToDel = append(keysToDel, "X-rauth-authtoken="+token)
+		tokensToRemove = append(tokensToRemove, token)
 	}
+
+	if len(keysToDel) == 0 {
+		return
+	}
+
+	pipe := TokenDB.Pipeline()
+	pipe.Del(Ctx, keysToDel...)
+	pipe.SRem(Ctx, indexKey, tokensToRemove...)
 	if _, err := pipe.Exec(Ctx); err != nil {
 		slog.Error("Failed to execute InvalidateOtherUserSessions pipeline", "error", err)
 	}
@@ -97,10 +114,19 @@ func HasActiveSessions(ip string) bool {
 			return false
 		}
 
-		for _, k := range keys {
-			data, err := TokenDB.HGetAll(Ctx, k).Result()
-			if err == nil && data["ip"] == ip && data["status"] == "valid" {
-				return true
+		if len(keys) > 0 {
+			pipe := TokenDB.Pipeline()
+			cmds := make([]*redis.MapStringStringCmd, len(keys))
+			for i, k := range keys {
+				cmds[i] = pipe.HGetAll(Ctx, k)
+			}
+			_, _ = pipe.Exec(Ctx)
+
+			for _, cmd := range cmds {
+				data, err := cmd.Result()
+				if err == nil && data["ip"] == ip && data["status"] == "valid" {
+					return true
+				}
 			}
 		}
 
@@ -132,23 +158,37 @@ func SyncSessionIndexes() int64 {
 			break
 		}
 
-		for _, key := range keys {
-			data, err := TokenDB.HGetAll(Ctx, key).Result()
-			if err != nil || len(data) == 0 {
-				continue
+		if len(keys) > 0 {
+			pipe := TokenDB.Pipeline()
+			cmds := make([]*redis.MapStringStringCmd, len(keys))
+			for i, key := range keys {
+				cmds[i] = pipe.HGetAll(Ctx, key)
 			}
+			_, _ = pipe.Exec(Ctx)
 
-			username := data["username"]
-			if username != "" && data["status"] == "valid" {
-				token := strings.TrimPrefix(key, prefix)
-				if token != key {
-					if err := TokenDB.SAdd(Ctx, "user_sessions:"+username, token).Err(); err != nil {
-						slog.Warn("SyncSessionIndexes: SAdd failed", "username", username, "error", err)
-						continue
+			saddPipe := TokenDB.Pipeline()
+			addedAny := false
+			for i, key := range keys {
+				data, err := cmds[i].Result()
+				if err != nil || len(data) == 0 {
+					continue
+				}
+
+				username := data["username"]
+				if username != "" && data["status"] == "valid" {
+					token := strings.TrimPrefix(key, prefix)
+					if token != key {
+						saddPipe.SAdd(Ctx, "user_sessions:"+username, token)
+						count++
+						addedAny = true
+					} else {
+						slog.Warn("SyncSessionIndexes: token key missing expected prefix", "key", key)
 					}
-					count++
-				} else {
-					slog.Warn("SyncSessionIndexes: token key missing expected prefix", "key", key)
+				}
+			}
+			if addedAny {
+				if _, err := saddPipe.Exec(Ctx); err != nil {
+					slog.Error("SyncSessionIndexes: SAdd pipeline failed", "error", err)
 				}
 			}
 		}
