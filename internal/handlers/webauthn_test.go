@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/labstack/echo/v4"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
@@ -98,5 +99,48 @@ func TestWebAuthnHandlers(t *testing.T) {
 			assert.True(t, ok)
 			assert.Equal(t, http.StatusBadRequest, he.Code)
 		}
+	})
+
+	t.Run("identifyWebAuthnUser_FallbackParam", func(t *testing.T) {
+		_ = core.CreateUser("fallbackuser", "password123", "test@example.com", false, "")
+		req := httptest.NewRequest(http.MethodPost, "/webauthn/login/finish?username=fallbackuser", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		// Create a dummy parsedResponse without UserHandle
+		parsedResponse := &protocol.ParsedCredentialAssertionData{
+			Response: protocol.ParsedAssertionResponse{},
+		}
+
+		username, userID, userRecord, err := h.identifyWebAuthnUser(c, parsedResponse)
+		assert.NoError(t, err)
+		assert.Equal(t, "fallbackuser", username)
+		assert.NotNil(t, userRecord)
+		assert.NotEmpty(t, userID)
+	})
+
+	t.Run("issuePasskeyToken_Success", func(t *testing.T) {
+		_ = core.CreateUser("tokenuser", "password123", "test@example.com", false, "")
+		userRecord, _ := core.GetUser("tokenuser")
+
+		req := httptest.NewRequest(http.MethodGet, "/dummy", nil)
+		req.Header.Set("User-Agent", "TestAgent")
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := h.issuePasskeyToken(c, "tokenuser", &userRecord)
+		assert.NoError(t, err)
+
+		// Verify cookie was set
+		cookies := rec.Result().Cookies()
+		found := false
+		for _, cookie := range cookies {
+			if cookie.Name == "X-rauth-authtoken" {
+				found = true
+				assert.NotEmpty(t, cookie.Value)
+				break
+			}
+		}
+		assert.True(t, found)
 	})
 }

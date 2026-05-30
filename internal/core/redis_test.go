@@ -109,4 +109,40 @@ func TestSessionManagement(t *testing.T) {
 		require.True(t, HasActiveSessions("192.168.1.1"))
 		require.False(t, HasActiveSessions("10.0.0.1"))
 	})
+
+	t.Run("SyncSessionIndexes", func(t *testing.T) {
+		// Clean up before test
+		TokenDB.FlushAll(Ctx)
+
+		// Create a valid session
+		TokenDB.HSet(Ctx, "X-rauth-authtoken=valid_token", map[string]interface{}{
+			"username": "user1",
+			"status":   "valid",
+		})
+
+		// Create an invalid session (missing username)
+		TokenDB.HSet(Ctx, "X-rauth-authtoken=invalid_token", map[string]interface{}{
+			"status": "valid",
+		})
+
+		// Create an invalid session (wrong status)
+		TokenDB.HSet(Ctx, "X-rauth-authtoken=expired_token", map[string]interface{}{
+			"username": "user2",
+			"status":   "invalid",
+		})
+
+		// Test syncing
+		count := SyncSessionIndexes()
+		assert.Equal(t, int64(1), count)
+
+		// Verify that user1's session index was added
+		members, err := TokenDB.SMembers(Ctx, "user_sessions:user1").Result()
+		require.NoError(t, err)
+		require.Contains(t, members, "valid_token")
+
+		// Verify user2 index does not exist
+		exists, err := TokenDB.Exists(Ctx, "user_sessions:user2").Result()
+		require.NoError(t, err)
+		require.Equal(t, int64(0), exists)
+	})
 }

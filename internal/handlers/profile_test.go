@@ -157,3 +157,145 @@ func TestProfileHandler_ChangePassword(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
 }
+
+func TestProfileHandler_RenamePasskey(t *testing.T) {
+	setupHandlersTest(t)
+	cfg := &core.Config{}
+	h := &ProfileHandler{Cfg: cfg}
+	e := echo.New()
+
+	tests := []struct {
+		name         string
+		id           string
+		nickname     string
+		expectedCode int
+	}{
+		{"Rename successful", "cred123", "new_nick", http.StatusFound},
+		{"Rename missing id", "", "new_nick", http.StatusBadRequest},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := make(url.Values)
+			if tc.id != "" {
+				f.Set("id", tc.id)
+			}
+			f.Set("nickname", tc.nickname)
+
+			c, rec := createTestContext(e, http.MethodPost, "/rauthprofile/passkey/rename", f)
+			c.Set("username", "profileuser")
+
+			err := h.RenamePasskey(c)
+			if err != nil {
+				if he, ok := err.(*echo.HTTPError); ok {
+					assert.Equal(t, tc.expectedCode, he.Code)
+				} else {
+					t.Errorf("expected echo.HTTPError")
+				}
+			} else {
+				assert.Equal(t, tc.expectedCode, rec.Code)
+			}
+		})
+	}
+}
+
+func TestProfileHandler_RevokePasskey(t *testing.T) {
+	setupHandlersTest(t)
+	cfg := &core.Config{}
+	h := &ProfileHandler{Cfg: cfg}
+	e := echo.New()
+
+	tests := []struct {
+		name         string
+		id           string
+		expectedCode int
+	}{
+		{"Revoke successful", "cred123", http.StatusFound},
+		{"Revoke missing id", "", http.StatusBadRequest},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := make(url.Values)
+			if tc.id != "" {
+				f.Set("id", tc.id)
+			}
+			c, rec := createTestContext(e, http.MethodPost, "/rauthprofile/passkey/revoke", f)
+			c.Set("username", "profileuser")
+
+			err := h.RevokePasskey(c)
+			if err != nil {
+				if he, ok := err.(*echo.HTTPError); ok {
+					assert.Equal(t, tc.expectedCode, he.Code)
+				} else {
+					t.Errorf("expected echo.HTTPError")
+				}
+			} else {
+				assert.Equal(t, tc.expectedCode, rec.Code)
+			}
+		})
+	}
+}
+
+func TestProfileHandler_DisableTOTP(t *testing.T) {
+	setupHandlersTest(t)
+	cfg := &core.Config{}
+	h := &ProfileHandler{Cfg: cfg}
+	e := echo.New()
+
+	core.UserDB.HSet(core.Ctx, "user:totpuser", "username", "totpuser")
+
+	t.Run("Disable TOTP successful", func(t *testing.T) {
+		f := make(url.Values)
+
+		c, rec := createTestContext(e, http.MethodPost, "/rauthprofile/disable-totp", f)
+		c.Set("username", "totpuser")
+
+		err := h.DisableTOTP(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+	})
+}
+
+func TestProfileHandler_TerminateAllOtherSessions(t *testing.T) {
+	setupHandlersTest(t)
+	cfg := &core.Config{}
+	h := &ProfileHandler{Cfg: cfg}
+	e := echo.New()
+
+	t.Run("Terminate all other sessions", func(t *testing.T) {
+		f := make(url.Values)
+		c, rec := createTestContext(e, http.MethodPost, "/rauthprofile/session/terminate-others", f)
+		c.Set("username", "multiuser")
+		c.Set("token", "current-token")
+
+		err := h.TerminateAllOtherSessions(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+	})
+}
+
+func TestProfileHandler_validateTOTP(t *testing.T) {
+	setupHandlersTest(t)
+	cfg := &core.Config{
+		RateLimitLoginFailUserMax: 100,
+	}
+	h := &ProfileHandler{Cfg: cfg}
+
+	tests := []struct {
+		name         string
+		code         string
+		expectedCode int
+	}{
+		{"Empty code", "", http.StatusBadRequest},
+		{"Invalid code", "123456", http.StatusBadRequest},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := h.validateTOTP("totpuser", tc.code, "enc-secret")
+			assert.NotNil(t, err)
+			assert.Equal(t, tc.expectedCode, err.Code)
+		})
+	}
+}
