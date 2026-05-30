@@ -231,3 +231,80 @@ func TestAdminHandler_CreateUser_InvalidUsername(t *testing.T) {
 		})
 	}
 }
+
+func TestAdminHandler_ExtendedValidation(t *testing.T) {
+	setupHandlersTest(t)
+	cfg := &core.Config{
+		MinPasswordLength:      8,
+		RequirePasswordUpper:   true,
+		RequirePasswordLower:   true,
+		RequirePasswordNumber:  true,
+		RequirePasswordSpecial: true,
+	}
+	h := &AdminHandler{Cfg: cfg}
+	e := echo.New()
+
+	t.Run("DeleteUser - NonExistent", func(t *testing.T) {
+		f := make(url.Values)
+		f.Set("username", "no-such-user")
+		c, _ := createTestContext(e, http.MethodPost, "/rauthmgmt/user/delete", f)
+		c.Set("username", "admin")
+
+		err := h.DeleteUser(c)
+		if he, ok := err.(*echo.HTTPError); ok {
+			assert.Equal(t, http.StatusNotFound, he.Code)
+		} else {
+			t.Errorf("expected 404 error, got %v", err)
+		}
+	})
+
+	t.Run("ResetUser2FA - Success", func(t *testing.T) {
+		core.UserDB.HSet(core.Ctx, "user:victim", "username", "victim", "2fa_secret", "secret")
+		core.UserDB.SAdd(core.Ctx, "users", "victim")
+
+		f := make(url.Values)
+		f.Set("username", " victim ") // Testing TrimSpace
+		c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/user/reset2fa", f)
+		c.Set("username", "admin")
+
+		err := h.ResetUser2FA(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+
+		user, _ := core.GetUser("victim")
+		assert.Empty(t, user.TwoFactor)
+	})
+
+	t.Run("ChangeUserPassword - InvalidUsername", func(t *testing.T) {
+		f := make(url.Values)
+		f.Set("username", "user!name")
+		f.Set("new_password", "Password123!")
+		c, _ := createTestContext(e, http.MethodPost, "/rauthmgmt/user/password", f)
+		c.Set("username", "admin")
+
+		err := h.ChangeUserPassword(c)
+		if he, ok := err.(*echo.HTTPError); ok {
+			assert.Equal(t, http.StatusBadRequest, he.Code)
+			assert.Contains(t, he.Message, "can only contain alphanumeric")
+		} else {
+			t.Errorf("expected 400 error, got %v", err)
+		}
+	})
+
+	t.Run("UpdateUserEmail - Success", func(t *testing.T) {
+		core.UserDB.HSet(core.Ctx, "user:victim", "username", "victim", "email", "old@example.com")
+
+		f := make(url.Values)
+		f.Set("username", "victim")
+		f.Set("new_email", "new@example.com")
+		c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/user/email", f)
+		c.Set("username", "admin")
+
+		err := h.UpdateUserEmail(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+
+		user, _ := core.GetUser("victim")
+		assert.Equal(t, "new@example.com", user.Email)
+	})
+}

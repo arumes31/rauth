@@ -179,4 +179,25 @@ func TestInviteHandler_Redeem(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusConflict, rec.Code)
 	})
+
+	t.Run("Username trimming and validation", func(t *testing.T) {
+		token := "trim-token"
+		email := "trim@example.com"
+		core.InviteDB.Set(core.Ctx, "invite:"+token, email, 0)
+
+		f := make(url.Values)
+		f.Set("token", token)
+		f.Set("username", "  trimmeduser  ")
+		f.Set("password", "strongpassword123")
+
+		c, rec := createTestContext(e, http.MethodPost, "/rauthredeem", f)
+		err := h.Redeem(c)
+
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+
+		// Verify user created with trimmed name
+		exists, _ := core.UserDB.Exists(core.Ctx, "user:trimmeduser").Result()
+		assert.Equal(t, int64(1), exists)
+	})
 }
