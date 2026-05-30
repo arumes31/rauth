@@ -77,8 +77,15 @@ var (
 	geoLock   sync.RWMutex
 	once      sync.Once
 
+	// Tailscale IP ranges
+	_, tailscaleIPv4Net, _ = net.ParseCIDR("100.64.0.0/10")
+	_, tailscaleIPv6Net, _ = net.ParseCIDR("fd7a:115c:a1e0::/48")
+
 	// For testing
 	geoUpdateFunc = UpdateGeoDB
+	commandRunner = func(name string, arg ...string) *exec.Cmd {
+		return exec.Command(name, arg...)
+	}
 )
 
 // InitGeoReader initializes the MaxMind database reader
@@ -170,7 +177,7 @@ func UpdateGeoDB(cfg *Config) error {
 	}
 
 	// #nosec G204 - These paths are derived from trusted internal configuration
-	cmd := exec.Command("geoipupdate", "-v", "-f", confPath, "-d", dbDir)
+	cmd := commandRunner("geoipupdate", "-v", "-f", confPath, "-d", dbDir)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("geoipupdate failed: %w, output: %s", err, string(output))
@@ -187,16 +194,16 @@ func GetCountryCode(ipStr string) string {
 		return "unknown"
 	}
 
+	// Check for Tailscale first (IPv4 CGNAT range 100.64.0.0/10 and IPv6 ULA)
+	if (tailscaleIPv4Net != nil && tailscaleIPv4Net.Contains(parsedIP)) ||
+		(tailscaleIPv6Net != nil && tailscaleIPv6Net.Contains(parsedIP)) {
+		GeoIPLookupsTotal.WithLabelValues("tailscale").Inc()
+		return "Tailscale"
+	}
+
 	if isPrivateNetIP(parsedIP) {
 		GeoIPLookupsTotal.WithLabelValues("internal").Inc()
 		return "Internal"
-	}
-
-	// Check for Tailscale (CGNAT range 100.64.0.0/10)
-	_, tailscaleNet, _ := net.ParseCIDR("100.64.0.0/10")
-	if tailscaleNet.Contains(parsedIP) {
-		GeoIPLookupsTotal.WithLabelValues("tailscale").Inc()
-		return "Tailscale"
 	}
 
 	// Memory Cache Check
@@ -271,14 +278,5 @@ func IsPrivateIP(ipStr string) bool {
 }
 
 func isPrivateNetIP(ip net.IP) bool {
-	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-		return true
-	}
-
-	// Private ranges
-	_, private24, _ := net.ParseCIDR("10.0.0.0/8")
-	_, private20, _ := net.ParseCIDR("172.16.0.0/12")
-	_, private16, _ := net.ParseCIDR("192.168.0.0/16")
-
-	return private24.Contains(ip) || private20.Contains(ip) || private16.Contains(ip)
+	return ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast()
 }

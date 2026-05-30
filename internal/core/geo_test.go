@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"net"
+	"os/exec"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -17,6 +18,7 @@ func TestIsPrivateIP(t *testing.T) {
 		ip       string
 		expected bool
 	}{
+		// IPv4
 		{"127.0.0.1", true},
 		{"10.0.0.1", true},
 		{"172.16.0.1", true},
@@ -24,6 +26,13 @@ func TestIsPrivateIP(t *testing.T) {
 		{"100.64.0.5", false}, // Tailscale is not "private" in the RFC1918 sense for this function
 		{"8.8.8.8", false},
 		{"1.1.1.1", false},
+
+		// IPv6
+		{"::1", true},
+		{"fe80::1", true},
+		{"fd00::1", true},
+		{"2001:db8::1", false},
+
 		{"invalid", false}, // Invalid parses to nil, returns false
 	}
 
@@ -32,17 +41,107 @@ func TestIsPrivateIP(t *testing.T) {
 	}
 }
 
-func TestGetCountryCode(t *testing.T) {
-	// Mock Tailscale
-	assert.Equal(t, "Tailscale", GetCountryCode("100.64.0.1"))
-	assert.Equal(t, "Tailscale", GetCountryCode("100.127.255.254"))
+func TestGetCountryCode_Table(t *testing.T) {
+	// Clear cache to avoid interference
+	GeoCache = NewGeoLRUCache(1000)
 
-	// Mock Internal
-	assert.Equal(t, "Internal", GetCountryCode("192.168.1.50"))
+	tests := []struct {
+		ip       string
+		expected string
+	}{
+		// IPv4
+		{"127.0.0.1", "Internal"},
+		{"10.0.0.1", "Internal"},
+		{"100.64.0.1", "Tailscale"},
+		{"8.8.8.8", "unknown"}, // Assuming no reader loaded
 
-	// Mock Cache behavior
-	GeoCache.Put("8.8.4.4", "cached-country")
-	assert.Equal(t, "cached-country", GetCountryCode("8.8.4.4"))
+		// IPv6
+		{"::1", "Internal"},
+		{"fd00::1", "Internal"},
+		{"fd7a:115c:a1e0::1", "Tailscale"},
+		{"2001:db8::1", "unknown"},
+
+		// Edge
+		{"invalid", "unknown"},
+		{"", "unknown"},
+	}
+
+	// Ensure reader is nil for these tests
+	geoLock.Lock()
+	oldReader := geoReader
+	geoReader = nil
+	geoLock.Unlock()
+	defer func() {
+		geoLock.Lock()
+		geoReader = oldReader
+		geoLock.Unlock()
+	}()
+
+	for _, tt := range tests {
+		t.Run(tt.ip, func(t *testing.T) {
+			assert.Equal(t, tt.expected, GetCountryCode(tt.ip))
+		})
+	}
+}
+
+func TestGetCountryCode_Mocked(t *testing.T) {
+	// Clear cache
+	GeoCache = NewGeoLRUCache(1000)
+
+	mock := &mockGeoReader{
+		countryFunc: func(ip net.IP) (*geoip2.Country, error) {
+			if ip.String() == "8.8.8.8" {
+				record := &geoip2.Country{}
+				record.Country.IsoCode = "US"
+				return record, nil
+			}
+			return &geoip2.Country{}, nil
+		},
+	}
+	geoLock.Lock()
+	oldReader := geoReader
+	geoReader = mock
+	geoLock.Unlock()
+	defer func() {
+		geoLock.Lock()
+		geoReader = oldReader
+		geoLock.Unlock()
+	}()
+
+	assert.Equal(t, "US", GetCountryCode("8.8.8.8"))
+	assert.Equal(t, "unknown", GetCountryCode("8.8.4.4"))
+}
+
+func TestUpdateGeoDB_Mocked(t *testing.T) {
+	origRunner := commandRunner
+	defer func() { commandRunner = origRunner }()
+
+	cfg := &Config{
+		MaxMindAccountID:  "id",
+		MaxMindLicenseKey: "key",
+		MaxMindDBPath:     "/tmp/test.mmdb",
+	}
+
+	// 1. Success
+	commandRunner = func(name string, arg ...string) *exec.Cmd {
+		return exec.Command("true")
+	}
+	err := UpdateGeoDB(cfg)
+	assert.NoError(t, err)
+
+	// 2. Failure
+	commandRunner = func(name string, arg ...string) *exec.Cmd {
+		return exec.Command("false")
+	}
+	err = UpdateGeoDB(cfg)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "geoipupdate failed")
+}
+
+func TestGetCountryCode_Cache(t *testing.T) {
+	GeoCache = NewGeoLRUCache(1000)
+	GeoCache.Put("1.2.3.4", "TEST")
+	assert.Equal(t, "TEST", GetCountryCode("1.2.3.4"))
 }
 
 type mockGeoReader struct {
@@ -73,6 +172,8 @@ func (m *mockGeoReader) Close() error {
 }
 
 func TestGetCountryCode_EdgeCases(t *testing.T) {
+	GeoCache = NewGeoLRUCache(1000)
+
 	// 1. Unloaded reader
 	geoLock.Lock()
 	oldReader := geoReader
@@ -127,6 +228,7 @@ func TestGetCountryCode_EdgeCases(t *testing.T) {
 }
 
 func TestGetCountryCode_InvalidIP(t *testing.T) {
+	GeoCache = NewGeoLRUCache(1000)
 	assert.Equal(t, "unknown", GetCountryCode("invalid"))
 	assert.Equal(t, "unknown", GetCountryCode("999.999.999.999"))
 }
