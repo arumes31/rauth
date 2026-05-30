@@ -97,10 +97,19 @@ func HasActiveSessions(ip string) bool {
 			return false
 		}
 
-		for _, k := range keys {
-			data, err := TokenDB.HGetAll(Ctx, k).Result()
-			if err == nil && data["ip"] == ip && data["status"] == "valid" {
-				return true
+		if len(keys) > 0 {
+			pipe := TokenDB.Pipeline()
+			cmds := make([]*redis.MapStringStringCmd, len(keys))
+			for i, k := range keys {
+				cmds[i] = pipe.HGetAll(Ctx, k)
+			}
+			_, _ = pipe.Exec(Ctx)
+
+			for _, cmd := range cmds {
+				data, err := cmd.Result()
+				if err == nil && data["ip"] == ip && data["status"] == "valid" {
+					return true
+				}
 			}
 		}
 
@@ -132,23 +141,40 @@ func SyncSessionIndexes() int64 {
 			break
 		}
 
-		for _, key := range keys {
-			data, err := TokenDB.HGetAll(Ctx, key).Result()
-			if err != nil || len(data) == 0 {
-				continue
+		if len(keys) > 0 {
+			pipe := TokenDB.Pipeline()
+			hGetAllCmds := make([]*redis.MapStringStringCmd, len(keys))
+			for i, key := range keys {
+				hGetAllCmds[i] = pipe.HGetAll(Ctx, key)
+			}
+			_, _ = pipe.Exec(Ctx)
+
+			// Second pipeline for SAdd operations
+			sAddPipe := TokenDB.Pipeline()
+			var pendingSAdds bool
+
+			for i, key := range keys {
+				data, err := hGetAllCmds[i].Result()
+				if err != nil || len(data) == 0 {
+					continue
+				}
+
+				username := data["username"]
+				if username != "" && data["status"] == "valid" {
+					token := strings.TrimPrefix(key, prefix)
+					if token != key {
+						sAddPipe.SAdd(Ctx, "user_sessions:"+username, token)
+						pendingSAdds = true
+						count++
+					} else {
+						slog.Warn("SyncSessionIndexes: token key missing expected prefix", "key", key)
+					}
+				}
 			}
 
-			username := data["username"]
-			if username != "" && data["status"] == "valid" {
-				token := strings.TrimPrefix(key, prefix)
-				if token != key {
-					if err := TokenDB.SAdd(Ctx, "user_sessions:"+username, token).Err(); err != nil {
-						slog.Warn("SyncSessionIndexes: SAdd failed", "username", username, "error", err)
-						continue
-					}
-					count++
-				} else {
-					slog.Warn("SyncSessionIndexes: token key missing expected prefix", "key", key)
+			if pendingSAdds {
+				if _, err := sAddPipe.Exec(Ctx); err != nil {
+					slog.Warn("SyncSessionIndexes: batched SAdd failed", "error", err)
 				}
 			}
 		}

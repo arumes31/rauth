@@ -46,12 +46,14 @@ func ListUsers() ([]User, error) {
 			continue
 		}
 
-		// Ensure UID exists for older users (fallback to GetUser to trigger mutation)
+		// Ensure UID exists for older users
 		if user.UID == "" {
-			user, err = GetUser(username)
-			if err != nil {
-				continue
-			}
+			newUUID := uuid.New()
+			user.UID = newUUID.String()
+			UserDB.HSet(Ctx, "user:"+username, "uid", user.UID)
+			UserDB.Set(Ctx, "uid:"+user.UID, username, 0)
+			// Index by binary representation as well for raw UserHandle lookups
+			UserDB.Set(Ctx, "uid_bin:"+string(newUUID[:]), username, 0)
 		}
 
 		users = append(users, user)
