@@ -464,6 +464,9 @@ func TestAuthHandler_CompleteSetup2FA(t *testing.T) {
 		username := "setupuser"
 		setupToken := "setup-token-abc"
 		secret := "JBSWY3DPEHPK3PXP"
+		// The user always exists by the time setup completes (they authenticated
+		// with a password first); create it so issueToken can stamp groups/admin.
+		_ = core.CreateUser(username, "password123", "setup@example.com", false, "")
 		encryptedToken := setupPending(username, setupToken, secret)
 
 		code, _ := totp.GenerateCode(secret, time.Now())

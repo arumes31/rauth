@@ -40,11 +40,14 @@ func (t *TemplateRenderer) Render(w io.Writer, name string, data interface{}, c 
 }
 
 func main() {
-	cfg := core.LoadConfig()
-
-	// Initialize slog with a configurable level (LOG_LEVEL)
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: parseLogLevel(cfg.LogLevel)}))
+	// Initialize the structured JSON logger before parsing config so the
+	// getEnvInt/getEnvBool warnings about invalid env values are emitted through
+	// the same handler (LOG_LEVEL is read directly here since LoadConfig hasn't
+	// run yet; parseLogLevel defaults to Info on an empty value).
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: parseLogLevel(os.Getenv("LOG_LEVEL"))}))
 	slog.SetDefault(logger)
+
+	cfg := core.LoadConfig()
 
 	// Fail fast on a missing/weak server secret: it derives the AES key for
 	// session tokens and 2FA secrets, so an empty value is catastrophic.
@@ -156,9 +159,14 @@ func setupMiddleware(e *echo.Echo, cfg *core.Config) {
 	e.Use(echoMiddleware.SecureWithConfig(echoMiddleware.SecureConfig{
 		XSSProtection:         "1; mode=block",
 		ContentTypeNosniff:    "nosniff",
-		XFrameOptions:         "SAMEORIGIN",
-		HSTSMaxAge:            31536000,
-		HSTSPreloadEnabled:    true,
+		XFrameOptions: "SAMEORIGIN",
+		// HSTS with preload is a hard-to-reverse commitment: it emits
+		// `includeSubDomains; preload`, so every subdomain of COOKIE_DOMAIN MUST
+		// be served exclusively over HTTPS before this is left enabled (and
+		// before submitting the domain to the preload list). If any subdomain
+		// needs plain HTTP, set HSTSPreloadEnabled:false and/or lower HSTSMaxAge.
+		HSTSMaxAge:         31536000,
+		HSTSPreloadEnabled: true,
 		ContentSecurityPolicy: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'",
 	}))
 	e.Use(echoMiddleware.BodyLimit("1M"))

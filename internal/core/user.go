@@ -72,12 +72,20 @@ func GetUser(username string) (User, error) {
 func ensureUID(username string) (string, error) {
 	newUUID := uuid.New()
 	uidStr := newUUID.String()
+	// Write the lookup indexes first and verify they succeed. Only then stamp the
+	// "uid" field on the user hash: if an index write fails we leave the user
+	// un-stamped so EnsureUserUIDs retries on the next startup, and
+	// GetUsernameByUID can rely on the indexes being consistent with the field.
+	if err := UserDB.Set(Ctx, "uid:"+uidStr, username, 0).Err(); err != nil {
+		return "", err
+	}
+	// Index by binary representation as well for raw UserHandle lookups.
+	if err := UserDB.Set(Ctx, "uid_bin:"+string(newUUID[:]), username, 0).Err(); err != nil {
+		return "", err
+	}
 	if err := UserDB.HSet(Ctx, "user:"+username, "uid", uidStr).Err(); err != nil {
 		return "", err
 	}
-	UserDB.Set(Ctx, "uid:"+uidStr, username, 0)
-	// Index by binary representation as well for raw UserHandle lookups.
-	UserDB.Set(Ctx, "uid_bin:"+string(newUUID[:]), username, 0)
 	return uidStr, nil
 }
 
@@ -92,6 +100,12 @@ func EnsureUserUIDs() {
 	for _, username := range usernames {
 		uid, err := UserDB.HGet(Ctx, "user:"+username, "uid").Result()
 		if err == nil && uid != "" {
+			continue
+		}
+		// Only the missing-field case (redis.Nil) warrants a backfill; a real
+		// Redis error must not be mistaken for "no uid" and trigger a rewrite.
+		if err != nil && err != redis.Nil {
+			slog.Error("EnsureUserUIDs: failed to read uid", "user", username, "error", err)
 			continue
 		}
 		if _, err := ensureUID(username); err != nil {

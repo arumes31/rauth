@@ -7,6 +7,7 @@ import (
 	"rauth/internal/core"
 
 	"github.com/labstack/echo/v4"
+	"github.com/redis/go-redis/v9"
 )
 
 func AuthMiddleware(cfg *core.Config) echo.MiddlewareFunc {
@@ -73,11 +74,15 @@ func AdminMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 		isAdmin, _ := c.Get("is_admin").(string)
 		if isAdmin == "" {
 			v, err := core.UserDB.HGet(core.Ctx, "user:"+username, "is_admin").Result()
-			if err != nil {
+			if err == redis.Nil {
+				// Missing field => not an admin; fall through to the 403 below.
+				isAdmin = "0"
+			} else if err != nil {
 				slog.Error("Failed to fetch admin status in admin middleware", "user", username, "error", err)
 				return echo.NewHTTPError(http.StatusInternalServerError, "Internal Server Error")
+			} else {
+				isAdmin = v
 			}
-			isAdmin = v
 		}
 
 		if isAdmin != "1" {

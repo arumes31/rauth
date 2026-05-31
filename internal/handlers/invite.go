@@ -33,8 +33,8 @@ func (h *InviteHandler) Create(c echo.Context) error {
 
 	inviteURL := h.Cfg.PublicURL + "/rauthredeem?token=" + token
 
-	// If email config exists, we could send it here.
-	// For now, return it so the admin can copy-paste.
+	// The token/URL is returned to the (admin-only) caller to share manually;
+	// delivery is intentionally out of band rather than emailed by this endpoint.
 	return c.JSON(http.StatusOK, map[string]string{
 		"token": token,
 		"url":   inviteURL,

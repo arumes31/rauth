@@ -129,9 +129,11 @@ func (h *AuthHandler) rateLimitedUnauthorized(c echo.Context, rateLimitKey strin
 	return c.NoContent(http.StatusUnauthorized)
 }
 
-// invalidateSession removes a session token and its user index entry.
-func (h *AuthHandler) invalidateSession(token, redisKey, username string) {
+// invalidateSession removes a session token and both its user and per-IP index
+// entries, so HasActiveSessions does not keep seeing a stale ip_sessions entry.
+func (h *AuthHandler) invalidateSession(token, redisKey, username, clientIP string) {
 	core.RemoveSessionIndex(username, token)
+	core.RemoveIPSessionIndex(clientIP, token)
 	core.TokenDB.Del(core.Ctx, redisKey)
 }
 
@@ -144,7 +146,7 @@ func (h *AuthHandler) sessionGeoAllowed(token, redisKey string, data map[string]
 	if !h.Cfg.IsCountryAllowed(currentCountry) {
 		slog.Warn("Access from blocked country", "country", currentCountry, "ip", clientIP)
 		core.LogAudit("BLOCKED_COUNTRY_ACCESS", data["username"], clientIP, map[string]interface{}{"country": currentCountry})
-		h.invalidateSession(token, redisKey, data["username"])
+		h.invalidateSession(token, redisKey, data["username"], clientIP)
 		return false
 	}
 
@@ -161,7 +163,7 @@ func (h *AuthHandler) sessionGeoAllowed(token, redisKey string, data map[string]
 		}
 
 		core.LogAudit("COUNTRY_CHANGE_DETECTED", data["username"], clientIP, details)
-		h.invalidateSession(token, redisKey, data["username"])
+		h.invalidateSession(token, redisKey, data["username"], clientIP)
 		return false
 	}
 
@@ -230,7 +232,7 @@ func (h *AuthHandler) sessionUAMatches(c echo.Context, token, redisKey string, d
 		"stored_ch_model", storedModel, "current_ch_model", chModel,
 	)
 	core.LogAudit("USER_AGENT_MISMATCH_INVALIDATED", data["username"], clientIP, details)
-	h.invalidateSession(token, redisKey, data["username"])
+	h.invalidateSession(token, redisKey, data["username"], clientIP)
 	return false
 }
 
@@ -638,7 +640,14 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 	// Fetch the user up-front so groups/admin status are stamped into the
 	// session token. The forward-auth (/rauthvalidate) and AuthMiddleware then
 	// forward X-RAuth-Groups / X-RAuth-Admin without an extra Redis lookup.
-	userRecord, _ := core.GetUser(username)
+	userRecord, err := core.GetUser(username)
+	if err != nil {
+		// Don't issue a session with empty groups/is_admin on a transient read
+		// failure: that would silently downgrade the user's authorization. The
+		// caller has already authenticated, so fail closed.
+		slog.Error("Failed to load user record at token issue", "user", username, "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Internal Server Error")
+	}
 
 	redisKey := "X-rauth-authtoken=" + token
 	err = core.TokenDB.HSet(core.Ctx, redisKey, map[string]interface{}{

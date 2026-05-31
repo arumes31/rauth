@@ -114,8 +114,15 @@ func (h *ProfileHandler) GenerateRecoveryCodes(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "Enable TOTP before generating recovery codes")
 	}
 
-	if herr := h.validateTOTP(username, c.FormValue("otp_code"), userData["2fa_secret"]); herr != nil {
+	otpCode := c.FormValue("otp_code")
+	if herr := h.validateTOTP(username, otpCode, userData["2fa_secret"]); herr != nil {
 		return herr
+	}
+	// Enforce single-use of the TOTP code (same replay protection as the login
+	// flow). This also makes the action idempotent against a browser refresh:
+	// re-submitting the same code regenerates nothing.
+	if core.TOTPCodeReused(username, otpCode) {
+		return echo.NewHTTPError(http.StatusBadRequest, "This code was already used. Please wait for a new code.")
 	}
 
 	codes, err := core.GenerateRecoveryCodes(username)
@@ -125,6 +132,9 @@ func (h *ProfileHandler) GenerateRecoveryCodes(c echo.Context) error {
 	}
 
 	core.LogAudit("2FA_RECOVERY_CODES_GENERATED", username, c.RealIP(), nil)
+	// The freshly generated codes are sensitive; keep them out of any cache.
+	c.Response().Header().Set("Cache-Control", "no-store")
+	c.Response().Header().Set("Pragma", "no-cache")
 	return c.Render(http.StatusOK, "recovery_codes.html", map[string]interface{}{
 		"codes":    codes,
 		"username": username,
