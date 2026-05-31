@@ -308,6 +308,9 @@ RAuth is configured via Environment Variables.
 | **WebAuthn**| `WEBAUTHN_ORIGINS`| Allowed origins for Passkeys (Comma-separated)| (Auto-generated) |
 | **URL**    | `PUBLIC_URL` | Base URL for email links (e.g., `https://auth.example.com`) | `http://localhost:5980` |
 | **Network**| `AUTH_PORT` | Port to expose the auth service | `5980` |
+| **Proxy**  | `TRUST_X_FORWARDED_FOR` | Trust leftmost IP in `X-Forwarded-For` | `false` |
+| **Proxy**  | `TRUST_X_REAL_IP` | Trust IP in `X-Real-IP` | `false` |
+| **Proxy**  | `TRUST_CLOUDFLARE_IP` | Trust IP in `CF-Connecting-IP` | `false` |
 | **Policy** | `PWD_MIN_LENGTH` | Minimum required password length | `8` |
 | **Policy** | `PWD_REQUIRE_UPPER` | Require uppercase in passwords | `true` |
 | **Policy** | `PWD_REQUIRE_LOWER` | Require lowercase in passwords | `true` |
@@ -387,7 +390,13 @@ RAuth requires MaxMind GeoLite2 databases for advanced session geo-fencing and s
    INITIAL_EMAIL=admin@example.com
    ```
 
-### 🚢 Step 3: Choose Deployment Mode & Launch
+### 🛡️ Step 4: Configure Reverse Proxy Trust (Recommended)
+By default, RAuth uses **Smart IP Detection** to find the real client IP if the connection comes from a private network (like Docker). If your reverse proxy is on a public IP or you want explicit control, set these in `.env`:
+- `TRUST_X_FORWARDED_FOR=true`: If your proxy sends the standard `X-Forwarded-For` header.
+- `TRUST_X_REAL_IP=true`: If your proxy sends a single IP in `X-Real-IP`.
+- `TRUST_CLOUDFLARE_IP=true`: If you are using Cloudflare.
+
+### 🚢 Step 5: Choose Deployment Mode & Launch
 
 RAuth provides two Docker Compose configurations to suit your needs:
 
@@ -537,7 +546,7 @@ A: This can happen if the hardware key was cloned or the local state fell out of
 A: This happens if the user's IP address maps to an unlisted country, or the local MaxMind database is stale or missing. Verify that `MAXMIND_ACCOUNT_ID` and `MAXMIND_LICENSE_KEY` are correct, check container logs for geo-download status, or adjust the `ALLOWED_COUNTRIES` environment variable.
 
 **Q: Why are active sessions not displaying the correct client IP addresses in the admin audits?**  
-A: Nginx is likely not propagating the user's real IP address to the RAuth validation subrequest. Ensure your Nginx configuration passes `proxy_set_header X-Real-IP $remote_addr;` and `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;` to RAuth.
+A: Ensure your Nginx configuration passes `proxy_set_header X-Real-IP $remote_addr;` and `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;` to RAuth. RAuth includes **Smart IP Detection** which automatically trusts these headers if the immediate connection originates from a private IP range (like a Docker network). For complex multi-hop setups or if your proxy is on a public IP, you must explicitly enable `TRUST_X_FORWARDED_FOR=true` in your `.env`.
 
 ---
 
