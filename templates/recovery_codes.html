@@ -1,0 +1,36 @@
+{{define "recovery_codes.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Recovery Codes | RAuth</title>
+    <link rel="icon" type="image/png" href="/static/favicon.png">
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/css/bootstrap-icons.min.css" rel="stylesheet">
+    <link href="/static/css/modern.css" rel="stylesheet">
+</head>
+<body class="bg-light-animated d-flex align-items-center justify-content-center vh-100">
+    <div class="card animate-fade-in shadow-lg" style="width: 100%; max-width: 480px;">
+        <div class="card-header text-center pt-4 pb-3 border-0">
+            <h3 class="fw-bold text-primary mb-0">Your Recovery Codes</h3>
+            <p class="text-muted small mt-2">Store these somewhere safe</p>
+        </div>
+        <div class="card-body px-5 pb-5">
+            <div class="alert alert-warning bg-warning bg-opacity-10 text-warning border-0 small mb-4">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                These codes are shown <b>only once</b>. Each code can be used a single time to sign in if you lose access to your authenticator.
+            </div>
+
+            <div class="alert alert-secondary bg-black bg-opacity-50 text-center text-primary font-monospace py-3 border border-secondary mb-4" style="letter-spacing: 2px;">
+                {{range .codes}}<div>{{.}}</div>{{end}}
+            </div>
+
+            <a href="/rauthprofile?success=recovery_generated" class="btn btn-primary w-100 py-2">
+                <i class="bi bi-check-lg me-2"></i>I have saved my codes
+            </a>
+        </div>
+    </div>
+</body>
+</html>
+{{end}}

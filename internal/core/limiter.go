@@ -4,21 +4,35 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
+// incrAndExpireScript atomically increments a counter and, on its first
+// increment, sets the decay TTL. Doing both in one round-trip removes the race
+// where a crash between INCR and EXPIRE could leave a counter without a TTL
+// (a permanent lock).
+var incrAndExpireScript = redis.NewScript(`
+local count = redis.call("INCR", KEYS[1])
+if count == 1 then
+	redis.call("EXPIRE", KEYS[1], ARGV[1])
+end
+return count
+`)
+
+func incrAndExpire(fullKey string, decaySeconds int) (int64, error) {
+	return incrAndExpireScript.Run(Ctx, RateLimitDB, []string{fullKey}, decaySeconds).Int64()
+}
+
 func CheckRateLimit(key string, maxAttempts int, decaySeconds int) bool {
 	fullKey := "rate_limit:" + key
 
-	count, err := RateLimitDB.Incr(Ctx, fullKey).Result()
+	count, err := incrAndExpire(fullKey, decaySeconds)
 	if err != nil {
-		return true // Fail open if Redis is down? Or return false? Let's stay with true for now.
-	}
-
-	if count == 1 {
-		RateLimitDB.Expire(Ctx, fullKey, time.Duration(decaySeconds)*time.Second)
+		// Fail closed: if Redis is unavailable we cannot account for attempts,
+		// so deny rather than allow. This matches IsRateLimitExceeded's policy.
+		slog.Error("Rate limit check failed, failing closed", "key", key, "error", err)
+		return false
 	}
 
 	if int(count) > maxAttempts {
@@ -57,13 +71,10 @@ func IsRateLimitExceeded(key string, maxAttempts int) bool {
 func ReserveRateLimitAttempt(key string, limit int, decaySeconds int) (bool, int, error) {
 	fullKey := "rate_limit:" + key
 
-	count, err := RateLimitDB.Incr(Ctx, fullKey).Result()
+	count, err := incrAndExpire(fullKey, decaySeconds)
 	if err != nil {
+		// Fail closed: treat an unavailable backend as "exceeded".
 		return true, 0, err
-	}
-
-	if count == 1 {
-		RateLimitDB.Expire(Ctx, fullKey, time.Duration(decaySeconds)*time.Second)
 	}
 
 	exceeded := int(count) > limit

@@ -183,6 +183,22 @@
                             <div id="webauthn-message" class="extra-small mt-2"></div>
                         </div>
 
+                        {{if .has2FA}}
+                        <hr class="my-4">
+                        <div class="mb-3">
+                            <h6 class="small fw-bold text-muted text-uppercase mb-3">Recovery Codes</h6>
+                            <p class="extra-small text-muted">Single-use codes to sign in if you lose your authenticator. You have <span class="fw-bold">{{.recoveryCount}}</span> unused code(s).</p>
+                            <form method="POST" action="/rauthprofile/recovery/generate" onsubmit="return confirm('Generate new recovery codes? Any existing codes will stop working.');">
+                                <input type="hidden" name="csrf" value="{{.csrf}}">
+                                <div class="input-group input-group-sm mb-2">
+                                    <span class="input-group-text">2FA Code</span>
+                                    <input type="text" name="otp_code" class="form-control" placeholder="000000" required maxlength="6" inputmode="numeric">
+                                </div>
+                                <button type="submit" class="btn btn-outline-danger btn-sm w-100 py-2"><i class="bi bi-arrow-repeat me-2"></i>Generate Recovery Codes</button>
+                            </form>
+                        </div>
+                        {{end}}
+
                         <script src="/static/js/simplewebauthn-browser.min.js"></script>
                         <script>
                             document.getElementById('register-webauthn').addEventListener('click', async () => {
@@ -500,7 +516,8 @@
                     'password_changed': 'Credentials updated successfully.',
                     'totp_disabled': 'Two-factor authentication has been disabled.',
                     'passkey_renamed': 'Security key nickname updated.',
-                    'passkey_revoked': 'Security key has been revoked.'
+                    'passkey_revoked': 'Security key has been revoked.',
+                    'recovery_generated': 'New recovery codes generated.'
                 };
                 
                 const msg = messages[success] || 'Operation successful.';

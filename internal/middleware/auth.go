@@ -38,14 +38,22 @@ func AuthMiddleware(cfg *core.Config) echo.MiddlewareFunc {
 			c.Set("username", data["username"])
 			c.Set("token", token)
 
+			// is_admin is stamped into the token at issue time. Fall back to a
+			// single-field user lookup only for legacy sessions that predate it.
+			isAdmin := data["is_admin"]
+			if isAdmin == "" {
+				if v, err := core.UserDB.HGet(core.Ctx, "user:"+data["username"], "is_admin").Result(); err == nil {
+					isAdmin = v
+				}
+			}
+			if isAdmin == "" {
+				isAdmin = "0"
+			}
+			c.Set("is_admin", isAdmin)
+
 			// Set headers for Nginx auth_request to forward to upstream
 			c.Response().Header().Set("X-RAuth-User", data["username"])
 			c.Response().Header().Set("X-RAuth-Groups", data["groups"])
-
-			isAdmin := "0"
-			if userData, err := core.UserDB.HGetAll(core.Ctx, "user:"+data["username"]).Result(); err == nil {
-				isAdmin = userData["is_admin"]
-			}
 			c.Response().Header().Set("X-RAuth-Admin", isAdmin)
 
 			return next(c)
@@ -60,13 +68,19 @@ func AdminMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 			return c.Redirect(http.StatusFound, "/rauthlogin")
 		}
 
-		userData, err := core.UserDB.HGetAll(core.Ctx, "user:"+username).Result()
-		if err != nil {
-			slog.Error("Failed to fetch user data in admin middleware", "user", username, "error", err)
-			return echo.NewHTTPError(http.StatusInternalServerError, "Internal Server Error")
+		// AuthMiddleware already resolved admin status into the context; reuse it
+		// rather than re-fetching the whole user hash.
+		isAdmin, _ := c.Get("is_admin").(string)
+		if isAdmin == "" {
+			v, err := core.UserDB.HGet(core.Ctx, "user:"+username, "is_admin").Result()
+			if err != nil {
+				slog.Error("Failed to fetch admin status in admin middleware", "user", username, "error", err)
+				return echo.NewHTTPError(http.StatusInternalServerError, "Internal Server Error")
+			}
+			isAdmin = v
 		}
 
-		if userData["is_admin"] != "1" {
+		if isAdmin != "1" {
 			slog.Warn("Unauthorized admin access attempt", "user", username, "ip", c.RealIP())
 			return echo.NewHTTPError(http.StatusForbidden, "Admin access required")
 		}

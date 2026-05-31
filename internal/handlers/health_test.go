@@ -25,6 +25,8 @@ func TestHealthCheck(t *testing.T) {
 		assert.Contains(t, rec.Body.String(), "\"status\"")
 	})
 
+	// Redis is a required dependency, so a failed ping makes the service
+	// unready: status FAIL with HTTP 503 (readiness), not merely degraded.
 	t.Run("Redis UserDB Failure", func(t *testing.T) {
 		originalUserDB := core.UserDB
 		failClient := redis.NewClient(&redis.Options{Addr: "localhost:1"})
@@ -35,8 +37,8 @@ func TestHealthCheck(t *testing.T) {
 
 		err := h.Check(c)
 		assert.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
-		assert.Contains(t, rec.Body.String(), "DEGRADED")
+		assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+		assert.Contains(t, rec.Body.String(), "FAIL")
 	})
 
 	t.Run("Redis TokenDB Failure", func(t *testing.T) {
@@ -49,7 +51,7 @@ func TestHealthCheck(t *testing.T) {
 
 		err := h.Check(c)
 		assert.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
-		assert.Contains(t, rec.Body.String(), "DEGRADED")
+		assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+		assert.Contains(t, rec.Body.String(), "FAIL")
 	})
 }

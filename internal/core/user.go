@@ -2,9 +2,11 @@ package core
 
 import (
 	"fmt"
+	"log/slog"
+	"time"
+
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
-	"time"
 )
 
 type User struct {
@@ -45,20 +47,15 @@ func ListUsers() ([]User, error) {
 		if err != nil || user.Username == "" {
 			continue
 		}
-
-		// Ensure UID exists for older users (fallback to GetUser to trigger mutation)
-		if user.UID == "" {
-			user, err = GetUser(username)
-			if err != nil {
-				continue
-			}
-		}
-
+		// UID backfill is handled at startup by EnsureUserUIDs, so no per-row
+		// mutation is needed here.
 		users = append(users, user)
 	}
 	return users, nil
 }
 
+// GetUser reads a user record. It is side-effect free; UID backfill for legacy
+// records is handled by EnsureUserUIDs at startup and by CreateUser for new users.
 func GetUser(username string) (User, error) {
 	var user User
 	err := UserDB.HGetAll(Ctx, "user:"+username).Scan(&user)
@@ -68,18 +65,39 @@ func GetUser(username string) (User, error) {
 	if user.Username == "" {
 		return user, fmt.Errorf("user not found")
 	}
-
-	// Ensure UID exists for older users
-	if user.UID == "" {
-		newUUID := uuid.New()
-		user.UID = newUUID.String()
-		UserDB.HSet(Ctx, "user:"+username, "uid", user.UID)
-		UserDB.Set(Ctx, "uid:"+user.UID, username, 0)
-		// Index by binary representation as well for raw UserHandle lookups
-		UserDB.Set(Ctx, "uid_bin:"+string(newUUID[:]), username, 0)
-	}
-
 	return user, nil
+}
+
+// ensureUID assigns a UID and its lookup indexes to a user that lacks one.
+func ensureUID(username string) (string, error) {
+	newUUID := uuid.New()
+	uidStr := newUUID.String()
+	if err := UserDB.HSet(Ctx, "user:"+username, "uid", uidStr).Err(); err != nil {
+		return "", err
+	}
+	UserDB.Set(Ctx, "uid:"+uidStr, username, 0)
+	// Index by binary representation as well for raw UserHandle lookups.
+	UserDB.Set(Ctx, "uid_bin:"+string(newUUID[:]), username, 0)
+	return uidStr, nil
+}
+
+// EnsureUserUIDs backfills UIDs for any legacy users created before UIDs
+// existed. Run once at startup so GetUser can remain read-only.
+func EnsureUserUIDs() {
+	usernames, err := UserDB.SMembers(Ctx, "users").Result()
+	if err != nil {
+		slog.Error("EnsureUserUIDs: failed to list users", "error", err)
+		return
+	}
+	for _, username := range usernames {
+		uid, err := UserDB.HGet(Ctx, "user:"+username, "uid").Result()
+		if err == nil && uid != "" {
+			continue
+		}
+		if _, err := ensureUID(username); err != nil {
+			slog.Warn("EnsureUserUIDs: failed to backfill UID", "user", username, "error", err)
+		}
+	}
 }
 
 func CreateUser(username, password, email string, isAdmin bool, twoFactor string) error {

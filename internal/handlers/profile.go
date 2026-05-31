@@ -92,11 +92,42 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 		"email":    userData["email"],
 		"groups":   userData["groups"],
 		"isAdmin":  userData["is_admin"] == "1",
-		"has2FA":   userData["2fa_secret"] != "",
-		"sessions": sessions,
-		"logs":     logs,
-		"passkeys": passkeys,
-		"csrf":     c.Get("csrf"),
+		"has2FA":        userData["2fa_secret"] != "",
+		"recoveryCount": core.CountRecoveryCodes(username),
+		"sessions":      sessions,
+		"logs":          logs,
+		"passkeys":      passkeys,
+		"csrf":          c.Get("csrf"),
+	})
+}
+
+// GenerateRecoveryCodes issues a fresh batch of single-use 2FA recovery codes
+// after re-verifying the user's current TOTP code, and displays them once.
+func (h *ProfileHandler) GenerateRecoveryCodes(c echo.Context) error {
+	username := c.Get("username").(string)
+
+	userData, err := core.UserDB.HGetAll(core.Ctx, "user:"+username).Result()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Internal error")
+	}
+	if userData["2fa_secret"] == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "Enable TOTP before generating recovery codes")
+	}
+
+	if herr := h.validateTOTP(username, c.FormValue("otp_code"), userData["2fa_secret"]); herr != nil {
+		return herr
+	}
+
+	codes, err := core.GenerateRecoveryCodes(username)
+	if err != nil {
+		slog.Error("Failed to generate recovery codes", "user", username, "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to generate recovery codes")
+	}
+
+	core.LogAudit("2FA_RECOVERY_CODES_GENERATED", username, c.RealIP(), nil)
+	return c.Render(http.StatusOK, "recovery_codes.html", map[string]interface{}{
+		"codes":    codes,
+		"username": username,
 	})
 }
 
@@ -157,6 +188,8 @@ func (h *ProfileHandler) DisableTOTP(c echo.Context) error {
 	if err := core.UpdateUser(username, map[string]interface{}{"2fa_secret": ""}); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to disable TOTP")
 	}
+	// Recovery codes are tied to TOTP; clear them so stale codes can't be used.
+	core.ClearRecoveryCodes(username)
 
 	// Send notification email
 	if userData["email"] != "" {
@@ -188,7 +221,11 @@ func (h *ProfileHandler) TerminateSession(c echo.Context) error {
 
 	core.RemoveSessionIndex(username, token)
 	core.TokenDB.Del(core.Ctx, redisKey)
-	core.LogAudit("USER_TERMINATE_SESSION", username, c.RealIP(), map[string]interface{}{"token": token[:8] + "..."})
+	logToken := token
+	if len(logToken) > 8 {
+		logToken = logToken[:8] + "..."
+	}
+	core.LogAudit("USER_TERMINATE_SESSION", username, c.RealIP(), map[string]interface{}{"token": logToken})
 
 	return c.Redirect(http.StatusFound, "/rauthprofile?success=session_terminated")
 }
