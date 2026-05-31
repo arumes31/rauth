@@ -219,6 +219,19 @@ func FormatUserAgent(ua string) string {
 	return details
 }
 
+func FormatDevice(ua, platform, mobile, model string) string {
+	friendlyUA := FormatUserAgent(ua)
+	if model != "" && model != "Unknown" {
+		friendlyUA += fmt.Sprintf(" [%s]", strings.Trim(model, `"`))
+	}
+	if mobile == "?1" {
+		if !strings.Contains(friendlyUA, "[Mobile]") {
+			friendlyUA += " [Mobile]"
+		}
+	}
+	return friendlyUA
+}
+
 func GetDeviceIcon(ua string) string {
 	if strings.Contains(ua, "Android") {
 		return "bi-android2"

@@ -64,10 +64,11 @@ func TestSend2FAModifiedNotification_Detailed(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			Send2FAModifiedNotification(tt.email, tt.username, tt.action, tt.ip)
+			Send2FAModifiedNotification(tt.email, tt.username, tt.action, tt.ip, "Test Device")
 
 			assert.Equal(t, []string{tt.email}, capturedTo)
 			assert.Contains(t, capturedMsg, tt.wantSub)
+			assert.Contains(t, capturedMsg, "Test Device")
 			for _, content := range tt.wantBody {
 				assert.Contains(t, capturedMsg, content)
 			}

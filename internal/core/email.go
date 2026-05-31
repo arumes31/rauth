@@ -96,12 +96,13 @@ func SendEmail(to, subject, body string) error {
 	return nil
 }
 
-func SendLoginNotification(email, username, ip, country string) {
+func SendLoginNotification(email, username, ip, country, device string) {
 	subject := "[RAuth] Security Alert: New Login Detected"
 
 	eUsername := html.EscapeString(username)
 	eIP := html.EscapeString(ip)
 	eCountry := html.EscapeString(country)
+	eDevice := html.EscapeString(device)
 
 	body := fmt.Sprintf(`
 		<h2>New Login Detected</h2>
@@ -109,6 +110,7 @@ func SendLoginNotification(email, username, ip, country string) {
 		<p>A new login was just recorded for your account. If this was you, you can safely ignore this email.</p>
 		<div class="details">
 			<div><strong>Account:</strong> %s</div>
+			<div><strong>Device:</strong> %s</div>
 			<div><strong>IP Address:</strong> %s</div>
 			<div><strong>Location:</strong> %s</div>
 			<div><strong>Time:</strong> %s</div>
@@ -117,27 +119,29 @@ func SendLoginNotification(email, username, ip, country string) {
 			<strong>Wasn't you?</strong> If you don't recognize this activity, please change your password immediately and terminate all active sessions from your profile dashboard.
 		</div>
 		<a href="%s/rauthprofile" class="btn">Manage Account</a>
-	`, eUsername, eUsername, eIP, eCountry, time.Now().Format("Jan 02, 2006 15:04:05 MST"), LoadConfig().PublicURL)
+	`, eUsername, eUsername, eDevice, eIP, eCountry, time.Now().Format("Jan 02, 2006 15:04:05 MST"), LoadConfig().PublicURL)
 
 	_ = SendEmail(email, subject, body)
 }
 
-func SendPasswordChangeNotification(email, username, ip string) {
+func SendPasswordChangeNotification(email, username, ip, device string) {
 	subject := "[RAuth] Security Alert: Password Changed"
 
 	eUsername := html.EscapeString(username)
 	eIP := html.EscapeString(ip)
+	eDevice := html.EscapeString(device)
 
 	body := fmt.Sprintf(`
 		<h2>Password Changed</h2>
 		<p>Hello <strong>%s</strong>,</p>
 		<p>The password for your RAuth account was recently changed.</p>
 		<div class="details">
+			<div><strong>Device:</strong> %s</div>
 			<div><strong>IP Address:</strong> %s</div>
 			<div><strong>Time:</strong> %s</div>
 		</div>
 		<p>If you did not perform this change, please contact your administrator immediately.</p>
-	`, eUsername, eIP, time.Now().Format("Jan 02, 2006 15:04:05 MST"))
+	`, eUsername, eDevice, eIP, time.Now().Format("Jan 02, 2006 15:04:05 MST"))
 
 	_ = SendEmail(email, subject, body)
 }
@@ -161,12 +165,13 @@ func SendAccountCreatedNotification(email, username string) {
 	_ = SendEmail(email, subject, body)
 }
 
-func Send2FAModifiedNotification(email, username, action, ip string) {
+func Send2FAModifiedNotification(email, username, action, ip, device string) {
 	subject := sanitizeEmailHeader(fmt.Sprintf("[RAuth] Security Alert: 2FA %s", action))
 
 	eUsername := html.EscapeString(username)
 	eAction := html.EscapeString(action)
 	eIP := html.EscapeString(ip)
+	eDevice := html.EscapeString(device)
 
 	body := fmt.Sprintf(`
 		<h2>Two-Factor Authentication %s</h2>
@@ -174,13 +179,14 @@ func Send2FAModifiedNotification(email, username, action, ip string) {
 		<p>A change was made to your security settings: <strong>Two-Factor Authentication was %s</strong>.</p>
 		<div class="details">
 			<div><strong>Action:</strong> %s</div>
+			<div><strong>Device:</strong> %s</div>
 			<div><strong>IP Address:</strong> %s</div>
 			<div><strong>Time:</strong> %s</div>
 		</div>
 		<div class="alert alert-warning">
 			<strong>Wasn't you?</strong> If you did not authorize this change, your account may be compromised. Please contact your administrator immediately.
 		</div>
-	`, eAction, eUsername, eAction, eAction, eIP, time.Now().Format("Jan 02, 2006 15:04:05 MST"))
+	`, eAction, eUsername, eAction, eAction, eDevice, eIP, time.Now().Format("Jan 02, 2006 15:04:05 MST"))
 
 	_ = SendEmail(email, subject, body)
 
