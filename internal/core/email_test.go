@@ -43,22 +43,24 @@ func TestNotifications(t *testing.T) {
 	}
 
 	t.Run("SendLoginNotification", func(t *testing.T) {
-		SendLoginNotification("user@example.com", "testuser<script>", "1.2.3.4", "TestCountry")
+		SendLoginNotification("user@example.com", "testuser<script>", "1.2.3.4", "TestCountry", "Chrome on Windows (PC)")
 
 		assert.Equal(t, "rauth@example.com", capturedFrom)
 		assert.Equal(t, []string{"user@example.com"}, capturedTo)
 		assert.Contains(t, capturedMsg, "Subject: [RAuth] Security Alert: New Login Detected")
 		assert.Contains(t, capturedMsg, "testuser&lt;script&gt;")
+		assert.Contains(t, capturedMsg, "Chrome on Windows (PC)")
 		assert.Contains(t, capturedMsg, "1.2.3.4")
 		assert.Contains(t, capturedMsg, "TestCountry")
 		assert.Contains(t, capturedMsg, "https://rauth.example.com/rauthprofile")
 	})
 
 	t.Run("SendPasswordChangeNotification", func(t *testing.T) {
-		SendPasswordChangeNotification("user@example.com", "testuser", "5.6.7.8")
+		SendPasswordChangeNotification("user@example.com", "testuser", "5.6.7.8", "Chrome on Windows (PC)")
 
 		assert.Contains(t, capturedMsg, "Subject: [RAuth] Security Alert: Password Changed")
 		assert.Contains(t, capturedMsg, "testuser")
+		assert.Contains(t, capturedMsg, "Chrome on Windows (PC)")
 		assert.Contains(t, capturedMsg, "5.6.7.8")
 	})
 
@@ -71,11 +73,12 @@ func TestNotifications(t *testing.T) {
 	})
 
 	t.Run("Send2FAModifiedNotification", func(t *testing.T) {
-		Send2FAModifiedNotification("user@example.com", "testuser", "Enabled", "9.10.11.12")
+		Send2FAModifiedNotification("user@example.com", "testuser", "Enabled", "9.10.11.12", "Firefox on Android [Mobile]")
 
 		assert.Contains(t, capturedMsg, "Subject: [RAuth] Security Alert: 2FA Enabled")
 		assert.Contains(t, capturedMsg, "testuser")
 		assert.Contains(t, capturedMsg, "Enabled")
+		assert.Contains(t, capturedMsg, "Firefox on Android [Mobile]")
 		assert.Contains(t, capturedMsg, "9.10.11.12")
 	})
 }

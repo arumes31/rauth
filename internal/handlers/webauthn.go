@@ -319,7 +319,11 @@ func (h *WebAuthnHandler) issuePasskeyToken(c echo.Context, username string, use
 
 	// Send Login Notification Email (Asynchronous)
 	if userRecord.Email != "" {
-		go core.SendLoginNotification(userRecord.Email, username, clientIP, countryCode)
+		device := core.FormatDevice(c.Request().UserAgent(),
+			c.Request().Header.Get("Sec-CH-UA-Platform"),
+			c.Request().Header.Get("Sec-CH-UA-Mobile"),
+			c.Request().Header.Get("Sec-CH-UA-Model"))
+		go core.SendLoginNotification(userRecord.Email, username, clientIP, countryCode, device)
 	}
 
 	core.LogAudit("LOGIN_SUCCESS_PASSKEY", username, clientIP, map[string]interface{}{"country": countryCode})

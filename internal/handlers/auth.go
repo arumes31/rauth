@@ -482,7 +482,11 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 			remaining := core.CountRecoveryCodes(username)
 			core.LogAudit("2FA_RECOVERY_CODE_USED", username, clientIP, map[string]interface{}{"remaining": remaining})
 			if userRecord.Email != "" {
-				go core.Send2FAModifiedNotification(userRecord.Email, username, fmt.Sprintf("Recovery code used (%d remaining)", remaining), clientIP)
+				device := core.FormatDevice(c.Request().UserAgent(),
+					c.Request().Header.Get("Sec-CH-UA-Platform"),
+					c.Request().Header.Get("Sec-CH-UA-Mobile"),
+					c.Request().Header.Get("Sec-CH-UA-Model"))
+				go core.Send2FAModifiedNotification(userRecord.Email, username, fmt.Sprintf("Recovery code used (%d remaining)", remaining), clientIP, device)
 			}
 		}
 
@@ -602,7 +606,11 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 		// Send notification email
 		userRecord, _ := core.GetUser(username)
 		if userRecord.Email != "" {
-			go core.Send2FAModifiedNotification(userRecord.Email, username, "Enabled", clientIP)
+			device := core.FormatDevice(c.Request().UserAgent(),
+				c.Request().Header.Get("Sec-CH-UA-Platform"),
+				c.Request().Header.Get("Sec-CH-UA-Mobile"),
+				c.Request().Header.Get("Sec-CH-UA-Model"))
+			go core.Send2FAModifiedNotification(userRecord.Email, username, "Enabled", clientIP, device)
 		}
 
 		core.ResetRateLimit("login_post_ip:" + clientIP)
@@ -710,7 +718,11 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 
 	// Send Login Notification Email (Asynchronous)
 	if userRecord.Email != "" {
-		go core.SendLoginNotification(userRecord.Email, username, clientIP, country)
+		device := core.FormatDevice(c.Request().UserAgent(),
+			c.Request().Header.Get("Sec-CH-UA-Platform"),
+			c.Request().Header.Get("Sec-CH-UA-Mobile"),
+			c.Request().Header.Get("Sec-CH-UA-Model"))
+		go core.SendLoginNotification(userRecord.Email, username, clientIP, country, device)
 	}
 
 	cookie := &http.Cookie{

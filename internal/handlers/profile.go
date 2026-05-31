@@ -188,7 +188,11 @@ func (h *ProfileHandler) RevokePasskey(c echo.Context) error {
 	// Send notification email
 	userRecord, _ := core.GetUser(username)
 	if userRecord.Email != "" {
-		go core.Send2FAModifiedNotification(userRecord.Email, username, "Removed (Passkey)", c.RealIP())
+		device := core.FormatDevice(c.Request().UserAgent(),
+			c.Request().Header.Get("Sec-CH-UA-Platform"),
+			c.Request().Header.Get("Sec-CH-UA-Mobile"),
+			c.Request().Header.Get("Sec-CH-UA-Model"))
+		go core.Send2FAModifiedNotification(userRecord.Email, username, "Removed (Passkey)", c.RealIP(), device)
 	}
 
 	core.LogAudit("PASSKEY_REVOKE", username, c.RealIP(), nil)
@@ -218,7 +222,11 @@ func (h *ProfileHandler) DisableTOTP(c echo.Context) error {
 
 	// Send notification email
 	if userData["email"] != "" {
-		go core.Send2FAModifiedNotification(userData["email"], username, "Disabled (TOTP)", c.RealIP())
+		device := core.FormatDevice(c.Request().UserAgent(),
+			c.Request().Header.Get("Sec-CH-UA-Platform"),
+			c.Request().Header.Get("Sec-CH-UA-Mobile"),
+			c.Request().Header.Get("Sec-CH-UA-Model"))
+		go core.Send2FAModifiedNotification(userData["email"], username, "Disabled (TOTP)", c.RealIP(), device)
 	}
 
 	core.LogAudit("USER_DISABLE_TOTP", username, c.RealIP(), nil)
@@ -315,7 +323,11 @@ func (h *ProfileHandler) ChangePassword(c echo.Context) error {
 	// Send notification email
 	userRecord, _ := core.GetUser(username)
 	if userRecord.Email != "" {
-		go core.SendPasswordChangeNotification(userRecord.Email, username, c.RealIP())
+		device := core.FormatDevice(c.Request().UserAgent(),
+			c.Request().Header.Get("Sec-CH-UA-Platform"),
+			c.Request().Header.Get("Sec-CH-UA-Mobile"),
+			c.Request().Header.Get("Sec-CH-UA-Model"))
+		go core.SendPasswordChangeNotification(userRecord.Email, username, c.RealIP(), device)
 	}
 
 	// Security Hardening: Invalidate all other sessions
