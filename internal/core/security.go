@@ -21,6 +21,11 @@ import (
 var (
 	emailRegex    = regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$`)
 	usernameRegex = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
+
+	passwordUpperRegex   = regexp.MustCompile(`[A-Z]`)
+	passwordLowerRegex   = regexp.MustCompile(`[a-z]`)
+	passwordNumberRegex  = regexp.MustCompile(`[0-9]`)
+	passwordSpecialRegex = regexp.MustCompile(`[!@#\$%\^&\*]`)
 )
 
 func ValidateEmail(email string) error {
@@ -37,22 +42,16 @@ func ValidatePassword(password string, cfg *Config) error {
 	if len(password) < cfg.MinPasswordLength {
 		return fmt.Errorf("password must be at least %d characters long", cfg.MinPasswordLength)
 	}
-	var (
-		hasUpper   = regexp.MustCompile(`[A-Z]`).MatchString
-		hasLower   = regexp.MustCompile(`[a-z]`).MatchString
-		hasNumber  = regexp.MustCompile(`[0-9]`).MatchString
-		hasSpecial = regexp.MustCompile(`[!@#\$%\^&\*]`).MatchString
-	)
-	if cfg.RequirePasswordUpper && !hasUpper(password) {
+	if cfg.RequirePasswordUpper && !passwordUpperRegex.MatchString(password) {
 		return fmt.Errorf("password must contain at least one uppercase letter")
 	}
-	if cfg.RequirePasswordLower && !hasLower(password) {
+	if cfg.RequirePasswordLower && !passwordLowerRegex.MatchString(password) {
 		return fmt.Errorf("password must contain at least one lowercase letter")
 	}
-	if cfg.RequirePasswordNumber && !hasNumber(password) {
+	if cfg.RequirePasswordNumber && !passwordNumberRegex.MatchString(password) {
 		return fmt.Errorf("password must contain at least one number")
 	}
-	if cfg.RequirePasswordSpecial && !hasSpecial(password) {
+	if cfg.RequirePasswordSpecial && !passwordSpecialRegex.MatchString(password) {
 		return fmt.Errorf("password must contain at least one special character")
 	}
 	return nil
