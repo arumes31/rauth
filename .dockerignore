@@ -1,0 +1,40 @@
+# Git
+.git
+.gitignore
+.gitattributes
+.github
+
+# Environment and Secrets
+.env
+example.env
+
+# Go
+bin
+rauth
+rauth.exe
+*_test.go
+go.sum
+go.mod
+
+# Redis and Data
+redis-data
+geoip-data
+*.out
+*.coverprofile
+
+# Docker and Compose
+docker-compose*.yml
+Dockerfile
+.dockerignore
+
+# Documentation and Project Files
+README.md
+LICENSE
+plan.md
+nginx-proxy-example.conf
+.jules
+.goreleaser.yaml
+
+# Temporary and OS files
+.DS_Store
+Thumbs.db
