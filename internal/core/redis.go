@@ -110,7 +110,9 @@ func HasActiveSessions(ip string) bool {
 			for i, k := range keys {
 				cmds[i] = pipe.HGetAll(Ctx, k)
 			}
-			pipe.Exec(Ctx)
+			if _, err := pipe.Exec(Ctx); err != nil && err != redis.Nil {
+				slog.Error("HasActiveSessions: Pipeline Exec failed", "error", err)
+			}
 
 			for _, cmd := range cmds {
 				data, err := cmd.Result()
