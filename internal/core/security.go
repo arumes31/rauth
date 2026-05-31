@@ -209,7 +209,14 @@ func FormatUserAgent(ua string) string {
 		return "Unknown Device"
 	}
 	parsed := ParseUserAgent(ua)
-	return fmt.Sprintf("%s on %s", parsed.Browser, parsed.OS)
+	details := fmt.Sprintf("%s on %s", parsed.Browser, parsed.OS)
+	if parsed.Platform != "" {
+		details += " (" + parsed.Platform + ")"
+	}
+	if parsed.IsMobile {
+		details += " [Mobile]"
+	}
+	return details
 }
 
 func GetDeviceIcon(ua string) string {
@@ -263,22 +270,37 @@ func ValidateRedirectURL(rd, defaultRedirect, username string, cfg *Config) stri
 }
 
 type ParsedUA struct {
-	OS      string
-	Browser string
+	OS       string
+	Browser  string
+	Platform string
+	IsMobile bool
 }
 
 func ParseUserAgent(ua string) ParsedUA {
 	os := "Unknown OS"
+	platform := ""
+	isMobile := false
+
 	if strings.Contains(ua, "Android") {
 		os = "Android"
-	} else if strings.Contains(ua, "iPhone") || strings.Contains(ua, "iPad") {
+		isMobile = true
+	} else if strings.Contains(ua, "iPhone") {
 		os = "iOS"
+		isMobile = true
+		platform = "iPhone"
+	} else if strings.Contains(ua, "iPad") {
+		os = "iOS"
+		isMobile = true
+		platform = "iPad"
 	} else if strings.Contains(ua, "Windows") {
 		os = "Windows"
+		platform = "PC"
 	} else if strings.Contains(ua, "Macintosh") {
 		os = "macOS"
+		platform = "Mac"
 	} else if strings.Contains(ua, "Linux") {
 		os = "Linux"
+		platform = "PC"
 	}
 
 	browser := "Unknown Browser"
@@ -298,7 +320,7 @@ func ParseUserAgent(ua string) ParsedUA {
 		browser = "Safari"
 	}
 
-	return ParsedUA{OS: os, Browser: browser}
+	return ParsedUA{OS: os, Browser: browser, Platform: platform, IsMobile: isMobile}
 }
 
 func IsUserAgentCompatible(oldUA, newUA string) bool {

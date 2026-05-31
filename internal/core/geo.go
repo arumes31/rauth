@@ -190,16 +190,18 @@ func GetCountryCode(ipStr string) string {
 		return "unknown"
 	}
 
+	// Check for Tailscale FIRST (CGNAT range 100.64.0.0/10 and IPv6 range fd7a:115c:a1e0::/48)
+	// We check this before general private IPs because Tailscale IPv6 uses the ULA range.
+	_, tailscaleNetV4, _ := net.ParseCIDR("100.64.0.0/10")
+	_, tailscaleNetV6, _ := net.ParseCIDR("fd7a:115c:a1e0::/48")
+	if tailscaleNetV4.Contains(parsedIP) || tailscaleNetV6.Contains(parsedIP) {
+		GeoIPLookupsTotal.WithLabelValues("tailscale").Inc()
+		return "Tailscale"
+	}
+
 	if isPrivateNetIP(parsedIP) {
 		GeoIPLookupsTotal.WithLabelValues("internal").Inc()
 		return "Internal"
-	}
-
-	// Check for Tailscale (CGNAT range 100.64.0.0/10)
-	_, tailscaleNet, _ := net.ParseCIDR("100.64.0.0/10")
-	if tailscaleNet.Contains(parsedIP) {
-		GeoIPLookupsTotal.WithLabelValues("tailscale").Inc()
-		return "Tailscale"
 	}
 
 	// Memory Cache Check
@@ -274,14 +276,5 @@ func IsPrivateIP(ipStr string) bool {
 }
 
 func isPrivateNetIP(ip net.IP) bool {
-	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-		return true
-	}
-
-	// Private ranges
-	_, private24, _ := net.ParseCIDR("10.0.0.0/8")
-	_, private20, _ := net.ParseCIDR("172.16.0.0/12")
-	_, private16, _ := net.ParseCIDR("192.168.0.0/16")
-
-	return private24.Contains(ip) || private20.Contains(ip) || private16.Contains(ip)
+	return ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsPrivate()
 }

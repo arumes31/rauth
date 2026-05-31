@@ -133,7 +133,14 @@
                                                 <img data-identicon="{{index . "username"}}" class="identicon rounded me-3" width="32" height="32">
                                                 <div>
                                                     <div class="fw-bold text-primary">{{index . "username"}}</div>
-                                                    <div class="extra-small text-muted">{{index . "ip"}}</div>
+                                                    <div class="extra-small text-muted d-flex align-items-center">
+                                                        {{index . "ip"}}
+                                                        {{if eq (index . "country") "Tailscale"}}
+                                                            <span class="ms-1 badge bg-info bg-opacity-25 text-info border border-info border-opacity-25 py-0 px-1" style="font-size: 0.6rem;">
+                                                                <i class="bi bi-shield-shaded me-1"></i>TAILSCALE
+                                                            </span>
+                                                        {{end}}
+                                                    </div>
                                                 </div>
                                             </div>
                                         </td>
@@ -275,7 +282,11 @@
                                             </div>
                                             <div class="extra-small text-muted">
                                                 <i class="bi bi-hdd-network me-1"></i> {{.IP}}
-                                                {{if .Details.country}}
+                                                {{if eq .Details.country "Tailscale"}}
+                                                    <span class="ms-1 badge bg-info bg-opacity-25 text-info border border-info border-opacity-25 py-0 px-1" style="font-size: 0.6rem;">
+                                                        <i class="bi bi-shield-shaded me-1"></i>TAILSCALE
+                                                    </span>
+                                                {{else if .Details.country}}
                                                     <span class="ms-2 badge bg-secondary bg-opacity-25 text-secondary border border-secondary border-opacity-25">{{.Details.country}}</span>
                                                 {{end}}
                                             </div>

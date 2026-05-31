@@ -21,7 +21,9 @@ func TestIsPrivateIP(t *testing.T) {
 		{"10.0.0.1", true},
 		{"172.16.0.1", true},
 		{"192.168.1.1", true},
-		{"100.64.0.5", false}, // Tailscale is not "private" in the RFC1918 sense for this function
+		{"100.64.0.5", false},      // Tailscale IPv4 (CGNAT) is not "private" per IsPrivate()
+		{"fd7a:115c:a1e0::1", true}, // Tailscale IPv6 (ULA) IS "private" per IsPrivate()
+		{"fc00::1", true},          // ULA range
 		{"8.8.8.8", false},
 		{"1.1.1.1", false},
 		{"invalid", false}, // Invalid parses to nil, returns false
@@ -36,6 +38,7 @@ func TestGetCountryCode(t *testing.T) {
 	// Mock Tailscale
 	assert.Equal(t, "Tailscale", GetCountryCode("100.64.0.1"))
 	assert.Equal(t, "Tailscale", GetCountryCode("100.127.255.254"))
+	assert.Equal(t, "Tailscale", GetCountryCode("fd7a:115c:a1e0::1"))
 
 	// Mock Internal
 	assert.Equal(t, "Internal", GetCountryCode("192.168.1.50"))

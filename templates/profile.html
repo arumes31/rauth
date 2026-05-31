@@ -317,7 +317,13 @@
                                                     </div>
                                                     <div class="extra-small text-muted" title="{{.user_agent}}">
                                                         <i class="bi bi-geo-alt me-1"></i> {{.ip}} 
-                                                        {{if .country}}<span class="ms-1 badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25">{{.country}}</span>{{end}}
+                                                        {{if eq .country "Tailscale"}}
+                                                            <span class="ms-1 badge bg-info bg-opacity-25 text-info border border-info border-opacity-25 py-0 px-1" style="font-size: 0.6rem;">
+                                                                <i class="bi bi-shield-shaded me-1"></i>TAILSCALE
+                                                            </span>
+                                                        {{else if .country}}
+                                                            <span class="ms-1 badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25">{{.country}}</span>
+                                                        {{end}}
                                                     </div>
                                                 </div>
                                             </div>

@@ -3,10 +3,12 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/redis/go-redis/v9"
 	"log/slog"
 	"net/http"
 	"rauth/internal/core"
+	"strings"
+
+	"github.com/redis/go-redis/v9"
 
 	"github.com/labstack/echo/v4"
 	"github.com/pquerna/otp/totp"
@@ -63,8 +65,24 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 		}
 		ttl := ttlCmds[token].Val()
 		data["ttl"] = fmt.Sprintf("%d", int(ttl.Seconds()))
-		data["friendly_ua"] = core.FormatUserAgent(data["user_agent"])
-		data["device_icon"] = core.GetDeviceIcon(data["user_agent"])
+
+		// Use Client Hints if available to enhance the friendly UA
+		ua := data["user_agent"]
+		friendlyUA := core.FormatUserAgent(ua)
+		if platform := data["ua_ch_platform"]; platform != "" && platform != "Unknown" {
+			// Platform hint available
+		}
+		if model := data["ua_ch_model"]; model != "" && model != "Unknown" {
+			friendlyUA += fmt.Sprintf(" [%s]", strings.Trim(model, "\""))
+		}
+		if mobile := data["ua_ch_mobile"]; mobile == "?1" {
+			if !strings.Contains(friendlyUA, "[Mobile]") {
+				friendlyUA += " [Mobile]"
+			}
+		}
+
+		data["friendly_ua"] = friendlyUA
+		data["device_icon"] = core.GetDeviceIcon(ua)
 		sessions = append(sessions, data)
 	}
 
@@ -88,10 +106,10 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 	passkeys := core.GetStoredCredentials(username)
 
 	return c.Render(http.StatusOK, "profile.html", map[string]interface{}{
-		"username": username,
-		"email":    userData["email"],
-		"groups":   userData["groups"],
-		"isAdmin":  userData["is_admin"] == "1",
+		"username":      username,
+		"email":         userData["email"],
+		"groups":        userData["groups"],
+		"isAdmin":       userData["is_admin"] == "1",
 		"has2FA":        userData["2fa_secret"] != "",
 		"recoveryCount": core.CountRecoveryCodes(username),
 		"sessions":      sessions,
