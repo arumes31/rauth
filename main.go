@@ -467,10 +467,18 @@ func CreateIPExtractor(cfg *core.Config) echo.IPExtractor {
 			}
 		}
 
-		// 2. Check X-Real-IP (if explicitly trusted or if RemoteAddr is private)
+		// 2. Check X-Real-IP
 		realIPHeader := req.Header.Get("X-Real-IP")
 		if realIPHeader != "" {
-			if cfg.TrustXRealIP || core.IsPrivateIP(remoteHost) {
+			// If explicitly trusted, return it regardless
+			if cfg.TrustXRealIP {
+				if ip := net.ParseIP(realIPHeader); ip != nil {
+					return ip.String()
+				}
+			}
+			// In Smart Mode, only return it if the source is private AND the header IP is public.
+			// If the header IP is ALSO private, we continue to check X-Forwarded-For which might have the real IP.
+			if core.IsPrivateIP(remoteHost) && !core.IsPrivateIP(realIPHeader) {
 				if ip := net.ParseIP(realIPHeader); ip != nil {
 					return ip.String()
 				}
@@ -491,9 +499,8 @@ func CreateIPExtractor(cfg *core.Config) echo.IPExtractor {
 				}
 			}
 
-			// If not explicitly trusted, only look at XFF if the remote host is private.
+			// In Smart Mode, only look at XFF if the remote host is private.
 			// We walk the chain from right-to-left and return the first non-private IP.
-			// This is a safer default for common Docker/Proxy setups.
 			if core.IsPrivateIP(remoteHost) {
 				for i := len(ips) - 1; i >= 0; i-- {
 					cleaned := strings.TrimSpace(ips[i])
@@ -504,7 +511,7 @@ func CreateIPExtractor(cfg *core.Config) echo.IPExtractor {
 						}
 					}
 				}
-				// If everyone in the chain is private, take the leftmost as a last resort
+				// Fallback: If everyone in the chain is private (local traffic), take the leftmost
 				cleaned := strings.TrimSpace(ips[0])
 				if ip := net.ParseIP(cleaned); ip != nil {
 					return ip.String()
