@@ -187,6 +187,11 @@ location / {
     auth_request_set $user $upstream_http_x_rauth_user;
     proxy_set_header X-User $user;
 
+    # REQUIRED for Automatic Token Rotation:
+    # Propagate Set-Cookie from RAuth back to the client
+    auth_request_set $new_cookie $upstream_http_set_cookie;
+    add_header Set-Cookie $new_cookie;
+
     # Handle unauthorized users
     error_page 401 = @error401;
     
