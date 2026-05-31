@@ -1,6 +1,7 @@
 package core
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
@@ -39,7 +40,8 @@ func TestRecoveryCodes(t *testing.T) {
 	require.Equal(t, int64(recoveryCodeCount-1), CountRecoveryCodes("alice"))
 
 	// Codes are case-insensitive and tolerate the display separator.
-	require.True(t, ConsumeRecoveryCode("alice", codes[1]))
+	transformedCode := strings.ToLower(codes[1][:4]) + "-" + strings.ToLower(codes[1][4:])
+	require.True(t, ConsumeRecoveryCode("alice", transformedCode))
 
 	// Unknown codes are rejected.
 	require.False(t, ConsumeRecoveryCode("alice", "0000-00000"))

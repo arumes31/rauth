@@ -58,6 +58,7 @@ func TestIsCommonPassword_Coverage(t *testing.T) {
 	assert.False(t, isCommonPassword("password"), "disabled check always returns false")
 
 	commonPasswordsOn = true
+	InitCommonPasswords(true)
 	assert.True(t, isCommonPassword("password"), "well-known password is blocked")
 	assert.False(t, isCommonPassword("a-very-unlikely-passphrase-xyz-9182"), "uncommon password is allowed")
 }

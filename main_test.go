@@ -79,6 +79,15 @@ func TestSetupRoutes(t *testing.T) {
 }
 
 func TestInitializeSystem(t *testing.T) {
+	origUserDB := core.UserDB
+	origTokenDB := core.TokenDB
+	origAuditDB := core.AuditDB
+	defer func() {
+		core.UserDB = origUserDB
+		core.TokenDB = origTokenDB
+		core.AuditDB = origAuditDB
+	}()
+
 	s := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: s.Addr()})
 	core.UserDB = client

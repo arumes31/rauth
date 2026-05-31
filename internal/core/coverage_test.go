@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -87,6 +88,13 @@ func TestEnsureUserUIDs(t *testing.T) {
 	name, err := UserDB.Get(Ctx, "uid:"+uid).Result()
 	require.NoError(t, err)
 	assert.Equal(t, "legacy", name)
+
+	// The binary lookup index also resolves back to the username.
+	parsedUID, err := uuid.Parse(uid)
+	require.NoError(t, err)
+	binName, err := UserDB.Get(Ctx, "uid_bin:"+string(parsedUID[:])).Result()
+	require.NoError(t, err)
+	assert.Equal(t, "legacy", binName)
 
 	// Modern user's uid is unchanged.
 	modernUID, _ := UserDB.HGet(Ctx, "user:modern", "uid").Result()

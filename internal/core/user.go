@@ -72,18 +72,13 @@ func GetUser(username string) (User, error) {
 func ensureUID(username string) (string, error) {
 	newUUID := uuid.New()
 	uidStr := newUUID.String()
-	// Write the lookup indexes first and verify they succeed. Only then stamp the
-	// "uid" field on the user hash: if an index write fails we leave the user
-	// un-stamped so EnsureUserUIDs retries on the next startup, and
-	// GetUsernameByUID can rely on the indexes being consistent with the field.
-	if err := UserDB.Set(Ctx, "uid:"+uidStr, username, 0).Err(); err != nil {
-		return "", err
-	}
-	// Index by binary representation as well for raw UserHandle lookups.
-	if err := UserDB.Set(Ctx, "uid_bin:"+string(newUUID[:]), username, 0).Err(); err != nil {
-		return "", err
-	}
-	if err := UserDB.HSet(Ctx, "user:"+username, "uid", uidStr).Err(); err != nil {
+
+	pipe := UserDB.TxPipeline()
+	pipe.Set(Ctx, "uid:"+uidStr, username, 0)
+	pipe.Set(Ctx, "uid_bin:"+string(newUUID[:]), username, 0)
+	pipe.HSet(Ctx, "user:"+username, "uid", uidStr)
+
+	if _, err := pipe.Exec(Ctx); err != nil {
 		return "", err
 	}
 	return uidStr, nil
