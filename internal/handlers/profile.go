@@ -69,9 +69,6 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 		// Use Client Hints if available to enhance the friendly UA
 		ua := data["user_agent"]
 		friendlyUA := core.FormatUserAgent(ua)
-		if platform := data["ua_ch_platform"]; platform != "" && platform != "Unknown" {
-			// Platform hint available
-		}
 		if model := data["ua_ch_model"]; model != "" && model != "Unknown" {
 			friendlyUA += fmt.Sprintf(" [%s]", strings.Trim(model, "\""))
 		}
