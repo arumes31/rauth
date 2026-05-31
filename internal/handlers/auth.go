@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"rauth/internal/core"
+	"strconv"
 	"strings"
 	"time"
 
@@ -104,6 +105,40 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 	// Refresh the session/cookie expiry when the client IP is unchanged.
 	if data["ip"] == clientIP {
 		validity := time.Duration(h.Cfg.TokenValidityMinutes) * time.Minute
+
+		// Optional: Automatic Token Rotation
+		// If rotation is enabled and the token is older than the threshold,
+		// issue a new token and invalidate the old one.
+		now := time.Now().Unix()
+		createdAt, _ := strconv.ParseInt(data["created_at"], 10, 64)
+		if h.Cfg.TokenRotationMinutes > 0 && now-createdAt > int64(h.Cfg.TokenRotationMinutes)*60 {
+			newTokenBytes := make([]byte, sessionTokenBytes)
+			if _, err := rand.Read(newTokenBytes); err == nil {
+				newToken := hex.EncodeToString(newTokenBytes)
+				newRedisKey := "X-rauth-authtoken=" + newToken
+
+				// Copy data and update created_at to current time
+				data["created_at"] = fmt.Sprintf("%d", now)
+				if err := core.TokenDB.HSet(core.Ctx, newRedisKey, data).Err(); err == nil {
+					core.TokenDB.Expire(core.Ctx, newRedisKey, validity)
+
+					// Register new token in indexes
+					core.AddSessionIndex(data["username"], newToken)
+					core.AddIPSessionIndex(clientIP, newToken)
+
+					// Set a short grace period for the old token to avoid race conditions
+					core.TokenDB.Expire(core.Ctx, redisKey, 30*time.Second)
+
+					// Encrypt new token for cookie
+					if encrypted, err := core.EncryptToken(newToken, h.Cfg.ServerSecret); err == nil {
+						cookie.Value = encrypted
+						redisKey = newRedisKey
+						slog.Debug("Session token rotated", "user", data["username"], "ip", clientIP)
+					}
+				}
+			}
+		}
+
 		core.TokenDB.Expire(core.Ctx, redisKey, validity)
 		c.SetCookie(&http.Cookie{
 			Name:     "X-rauth-authtoken",
@@ -184,29 +219,27 @@ func (h *AuthHandler) sessionUAMatches(c echo.Context, token, redisKey string, d
 
 	normalizeCH := func(val string) string { return strings.Trim(val, `"`) }
 
-	var hasMutuallyPresentHints bool
 	uaIsValid := true
+	useClientHints := false
 
-	if storedPlatform != "" && chPlatform != "" {
-		hasMutuallyPresentHints = true
-		if normalizeCH(storedPlatform) != normalizeCH(chPlatform) {
-			uaIsValid = false
-		}
-	}
-	if uaIsValid && storedMobile != "" && chMobile != "" {
-		hasMutuallyPresentHints = true
-		if normalizeCH(storedMobile) != normalizeCH(chMobile) {
-			uaIsValid = false
-		}
-	}
-	if uaIsValid && storedModel != "" && chModel != "" {
-		hasMutuallyPresentHints = true
-		if normalizeCH(storedModel) != normalizeCH(chModel) {
-			uaIsValid = false
+	// If session HAS Hints, we enforce binding if the current request also HAS Hints.
+	// If the current request has NO hints but the session DOES, we fall back to UA matching
+	// unless we want to be extremely strict (which might break on proxy header stripping).
+	if storedPlatform != "" || storedMobile != "" || storedModel != "" {
+		if chPlatform != "" || chMobile != "" || chModel != "" {
+			useClientHints = true
+			if storedPlatform != "" && normalizeCH(storedPlatform) != normalizeCH(chPlatform) {
+				uaIsValid = false
+			}
+			if uaIsValid && storedMobile != "" && normalizeCH(storedMobile) != normalizeCH(chMobile) {
+				uaIsValid = false
+			}
+			if uaIsValid && storedModel != "" && normalizeCH(storedModel) != normalizeCH(chModel) {
+				uaIsValid = false
+			}
 		}
 	}
 
-	useClientHints := hasMutuallyPresentHints
 	if !useClientHints {
 		// Fallback to lenient User-Agent parser matching.
 		uaIsValid = core.IsUserAgentCompatible(data["user_agent"], c.Request().UserAgent())

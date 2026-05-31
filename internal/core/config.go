@@ -45,9 +45,10 @@ type Config struct {
 	SMTPPass string
 	SMTPFrom string
 	// URLs
-	PublicURL string
+	PublicURL            string
+	TokenRotationMinutes int
 	// IP Trust
-	TrustCloudflareIP  bool
+	TrustCloudflareIP bool
 	TrustXRealIP       bool
 	TrustXForwardedFor bool
 	// Rate Limiting
@@ -112,7 +113,8 @@ func LoadConfig() *Config {
 		SMTPPass: getEnv("SMTP_PASS", ""),
 		SMTPFrom: getEnv("SMTP_FROM", ""),
 		// URLs
-		PublicURL: getEnv("PUBLIC_URL", "http://localhost:5980"),
+		PublicURL:            getEnv("PUBLIC_URL", "http://localhost:5980"),
+		TokenRotationMinutes: getEnvInt("TOKEN_ROTATION_MINUTES", 0),
 		// IP Trust
 		TrustCloudflareIP:  getEnvBool("TRUST_CLOUDFLARE_IP", false),
 		TrustXRealIP:       getEnvBool("TRUST_X_REAL_IP", false),

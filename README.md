@@ -82,8 +82,9 @@ RAuth eliminates the complexity of full-scale identity providers while maintaini
       <h3>🌐 Smart Session Management</h3>
       <ul>
         <li><b>Sub-millisecond Validation</b>: Near-zero latency Go backend cached on a high-speed Redis database.</li>
+        <li><b>Automatic Token Rotation</b>: Periodically replaces active session tokens during validation, neutralizing the impact of stolen tokens.</li>
+        <li><b>Hardware Binding</b>: Optionally binds sessions to specific device models using high-entropy User-Agent Client Hints.</li>
         <li><b>Geo-Fencing</b>: Real-time MaxMind integration instantly invalidating sessions initiated from anomalous countries.</li>
-        <li><b>Device Awareness</b>: Rich user audits complete with browser, operating system, and IP location metadata.</li>
         <li><b>System-Wide Invalidation</b>: Automated termination of all active sessions on password changes or 2FA resets.</li>
       </ul>
     </td>
@@ -185,6 +186,11 @@ location / {
     # Propagate user identity to your backend
     auth_request_set $user $upstream_http_x_rauth_user;
     proxy_set_header X-User $user;
+
+    # REQUIRED for Automatic Token Rotation:
+    # Propagate Set-Cookie from RAuth back to the client
+    auth_request_set $new_cookie $upstream_http_set_cookie;
+    add_header Set-Cookie $new_cookie;
 
     # Handle unauthorized users
     error_page 401 = @error401;
@@ -307,6 +313,7 @@ RAuth is configured via Environment Variables.
 | **Auth**   | `ALLOWED_COUNTRIES` | List of allowed country codes (e.g. `US,DE`) | (Any) |
 | **WebAuthn**| `WEBAUTHN_ORIGINS`| Allowed origins for Passkeys (Comma-separated)| (Auto-generated) |
 | **URL**    | `PUBLIC_URL` | Base URL for email links (e.g., `https://auth.example.com`) | `http://localhost:5980` |
+| **Session**| `TOKEN_ROTATION_MINUTES` | Frequency of automatic session token rotation (0 = disabled) | `0` |
 | **Network**| `AUTH_PORT` | Port to expose the auth service | `5980` |
 | **Proxy**  | `TRUST_X_FORWARDED_FOR` | Trust leftmost IP in `X-Forwarded-For` | `false` |
 | **Proxy**  | `TRUST_X_REAL_IP` | Trust IP in `X-Real-IP` | `false` |
@@ -551,6 +558,9 @@ A: Ensure your Nginx configuration passes `proxy_set_header X-Real-IP $remote_ad
 ---
 
 ### ⚡ Infrastructure & Networking
+**Q: How does Automatic Token Rotation work and what are the requirements?**  
+A: When `TOKEN_ROTATION_MINUTES` is set, RAuth will automatically issue a new session token periodically during the background validation subrequest. This significantly reduces the risk of session hijacking. **Requirement:** Your reverse proxy (Nginx/Traefik) must be configured to forward the `Set-Cookie` header from the auth subrequest back to the client.
+
 **Q: Why are users experiencing "Rate Limit Exceeded" blockages during normal dashboard use?**  
 A: The default session validation threshold might be too aggressive for heavy single-page apps making hundreds of concurrent resource subrequests. Increase `RATE_LIMIT_VALIDATE_MAX` (e.g. to `5000`) or adjust the decay window `RATE_LIMIT_VALIDATE_DECAY` to accommodate high-volume internal reverse-proxied traffic.
 
