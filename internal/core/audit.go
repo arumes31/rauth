@@ -6,6 +6,9 @@ import (
 	"time"
 )
 
+// auditLogMaxEntries caps the global audit log ring buffer in Redis.
+const auditLogMaxEntries = 1000
+
 type AuditLog struct {
 	Timestamp int64                  `json:"timestamp"`
 	Action    string                 `json:"action"`
@@ -38,5 +41,5 @@ func LogAudit(action, username, ip string, details map[string]interface{}) {
 	}
 	data, _ := json.Marshal(entry)
 	AuditDB.LPush(Ctx, "audit_logs", data)
-	AuditDB.LTrim(Ctx, "audit_logs", 0, 999)
+	AuditDB.LTrim(Ctx, "audit_logs", 0, auditLogMaxEntries-1)
 }

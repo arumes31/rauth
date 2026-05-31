@@ -17,6 +17,7 @@ import (
 	"rauth/internal/middleware"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -39,11 +40,27 @@ func (t *TemplateRenderer) Render(w io.Writer, name string, data interface{}, c 
 }
 
 func main() {
-	// Initialize slog
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	// Initialize the structured JSON logger before parsing config so the
+	// getEnvInt/getEnvBool warnings about invalid env values are emitted through
+	// the same handler (LOG_LEVEL is read directly here since LoadConfig hasn't
+	// run yet; parseLogLevel defaults to Info on an empty value).
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: parseLogLevel(os.Getenv("LOG_LEVEL"))}))
 	slog.SetDefault(logger)
 
 	cfg := core.LoadConfig()
+
+	// Fail fast on a missing/weak server secret: it derives the AES key for
+	// session tokens and 2FA secrets, so an empty value is catastrophic.
+	if len(cfg.ServerSecret) < 16 {
+		slog.Error("SERVER_SECRET must be set to at least 16 characters", "length", len(cfg.ServerSecret))
+		os.Exit(1)
+	}
+
+	// Apply the configurable bcrypt cost (BCRYPT_COST).
+	core.SetBcryptCost(cfg.BcryptCost)
+
+	// Load the common-password blocklist if enabled (PWD_CHECK_COMMON).
+	core.InitCommonPasswords(cfg.CheckCommonPasswords)
 
 	if err := core.InitRedis(cfg); err != nil {
 		slog.Error("Redis initialization failed", "error", err)
@@ -110,8 +127,9 @@ func main() {
 	}()
 
 	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, os.Interrupt)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 	<-quit
+	slog.Info("Shutdown signal received, draining connections")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := e.Shutdown(ctx); err != nil {
@@ -119,9 +137,38 @@ func main() {
 	}
 }
 
+// parseLogLevel maps a LOG_LEVEL string to an slog.Level (defaults to Info).
+func parseLogLevel(level string) slog.Level {
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
+}
+
 func setupMiddleware(e *echo.Echo, cfg *core.Config) {
-	// Security headers and hardening
-	e.Use(echoMiddleware.Secure())
+	// Security headers and hardening. Secure()'s defaults leave HSTS disabled
+	// and set no CSP, so configure both explicitly. The CSP allows inline
+	// scripts/styles because the templates rely on inline <script> blocks and
+	// style="" attributes (matrix/glassmorphism UI).
+	e.Use(echoMiddleware.SecureWithConfig(echoMiddleware.SecureConfig{
+		XSSProtection:         "1; mode=block",
+		ContentTypeNosniff:    "nosniff",
+		XFrameOptions: "SAMEORIGIN",
+		// HSTS with preload is a hard-to-reverse commitment: it emits
+		// `includeSubDomains; preload`, so every subdomain of COOKIE_DOMAIN MUST
+		// be served exclusively over HTTPS before this is left enabled (and
+		// before submitting the domain to the preload list). If any subdomain
+		// needs plain HTTP, set HSTSPreloadEnabled:false and/or lower HSTSMaxAge.
+		HSTSMaxAge:         31536000,
+		HSTSPreloadEnabled: true,
+		ContentSecurityPolicy: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'",
+	}))
 	e.Use(echoMiddleware.BodyLimit("1M"))
 
 	// User-Agent Client Hints negotiation middleware
@@ -199,8 +246,27 @@ func setupMiddleware(e *echo.Echo, cfg *core.Config) {
 			return
 		}
 		code := http.StatusInternalServerError
+		message := "An unexpected error occurred."
 		if he, ok := err.(*echo.HTTPError); ok {
 			code = he.Code
+			if he.Message != nil {
+				message = fmt.Sprintf("%v", he.Message)
+			}
+		}
+
+		// API and forward-auth endpoints expect machine-readable responses, not
+		// the HTML error page. The /rauthvalidate endpoint in particular is
+		// polled by nginx auth_request and must stay body-less.
+		path := c.Request().URL.Path
+		switch {
+		case path == "/rauthvalidate":
+			_ = c.NoContent(code)
+			return
+		case strings.HasPrefix(path, "/webauthn/") || path == "/metrics" || path == "/health":
+			if jsonErr := c.JSON(code, map[string]interface{}{"error": message, "code": code}); jsonErr != nil {
+				slog.Error("Failed to render JSON error", "error", jsonErr)
+			}
+			return
 		}
 
 		errorData := map[string]interface{}{
@@ -373,6 +439,7 @@ func setupRoutes(e *echo.Echo, cfg *core.Config) {
 	protected.POST("/rauthprofile/passkey/rename", profileHandler.RenamePasskey)
 	protected.POST("/rauthprofile/passkey/revoke", profileHandler.RevokePasskey)
 	protected.POST("/rauthprofile/disable-totp", profileHandler.DisableTOTP)
+	protected.POST("/rauthprofile/recovery/generate", profileHandler.GenerateRecoveryCodes)
 
 	// Admin Routes
 	admin := protected.Group("/rauthmgmt")
@@ -391,6 +458,9 @@ func initializeSystem(cfg *core.Config) {
 	// Start GeoIP Updater
 	core.StartGeoUpdater(cfg)
 
+	// Backfill UIDs for legacy users so GetUser stays read-only at runtime.
+	core.EnsureUserUIDs()
+
 	if cfg.InitialUser != "" && cfg.InitialPassword != "" {
 		slog.Info("Checking initial user", "user", cfg.InitialUser)
 		err := core.CreateUser(cfg.InitialUser, cfg.InitialPassword, cfg.InitialEmail, true, cfg.Initial2FASecret)
@@ -403,10 +473,12 @@ func initializeSystem(cfg *core.Config) {
 
 	// Background metrics and index synchronization
 	go func() {
+		ticker := time.NewTicker(1 * time.Minute)
+		defer ticker.Stop()
 		for {
 			count := core.SyncSessionIndexes()
 			core.ActiveSessionsGauge.Set(float64(count))
-			time.Sleep(1 * time.Minute)
+			<-ticker.C
 		}
 	}()
 }

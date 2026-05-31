@@ -42,6 +42,14 @@ func ValidatePassword(password string, cfg *Config) error {
 	if len(password) < cfg.MinPasswordLength {
 		return fmt.Errorf("password must be at least %d characters long", cfg.MinPasswordLength)
 	}
+	// bcrypt silently truncates input beyond 72 bytes, so anything longer would
+	// have its suffix ignored. Reject it explicitly to avoid that surprise.
+	if len(password) > 72 {
+		return fmt.Errorf("password must be at most 72 bytes long")
+	}
+	if cfg.CheckCommonPasswords && isCommonPassword(password) {
+		return fmt.Errorf("password is too common; please choose a less predictable one")
+	}
 	if cfg.RequirePasswordUpper && !passwordUpperRegex.MatchString(password) {
 		return fmt.Errorf("password must contain at least one uppercase letter")
 	}
@@ -57,8 +65,22 @@ func ValidatePassword(password string, cfg *Config) error {
 	return nil
 }
 
+// bcryptCost is the configurable work factor used by HashPassword. It is set
+// once at startup via SetBcryptCost and read without locking thereafter.
+var bcryptCost = 12
+
+// SetBcryptCost applies a configured bcrypt cost, clamping it to the values
+// bcrypt actually supports and falling back to a safe default otherwise.
+func SetBcryptCost(cost int) {
+	if cost < bcrypt.MinCost || cost > bcrypt.MaxCost {
+		slog.Warn("Invalid BCRYPT_COST, falling back to default", "requested", cost, "default", 12)
+		cost = 12
+	}
+	bcryptCost = cost
+}
+
 func HashPassword(password string) (string, error) {
-	bytes, err := bcrypt.GenerateFromPassword([]byte(password), 12)
+	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcryptCost)
 	return string(bytes), err
 }
 
@@ -115,8 +137,13 @@ func DecryptToken(encryptedText string, key string) (string, error) {
 		return plaintext, nil
 	}
 
-	// Fallback to legacy KDF (SHA256)
-	return decryptWithKey(data, getAESKeyLegacy(key))
+	// Fallback to legacy KDF (SHA256). Track successful legacy decrypts so the
+	// fallback's continued necessity is observable before it is removed.
+	legacyPlaintext, legacyErr := decryptWithKey(data, getAESKeyLegacy(key))
+	if legacyErr == nil {
+		LegacyKDFDecryptTotal.Inc()
+	}
+	return legacyPlaintext, legacyErr
 }
 
 func decryptWithKey(data []byte, key []byte) (string, error) {
@@ -181,39 +208,8 @@ func FormatUserAgent(ua string) string {
 	if ua == "" {
 		return "Unknown Device"
 	}
-
-	// Very simple heuristic parsing for common browsers/OS
-	os := "Unknown OS"
-	if strings.Contains(ua, "Android") {
-		os = "Android"
-	} else if strings.Contains(ua, "iPhone") || strings.Contains(ua, "iPad") {
-		os = "iOS"
-	} else if strings.Contains(ua, "Windows") {
-		os = "Windows"
-	} else if strings.Contains(ua, "Macintosh") {
-		os = "macOS"
-	} else if strings.Contains(ua, "Linux") {
-		os = "Linux"
-	}
-
-	browser := "Unknown Browser"
-	if strings.Contains(ua, "Opera/") || strings.Contains(ua, "OPR/") || strings.Contains(ua, "Opera") {
-		browser = "Opera"
-	} else if strings.Contains(ua, "Edg/") {
-		browser = "Edge"
-	} else if strings.Contains(ua, "CriOS/") {
-		browser = "Chrome"
-	} else if strings.Contains(ua, "FxiOS/") {
-		browser = "Firefox"
-	} else if strings.Contains(ua, "Chrome/") {
-		browser = "Chrome"
-	} else if strings.Contains(ua, "Firefox/") {
-		browser = "Firefox"
-	} else if strings.Contains(ua, "Safari/") && !strings.Contains(ua, "Chrome/") && !strings.Contains(ua, "CriOS/") && !strings.Contains(ua, "FxiOS/") {
-		browser = "Safari"
-	}
-
-	return fmt.Sprintf("%s on %s", browser, os)
+	parsed := ParseUserAgent(ua)
+	return fmt.Sprintf("%s on %s", parsed.Browser, parsed.OS)
 }
 
 func GetDeviceIcon(ua string) string {

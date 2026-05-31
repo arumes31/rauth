@@ -105,8 +105,18 @@ func TestSessionManagement(t *testing.T) {
 			"ip":     "192.168.1.1",
 			"status": "valid",
 		})
+		// Sessions are discoverable via the per-IP index maintained at issue time.
+		AddIPSessionIndex("192.168.1.1", "active_token")
 
 		require.True(t, HasActiveSessions("192.168.1.1"))
 		require.False(t, HasActiveSessions("10.0.0.1"))
+	})
+
+	t.Run("HasActiveSessions prunes stale index entries", func(t *testing.T) {
+		// Index points at a token that no longer exists -> pruned, returns false.
+		AddIPSessionIndex("172.16.0.1", "ghost_token")
+		require.False(t, HasActiveSessions("172.16.0.1"))
+		members, _ := TokenDB.SMembers(Ctx, "ip_sessions:172.16.0.1").Result()
+		require.NotContains(t, members, "ghost_token")
 	})
 }

@@ -71,8 +71,11 @@ func (c *GeoLRUCache) Put(key, value string) {
 	c.cache[key] = elem
 }
 
+// geoCacheCapacity is the maximum number of IP->country entries cached in memory.
+const geoCacheCapacity = 1000
+
 var (
-	GeoCache  = NewGeoLRUCache(1000)
+	GeoCache  = NewGeoLRUCache(geoCacheCapacity)
 	geoReader geoCountryReader
 	geoLock   sync.RWMutex
 	once      sync.Once

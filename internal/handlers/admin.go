@@ -167,6 +167,8 @@ func (h *AdminHandler) ResetUser2FA(c echo.Context) error {
 		slog.Error("Failed to reset 2FA for user", "user", target, "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to reset 2FA")
 	}
+	// Recovery codes are tied to TOTP; clear them alongside the reset.
+	core.ClearRecoveryCodes(target)
 
 	// Security Hardening: Invalidate all sessions for this user
 	core.InvalidateUserSessions(target)

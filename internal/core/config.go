@@ -1,11 +1,12 @@
 package core
 
 import (
-	"fmt"
+	"log/slog"
 	"net"
 	"net/url"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -62,6 +63,17 @@ type Config struct {
 	RateLimitLoginFailUserDecay int
 	RateLimitLoginFailIPMax     int
 	RateLimitLoginFailIPDecay   int
+	// Logging
+	LogLevel string
+	// Security tuning
+	BcryptCost           int
+	CheckCommonPasswords bool
+	// Geo-fence behavior on a detected country change for an existing session:
+	//   "strict"  - invalidate the session immediately (default)
+	//   "lenient" - log/audit the change but tolerate it, updating the stored
+	//               country (helps roaming/VPN/CGNAT users avoid spurious logouts)
+	// The ALLOWED_COUNTRIES allowlist is always enforced regardless of this mode.
+	GeoChangeMode string
 }
 
 func LoadConfig() *Config {
@@ -118,6 +130,12 @@ func LoadConfig() *Config {
 		RateLimitLoginFailUserDecay: getEnvInt("RATE_LIMIT_LOGIN_FAIL_USER_DECAY", 300),
 		RateLimitLoginFailIPMax:     getEnvInt("RATE_LIMIT_LOGIN_FAIL_IP_MAX", 50),
 		RateLimitLoginFailIPDecay:   getEnvInt("RATE_LIMIT_LOGIN_FAIL_IP_DECAY", 600),
+		// Logging
+		LogLevel: getEnv("LOG_LEVEL", "info"),
+		// Security tuning
+		BcryptCost:           getEnvInt("BCRYPT_COST", 12),
+		CheckCommonPasswords: getEnvBool("PWD_CHECK_COMMON", true),
+		GeoChangeMode:        strings.ToLower(getEnv("GEO_CHANGE_MODE", "strict")),
 	}
 }
 
@@ -255,17 +273,20 @@ func getEnvSlice(key string, fallback []string) []string {
 
 func getEnvInt(key string, fallback int) int {
 	if value, ok := os.LookupEnv(key); ok {
-		var i int
-		if _, err := fmt.Sscanf(value, "%d", &i); err == nil {
+		if i, err := strconv.Atoi(strings.TrimSpace(value)); err == nil {
 			return i
 		}
+		slog.Warn("Invalid integer for env var, using fallback", "key", key, "value", value, "fallback", fallback)
 	}
 	return fallback
 }
 
 func getEnvBool(key string, fallback bool) bool {
 	if value, ok := os.LookupEnv(key); ok {
-		return strings.ToLower(value) == "true" || value == "1"
+		if b, err := strconv.ParseBool(strings.TrimSpace(value)); err == nil {
+			return b
+		}
+		slog.Warn("Invalid boolean for env var, using fallback", "key", key, "value", value, "fallback", fallback)
 	}
 	return fallback
 }

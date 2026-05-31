@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/redis/go-redis/v9"
 	"log/slog"
-	"strings"
 	"time"
 )
 
@@ -20,6 +19,9 @@ var (
 	StartTime    = time.Now()
 )
 
+// redisPoolSize is the per-database connection pool size.
+const redisPoolSize = 20
+
 func InitRedis(cfg *Config) error {
 	ServerSecret = cfg.ServerSecret
 	opts := &redis.Options{
@@ -28,7 +30,7 @@ func InitRedis(cfg *Config) error {
 		DialTimeout:  5 * time.Second,
 		ReadTimeout:  3 * time.Second,
 		WriteTimeout: 3 * time.Second,
-		PoolSize:     20,
+		PoolSize:     redisPoolSize,
 		PoolTimeout:  30 * time.Second,
 	}
 
@@ -89,25 +91,23 @@ func InvalidateOtherUserSessions(username, currentToken string) {
 	}
 }
 
+// HasActiveSessions reports whether the given IP currently has a valid session.
+// It consults the per-IP index (maintained at session issue time) rather than
+// scanning the entire token keyspace, and prunes stale members it encounters.
 func HasActiveSessions(ip string) bool {
-	var cursor uint64
-	for {
-		keys, nextCursor, err := TokenDB.Scan(Ctx, cursor, "X-rauth-authtoken=*", 100).Result()
-		if err != nil {
-			return false
-		}
+	indexKey := "ip_sessions:" + ip
+	tokens, err := TokenDB.SMembers(Ctx, indexKey).Result()
+	if err != nil {
+		return false
+	}
 
-		for _, k := range keys {
-			data, err := TokenDB.HGetAll(Ctx, k).Result()
-			if err == nil && data["ip"] == ip && data["status"] == "valid" {
-				return true
-			}
+	for _, token := range tokens {
+		data, err := TokenDB.HGetAll(Ctx, "X-rauth-authtoken="+token).Result()
+		if err == nil && len(data) > 0 && data["status"] == "valid" {
+			return true
 		}
-
-		cursor = nextCursor
-		if cursor == 0 {
-			break
-		}
+		// Token expired or was invalidated: drop the dangling index entry.
+		TokenDB.SRem(Ctx, indexKey, token)
 	}
 	return false
 }
@@ -120,36 +120,54 @@ func RemoveSessionIndex(username, token string) {
 	TokenDB.SRem(Ctx, "user_sessions:"+username, token)
 }
 
+// AddIPSessionIndex records a session token under its origin IP so brute-force
+// checks can look up active sessions for an IP without a full keyspace scan.
+func AddIPSessionIndex(ip, token string) {
+	TokenDB.SAdd(Ctx, "ip_sessions:"+ip, token)
+}
+
+// RemoveIPSessionIndex removes a token from its per-IP session index.
+func RemoveIPSessionIndex(ip, token string) {
+	TokenDB.SRem(Ctx, "ip_sessions:"+ip, token)
+}
+
+// SyncSessionIndexes reconciles the session index sets with live token state:
+// it walks the bounded set of index keys (one per user / per IP) rather than
+// the entire token keyspace, prunes entries whose tokens have expired or been
+// invalidated, and returns the number of live sessions for the gauge.
 func SyncSessionIndexes() int64 {
 	var count int64
+	count += reconcileIndexSets("user_sessions:*")
+	reconcileIndexSets("ip_sessions:*")
+	return count
+}
+
+// reconcileIndexSets prunes dead token members from every index set matching
+// pattern and returns the number of live members across those sets.
+func reconcileIndexSets(pattern string) int64 {
+	var live int64
 	var cursor uint64
-	const prefix = "X-rauth-authtoken="
 
 	for {
-		keys, nextCursor, err := TokenDB.Scan(Ctx, cursor, prefix+"*", 100).Result()
+		keys, nextCursor, err := TokenDB.Scan(Ctx, cursor, pattern, 100).Result()
 		if err != nil {
-			slog.Error("SyncSessionIndexes: Scan failed", "error", err)
+			slog.Error("SyncSessionIndexes: Scan failed", "pattern", pattern, "error", err)
 			break
 		}
 
-		for _, key := range keys {
-			data, err := TokenDB.HGetAll(Ctx, key).Result()
-			if err != nil || len(data) == 0 {
+		for _, indexKey := range keys {
+			tokens, err := TokenDB.SMembers(Ctx, indexKey).Result()
+			if err != nil {
 				continue
 			}
-
-			username := data["username"]
-			if username != "" && data["status"] == "valid" {
-				token := strings.TrimPrefix(key, prefix)
-				if token != key {
-					if err := TokenDB.SAdd(Ctx, "user_sessions:"+username, token).Err(); err != nil {
-						slog.Warn("SyncSessionIndexes: SAdd failed", "username", username, "error", err)
-						continue
-					}
-					count++
-				} else {
-					slog.Warn("SyncSessionIndexes: token key missing expected prefix", "key", key)
+			for _, token := range tokens {
+				data, err := TokenDB.HGetAll(Ctx, "X-rauth-authtoken="+token).Result()
+				if err == nil && len(data) > 0 && data["status"] == "valid" {
+					live++
+					continue
 				}
+				// Dead/expired token: drop the dangling index entry.
+				TokenDB.SRem(Ctx, indexKey, token)
 			}
 		}
 
@@ -158,7 +176,7 @@ func SyncSessionIndexes() int64 {
 			break
 		}
 	}
-	return count
+	return live
 }
 
 func copyOptions(base *redis.Options, db int) *redis.Options {

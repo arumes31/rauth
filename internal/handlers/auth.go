@@ -20,6 +20,27 @@ type AuthHandler struct {
 	Cfg *core.Config
 }
 
+// dummyBcryptHash is a valid bcrypt hash of a random value used to perform a
+// constant-time comparison when no real user/credential exists, mitigating
+// username-enumeration timing attacks.
+const dummyBcryptHash = "$2a$12$WJlQ/t/NbjXzEfIi2P54vecljh4fSRxYOkWj5Kbs7hM0eZFmL/Nyq"
+
+const (
+	// pendingTokenBytes sizes the short-lived 2FA/setup pending tokens.
+	pendingTokenBytes = 16
+	// sessionTokenBytes sizes the long-lived authenticated session token.
+	sessionTokenBytes = 32
+)
+
+// getRD returns the post-login redirect target, accepting it from either the
+// query string or a form field so it survives the multi-step 2FA flow.
+func getRD(c echo.Context) string {
+	if rd := c.QueryParam("rd"); rd != "" {
+		return rd
+	}
+	return c.FormValue("rd")
+}
+
 func (h *AuthHandler) Root(c echo.Context) error {
 	cookie, err := c.Cookie("X-rauth-authtoken")
 	if err != nil {
@@ -45,51 +66,114 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 
 	cookie, err := c.Cookie("X-rauth-authtoken")
 	if err != nil {
-		if !core.CheckRateLimit(rateLimitKey, h.Cfg.RateLimitValidateMax, h.Cfg.RateLimitValidateDecay) {
-			return c.NoContent(http.StatusTooManyRequests)
-		}
-		return c.NoContent(http.StatusUnauthorized)
+		return h.rateLimitedUnauthorized(c, rateLimitKey)
 	}
 
 	token, err := core.DecryptToken(cookie.Value, h.Cfg.ServerSecret)
 	if err != nil || token == "" {
-		if !core.CheckRateLimit(rateLimitKey, h.Cfg.RateLimitValidateMax, h.Cfg.RateLimitValidateDecay) {
-			return c.NoContent(http.StatusTooManyRequests)
-		}
-		return c.NoContent(http.StatusUnauthorized)
+		return h.rateLimitedUnauthorized(c, rateLimitKey)
 	}
 
 	redisKey := "X-rauth-authtoken=" + token
 	data, err := core.TokenDB.HGetAll(core.Ctx, redisKey).Result()
 	if err != nil || len(data) == 0 || data["status"] != "valid" {
-		if !core.CheckRateLimit(rateLimitKey, h.Cfg.RateLimitValidateMax, h.Cfg.RateLimitValidateDecay) {
-			return c.NoContent(http.StatusTooManyRequests)
-		}
+		return h.rateLimitedUnauthorized(c, rateLimitKey)
+	}
+
+	// Session is present: reset the per-IP validate throttle.
+	core.ResetRateLimit(rateLimitKey)
+
+	if !h.sessionGeoAllowed(token, redisKey, data, clientIP) {
 		return c.NoContent(http.StatusUnauthorized)
 	}
 
-	// If we reached here, the request is valid. Reset the rate limit counter for this IP.
-	core.ResetRateLimit(rateLimitKey)
+	if !h.sessionUAMatches(c, token, redisKey, data, clientIP) {
+		return c.NoContent(http.StatusUnauthorized)
+	}
 
-	// Geo-check
+	// Forward identity headers to upstreams via nginx auth_request. groups and
+	// is_admin are stamped into the token at issue time (see issueToken).
+	c.Response().Header().Set("X-RAuth-User", data["username"])
+	c.Response().Header().Set("X-RAuth-Groups", data["groups"])
+	isAdmin := data["is_admin"]
+	if isAdmin == "" {
+		isAdmin = "0"
+	}
+	c.Response().Header().Set("X-RAuth-Admin", isAdmin)
+
+	// Refresh the session/cookie expiry when the client IP is unchanged.
+	if data["ip"] == clientIP {
+		validity := time.Duration(h.Cfg.TokenValidityMinutes) * time.Minute
+		core.TokenDB.Expire(core.Ctx, redisKey, validity)
+		c.SetCookie(&http.Cookie{
+			Name:     "X-rauth-authtoken",
+			Value:    cookie.Value,
+			Path:     "/",
+			Domain:   h.Cfg.CookieDomains[0],
+			Expires:  time.Now().Add(validity),
+			HttpOnly: true,
+			Secure:   true,
+			SameSite: http.SameSiteLaxMode,
+		})
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+// rateLimitedUnauthorized applies the validate rate limit and returns 429 once
+// it is exceeded, otherwise 401. Used for every pre-authentication failure path.
+func (h *AuthHandler) rateLimitedUnauthorized(c echo.Context, rateLimitKey string) error {
+	if !core.CheckRateLimit(rateLimitKey, h.Cfg.RateLimitValidateMax, h.Cfg.RateLimitValidateDecay) {
+		return c.NoContent(http.StatusTooManyRequests)
+	}
+	return c.NoContent(http.StatusUnauthorized)
+}
+
+// invalidateSession removes a session token and both its user and per-IP index
+// entries, so HasActiveSessions does not keep seeing a stale ip_sessions entry.
+func (h *AuthHandler) invalidateSession(token, redisKey, username, clientIP string) {
+	core.RemoveSessionIndex(username, token)
+	core.RemoveIPSessionIndex(clientIP, token)
+	core.TokenDB.Del(core.Ctx, redisKey)
+}
+
+// sessionGeoAllowed enforces the geo-fence: it blocks access from disallowed
+// countries and invalidates a session whose origin country has changed.
+// On any violation it invalidates the session and returns false.
+func (h *AuthHandler) sessionGeoAllowed(token, redisKey string, data map[string]string, clientIP string) bool {
 	currentCountry := core.GetCountryCode(clientIP)
+
 	if !h.Cfg.IsCountryAllowed(currentCountry) {
 		slog.Warn("Access from blocked country", "country", currentCountry, "ip", clientIP)
 		core.LogAudit("BLOCKED_COUNTRY_ACCESS", data["username"], clientIP, map[string]interface{}{"country": currentCountry})
-		core.RemoveSessionIndex(data["username"], token)
-		core.TokenDB.Del(core.Ctx, redisKey)
-		return c.NoContent(http.StatusUnauthorized)
+		h.invalidateSession(token, redisKey, data["username"], clientIP)
+		return false
 	}
 
 	if data["country"] != "unknown" && currentCountry != "unknown" && data["country"] != currentCountry {
-		core.LogAudit("COUNTRY_CHANGE_DETECTED", data["username"], clientIP, map[string]interface{}{"old": data["country"], "new": currentCountry, "current_ip": clientIP})
-		// Expire instant if country changes
-		core.RemoveSessionIndex(data["username"], token)
-		core.TokenDB.Del(core.Ctx, redisKey)
-		return c.NoContent(http.StatusUnauthorized)
+		details := map[string]interface{}{"old": data["country"], "new": currentCountry, "current_ip": clientIP}
+
+		// In lenient mode, tolerate the change (still inside the allowlist) and
+		// update the stored country so it is not repeatedly flagged. This avoids
+		// spurious logouts for roaming/VPN/CGNAT users.
+		if h.Cfg.GeoChangeMode == "lenient" {
+			core.LogAudit("COUNTRY_CHANGE_TOLERATED", data["username"], clientIP, details)
+			core.TokenDB.HSet(core.Ctx, redisKey, "country", currentCountry)
+			return true
+		}
+
+		core.LogAudit("COUNTRY_CHANGE_DETECTED", data["username"], clientIP, details)
+		h.invalidateSession(token, redisKey, data["username"], clientIP)
+		return false
 	}
 
-	// Dual-Layer User-Agent Check (User-Agent Client Hints + Lenient Parser Fallback)
+	return true
+}
+
+// sessionUAMatches runs the dual-layer device check (User-Agent Client Hints
+// with a lenient User-Agent parser fallback). On a mismatch it invalidates the
+// session and returns false.
+func (h *AuthHandler) sessionUAMatches(c echo.Context, token, redisKey string, data map[string]string, clientIP string) bool {
 	chPlatform := c.Request().Header.Get("Sec-CH-UA-Platform")
 	chMobile := c.Request().Header.Get("Sec-CH-UA-Mobile")
 	chModel := c.Request().Header.Get("Sec-CH-UA-Model")
@@ -98,9 +182,7 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 	storedMobile := data["ua_ch_mobile"]
 	storedModel := data["ua_ch_model"]
 
-	normalizeCH := func(val string) string {
-		return strings.Trim(val, `"`)
-	}
+	normalizeCH := func(val string) string { return strings.Trim(val, `"`) }
 
 	var hasMutuallyPresentHints bool
 	uaIsValid := true
@@ -125,60 +207,33 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 	}
 
 	useClientHints := hasMutuallyPresentHints
-
 	if !useClientHints {
-		// Fallback to lenient User-Agent parser matching
+		// Fallback to lenient User-Agent parser matching.
 		uaIsValid = core.IsUserAgentCompatible(data["user_agent"], c.Request().UserAgent())
 	}
 
-	if !uaIsValid {
-		slog.Warn("Session validation failed due to User-Agent/Client-Hint mismatch, invalidating session",
-			"username", data["username"],
-			"use_ch", useClientHints,
-			"stored_ua", data["user_agent"],
-			"current_ua", c.Request().UserAgent(),
-			"stored_ch_platform", storedPlatform,
-			"current_ch_platform", chPlatform,
-			"stored_ch_model", storedModel,
-			"current_ch_model", chModel,
-		)
-		core.LogAudit("USER_AGENT_MISMATCH_INVALIDATED", data["username"], clientIP, map[string]interface{}{
-			"use_ch":              useClientHints,
-			"stored_ua":           data["user_agent"],
-			"current_ua":          c.Request().UserAgent(),
-			"stored_ch_platform":  storedPlatform,
-			"current_ch_platform": chPlatform,
-			"stored_ch_model":     storedModel,
-			"current_ch_model":    chModel,
-		})
-
-		core.RemoveSessionIndex(data["username"], token)
-		core.TokenDB.Del(core.Ctx, redisKey)
-		return c.NoContent(http.StatusUnauthorized)
+	if uaIsValid {
+		return true
 	}
 
-	c.Response().Header().Set("X-RAuth-User", data["username"])
-
-	// Refresh if IP is unchanged
-	if data["ip"] == clientIP {
-		validity := time.Duration(h.Cfg.TokenValidityMinutes) * time.Minute
-		core.TokenDB.Expire(core.Ctx, redisKey, validity)
-
-		// Update cookie expiration
-		newCookie := &http.Cookie{
-			Name:     "X-rauth-authtoken",
-			Value:    cookie.Value,
-			Path:     "/",
-			Domain:   h.Cfg.CookieDomains[0],
-			Expires:  time.Now().Add(validity),
-			HttpOnly: true,
-			Secure:   true,
-			SameSite: http.SameSiteLaxMode,
-		}
-		c.SetCookie(newCookie)
+	details := map[string]interface{}{
+		"use_ch":              useClientHints,
+		"stored_ua":           data["user_agent"],
+		"current_ua":          c.Request().UserAgent(),
+		"stored_ch_platform":  storedPlatform,
+		"current_ch_platform": chPlatform,
+		"stored_ch_model":     storedModel,
+		"current_ch_model":    chModel,
 	}
-
-	return c.NoContent(http.StatusOK)
+	slog.Warn("Session validation failed due to User-Agent/Client-Hint mismatch, invalidating session",
+		"username", data["username"], "use_ch", useClientHints,
+		"stored_ua", data["user_agent"], "current_ua", c.Request().UserAgent(),
+		"stored_ch_platform", storedPlatform, "current_ch_platform", chPlatform,
+		"stored_ch_model", storedModel, "current_ch_model", chModel,
+	)
+	core.LogAudit("USER_AGENT_MISMATCH_INVALIDATED", data["username"], clientIP, details)
+	h.invalidateSession(token, redisKey, data["username"], clientIP)
+	return false
 }
 
 func (h *AuthHandler) Login(c echo.Context) error {
@@ -192,7 +247,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	}
 
 	if c.Request().Method == http.MethodGet {
-		return c.Render(http.StatusOK, "login.html", map[string]interface{}{"csrf": c.Get("csrf"), "rd": c.QueryParam("rd")})
+		return c.Render(http.StatusOK, "login.html", map[string]interface{}{"csrf": c.Get("csrf"), "rd": getRD(c)})
 	}
 
 	// 2. Strict Throttling for POST (Authentication Attempts)
@@ -237,7 +292,7 @@ func (h *AuthHandler) checkUserThrottling(c echo.Context, username string) (bool
 	if username != "" && core.IsRateLimitExceeded("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax) {
 		slog.Warn("Login user rate limit exceeded", "username", username, "ip", clientIP)
 		// We still do the password check work to prevent timing attacks, but we will return 429
-		core.CheckPasswordHash("dummy", "$2a$12$WJlQ/t/NbjXzEfIi2P54vecljh4fSRxYOkWj5Kbs7hM0eZFmL/Nyq")
+		core.CheckPasswordHash("dummy", dummyBcryptHash)
 		return true, c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "This account is temporarily locked due to too many failed attempts.", "csrf": c.Get("csrf")})
 	}
 	return false, nil
@@ -252,7 +307,7 @@ func (h *AuthHandler) verifyCredentials(username, password string) (*core.User, 
 		valid = core.CheckPasswordHash(password, userRecord.Password)
 	} else {
 		// Dummy hash to simulate work
-		core.CheckPasswordHash(password, "$2a$12$WJlQ/t/NbjXzEfIi2P54vecljh4fSRxYOkWj5Kbs7hM0eZFmL/Nyq")
+		core.CheckPasswordHash(password, dummyBcryptHash)
 		valid = false
 	}
 
@@ -299,7 +354,7 @@ func (h *AuthHandler) initiate2FASession(c echo.Context, username string) error 
 		"display2fa": true,
 		"username":   username,
 		"csrf":       c.Get("csrf"),
-		"rd":         c.QueryParam("rd"),
+		"rd":         getRD(c),
 	})
 }
 
@@ -317,7 +372,7 @@ func (h *AuthHandler) initiate2FASetupSession(c echo.Context, username string) e
 	})
 
 	redirectURL := "/rauthsetup2fa"
-	if rd := c.QueryParam("rd"); rd != "" {
+	if rd := getRD(c); rd != "" {
 		redirectURL += "?rd=" + url.QueryEscape(rd)
 	}
 	return c.Redirect(http.StatusFound, redirectURL)
@@ -356,7 +411,24 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many failed attempts. Please try again later.", "csrf": c.Get("csrf"), "display2fa": true})
 	}
 
-	if totp.Validate(code, secret) {
+	// A valid TOTP code authenticates, unless it is a replay within its window.
+	totpOK := totp.Validate(code, secret)
+	if totpOK && core.TOTPCodeReused(username, code) {
+		core.LogAudit("2FA_REPLAY_BLOCKED", username, clientIP, nil)
+		return c.Render(http.StatusUnauthorized, "login.html", map[string]interface{}{
+			"display2fa": true,
+			"error":      "Invalid 2FA code",
+			"csrf":       c.Get("csrf"),
+		})
+	}
+
+	// Fall back to a single-use recovery code if the TOTP code does not match.
+	usedRecovery := false
+	if !totpOK {
+		usedRecovery = core.ConsumeRecoveryCode(username, code)
+	}
+
+	if totpOK || usedRecovery {
 		core.TokenDB.Del(core.Ctx, "pending_2fa:"+pendingToken)
 		// Clear pending cookie
 		c.SetCookie(&http.Cookie{
@@ -371,6 +443,15 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 		core.ResetRateLimit("login_post_ip:" + clientIP)
 		core.ResetRateLimit("login_fail_user:" + username)
 		core.ResetRateLimit("2fa_fail_user:" + username)
+
+		if usedRecovery {
+			core.RecoveryCodeUsedTotal.Inc()
+			remaining := core.CountRecoveryCodes(username)
+			core.LogAudit("2FA_RECOVERY_CODE_USED", username, clientIP, map[string]interface{}{"remaining": remaining})
+			if userRecord.Email != "" {
+				go core.Send2FAModifiedNotification(userRecord.Email, username, fmt.Sprintf("Recovery code used (%d remaining)", remaining), clientIP)
+			}
+		}
 
 		return h.issueToken(c, username)
 	}
@@ -424,7 +505,7 @@ func (h *AuthHandler) Setup2FA(c echo.Context) error {
 	return c.Render(http.StatusOK, "setup_2fa.html", map[string]interface{}{
 		"secret": key.Secret(),
 		"csrf":   c.Get("csrf"),
-		"rd":     c.QueryParam("rd"),
+		"rd":     getRD(c),
 	})
 }
 
@@ -513,7 +594,7 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 }
 
 func (h *AuthHandler) issueTempToken(username string) string {
-	b := make([]byte, 16)
+	b := make([]byte, pendingTokenBytes)
 	if _, err := rand.Read(b); err != nil {
 		slog.Error("Failed to generate random temp token", "error", err)
 		return ""
@@ -524,7 +605,7 @@ func (h *AuthHandler) issueTempToken(username string) string {
 }
 
 func (h *AuthHandler) issueSetupToken(username string) string {
-	b := make([]byte, 16)
+	b := make([]byte, pendingTokenBytes)
 	if _, err := rand.Read(b); err != nil {
 		slog.Error("Failed to generate random setup token", "error", err)
 		return ""
@@ -535,7 +616,7 @@ func (h *AuthHandler) issueSetupToken(username string) string {
 }
 
 func (h *AuthHandler) issueToken(c echo.Context, username string) error {
-	tokenBytes := make([]byte, 32)
+	tokenBytes := make([]byte, sessionTokenBytes)
 	if _, err := rand.Read(tokenBytes); err != nil {
 		slog.Error("Failed to generate random token", "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Internal Server Error")
@@ -556,12 +637,26 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 		return echo.NewHTTPError(http.StatusForbidden, "Access from your location is restricted")
 	}
 
+	// Fetch the user up-front so groups/admin status are stamped into the
+	// session token. The forward-auth (/rauthvalidate) and AuthMiddleware then
+	// forward X-RAuth-Groups / X-RAuth-Admin without an extra Redis lookup.
+	userRecord, err := core.GetUser(username)
+	if err != nil {
+		// Don't issue a session with empty groups/is_admin on a transient read
+		// failure: that would silently downgrade the user's authorization. The
+		// caller has already authenticated, so fail closed.
+		slog.Error("Failed to load user record at token issue", "user", username, "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Internal Server Error")
+	}
+
 	redisKey := "X-rauth-authtoken=" + token
 	err = core.TokenDB.HSet(core.Ctx, redisKey, map[string]interface{}{
 		"status":         "valid",
 		"ip":             clientIP,
 		"username":       username,
 		"country":        country,
+		"groups":         userRecord.Groups,
+		"is_admin":       userRecord.IsAdmin,
 		"user_agent":     c.Request().UserAgent(),
 		"ua_ch_platform": c.Request().Header.Get("Sec-CH-UA-Platform"),
 		"ua_ch_mobile":   c.Request().Header.Get("Sec-CH-UA-Mobile"),
@@ -570,6 +665,7 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 	}).Err()
 	if err == nil {
 		core.AddSessionIndex(username, token)
+		core.AddIPSessionIndex(clientIP, token)
 	}
 	if err != nil {
 		slog.Error("Failed to store token in Redis", "error", err)
@@ -580,7 +676,6 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 	core.TokenDB.Expire(core.Ctx, redisKey, validity)
 
 	// Send Login Notification Email (Asynchronous)
-	userRecord, _ := core.GetUser(username)
 	if userRecord.Email != "" {
 		go core.SendLoginNotification(userRecord.Email, username, clientIP, country)
 	}
@@ -605,6 +700,6 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 	core.ResetRateLimit("login_fail_user:" + username)
 	core.ResetRateLimit("login_fail_ip:" + clientIP)
 
-	redirect := core.ValidateRedirectURL(c.QueryParam("rd"), "/rauthprofile", username, h.Cfg)
+	redirect := core.ValidateRedirectURL(getRD(c), "/rauthprofile", username, h.Cfg)
 	return c.Redirect(http.StatusFound, redirect)
 }

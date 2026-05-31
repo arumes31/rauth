@@ -24,6 +24,7 @@ func TestWebAuthnHandlers(t *testing.T) {
 	cfg := &core.Config{
 		CookieDomains:              []string{"localhost"},
 		ServerSecret:               "testsecret1234567890123456789012",
+		TokenValidityMinutes:       60,
 		RateLimitLoginMax:          100,
 		RateLimitLoginDecay:        60,
 		RateLimitRegistrationMax:   100,
@@ -97,6 +98,37 @@ func TestWebAuthnHandlers(t *testing.T) {
 			he, ok := err.(*echo.HTTPError)
 			assert.True(t, ok)
 			assert.Equal(t, http.StatusBadRequest, he.Code)
+		}
+	})
+
+	// Regression: a passkey-issued session must stamp groups/is_admin and the
+	// per-IP session index, matching the password-login path (issueToken), so
+	// forward-auth forwards X-RAuth-Groups/X-RAuth-Admin and brute-force checks
+	// (HasActiveSessions) can see passkey sessions.
+	t.Run("issuePasskeyToken_StampsGroupsAdminAndIPIndex", func(t *testing.T) {
+		core.AuditDB = core.TokenDB
+		core.UserDB.HSet(core.Ctx, "user:passkeyuser", map[string]interface{}{
+			"username": "passkeyuser",
+			"groups":   "engineering,ops",
+			"is_admin": "1",
+		})
+		userRecord, gerr := core.GetUser("passkeyuser")
+		assert.NoError(t, gerr)
+
+		req := httptest.NewRequest(http.MethodPost, "/webauthn/login/finish", nil)
+		req.RemoteAddr = "203.0.113.7:12345"
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		assert.NoError(t, h.issuePasskeyToken(c, "passkeyuser", &userRecord))
+
+		tokens, err := core.TokenDB.SMembers(core.Ctx, "ip_sessions:203.0.113.7").Result()
+		assert.NoError(t, err)
+		if assert.Len(t, tokens, 1) {
+			data, err := core.TokenDB.HGetAll(core.Ctx, "X-rauth-authtoken="+tokens[0]).Result()
+			assert.NoError(t, err)
+			assert.Equal(t, "engineering,ops", data["groups"])
+			assert.Equal(t, "1", data["is_admin"])
 		}
 	})
 }

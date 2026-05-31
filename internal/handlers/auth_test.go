@@ -252,6 +252,68 @@ func TestAuthHandler_Validate(t *testing.T) {
 	})
 }
 
+func TestAuthHandler_Validate_GeoChangeMode(t *testing.T) {
+	setupHandlersTest(t)
+
+	baseCfg := func(mode string) *core.Config {
+		return &core.Config{
+			ServerSecret:           "32byte-secret-key-for-testing-!!",
+			CookieDomains:          []string{"example.com"},
+			TokenValidityMinutes:   60,
+			RateLimitValidateMax:   1000,
+			RateLimitValidateDecay: 60,
+			GeoChangeMode:          mode,
+		}
+	}
+	e := echo.New()
+
+	setupSession := func(token string) string {
+		encrypted, _ := core.EncryptToken(token, "32byte-secret-key-for-testing-!!")
+		core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken="+token, map[string]interface{}{
+			"status":   "valid",
+			"username": "geouser",
+			"ip":       "1.1.1.1",
+			"country":  "DE",
+		})
+		return encrypted
+	}
+
+	t.Run("strict mode invalidates on country change", func(t *testing.T) {
+		h := &AuthHandler{Cfg: baseCfg("strict")}
+		encrypted := setupSession("geo-strict-token")
+		core.GeoCache.Put("8.8.4.4", "US")
+
+		c, rec := createTestContext(e, http.MethodGet, "/rauthvalidate", nil)
+		c.Request().Header.Set(echo.HeaderXRealIP, "8.8.4.4")
+		c.Request().AddCookie(&http.Cookie{Name: "X-rauth-authtoken", Value: encrypted})
+
+		err := h.Validate(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusUnauthorized, rec.Code)
+
+		exists, _ := core.TokenDB.Exists(core.Ctx, "X-rauth-authtoken=geo-strict-token").Result()
+		assert.Equal(t, int64(0), exists)
+	})
+
+	t.Run("lenient mode tolerates and updates stored country", func(t *testing.T) {
+		h := &AuthHandler{Cfg: baseCfg("lenient")}
+		encrypted := setupSession("geo-lenient-token")
+		core.GeoCache.Put("8.8.4.4", "US")
+
+		c, rec := createTestContext(e, http.MethodGet, "/rauthvalidate", nil)
+		c.Request().Header.Set(echo.HeaderXRealIP, "8.8.4.4")
+		c.Request().AddCookie(&http.Cookie{Name: "X-rauth-authtoken", Value: encrypted})
+
+		err := h.Validate(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		// Session survives and its stored country is updated to the new one.
+		country, _ := core.TokenDB.HGet(core.Ctx, "X-rauth-authtoken=geo-lenient-token", "country").Result()
+		assert.Equal(t, "US", country)
+	})
+}
+
 func TestAuthHandler_CompleteSetup2FA(t *testing.T) {
 
 	cfg := &core.Config{
@@ -402,6 +464,9 @@ func TestAuthHandler_CompleteSetup2FA(t *testing.T) {
 		username := "setupuser"
 		setupToken := "setup-token-abc"
 		secret := "JBSWY3DPEHPK3PXP"
+		// The user always exists by the time setup completes (they authenticated
+		// with a password first); create it so issueToken can stamp groups/admin.
+		_ = core.CreateUser(username, "password123", "setup@example.com", false, "")
 		encryptedToken := setupPending(username, setupToken, secret)
 
 		code, _ := totp.GenerateCode(secret, time.Now())

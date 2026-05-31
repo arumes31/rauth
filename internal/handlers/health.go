@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/redis/go-redis/v9"
 )
 
 type HealthHandler struct {
@@ -25,19 +26,20 @@ func (h *HealthHandler) Check(c echo.Context) error {
 	status := "OK"
 	checks := make(map[string]string)
 
-	// Redis Checks
-	if err := core.UserDB.Ping(core.Ctx).Err(); err != nil {
-		checks["redis_user"] = "FAIL: " + err.Error()
-		status = "DEGRADED"
-	} else {
-		checks["redis_user"] = "OK"
+	// Redis checks. These back-ends are required for the service to function,
+	// so a failure makes the service unready (503), not merely degraded.
+	redisChecks := map[string]*redis.Client{
+		"redis_user":  core.UserDB,
+		"redis_token": core.TokenDB,
+		"redis_rate":  core.RateLimitDB,
 	}
-
-	if err := core.TokenDB.Ping(core.Ctx).Err(); err != nil {
-		checks["redis_token"] = "FAIL: " + err.Error()
-		status = "DEGRADED"
-	} else {
-		checks["redis_token"] = "OK"
+	for name, client := range redisChecks {
+		if err := client.Ping(core.Ctx).Err(); err != nil {
+			checks[name] = "FAIL: " + err.Error()
+			status = "FAIL"
+		} else {
+			checks[name] = "OK"
+		}
 	}
 
 	// GeoIP Metadata

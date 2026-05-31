@@ -283,15 +283,24 @@ func (h *WebAuthnHandler) issuePasskeyToken(c echo.Context, username string, use
 	}
 
 	finalRedisKey := "X-rauth-authtoken=" + token
+	// Stamp groups/is_admin and Client Hints into the session so the forward-auth
+	// path (/rauthvalidate) forwards X-RAuth-Groups/X-RAuth-Admin and the device
+	// check behaves identically to a password login (see issueToken).
 	core.TokenDB.HSet(core.Ctx, finalRedisKey, map[string]interface{}{
-		"status":     "valid",
-		"ip":         clientIP,
-		"username":   username,
-		"country":    countryCode,
-		"user_agent": ua,
-		"created_at": time.Now().Unix(),
+		"status":         "valid",
+		"ip":             clientIP,
+		"username":       username,
+		"country":        countryCode,
+		"groups":         userRecord.Groups,
+		"is_admin":       userRecord.IsAdmin,
+		"user_agent":     ua,
+		"ua_ch_platform": c.Request().Header.Get("Sec-CH-UA-Platform"),
+		"ua_ch_mobile":   c.Request().Header.Get("Sec-CH-UA-Mobile"),
+		"ua_ch_model":    c.Request().Header.Get("Sec-CH-UA-Model"),
+		"created_at":     time.Now().Unix(),
 	})
 	core.AddSessionIndex(username, token)
+	core.AddIPSessionIndex(clientIP, token)
 
 	tokenValidity := time.Duration(h.Cfg.TokenValidityMinutes) * time.Minute
 	core.TokenDB.Expire(core.Ctx, finalRedisKey, tokenValidity)
