@@ -88,7 +88,7 @@ func LoadConfig() *Config {
 		GeoApiHost:           getEnv("GEO_API_HOST", "rauth-geo-service"),
 		GeoApiPort:           getEnv("GEO_API_PORT", "3000"),
 		MaxMindDBPath:        getEnv("MAXMIND_DB_PATH", "/app/geoip/GeoLite2-Country.mmdb"),
-		MetricsAllowedIPs:    getEnvSlice("METRICS_ALLOWED_IPS", []string{"127.0.0.1", "::1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10"}),
+		MetricsAllowedIPs:    getEnvSlice("METRICS_ALLOWED_IPS", []string{"127.0.0.1", "::1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "fd7a:115c:a1e0::/48"}),
 		InitialUser:          getEnv("INITIAL_USER", "admin"),
 		InitialPassword:      getEnv("INITIAL_PASSWORD", ""),
 		InitialEmail:         getEnv("INITIAL_EMAIL", "admin@local"),

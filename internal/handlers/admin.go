@@ -61,8 +61,24 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 				slog.Warn("AdminDashboard: token key missing expected prefix", "key", k)
 			}
 			data["ttl"] = fmt.Sprintf("%d", int(ttlCmds[i].Val().Seconds()))
-			data["friendly_ua"] = core.FormatUserAgent(data["user_agent"])
-			data["device_icon"] = core.GetDeviceIcon(data["user_agent"])
+
+			// Use Client Hints if available to enhance the friendly UA
+			ua := data["user_agent"]
+			friendlyUA := core.FormatUserAgent(ua)
+			if platform := data["ua_ch_platform"]; platform != "" && platform != "Unknown" {
+				// We already have OS in FormatUserAgent, but if CH platform is more specific...
+			}
+			if model := data["ua_ch_model"]; model != "" && model != "Unknown" {
+				friendlyUA += fmt.Sprintf(" [%s]", strings.Trim(model, "\""))
+			}
+			if mobile := data["ua_ch_mobile"]; mobile == "?1" {
+				if !strings.Contains(friendlyUA, "[Mobile]") {
+					friendlyUA += " [Mobile]"
+				}
+			}
+
+			data["friendly_ua"] = friendlyUA
+			data["device_icon"] = core.GetDeviceIcon(ua)
 			sessions = append(sessions, data)
 		}
 	}

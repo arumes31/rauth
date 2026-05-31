@@ -78,42 +78,7 @@ func main() {
 	e.HideBanner = true
 
 	// Configure real IP extraction from headers behind reverse proxies
-	// SECURITY: These headers are only trusted if the deployment is behind a verified
-	// reverse proxy that scrubs these headers from external clients.
-	e.IPExtractor = func(req *http.Request) string {
-		if cfg.TrustCloudflareIP {
-			if cfIP := req.Header.Get("CF-Connecting-IP"); cfIP != "" {
-				if ip := net.ParseIP(cfIP); ip != nil {
-					return ip.String()
-				}
-			}
-		}
-		if cfg.TrustXRealIP {
-			if realIP := req.Header.Get("X-Real-IP"); realIP != "" {
-				if ip := net.ParseIP(realIP); ip != nil {
-					return ip.String()
-				}
-			}
-		}
-		if cfg.TrustXForwardedFor {
-			if xff := req.Header.Get("X-Forwarded-For"); xff != "" {
-				ips := strings.Split(xff, ",")
-				for i := 0; i < len(ips); i++ {
-					cleaned := strings.TrimSpace(ips[i])
-					if cleaned != "" {
-						if ip := net.ParseIP(cleaned); ip != nil {
-							return ip.String()
-						}
-					}
-				}
-			}
-		}
-		host, _, err := net.SplitHostPort(req.RemoteAddr)
-		if err == nil {
-			return host
-		}
-		return req.RemoteAddr
-	}
+	e.IPExtractor = CreateIPExtractor(cfg)
 
 	// Setup everything
 	setupMiddleware(e, cfg)
@@ -482,3 +447,72 @@ func initializeSystem(cfg *core.Config) {
 		}
 	}()
 }
+
+// CreateIPExtractor returns a function that extracts the real client IP from request headers.
+// It prioritizes explicit trust configuration but falls back to a "smart" detection mode
+// where it trusts headers if the immediate connection originates from a private IP (e.g. Docker proxy).
+func CreateIPExtractor(cfg *core.Config) echo.IPExtractor {
+	return func(req *http.Request) string {
+		remoteHost, _, _ := net.SplitHostPort(req.RemoteAddr)
+		if remoteHost == "" {
+			remoteHost = req.RemoteAddr
+		}
+
+		// 1. Check Cloudflare (if explicitly trusted)
+		if cfg.TrustCloudflareIP {
+			if cfIP := req.Header.Get("CF-Connecting-IP"); cfIP != "" {
+				if ip := net.ParseIP(cfIP); ip != nil {
+					return ip.String()
+				}
+			}
+		}
+
+		// 2. Check X-Real-IP (if explicitly trusted or if RemoteAddr is private)
+		realIPHeader := req.Header.Get("X-Real-IP")
+		if realIPHeader != "" {
+			if cfg.TrustXRealIP || core.IsPrivateIP(remoteHost) {
+				if ip := net.ParseIP(realIPHeader); ip != nil {
+					return ip.String()
+				}
+			}
+		}
+
+		// 3. Check X-Forwarded-For
+		xff := req.Header.Get("X-Forwarded-For")
+		if xff != "" {
+			ips := strings.Split(xff, ",")
+			// If explicitly trusted, return the leftmost (original client) IP
+			if cfg.TrustXForwardedFor {
+				for i := 0; i < len(ips); i++ {
+					cleaned := strings.TrimSpace(ips[i])
+					if ip := net.ParseIP(cleaned); ip != nil {
+						return ip.String()
+					}
+				}
+			}
+
+			// If not explicitly trusted, only look at XFF if the remote host is private.
+			// We walk the chain from right-to-left and return the first non-private IP.
+			// This is a safer default for common Docker/Proxy setups.
+			if core.IsPrivateIP(remoteHost) {
+				for i := len(ips) - 1; i >= 0; i-- {
+					cleaned := strings.TrimSpace(ips[i])
+					if ip := net.ParseIP(cleaned); ip != nil {
+						ipStr := ip.String()
+						if !core.IsPrivateIP(ipStr) {
+							return ipStr
+						}
+					}
+				}
+				// If everyone in the chain is private, take the leftmost as a last resort
+				cleaned := strings.TrimSpace(ips[0])
+				if ip := net.ParseIP(cleaned); ip != nil {
+					return ip.String()
+				}
+			}
+		}
+
+		return remoteHost
+	}
+}
+
