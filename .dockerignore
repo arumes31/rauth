@@ -13,8 +13,6 @@ bin
 rauth
 rauth.exe
 *_test.go
-go.sum
-go.mod
 
 # Redis and Data
 redis-data
