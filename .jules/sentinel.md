@@ -38,3 +38,8 @@
 **Vulnerability:** In `internal/middleware/auth.go`, when a request was unauthorized, the middleware would redirect the user to `/rauthlogin?rd=` appended directly with `c.Request().RequestURI`. An attacker could exploit this by appending characters like `&` and `=` to manipulate parameters, causing HTTP Parameter Injection, or potentially bypass open redirect mitigations depending on how `rd` was processed by the login handler.
 **Learning:** Raw request URIs or arbitrary user inputs must be properly URL-encoded before being interpolated into a new URL's query parameters to ensure they are treated purely as data and not structural characters.
 **Prevention:** Always use `url.QueryEscape` when passing URIs or paths as query parameters in redirect flows.
+
+## 2026-06-01 - [MEDIUM] Incomplete session cookie invalidation attributes
+**Vulnerability:** Cookie deletion operations for session invalidation (e.g., `rauth_webauthn_session`) lacked exact security attributes (like `SameSite: http.SameSiteLaxMode`) used during creation.
+**Learning:** When clearing cookies, browsers may refuse to delete them if security attributes (Secure, HttpOnly, SameSite) do not exactly match the original creation parameters. This discrepancy can result in the browser retaining the cookie, leading to persistent session vulnerabilities and satisfying gosec G124 warnings.
+**Prevention:** Always mirror the exact security attributes (Secure, HttpOnly, SameSite) of a cookie when constructing the overwrite/deletion response to ensure proper invalidation and satisfy gosec requirements.
