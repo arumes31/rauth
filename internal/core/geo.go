@@ -124,6 +124,7 @@ func StartGeoUpdater(cfg *Config) {
 		slog.Error("Failed to create GeoIP directory", "path", dbDir, "error", err)
 		return
 	}
+	// #nosec G302 - Directory must be traversable (0700), this is a false positive
 	if err := os.Chmod(dbDir, 0700); err != nil {
 		slog.Warn("Failed to enforce GeoIP directory permissions", "path", dbDir, "error", err)
 	}
