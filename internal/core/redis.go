@@ -149,6 +149,9 @@ func reconcileIndexSets(pattern string) int64 {
 	var cursor uint64
 
 	for {
+		if TokenDB == nil {
+			break
+		}
 		keys, nextCursor, err := TokenDB.Scan(Ctx, cursor, pattern, 100).Result()
 		if err != nil {
 			slog.Error("SyncSessionIndexes: Scan failed", "pattern", pattern, "error", err)
