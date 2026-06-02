@@ -61,11 +61,15 @@ func InvalidateUserSessions(username string) {
 		return
 	}
 
-	pipe := TokenDB.Pipeline()
+	// ⚡ Bolt optimization: Batch variadic string keys to delete in one pipeline round trip.
+	var toDel []string
 	for _, token := range tokens {
-		pipe.Del(Ctx, "X-rauth-authtoken="+token)
+		toDel = append(toDel, "X-rauth-authtoken="+token)
 	}
-	pipe.Del(Ctx, indexKey)
+	toDel = append(toDel, indexKey)
+
+	pipe := TokenDB.Pipeline()
+	pipe.Del(Ctx, toDel...)
 	if _, err := pipe.Exec(Ctx); err != nil {
 		slog.Error("Failed to execute InvalidateUserSessions pipeline", "error", err)
 	}
@@ -78,16 +82,24 @@ func InvalidateOtherUserSessions(username, currentToken string) {
 		return
 	}
 
-	pipe := TokenDB.Pipeline()
+	// ⚡ Bolt optimization: Accumulate keys and batch delete/remove with variadic commands.
+	var toDel []string
+	var toRem []interface{}
 	for _, token := range tokens {
 		if token == currentToken {
 			continue
 		}
-		pipe.Del(Ctx, "X-rauth-authtoken="+token)
-		pipe.SRem(Ctx, indexKey, token)
+		toDel = append(toDel, "X-rauth-authtoken="+token)
+		toRem = append(toRem, token)
 	}
-	if _, err := pipe.Exec(Ctx); err != nil {
-		slog.Error("Failed to execute InvalidateOtherUserSessions pipeline", "error", err)
+
+	if len(toDel) > 0 {
+		pipe := TokenDB.Pipeline()
+		pipe.Del(Ctx, toDel...)
+		pipe.SRem(Ctx, indexKey, toRem...)
+		if _, err := pipe.Exec(Ctx); err != nil {
+			slog.Error("Failed to execute InvalidateOtherUserSessions pipeline", "error", err)
+		}
 	}
 }
 
@@ -101,15 +113,33 @@ func HasActiveSessions(ip string) bool {
 		return false
 	}
 
-	for _, token := range tokens {
-		data, err := TokenDB.HGetAll(Ctx, "X-rauth-authtoken="+token).Result()
-		if err == nil && len(data) > 0 && data["status"] == "valid" {
-			return true
-		}
-		// Token expired or was invalidated: drop the dangling index entry.
-		TokenDB.SRem(Ctx, indexKey, token)
+	if len(tokens) == 0 {
+		return false
 	}
-	return false
+
+	// ⚡ Bolt optimization: Batch HGetAll requests to avoid N+1 queries.
+	pipe := TokenDB.Pipeline()
+	cmds := make(map[string]*redis.MapStringStringCmd, len(tokens))
+	for _, token := range tokens {
+		cmds[token] = pipe.HGetAll(Ctx, "X-rauth-authtoken="+token)
+	}
+	_, _ = pipe.Exec(Ctx)
+
+	var stale []interface{}
+	hasActive := false
+	for _, token := range tokens {
+		data, err := cmds[token].Result()
+		if err == nil && len(data) > 0 && data["status"] == "valid" {
+			hasActive = true
+		} else {
+			stale = append(stale, token)
+		}
+	}
+
+	if len(stale) > 0 {
+		TokenDB.SRem(Ctx, indexKey, stale...)
+	}
+	return hasActive
 }
 
 func AddSessionIndex(username, token string) {
@@ -160,14 +190,30 @@ func reconcileIndexSets(pattern string) int64 {
 			if err != nil {
 				continue
 			}
+			if len(tokens) == 0 {
+				continue
+			}
+
+			// ⚡ Bolt optimization: Batch HGetAll requests in a pipeline and remove stale tokens variadically.
+			pipe := TokenDB.Pipeline()
+			cmds := make(map[string]*redis.MapStringStringCmd, len(tokens))
 			for _, token := range tokens {
-				data, err := TokenDB.HGetAll(Ctx, "X-rauth-authtoken="+token).Result()
+				cmds[token] = pipe.HGetAll(Ctx, "X-rauth-authtoken="+token)
+			}
+			_, _ = pipe.Exec(Ctx)
+
+			var stale []interface{}
+			for _, token := range tokens {
+				data, err := cmds[token].Result()
 				if err == nil && len(data) > 0 && data["status"] == "valid" {
 					live++
-					continue
+				} else {
+					stale = append(stale, token)
 				}
-				// Dead/expired token: drop the dangling index entry.
-				TokenDB.SRem(Ctx, indexKey, token)
+			}
+
+			if len(stale) > 0 {
+				TokenDB.SRem(Ctx, indexKey, stale...)
 			}
 		}
 
