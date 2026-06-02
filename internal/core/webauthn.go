@@ -141,13 +141,14 @@ func InitWebAuthn(cfg *Config) error {
 }
 
 func SaveWebAuthnCredential(username string, cred *webauthn.Credential) error {
+	hashKey := "user:" + username + ":webauthn_creds_v2"
 	stored := StoredCredential{
 		Credential: *cred,
 		Nickname:   fmt.Sprintf("Key %d", len(GetWebAuthnCredentials(username))+1),
 		CreatedAt:  time.Now().Unix(),
 	}
 	data, _ := json.Marshal(stored)
-	return UserDB.RPush(Ctx, "user:"+username+":webauthn_creds", data).Err()
+	return UserDB.HSet(Ctx, hashKey, fmt.Sprintf("%x", cred.ID), data).Err()
 }
 
 func GetWebAuthnCredentials(username string) []webauthn.Credential {
@@ -160,118 +161,145 @@ func GetWebAuthnCredentials(username string) []webauthn.Credential {
 }
 
 func GetStoredCredentials(username string) []StoredCredential {
-	var creds []StoredCredential
-	results, _ := UserDB.LRange(Ctx, "user:"+username+":webauthn_creds", 0, -1).Result()
-	for _, r := range results {
-		var c StoredCredential
-		if err := json.Unmarshal([]byte(r), &c); err == nil {
-			creds = append(creds, c)
-		}
-	}
-	return creds
-}
+	hashKey := "user:" + username + ":webauthn_creds_v2"
+	listKey := "user:" + username + ":webauthn_creds"
 
-func UpdateWebAuthnSignCount(username string, credID []byte, newCount uint32) {
-	key := "user:" + username + ":webauthn_creds"
-	results, _ := UserDB.LRange(Ctx, key, 0, -1).Result()
-	for i, r := range results {
-		var c StoredCredential
-		if err := json.Unmarshal([]byte(r), &c); err == nil {
-			if string(c.ID) == string(credID) {
-				c.Authenticator.SignCount = newCount
-				c.LastUsed = time.Now().Unix()
-				data, _ := json.Marshal(c)
-				UserDB.LSet(Ctx, key, int64(i), data)
-				return
+	// 1. Try Hash
+	data, err := UserDB.HGetAll(Ctx, hashKey).Result()
+	if err == nil && len(data) > 0 {
+		var creds []StoredCredential
+		for _, r := range data {
+			var c StoredCredential
+			if err := json.Unmarshal([]byte(r), &c); err == nil {
+				creds = append(creds, c)
 			}
 		}
+		// Sort by CreatedAt to maintain consistent order
+		slices.SortFunc(creds, func(a, b StoredCredential) int {
+			if a.CreatedAt != b.CreatedAt {
+				return int(a.CreatedAt - b.CreatedAt)
+			}
+			return strings.Compare(fmt.Sprintf("%x", a.ID), fmt.Sprintf("%x", b.ID))
+		})
+		return creds
 	}
+
+	// 2. Fallback to List & Migrate
+	results, _ := UserDB.LRange(Ctx, listKey, 0, -1).Result()
+	if len(results) > 0 {
+		var creds []StoredCredential
+		pipe := UserDB.Pipeline()
+		for _, r := range results {
+			var c StoredCredential
+			if err := json.Unmarshal([]byte(r), &c); err == nil {
+				creds = append(creds, c)
+				pipe.HSet(Ctx, hashKey, fmt.Sprintf("%x", c.ID), r)
+			}
+		}
+		pipe.Del(Ctx, listKey)
+		// Best-effort migration: if it fails we still return what we read from
+		// the list for this request, and a later call will retry the migration.
+		_, _ = pipe.Exec(Ctx)
+
+		slices.SortFunc(creds, func(a, b StoredCredential) int {
+			if a.CreatedAt != b.CreatedAt {
+				return int(a.CreatedAt - b.CreatedAt)
+			}
+			return strings.Compare(fmt.Sprintf("%x", a.ID), fmt.Sprintf("%x", b.ID))
+		})
+		return creds
+	}
+
+	return nil
+}
+
+func UpdateWebAuthnSignCount(username string, credID []byte, newCount uint32) error {
+	hashKey := "user:" + username + ":webauthn_creds_v2"
+	field := fmt.Sprintf("%x", credID)
+
+	val, err := UserDB.HGet(Ctx, hashKey, field).Result()
+	if err != nil {
+		// Try migration
+		GetStoredCredentials(username)
+		val, err = UserDB.HGet(Ctx, hashKey, field).Result()
+		if err != nil {
+			return err
+		}
+	}
+
+	var c StoredCredential
+	if err := json.Unmarshal([]byte(val), &c); err != nil {
+		return err
+	}
+	c.Authenticator.SignCount = newCount
+	c.LastUsed = time.Now().Unix()
+	data, _ := json.Marshal(c)
+	return UserDB.HSet(Ctx, hashKey, field, data).Err()
 }
 
 func DeleteWebAuthnCredential(username string, credID string) error {
-	stored := GetStoredCredentials(username)
-	key := "user:" + username + ":webauthn_creds"
-
-	stored = slices.DeleteFunc(stored, func(c StoredCredential) bool {
-		return fmt.Sprintf("%x", c.ID) == credID
-	})
-
-	var toPush []interface{}
-	for _, c := range stored {
-		data, err := json.Marshal(c)
-		if err != nil {
-			return err
-		}
-		toPush = append(toPush, data)
-	}
-
-	UserDB.Del(Ctx, key)
-	if len(toPush) > 0 {
-		return UserDB.RPush(Ctx, key, toPush...).Err()
-	}
-	return nil
+	hashKey := "user:" + username + ":webauthn_creds_v2"
+	// Ensure migration
+	GetStoredCredentials(username)
+	return UserDB.HDel(Ctx, hashKey, credID).Err()
 }
 
 func UpdateWebAuthnNickname(username string, credID string, nickname string) error {
-	stored := GetStoredCredentials(username)
-	key := "user:" + username + ":webauthn_creds"
-	var toPush []interface{}
-	for i := range stored {
-		if fmt.Sprintf("%x", stored[i].ID) == credID {
-			stored[i].Nickname = nickname
-		}
-		data, err := json.Marshal(stored[i])
-		if err != nil {
-			return err
-		}
-		toPush = append(toPush, data)
+	hashKey := "user:" + username + ":webauthn_creds_v2"
+	// Ensure migration
+	GetStoredCredentials(username)
+
+	val, err := UserDB.HGet(Ctx, hashKey, credID).Result()
+	if err != nil {
+		return err
 	}
-	UserDB.Del(Ctx, key)
-	if len(toPush) > 0 {
-		return UserDB.RPush(Ctx, key, toPush...).Err()
+
+	var c StoredCredential
+	if err := json.Unmarshal([]byte(val), &c); err != nil {
+		return err
 	}
-	return nil
+	c.Nickname = nickname
+	data, _ := json.Marshal(c)
+	return UserDB.HSet(Ctx, hashKey, credID, data).Err()
 }
 
 func UpdateWebAuthnLastUsed(username string, credID []byte) error {
-	stored := GetStoredCredentials(username)
-	key := "user:" + username + ":webauthn_creds"
-	var toPush []interface{}
-	for i := range stored {
-		if fmt.Sprintf("%x", stored[i].ID) == fmt.Sprintf("%x", credID) {
-			stored[i].LastUsed = time.Now().Unix()
-		}
-		data, err := json.Marshal(stored[i])
-		if err != nil {
-			return err
-		}
-		toPush = append(toPush, data)
+	hashKey := "user:" + username + ":webauthn_creds_v2"
+	field := fmt.Sprintf("%x", credID)
+	// Ensure migration
+	GetStoredCredentials(username)
+
+	val, err := UserDB.HGet(Ctx, hashKey, field).Result()
+	if err != nil {
+		return err
 	}
-	UserDB.Del(Ctx, key)
-	if len(toPush) > 0 {
-		return UserDB.RPush(Ctx, key, toPush...).Err()
+
+	var c StoredCredential
+	if err := json.Unmarshal([]byte(val), &c); err != nil {
+		return err
 	}
-	return nil
+	c.LastUsed = time.Now().Unix()
+	data, _ := json.Marshal(c)
+	return UserDB.HSet(Ctx, hashKey, field, data).Err()
 }
 
 func UpdateWebAuthnCredential(username string, cred *webauthn.Credential) error {
-	stored := GetStoredCredentials(username)
-	key := "user:" + username + ":webauthn_creds"
-	var toPush []interface{}
-	for i := range stored {
-		if fmt.Sprintf("%x", stored[i].ID) == fmt.Sprintf("%x", cred.ID) {
-			stored[i].Credential = *cred
-			stored[i].LastUsed = time.Now().Unix()
-		}
-		data, err := json.Marshal(stored[i])
-		if err != nil {
-			return err
-		}
-		toPush = append(toPush, data)
+	hashKey := "user:" + username + ":webauthn_creds_v2"
+	field := fmt.Sprintf("%x", cred.ID)
+	// Ensure migration
+	GetStoredCredentials(username)
+
+	val, err := UserDB.HGet(Ctx, hashKey, field).Result()
+	if err != nil {
+		return err
 	}
-	UserDB.Del(Ctx, key)
-	if len(toPush) > 0 {
-		return UserDB.RPush(Ctx, key, toPush...).Err()
+
+	var c StoredCredential
+	if err := json.Unmarshal([]byte(val), &c); err != nil {
+		return err
 	}
-	return nil
+	c.Credential = *cred
+	c.LastUsed = time.Now().Unix()
+	data, _ := json.Marshal(c)
+	return UserDB.HSet(Ctx, hashKey, field, data).Err()
 }
