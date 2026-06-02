@@ -27,78 +27,9 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to load profile")
 	}
 
-	// Fetch sessions for this user efficiently
-	tokens, err := core.TokenDB.SMembers(core.Ctx, "user_sessions:"+username).Result()
-	if err != nil {
-		slog.Error("Failed to fetch sessions from Redis", "error", err)
-	}
+	sessions := h.fetchUserSessions(username, currentToken)
 
-	var sessions []map[string]string
-	pipe := core.TokenDB.Pipeline()
-	cmds := make(map[string]*redis.MapStringStringCmd)
-	ttlCmds := make(map[string]*redis.DurationCmd)
-
-	for _, token := range tokens {
-		redisKey := "X-rauth-authtoken=" + token
-		cmds[token] = pipe.HGetAll(core.Ctx, redisKey)
-		ttlCmds[token] = pipe.TTL(core.Ctx, redisKey)
-	}
-	_, pipeErr := pipe.Exec(core.Ctx)
-	if pipeErr != nil {
-		slog.Error("Failed to execute session details pipeline", "error", pipeErr)
-	}
-
-	for _, token := range tokens {
-		data, err := cmds[token].Result()
-		if err != nil || len(data) == 0 {
-			// Only clean up stale index entries if the pipeline succeeded
-			// (individual key miss), not on a wholesale pipeline failure.
-			if pipeErr == nil {
-				core.RemoveSessionIndex(username, token)
-			}
-			continue
-		}
-		data["token"] = token
-		data["is_current"] = "0"
-		if token == currentToken {
-			data["is_current"] = "1"
-		}
-		ttl := ttlCmds[token].Val()
-		data["ttl"] = fmt.Sprintf("%d", int(ttl.Seconds()))
-
-		// Use Client Hints if available to enhance the friendly UA
-		ua := data["user_agent"]
-		friendlyUA := core.FormatUserAgent(ua)
-		if model := data["ua_ch_model"]; model != "" && model != "Unknown" {
-			friendlyUA += fmt.Sprintf(" [%s]", strings.Trim(model, "\""))
-		}
-		if mobile := data["ua_ch_mobile"]; mobile == "?1" {
-			if !strings.Contains(friendlyUA, "[Mobile]") {
-				friendlyUA += " [Mobile]"
-			}
-		}
-
-		data["friendly_ua"] = friendlyUA
-		data["device_icon"] = core.GetDeviceIcon(ua)
-		sessions = append(sessions, data)
-	}
-
-	// Personal Logs
-	rawLogs, err := core.AuditDB.LRange(core.Ctx, "audit_logs", 0, 500).Result()
-	if err != nil {
-		slog.Error("Failed to fetch audit logs", "error", err)
-	}
-
-	var logs []core.AuditLog
-	for _, l := range rawLogs {
-		var log core.AuditLog
-		if err := json.Unmarshal([]byte(l), &log); err != nil {
-			continue
-		}
-		if log.Username == username {
-			logs = append(logs, log)
-		}
-	}
+	logs := h.fetchUserLogs(username)
 
 	passkeys := core.GetStoredCredentials(username)
 
@@ -337,6 +268,80 @@ func (h *ProfileHandler) ChangePassword(c echo.Context) error {
 	core.LogAudit("USER_CHANGE_PASSWORD", username, c.RealIP(), nil)
 
 	return c.Redirect(http.StatusFound, "/rauthprofile?success=password_changed")
+}
+
+func (h *ProfileHandler) fetchUserLogs(username string) []core.AuditLog {
+	rawLogs, err := core.AuditDB.LRange(core.Ctx, "audit_logs", 0, 500).Result()
+	if err != nil {
+		slog.Error("Failed to fetch audit logs", "error", err)
+	}
+
+	var logs []core.AuditLog
+	for _, l := range rawLogs {
+		var log core.AuditLog
+		if err := json.Unmarshal([]byte(l), &log); err != nil {
+			continue
+		}
+		if log.Username == username {
+			logs = append(logs, log)
+		}
+	}
+	return logs
+}
+
+func (h *ProfileHandler) fetchUserSessions(username, currentToken string) []map[string]string {
+	tokens, err := core.TokenDB.SMembers(core.Ctx, "user_sessions:"+username).Result()
+	if err != nil {
+		slog.Error("Failed to fetch sessions from Redis", "error", err)
+	}
+
+	var sessions []map[string]string
+	pipe := core.TokenDB.Pipeline()
+	cmds := make(map[string]*redis.MapStringStringCmd)
+	ttlCmds := make(map[string]*redis.DurationCmd)
+
+	for _, token := range tokens {
+		redisKey := "X-rauth-authtoken=" + token
+		cmds[token] = pipe.HGetAll(core.Ctx, redisKey)
+		ttlCmds[token] = pipe.TTL(core.Ctx, redisKey)
+	}
+	_, pipeErr := pipe.Exec(core.Ctx)
+	if pipeErr != nil {
+		slog.Error("Failed to execute session details pipeline", "error", pipeErr)
+	}
+
+	for _, token := range tokens {
+		data, err := cmds[token].Result()
+		if err != nil || len(data) == 0 {
+			if pipeErr == nil {
+				core.RemoveSessionIndex(username, token)
+			}
+			continue
+		}
+		data["token"] = token
+		data["is_current"] = "0"
+		if token == currentToken {
+			data["is_current"] = "1"
+		}
+		ttl := ttlCmds[token].Val()
+		data["ttl"] = fmt.Sprintf("%d", int(ttl.Seconds()))
+
+		ua := data["user_agent"]
+		friendlyUA := core.FormatUserAgent(ua)
+		if model := data["ua_ch_model"]; model != "" && model != "Unknown" {
+			friendlyUA += fmt.Sprintf(" [%s]", strings.Trim(model, "\""))
+		}
+		if mobile := data["ua_ch_mobile"]; mobile == "?1" {
+			if !strings.Contains(friendlyUA, "[Mobile]") {
+				friendlyUA += " [Mobile]"
+			}
+		}
+
+		data["friendly_ua"] = friendlyUA
+		data["device_icon"] = core.GetDeviceIcon(ua)
+		sessions = append(sessions, data)
+	}
+	return sessions
 }
 
 func (h *ProfileHandler) validateTOTP(username, otpCode, encryptedSecret string) *echo.HTTPError {
