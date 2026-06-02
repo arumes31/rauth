@@ -41,11 +41,6 @@ var (
 		Help: "The build timestamp of the loaded GeoIP database",
 	})
 
-	LegacyKDFDecryptTotal = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "rauth_legacy_kdf_decrypt_total",
-		Help: "The total number of tokens decrypted using the legacy SHA256 KDF fallback",
-	})
-
 	RecoveryCodeUsedTotal = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "rauth_recovery_code_used_total",
 		Help: "The total number of 2FA recovery codes consumed during login",
