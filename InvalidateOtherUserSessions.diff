@@ -1,0 +1,50 @@
+<<<<<<< SEARCH
+func InvalidateOtherUserSessions(username, currentToken string) {
+	indexKey := "user_sessions:" + username
+	tokens, err := TokenDB.SMembers(Ctx, indexKey).Result()
+	if err != nil {
+		return
+	}
+
+	pipe := TokenDB.Pipeline()
+	for _, token := range tokens {
+		if token == currentToken {
+			continue
+		}
+		pipe.Del(Ctx, "X-rauth-authtoken="+token)
+		pipe.SRem(Ctx, indexKey, token)
+	}
+	if _, err := pipe.Exec(Ctx); err != nil {
+		slog.Error("Failed to execute InvalidateOtherUserSessions pipeline", "error", err)
+	}
+}
+=======
+func InvalidateOtherUserSessions(username, currentToken string) {
+	indexKey := "user_sessions:" + username
+	tokens, err := TokenDB.SMembers(Ctx, indexKey).Result()
+	if err != nil {
+		return
+	}
+
+	var toDelete []string
+	var toRemove []interface{}
+	for _, token := range tokens {
+		if token == currentToken {
+			continue
+		}
+		toDelete = append(toDelete, "X-rauth-authtoken="+token)
+		toRemove = append(toRemove, token)
+	}
+
+	if len(toDelete) == 0 {
+		return
+	}
+
+	pipe := TokenDB.Pipeline()
+	pipe.Del(Ctx, toDelete...)
+	pipe.SRem(Ctx, indexKey, toRemove...)
+	if _, err := pipe.Exec(Ctx); err != nil {
+		slog.Error("Failed to execute InvalidateOtherUserSessions pipeline", "error", err)
+	}
+}
+>>>>>>> REPLACE

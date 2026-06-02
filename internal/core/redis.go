@@ -62,10 +62,12 @@ func InvalidateUserSessions(username string) {
 	}
 
 	pipe := TokenDB.Pipeline()
+	keys := make([]string, 0, len(tokens)+1)
 	for _, token := range tokens {
-		pipe.Del(Ctx, "X-rauth-authtoken="+token)
+		keys = append(keys, "X-rauth-authtoken="+token)
 	}
-	pipe.Del(Ctx, indexKey)
+	keys = append(keys, indexKey)
+	pipe.Del(Ctx, keys...)
 	if _, err := pipe.Exec(Ctx); err != nil {
 		slog.Error("Failed to execute InvalidateUserSessions pipeline", "error", err)
 	}
@@ -78,14 +80,23 @@ func InvalidateOtherUserSessions(username, currentToken string) {
 		return
 	}
 
-	pipe := TokenDB.Pipeline()
+	var toDelete []string
+	var toRemove []interface{}
 	for _, token := range tokens {
 		if token == currentToken {
 			continue
 		}
-		pipe.Del(Ctx, "X-rauth-authtoken="+token)
-		pipe.SRem(Ctx, indexKey, token)
+		toDelete = append(toDelete, "X-rauth-authtoken="+token)
+		toRemove = append(toRemove, token)
 	}
+
+	if len(toDelete) == 0 {
+		return
+	}
+
+	pipe := TokenDB.Pipeline()
+	pipe.Del(Ctx, toDelete...)
+	pipe.SRem(Ctx, indexKey, toRemove...)
 	if _, err := pipe.Exec(Ctx); err != nil {
 		slog.Error("Failed to execute InvalidateOtherUserSessions pipeline", "error", err)
 	}
