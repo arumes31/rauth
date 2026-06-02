@@ -120,3 +120,41 @@ func TestSessionManagement(t *testing.T) {
 		require.NotContains(t, members, "ghost_token")
 	})
 }
+
+func TestSyncSessionIndexes(t *testing.T) {
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	client := redis.NewClient(&redis.Options{
+		Addr: mr.Addr(),
+	})
+	TokenDB = client
+	Ctx = context.Background()
+
+	// 1. Valid session
+	TokenDB.HSet(Ctx, "X-rauth-authtoken=valid1", map[string]interface{}{"status": "valid"})
+	AddSessionIndex("user1", "valid1")
+	AddIPSessionIndex("1.1.1.1", "valid1")
+
+	// 2. Expired session (status invalid)
+	TokenDB.HSet(Ctx, "X-rauth-authtoken=expired1", map[string]interface{}{"status": "expired"})
+	AddSessionIndex("user1", "expired1")
+
+	// 3. Missing session
+	AddIPSessionIndex("2.2.2.2", "missing1")
+
+	count := SyncSessionIndexes()
+	assert.Equal(t, int64(1), count)
+
+	// Verify pruning
+	user1Tokens, _ := TokenDB.SMembers(Ctx, "user_sessions:user1").Result()
+	assert.Contains(t, user1Tokens, "valid1")
+	assert.NotContains(t, user1Tokens, "expired1")
+
+	ip1Tokens, _ := TokenDB.SMembers(Ctx, "ip_sessions:1.1.1.1").Result()
+	assert.Contains(t, ip1Tokens, "valid1")
+
+	ip2Tokens, _ := TokenDB.SMembers(Ctx, "ip_sessions:2.2.2.2").Result()
+	assert.Empty(t, ip2Tokens)
+}

@@ -3,9 +3,10 @@ package core
 import (
 	"context"
 	"fmt"
-	"github.com/redis/go-redis/v9"
 	"log/slog"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
 var (
@@ -97,19 +98,34 @@ func InvalidateOtherUserSessions(username, currentToken string) {
 func HasActiveSessions(ip string) bool {
 	indexKey := "ip_sessions:" + ip
 	tokens, err := TokenDB.SMembers(Ctx, indexKey).Result()
-	if err != nil {
+	if err != nil || len(tokens) == 0 {
 		return false
 	}
 
-	for _, token := range tokens {
-		data, err := TokenDB.HGetAll(Ctx, "X-rauth-authtoken="+token).Result()
-		if err == nil && len(data) > 0 && data["status"] == "valid" {
-			return true
-		}
-		// Token expired or was invalidated: drop the dangling index entry.
-		TokenDB.SRem(Ctx, indexKey, token)
+	pipe := TokenDB.Pipeline()
+	cmds := make([]*redis.MapStringStringCmd, len(tokens))
+	for i, token := range tokens {
+		cmds[i] = pipe.HGetAll(Ctx, "X-rauth-authtoken="+token)
 	}
-	return false
+
+	_, _ = pipe.Exec(Ctx)
+
+	var hasActive bool
+	var toPrune []any
+	for i, cmd := range cmds {
+		data, err := cmd.Result()
+		if err == nil && len(data) > 0 && data["status"] == "valid" {
+			hasActive = true
+		} else {
+			toPrune = append(toPrune, tokens[i])
+		}
+	}
+
+	if len(toPrune) > 0 {
+		TokenDB.SRem(Ctx, indexKey, toPrune...)
+	}
+
+	return hasActive
 }
 
 func AddSessionIndex(username, token string) {
@@ -157,17 +173,30 @@ func reconcileIndexSets(pattern string) int64 {
 
 		for _, indexKey := range keys {
 			tokens, err := TokenDB.SMembers(Ctx, indexKey).Result()
-			if err != nil {
+			if err != nil || len(tokens) == 0 {
 				continue
 			}
-			for _, token := range tokens {
-				data, err := TokenDB.HGetAll(Ctx, "X-rauth-authtoken="+token).Result()
+
+			pipe := TokenDB.Pipeline()
+			cmds := make([]*redis.MapStringStringCmd, len(tokens))
+			for i, token := range tokens {
+				cmds[i] = pipe.HGetAll(Ctx, "X-rauth-authtoken="+token)
+			}
+
+			_, _ = pipe.Exec(Ctx)
+
+			var toPrune []any
+			for i, cmd := range cmds {
+				data, err := cmd.Result()
 				if err == nil && len(data) > 0 && data["status"] == "valid" {
 					live++
-					continue
+				} else {
+					toPrune = append(toPrune, tokens[i])
 				}
-				// Dead/expired token: drop the dangling index entry.
-				TokenDB.SRem(Ctx, indexKey, token)
+			}
+
+			if len(toPrune) > 0 {
+				TokenDB.SRem(Ctx, indexKey, toPrune...)
 			}
 		}
 
