@@ -21,9 +21,9 @@ func TestIsPrivateIP(t *testing.T) {
 		{"10.0.0.1", true},
 		{"172.16.0.1", true},
 		{"192.168.1.1", true},
-		{"100.64.0.5", false},      // Tailscale IPv4 (CGNAT) is not "private" per IsPrivate()
+		{"100.64.0.5", false},       // Tailscale IPv4 (CGNAT) is not "private" per IsPrivate()
 		{"fd7a:115c:a1e0::1", true}, // Tailscale IPv6 (ULA) IS "private" per IsPrivate()
-		{"fc00::1", true},          // ULA range
+		{"fc00::1", true},           // ULA range
 		{"8.8.8.8", false},
 		{"1.1.1.1", false},
 		{"invalid", false}, // Invalid parses to nil, returns false

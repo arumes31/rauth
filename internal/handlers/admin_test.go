@@ -231,3 +231,156 @@ func TestAdminHandler_CreateUser_InvalidUsername(t *testing.T) {
 		})
 	}
 }
+
+func TestAdminHandler_RobustValidation(t *testing.T) {
+	setupHandlersTest(t)
+	cfg := &core.Config{
+		MinPasswordLength: 8,
+	}
+	h := &AdminHandler{Cfg: cfg}
+	e := echo.New()
+
+	// Seed an admin and a regular user
+	core.UserDB.HSet(core.Ctx, "user:admin", "username", "admin")
+	core.UserDB.SAdd(core.Ctx, "users", "admin")
+	core.UserDB.HSet(core.Ctx, "user:victim", "username", "victim")
+	core.UserDB.SAdd(core.Ctx, "users", "victim")
+
+	t.Run("UpdateUserEmail Table", func(t *testing.T) {
+		testCases := []struct {
+			name     string
+			target   string
+			email    string
+			expected int
+		}{
+			{"Success", "victim", "new@example.com", http.StatusFound},
+			{"InvalidFormat", "victim", "not-an-email", http.StatusBadRequest},
+			{"NonExistent", "nonexistent", "valid@example.com", http.StatusBadRequest},
+			{"InvalidUsernameFormat", "user!name", "valid@example.com", http.StatusBadRequest},
+			{"EmptyEmail", "victim", "", http.StatusBadRequest},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				f := make(url.Values)
+				f.Set("username", tc.target)
+				f.Set("new_email", tc.email)
+				c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/user/update-email", f)
+				c.Set("username", "admin")
+
+				err := h.UpdateUserEmail(c)
+				if err != nil {
+					if he, ok := err.(*echo.HTTPError); ok {
+						assert.Equal(t, tc.expected, he.Code)
+					}
+				} else {
+					assert.Equal(t, tc.expected, rec.Code)
+				}
+			})
+		}
+	})
+
+	t.Run("DeleteUser Table", func(t *testing.T) {
+		// Re-seed victim just in case
+		core.UserDB.HSet(core.Ctx, "user:victim", "username", "victim", "uid", "v-uid")
+		core.UserDB.SAdd(core.Ctx, "users", "victim")
+
+		testCases := []struct {
+			name     string
+			target   string
+			expected int
+		}{
+			{"Success", "victim", http.StatusFound},
+			{"NonExistent", "nobody", http.StatusBadRequest},
+			{"InvalidFormat", "bad!user", http.StatusBadRequest},
+			{"DeleteSelf", "admin", http.StatusBadRequest},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				f := make(url.Values)
+				f.Set("username", tc.target)
+				c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/user/delete", f)
+				c.Set("username", "admin")
+
+				err := h.DeleteUser(c)
+				if err != nil {
+					if he, ok := err.(*echo.HTTPError); ok {
+						assert.Equal(t, tc.expected, he.Code)
+					}
+				} else {
+					assert.Equal(t, tc.expected, rec.Code)
+				}
+			})
+		}
+	})
+
+	t.Run("ResetUser2FA Table", func(t *testing.T) {
+		core.UserDB.HSet(core.Ctx, "user:victim", "username", "victim")
+		core.UserDB.SAdd(core.Ctx, "users", "victim")
+
+		testCases := []struct {
+			name     string
+			target   string
+			expected int
+		}{
+			{"Success", "victim", http.StatusFound},
+			{"NonExistent", "nobody", http.StatusBadRequest},
+			{"ResetSelf", "admin", http.StatusBadRequest},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				f := make(url.Values)
+				f.Set("username", tc.target)
+				c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/user/reset-2fa", f)
+				c.Set("username", "admin")
+
+				err := h.ResetUser2FA(c)
+				if err != nil {
+					if he, ok := err.(*echo.HTTPError); ok {
+						assert.Equal(t, tc.expected, he.Code)
+					}
+				} else {
+					assert.Equal(t, tc.expected, rec.Code)
+				}
+			})
+		}
+	})
+
+	t.Run("ChangeUserPassword Table", func(t *testing.T) {
+		core.UserDB.HSet(core.Ctx, "user:victim", "username", "victim")
+		core.UserDB.SAdd(core.Ctx, "users", "victim")
+
+		testCases := []struct {
+			name     string
+			target   string
+			pass     string
+			expected int
+		}{
+			{"Success", "victim", "NewSecurePass123!", http.StatusFound},
+			{"WeakPassword", "victim", "short", http.StatusBadRequest},
+			{"NonExistent", "nobody", "NewSecurePass123!", http.StatusBadRequest},
+			{"ChangeSelf", "admin", "NewSecurePass123!", http.StatusBadRequest},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				f := make(url.Values)
+				f.Set("username", tc.target)
+				f.Set("new_password", tc.pass)
+				c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/user/change-password", f)
+				c.Set("username", "admin")
+
+				err := h.ChangeUserPassword(c)
+				if err != nil {
+					if he, ok := err.(*echo.HTTPError); ok {
+						assert.Equal(t, tc.expected, he.Code)
+					}
+				} else {
+					assert.Equal(t, tc.expected, rec.Code)
+				}
+			})
+		}
+	})
+}
