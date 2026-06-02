@@ -59,7 +59,7 @@ func TestSetupMiddleware(t *testing.T) {
 func TestSetupRoutes(t *testing.T) {
 	e := echo.New()
 	cfg := &core.Config{
-		CookieDomains:   []string{"example.com"},
+		CookieDomains:     []string{"example.com"},
 		MetricsAllowedIPs: []string{"127.0.0.1"},
 	}
 	setupRoutes(e, cfg)

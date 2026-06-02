@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"rauth/internal/core"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -33,14 +34,26 @@ func (h *HealthHandler) Check(c echo.Context) error {
 		"redis_token": core.TokenDB,
 		"redis_rate":  core.RateLimitDB,
 	}
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
 	for name, client := range redisChecks {
-		if err := client.Ping(core.Ctx).Err(); err != nil {
-			checks[name] = "FAIL: " + err.Error()
-			status = "FAIL"
-		} else {
-			checks[name] = "OK"
-		}
+		wg.Add(1)
+		go func(name string, client *redis.Client) {
+			defer wg.Done()
+			err := client.Ping(core.Ctx).Err()
+
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				checks[name] = "FAIL: " + err.Error()
+				status = "FAIL"
+			} else {
+				checks[name] = "OK"
+			}
+		}(name, client)
 	}
+	wg.Wait()
 
 	// GeoIP Metadata
 	geoMetadata := core.GetGeoMetadata()
