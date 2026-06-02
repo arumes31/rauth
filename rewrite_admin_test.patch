@@ -1,0 +1,138 @@
+<<<<<<< SEARCH
+func TestAdminHandler_ResetUser2FA(t *testing.T) {
+	setupHandlersTest(t)
+	cfg := &core.Config{}
+	h := &AdminHandler{Cfg: cfg}
+	e := echo.New()
+
+	t.Run("Reset other user 2FA", func(t *testing.T) {
+		core.UserDB.HSet(core.Ctx, "user:victim", "username", "victim", "2fa_secret", "secret")
+
+		f := make(url.Values)
+		f.Set("username", "victim")
+		c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/user/reset2fa", f)
+		c.Set("username", "admin")
+
+		err := h.ResetUser2FA(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+
+		val := core.UserDB.HGet(core.Ctx, "user:victim", "2fa_secret").Val()
+		assert.Equal(t, "", val)
+	})
+
+	t.Run("Reset self 2FA", func(t *testing.T) {
+		core.UserDB.HSet(core.Ctx, "user:admin", "username", "admin", "2fa_secret", "secret")
+
+		f := make(url.Values)
+		f.Set("username", "admin")
+		c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/user/reset2fa", f)
+		c.Set("username", "admin")
+
+		err := h.ResetUser2FA(c)
+		if err != nil {
+			if he, ok := err.(*echo.HTTPError); ok {
+				assert.Equal(t, http.StatusBadRequest, he.Code)
+			}
+		} else {
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		}
+
+		val := core.UserDB.HGet(core.Ctx, "user:admin", "2fa_secret").Val()
+		assert.Equal(t, "secret", val)
+	})
+
+	t.Run("Missing username", func(t *testing.T) {
+		f := make(url.Values)
+		c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/user/reset2fa", f)
+		c.Set("username", "admin")
+
+		err := h.ResetUser2FA(c)
+		if err != nil {
+			if he, ok := err.(*echo.HTTPError); ok {
+				assert.Equal(t, http.StatusBadRequest, he.Code)
+			}
+		} else {
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		}
+	})
+}
+=======
+func TestAdminHandler_ResetUser2FA(t *testing.T) {
+	setupHandlersTest(t)
+	cfg := &core.Config{}
+	h := &AdminHandler{Cfg: cfg}
+	e := echo.New()
+
+	testCases := []struct {
+		name         string
+		targetUser   string
+		setupDB      func()
+		expectError  bool
+		expectedCode int
+		verify       func(t *testing.T)
+	}{
+		{
+			name:       "Reset other user 2FA",
+			targetUser: "victim",
+			setupDB: func() {
+				core.UserDB.HSet(core.Ctx, "user:victim", "username", "victim", "2fa_secret", "secret")
+			},
+			expectError:  false,
+			expectedCode: http.StatusFound,
+			verify: func(t *testing.T) {
+				val := core.UserDB.HGet(core.Ctx, "user:victim", "2fa_secret").Val()
+				assert.Equal(t, "", val)
+			},
+		},
+		{
+			name:       "Reset self 2FA",
+			targetUser: "admin",
+			setupDB: func() {
+				core.UserDB.HSet(core.Ctx, "user:admin", "username", "admin", "2fa_secret", "secret")
+			},
+			expectError:  true,
+			expectedCode: http.StatusBadRequest,
+			verify: func(t *testing.T) {
+				val := core.UserDB.HGet(core.Ctx, "user:admin", "2fa_secret").Val()
+				assert.Equal(t, "secret", val)
+			},
+		},
+		{
+			name:         "Missing username",
+			targetUser:   "",
+			setupDB:      func() {},
+			expectError:  true,
+			expectedCode: http.StatusBadRequest,
+			verify:       func(t *testing.T) {},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.setupDB()
+			f := make(url.Values)
+			if tc.targetUser != "" {
+				f.Set("username", tc.targetUser)
+			}
+			c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/user/reset2fa", f)
+			c.Set("username", "admin")
+
+			err := h.ResetUser2FA(c)
+			if tc.expectError {
+				if err != nil {
+					if he, ok := err.(*echo.HTTPError); ok {
+						assert.Equal(t, tc.expectedCode, he.Code)
+					}
+				} else {
+					assert.Equal(t, tc.expectedCode, rec.Code)
+				}
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tc.expectedCode, rec.Code)
+			}
+			tc.verify(t)
+		})
+	}
+}
+>>>>>>> REPLACE
