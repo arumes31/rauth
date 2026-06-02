@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/smtp"
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -20,9 +19,7 @@ func TestSendEmail_NoSMTPHost_LogsWarning(t *testing.T) {
 	defer slog.SetDefault(oldLogger)
 
 	// Ensure SMTP_HOST is empty
-	origHost := os.Getenv("SMTP_HOST")
-	os.Setenv("SMTP_HOST", "")
-	defer os.Setenv("SMTP_HOST", origHost)
+	t.Setenv("SMTP_HOST", "")
 
 	err := SendEmail("test@example.com", "Subject", "Body")
 	assert.NoError(t, err)
