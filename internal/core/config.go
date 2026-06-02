@@ -48,7 +48,7 @@ type Config struct {
 	PublicURL            string
 	TokenRotationMinutes int
 	// IP Trust
-	TrustCloudflareIP bool
+	TrustCloudflareIP  bool
 	TrustXRealIP       bool
 	TrustXForwardedFor bool
 	// Rate Limiting

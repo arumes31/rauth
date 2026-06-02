@@ -122,16 +122,16 @@ func setupMiddleware(e *echo.Echo, cfg *core.Config) {
 	// scripts/styles because the templates rely on inline <script> blocks and
 	// style="" attributes (matrix/glassmorphism UI).
 	e.Use(echoMiddleware.SecureWithConfig(echoMiddleware.SecureConfig{
-		XSSProtection:         "1; mode=block",
-		ContentTypeNosniff:    "nosniff",
-		XFrameOptions: "SAMEORIGIN",
+		XSSProtection:      "1; mode=block",
+		ContentTypeNosniff: "nosniff",
+		XFrameOptions:      "SAMEORIGIN",
 		// HSTS with preload is a hard-to-reverse commitment: it emits
 		// `includeSubDomains; preload`, so every subdomain of COOKIE_DOMAIN MUST
 		// be served exclusively over HTTPS before this is left enabled (and
 		// before submitting the domain to the preload list). If any subdomain
 		// needs plain HTTP, set HSTSPreloadEnabled:false and/or lower HSTSMaxAge.
-		HSTSMaxAge:         31536000,
-		HSTSPreloadEnabled: true,
+		HSTSMaxAge:            31536000,
+		HSTSPreloadEnabled:    true,
 		ContentSecurityPolicy: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'",
 	}))
 	e.Use(echoMiddleware.BodyLimit("1M"))
@@ -522,4 +522,3 @@ func CreateIPExtractor(cfg *core.Config) echo.IPExtractor {
 		return remoteHost
 	}
 }
-

@@ -161,6 +161,7 @@ func DeleteUser(username string) error {
 			UserDB.Del(Ctx, "uid_bin:"+string(u[:]))
 		}
 	}
+	AuditDB.Del(Ctx, "user_audit_logs:"+username)
 	if err := UserDB.Del(Ctx, "user:"+username).Err(); err != nil {
 		return err
 	}

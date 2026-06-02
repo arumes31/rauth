@@ -84,7 +84,7 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 	}
 
 	// Personal Logs
-	rawLogs, err := core.AuditDB.LRange(core.Ctx, "audit_logs", 0, 500).Result()
+	rawLogs, err := core.AuditDB.LRange(core.Ctx, "user_audit_logs:"+username, 0, 99).Result()
 	if err != nil {
 		slog.Error("Failed to fetch audit logs", "error", err)
 	}
@@ -95,9 +95,7 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 		if err := json.Unmarshal([]byte(l), &log); err != nil {
 			continue
 		}
-		if log.Username == username {
-			logs = append(logs, log)
-		}
+		logs = append(logs, log)
 	}
 
 	passkeys := core.GetStoredCredentials(username)
