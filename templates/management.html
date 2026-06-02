@@ -270,33 +270,8 @@
                                         <th>Context</th>
                                     </tr>
                                 </thead>
-                                <tbody>
-                                    {{range .logs}}
-                                    <tr class="align-middle audit-row" style="cursor: pointer;" onclick='showAuditDetail({{.Details | marshal}})'>
-                                        <td class="ps-4 text-muted small">{{.Timestamp | formatTime}}</td>
-                                        <td><span class="{{.Action | statusColor}} extra-small fw-bold text-uppercase" style="letter-spacing: 0.5px;">{{.Action}}</span></td>
-                                        <td>
-                                            <div class="d-flex align-items-center">
-                                                <img data-identicon="{{.Username}}" class="identicon rounded me-2" width="24" height="24">
-                                                <div class="small fw-bold text-primary">{{.Username}}</div>
-                                            </div>
-                                            <div class="extra-small text-muted">
-                                                <i class="bi bi-hdd-network me-1"></i> {{.IP}}
-                                                {{if eq .Details.country "Tailscale"}}
-                                                    <span class="ms-1 badge bg-info bg-opacity-25 text-info border border-info border-opacity-25 py-0 px-1" style="font-size: 0.6rem;">
-                                                        <i class="bi bi-shield-shaded me-1"></i>TAILSCALE
-                                                    </span>
-                                                {{else if .Details.country}}
-                                                    <span class="ms-2 badge bg-secondary bg-opacity-25 text-secondary border border-secondary border-opacity-25">{{.Details.country}}</span>
-                                                {{end}}
-                                            </div>
-                                        </td>
-                                    </tr>
-                                    {{else}}
-                                    <tr>
-                                        <td colspan="3" class="text-center py-5 text-muted">No audit logs found</td>
-                                    </tr>
-                                    {{end}}
+                                <tbody id="auditLogTableBody">
+                                    <!-- Populated by JavaScript -->
                                 </tbody>
                             </table>
                         </div>
@@ -643,6 +618,65 @@
                 btn.className = "btn btn-outline-success";
             }, 2000);
         }
+    </script>
+
+    <script>
+        const rawAuditLogs = [
+            {{range .logs}}
+                {{.}},
+            {{end}}
+        ];
+
+        function formatAuditTime(timestamp) {
+            if (!timestamp) return 'N/A';
+            const date = new Date(timestamp * 1000);
+            const pad = (n) => n.toString().padStart(2, '0');
+            return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+        }
+
+        function getAuditStatusColor(action) {
+            if (action === 'LOGIN_SUCCESS' || action === '2FA_SETUP_SUCCESS') return 'text-success';
+            if (action === 'LOGIN_FAILED' || action === '2FA_FAILED' || action === 'COUNTRY_CHANGE_DETECTED') return 'text-danger';
+            return 'text-info';
+        }
+
+        function renderAuditLogs() {
+            const tbody = document.getElementById('auditLogTableBody');
+            if (!rawAuditLogs || rawAuditLogs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" class="text-center py-5 text-muted">No audit logs found</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = rawAuditLogs.map(log => {
+                let countryBadge = '';
+                if (log.details && log.details.country === 'Tailscale') {
+                    countryBadge = `<span class="ms-1 badge bg-info bg-opacity-25 text-info border border-info border-opacity-25 py-0 px-1" style="font-size: 0.6rem;">
+                                        <i class="bi bi-shield-shaded me-1"></i>TAILSCALE
+                                    </span>`;
+                } else if (log.details && log.details.country) {
+                    countryBadge = `<span class="ms-2 badge bg-secondary bg-opacity-25 text-secondary border border-secondary border-opacity-25">${log.details.country}</span>`;
+                }
+
+                return `
+                    <tr class="align-middle audit-row" style="cursor: pointer;" onclick='showAuditDetail(${JSON.stringify(log.details)})'>
+                        <td class="ps-4 text-muted small">${formatAuditTime(log.timestamp)}</td>
+                        <td><span class="${getAuditStatusColor(log.action)} extra-small fw-bold text-uppercase" style="letter-spacing: 0.5px;">${log.action}</span></td>
+                        <td>
+                            <div class="d-flex align-items-center">
+                                <img data-identicon="${log.username}" class="identicon rounded me-2" width="24" height="24">
+                                <div class="small fw-bold text-primary">${log.username}</div>
+                            </div>
+                            <div class="extra-small text-muted">
+                                <i class="bi bi-hdd-network me-1"></i> ${log.ip}
+                                ${countryBadge}
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        window.addEventListener('load', renderAuditLogs);
     </script>
 </body>
 </html>

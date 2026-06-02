@@ -1,7 +1,8 @@
 package handlers
 
 import (
-	"encoding/json"
+	"html/template"
+
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -80,19 +81,15 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 		}
 	}
 
-	// Fetch Audit Logs
+	// Fetch Audit Logs (Raw JSON to avoid sequential unmarshaling)
 	rawLogs, err := core.AuditDB.LRange(core.Ctx, "audit_logs", 0, 99).Result()
 	if err != nil {
 		slog.Error("Failed to fetch audit logs from Redis", "error", err)
 	}
 
-	var logs []core.AuditLog
-	for _, l := range rawLogs {
-		var log core.AuditLog
-		if err := json.Unmarshal([]byte(l), &log); err != nil {
-			continue
-		}
-		logs = append(logs, log)
+	logs := make([]template.JS, len(rawLogs))
+	for i, l := range rawLogs {
+		logs[i] = template.JS(l)
 	}
 
 	return c.Render(http.StatusOK, "management.html", map[string]interface{}{

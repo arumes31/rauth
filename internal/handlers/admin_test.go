@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"html/template"
 	"net/http"
 	"net/url"
 	"rauth/internal/core"
@@ -230,4 +231,29 @@ func TestAdminHandler_CreateUser_InvalidUsername(t *testing.T) {
 			}
 		})
 	}
+}
+func TestAdminHandler_Dashboard_DataFormat(t *testing.T) {
+	setupHandlersTest(t)
+	cfg := &core.Config{}
+	h := &AdminHandler{Cfg: cfg}
+	e := echo.New()
+	renderer := &mockRenderer{}
+	e.Renderer = renderer
+
+	// Seed some audit logs
+	core.LogAudit("TEST_ACTION", "testuser", "127.0.0.1", map[string]interface{}{"foo": "bar"})
+
+	c, _ := createTestContext(e, http.MethodGet, "/rauthmgmt", nil)
+	c.Set("username", "admin")
+
+	err := h.Dashboard(c)
+	assert.NoError(t, err)
+
+	data := renderer.LastData.(map[string]interface{})
+	logs := data["logs"].([]template.JS)
+
+	assert.GreaterOrEqual(t, len(logs), 1)
+	// Check if it contains the action we logged
+	assert.Contains(t, string(logs[0]), "TEST_ACTION")
+	assert.Contains(t, string(logs[0]), "testuser")
 }
