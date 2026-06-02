@@ -101,15 +101,41 @@ func HasActiveSessions(ip string) bool {
 		return false
 	}
 
+	if len(tokens) == 0 {
+		return false
+	}
+
+	pipe := TokenDB.Pipeline()
+	cmds := make(map[string]*redis.MapStringStringCmd, len(tokens))
 	for _, token := range tokens {
-		data, err := TokenDB.HGetAll(Ctx, "X-rauth-authtoken="+token).Result()
+		cmds[token] = pipe.HGetAll(Ctx, "X-rauth-authtoken="+token)
+	}
+
+	if _, err := pipe.Exec(Ctx); err != nil && err != redis.Nil {
+		slog.Error("HasActiveSessions: Pipeline failed", "ip", ip, "error", err)
+	}
+
+	var hasActive bool
+	prunePipe := TokenDB.Pipeline()
+	hasPrunes := false
+	for _, token := range tokens {
+		data, err := cmds[token].Result()
 		if err == nil && len(data) > 0 && data["status"] == "valid" {
-			return true
+			hasActive = true
+			continue
 		}
 		// Token expired or was invalidated: drop the dangling index entry.
-		TokenDB.SRem(Ctx, indexKey, token)
+		prunePipe.SRem(Ctx, indexKey, token)
+		hasPrunes = true
 	}
-	return false
+
+	if hasPrunes {
+		if _, err := prunePipe.Exec(Ctx); err != nil {
+			slog.Error("HasActiveSessions: Prune pipeline failed", "ip", ip, "error", err)
+		}
+	}
+
+	return hasActive
 }
 
 func AddSessionIndex(username, token string) {
@@ -155,19 +181,63 @@ func reconcileIndexSets(pattern string) int64 {
 			break
 		}
 
-		for _, indexKey := range keys {
-			tokens, err := TokenDB.SMembers(Ctx, indexKey).Result()
-			if err != nil {
-				continue
+		if len(keys) > 0 {
+			// Phase 1: Batch fetch SMembers for all keys in this Scan batch
+			pipe := TokenDB.Pipeline()
+			smemberCmds := make([]*redis.StringSliceCmd, len(keys))
+			for i, key := range keys {
+				smemberCmds[i] = pipe.SMembers(Ctx, key)
 			}
-			for _, token := range tokens {
-				data, err := TokenDB.HGetAll(Ctx, "X-rauth-authtoken="+token).Result()
-				if err == nil && len(data) > 0 && data["status"] == "valid" {
-					live++
+			if _, err := pipe.Exec(Ctx); err != nil && err != redis.Nil {
+				slog.Error("SyncSessionIndexes: SMembers pipeline failed", "error", err)
+			}
+
+			// Collect all unique tokens and map them back to their origin index keys
+			tokenToIndexKeys := make(map[string][]string)
+			for i, cmd := range smemberCmds {
+				tokens, err := cmd.Result()
+				if err != nil {
 					continue
 				}
-				// Dead/expired token: drop the dangling index entry.
-				TokenDB.SRem(Ctx, indexKey, token)
+				for _, token := range tokens {
+					tokenToIndexKeys[token] = append(tokenToIndexKeys[token], keys[i])
+				}
+			}
+
+			if len(tokenToIndexKeys) > 0 {
+				// Phase 2: Batch fetch HGetAll for all found tokens
+				pipe = TokenDB.Pipeline()
+				hgetCmds := make(map[string]*redis.MapStringStringCmd)
+				for token := range tokenToIndexKeys {
+					hgetCmds[token] = pipe.HGetAll(Ctx, "X-rauth-authtoken="+token)
+				}
+				if _, err := pipe.Exec(Ctx); err != nil && err != redis.Nil {
+					slog.Error("SyncSessionIndexes: HGetAll pipeline failed", "error", err)
+				}
+
+				// Phase 3: Prune dead tokens and count live ones
+				prunePipe := TokenDB.Pipeline()
+				hasPrunes := false
+				for token, cmd := range hgetCmds {
+					data, err := cmd.Result()
+					if err == nil && len(data) > 0 && data["status"] == "valid" {
+						// This token is valid; increment live count for EACH index set it belongs to
+						// (since live count is aggregated across user_sessions:*).
+						live += int64(len(tokenToIndexKeys[token]))
+						continue
+					}
+
+					// Dead/expired token: drop it from all index sets that reference it
+					for _, indexKey := range tokenToIndexKeys[token] {
+						prunePipe.SRem(Ctx, indexKey, token)
+						hasPrunes = true
+					}
+				}
+				if hasPrunes {
+					if _, err := prunePipe.Exec(Ctx); err != nil {
+						slog.Error("SyncSessionIndexes: Prune pipeline failed", "error", err)
+					}
+				}
 			}
 		}
 
