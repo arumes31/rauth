@@ -128,10 +128,10 @@ func TestAdminHandler_CreateUser(t *testing.T) {
 		err := h.CreateUser(c)
 		if err != nil {
 			if he, ok := err.(*echo.HTTPError); ok {
-				assert.Equal(t, http.StatusBadRequest, he.Code)
+				assert.Equal(t, http.StatusConflict, he.Code)
 			}
 		} else {
-			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			assert.Equal(t, http.StatusConflict, rec.Code)
 		}
 	})
 }
@@ -227,6 +227,84 @@ func TestAdminHandler_CreateUser_InvalidUsername(t *testing.T) {
 				}
 			} else {
 				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			}
+		})
+	}
+}
+
+func TestAdminHandler_UserOperations_Validation(t *testing.T) {
+	setupHandlersTest(t)
+	cfg := &core.Config{
+		MinPasswordLength:      8,
+		RequirePasswordUpper:   true,
+		RequirePasswordLower:   true,
+		RequirePasswordNumber:  true,
+		RequirePasswordSpecial: true,
+	}
+	h := &AdminHandler{Cfg: cfg}
+	e := echo.New()
+
+	// Seed some users
+	core.UserDB.HSet(core.Ctx, "user:exists", "username", "exists")
+	core.UserDB.SAdd(core.Ctx, "users", "exists")
+	core.UserDB.HSet(core.Ctx, "user:adminuser", "username", "adminuser")
+	core.UserDB.SAdd(core.Ctx, "users", "adminuser")
+
+	testCases := []struct {
+		name         string
+		method       string
+		handler      func(echo.Context) error
+		username     string
+		extraKey     string
+		extraValue   string
+		expectedCode int
+		expectedMsg  string
+	}{
+		// DeleteUser
+		{"Delete_InvalidFormat", "POST", h.DeleteUser, "ab", "", "", http.StatusBadRequest, "username must be between 3 and 32 characters long"},
+		{"Delete_NotFound", "POST", h.DeleteUser, "notfound", "", "", http.StatusNotFound, "User not found"},
+		{"Delete_Self", "POST", h.DeleteUser, "adminuser", "", "", http.StatusBadRequest, "Cannot delete yourself"},
+
+		// ResetUser2FA
+		{"Reset2FA_InvalidFormat", "POST", h.ResetUser2FA, "ab", "", "", http.StatusBadRequest, "username must be between 3 and 32 characters long"},
+		{"Reset2FA_NotFound", "POST", h.ResetUser2FA, "notfound", "", "", http.StatusNotFound, "User not found"},
+		{"Reset2FA_Self", "POST", h.ResetUser2FA, "adminuser", "", "", http.StatusBadRequest, "Cannot reset your own 2FA"},
+
+		// ChangeUserPassword
+		{"ChangePass_InvalidFormat", "POST", h.ChangeUserPassword, "ab", "new_password", "Secure123!", http.StatusBadRequest, "username must be between 3 and 32 characters long"},
+		{"ChangePass_NotFound", "POST", h.ChangeUserPassword, "notfound", "new_password", "Secure123!", http.StatusNotFound, "User not found"},
+		{"ChangePass_MissingPass", "POST", h.ChangeUserPassword, "exists", "new_password", "", http.StatusBadRequest, "Password is required"},
+		{"ChangePass_WeakPass", "POST", h.ChangeUserPassword, "exists", "new_password", "weak", http.StatusBadRequest, "password must be at least"},
+		{"ChangePass_Self", "POST", h.ChangeUserPassword, "adminuser", "new_password", "Secure123!", http.StatusBadRequest, "Cannot change your own password"},
+
+		// UpdateUserEmail
+		{"UpdateEmail_InvalidFormat", "POST", h.UpdateUserEmail, "ab", "new_email", "new@example.com", http.StatusBadRequest, "username must be between 3 and 32 characters long"},
+		{"UpdateEmail_NotFound", "POST", h.UpdateUserEmail, "notfound", "new_email", "new@example.com", http.StatusNotFound, "User not found"},
+		{"UpdateEmail_MissingEmail", "POST", h.UpdateUserEmail, "exists", "new_email", "", http.StatusBadRequest, "Email is required"},
+		{"UpdateEmail_InvalidEmail", "POST", h.UpdateUserEmail, "exists", "new_email", "invalid", http.StatusBadRequest, "invalid email format"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := make(url.Values)
+			f.Set("username", tc.username)
+			if tc.extraKey != "" {
+				f.Set(tc.extraKey, tc.extraValue)
+			}
+
+			c, rec := createTestContext(e, tc.method, "/rauthmgmt/user/op", f)
+			c.Set("username", "adminuser")
+
+			err := tc.handler(c)
+			if err != nil {
+				if he, ok := err.(*echo.HTTPError); ok {
+					assert.Equal(t, tc.expectedCode, he.Code)
+					assert.Contains(t, he.Message.(string), tc.expectedMsg)
+				} else {
+					t.Errorf("expected echo.HTTPError, got %T", err)
+				}
+			} else {
+				assert.Equal(t, tc.expectedCode, rec.Code)
 			}
 		})
 	}

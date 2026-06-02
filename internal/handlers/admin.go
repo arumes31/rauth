@@ -118,6 +118,10 @@ func (h *AdminHandler) CreateUser(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
+	if _, err := core.GetUser(user); err == nil {
+		return echo.NewHTTPError(http.StatusConflict, "User already exists")
+	}
+
 	if email != "" {
 		if err := core.ValidateEmail(email); err != nil {
 			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
@@ -144,9 +148,17 @@ func (h *AdminHandler) CreateUser(c echo.Context) error {
 }
 
 func (h *AdminHandler) DeleteUser(c echo.Context) error {
-	target := c.FormValue("username")
+	target := strings.TrimSpace(c.FormValue("username"))
 	if target == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "Username is required")
+	}
+
+	if err := core.ValidateUsername(target); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	if _, err := core.GetUser(target); err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, "User not found")
 	}
 
 	admin := c.Get("username").(string)
@@ -165,9 +177,17 @@ func (h *AdminHandler) DeleteUser(c echo.Context) error {
 }
 
 func (h *AdminHandler) ResetUser2FA(c echo.Context) error {
-	target := c.FormValue("username")
+	target := strings.TrimSpace(c.FormValue("username"))
 	if target == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "Username is required")
+	}
+
+	if err := core.ValidateUsername(target); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	if _, err := core.GetUser(target); err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, "User not found")
 	}
 
 	admin := c.Get("username").(string)
@@ -192,11 +212,21 @@ func (h *AdminHandler) ResetUser2FA(c echo.Context) error {
 }
 
 func (h *AdminHandler) ChangeUserPassword(c echo.Context) error {
-	target := c.FormValue("username")
-	newPass := c.FormValue("new_password")
+	target := strings.TrimSpace(c.FormValue("username"))
+	if target == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "Username is required")
+	}
 
-	if target == "" || newPass == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "Username and password are required")
+	if err := core.ValidateUsername(target); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	if _, err := core.GetUser(target); err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, "User not found")
+	}
+	newPass := c.FormValue("new_password")
+	if newPass == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "Password is required")
 	}
 
 	admin := c.Get("username").(string)
@@ -228,11 +258,21 @@ func (h *AdminHandler) ChangeUserPassword(c echo.Context) error {
 }
 
 func (h *AdminHandler) UpdateUserEmail(c echo.Context) error {
-	target := c.FormValue("username")
-	newEmail := strings.TrimSpace(c.FormValue("new_email"))
+	target := strings.TrimSpace(c.FormValue("username"))
+	if target == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "Username is required")
+	}
 
-	if target == "" || newEmail == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "Username and email are required")
+	if err := core.ValidateUsername(target); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	if _, err := core.GetUser(target); err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, "User not found")
+	}
+	newEmail := strings.TrimSpace(c.FormValue("new_email"))
+	if newEmail == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "Email is required")
 	}
 
 	if err := core.ValidateEmail(newEmail); err != nil {
