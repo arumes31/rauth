@@ -50,6 +50,7 @@ const emailBaseTemplate = `
 
 func sanitizeEmailHeader(s string) string {
 	// Remove any carriage returns or newlines to prevent header injection
+	s = strings.TrimSpace(s)
 	s = strings.ReplaceAll(s, "\r", "")
 	s = strings.ReplaceAll(s, "\n", "")
 	return s
