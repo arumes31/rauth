@@ -48,3 +48,8 @@
 **Vulnerability:** A false positive Gosec warning G302 on `os.Chmod` expecting permissions 0600 or less, even though it was setting directory permissions to 0700.
 **Learning:** `os.Chmod` with permissions greater than 0600 triggers a `gosec` G302 warning. However, for directories, 0700 or greater is expected because the execute bit is required to traverse directories.
 **Prevention:** Use a `// #nosec G302` comment before `os.Chmod` for directories to prevent the false positive alert.
+
+## 2025-02-27 - Suffix Abuse Protection in Host Validation
+**Vulnerability:** Hostname validation using simple suffix matching (e.g., `strings.HasSuffix(host, domain)`) allows "suffix abuse" where an attacker can use a domain like `evil-example.com` to bypass a check intended for `example.com`.
+**Learning:** Subdomain matching must always ensure that the matched suffix is either the exact domain or is preceded by a dot (e.g., `.example.com`).
+**Prevention:** Always prepend a dot to the domain when using suffix matching for hostnames: `strings.HasSuffix(host, "."+domain)`. Robust test suites should include cases like `evil-domain.com`, `notdomain.com`, and deep subdomains to ensure regex or string matching logic is sound.
