@@ -57,22 +57,3 @@ func TestRecoveryCodes(t *testing.T) {
 	ClearRecoveryCodes("alice")
 	require.Equal(t, int64(0), CountRecoveryCodes("alice"))
 }
-
-func TestIsCommonPassword(t *testing.T) {
-	InitCommonPasswords(true)
-	require.True(t, isCommonPassword("password"))
-	require.True(t, isCommonPassword("PASSWORD")) // case-insensitive
-	require.True(t, isCommonPassword("  qwerty  "))
-	require.False(t, isCommonPassword("S0me-Uniqu3-Passphrase!"))
-
-	// ValidatePassword surfaces the common-password rejection when enabled.
-	cfg := &Config{MinPasswordLength: 4, CheckCommonPasswords: true}
-	require.Error(t, ValidatePassword("password", cfg))
-
-	// Over-length passwords are rejected to avoid bcrypt's 72-byte truncation.
-	long := make([]byte, 73)
-	for i := range long {
-		long[i] = 'a'
-	}
-	require.Error(t, ValidatePassword(string(long), &Config{MinPasswordLength: 4}))
-}

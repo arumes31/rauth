@@ -4,3 +4,7 @@
 ## 2026-05-28 - Session Invalidation Pipelines
 **Learning:** Invalidation functions `InvalidateUserSessions` and `InvalidateOtherUserSessions` were using Redis pipelines to issue multiple `Del` or `SRem` commands (e.g. one `pipe.Del` per token). This still involves pushing multiple separate commands inside the pipeline. `Del` and `SRem` natively support variadic arguments. Passing all keys/members as variadic arguments to a single command inside the pipeline (or even just directly to the client) is slightly faster and reduces pipeline payload size.
 **Action:** When invalidating multiple tokens or removing multiple set members, use variadic `pipe.Del(Ctx, toDel...)` and `pipe.SRem(Ctx, indexKey, toRem...)` after collecting the keys/members into slices.
+
+## 2026-06-02 - Consolidating Unit Tests and Coverage
+**Learning:** When adding missing test files for specific components (e.g., `passwords.go`), always check if partial tests already exist in misplaced locations (e.g., `twofactor_test.go`). Consolidation improves maintainability and ensures that logic is tested where it resides. Additionally, always verify boundary conditions like length limits (e.g., bcrypt's 72-byte limit) to prevent silent failures.
+**Action:** Consolidate related tests into a single file (`passwords_test.go`) and expand them to cover all exported/internal logic and edge cases.

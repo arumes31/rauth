@@ -77,6 +77,7 @@ func TestValidatePasswordComplexity(t *testing.T) {
 	}{
 		{"Valid password", "Pass1234!", false},
 		{"Too short", "Pas1!", true},
+		{"Too long (73 bytes)", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", true},
 		{"Missing upper", "pass1234!", true},
 		{"Missing lower", "PASS1234!", true},
 		{"Missing number", "Password!", true},
