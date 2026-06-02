@@ -50,9 +50,8 @@ func TestSetupRenderer(t *testing.T) {
 
 func TestSetupMiddleware(t *testing.T) {
 	e := echo.New()
-	cfg := &core.Config{CookieDomains: []string{"example.com"}}
 	// Should register middleware and error/not-found handlers without panicking.
-	setupMiddleware(e, cfg)
+	setupMiddleware(e)
 	assert.NotNil(t, e.HTTPErrorHandler)
 }
 
