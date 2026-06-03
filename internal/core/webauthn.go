@@ -3,6 +3,7 @@ package core
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -123,10 +124,7 @@ func InitWebAuthn(cfg *Config) error {
 		originMap["http://127.0.0.1"] = true
 	}
 
-	origins := make([]string, 0, len(originMap))
-	for o := range originMap {
-		origins = append(origins, o)
-	}
+	origins := slices.Collect(maps.Keys(originMap))
 
 	fmt.Printf("WebAuthn Registered Origins: %v\n", origins)
 
