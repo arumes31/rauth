@@ -207,6 +207,29 @@ location @error401 {
 }
 ```
 
+### Real Client IP (Cloudflare + direct access)
+
+RAuth's only peer is your proxy (e.g. the Docker bridge `172.x.x.x`), so the real client IP must arrive in a header nginx sets. With no `TRUST_*` flag, RAuth uses **smart mode**, which rejects *private* forwarded IPs — so a direct **LAN** client (`192.168.x`/`10.x`) is dropped and you "only see the Docker IP".
+
+If your service is reachable **both** through Cloudflare **and** directly (LAN/Tailscale bypassing Cloudflare), do **not** set `TRUST_CLOUDFLARE_IP` — RAuth can't distinguish the two paths (its peer is always nginx), so a direct client could spoof `CF-Connecting-IP`. Instead, let nginx resolve the visitor and forward a single authoritative `X-Real-IP`:
+
+```nginx
+# Scope realip to Cloudflare's ranges ONLY (https://www.cloudflare.com/ips/),
+# so direct LAN/Tailscale connections keep their real $remote_addr while
+# Cloudflare traffic is rewritten to the true visitor IP.
+set_real_ip_from 173.245.48.0/20;
+set_real_ip_from 103.21.244.0/22;
+# ... (full IPv4 + IPv6 list from cloudflare.com/ips) ...
+set_real_ip_from 2c0f:f248::/32;
+real_ip_header CF-Connecting-IP;
+real_ip_recursive on;
+
+# Forward the resolved client IP to RAuth on the auth subrequest:
+#   proxy_set_header X-Real-IP $remote_addr;
+```
+
+Then set **`TRUST_X_REAL_IP=true`** on the RAuth container. This is safe because nginx overwrites `X-Real-IP` with `$remote_addr`, which a client cannot spoof through the proxy. The full annotated config is in [`nginx-proxy-example.conf`](nginx-proxy-example.conf).
+
 ---
 
 ## 🔀 Caddy Integration
