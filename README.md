@@ -176,7 +176,11 @@ location = /rauth-verify {
     proxy_pass_request_body off;
     proxy_set_header Content-Length "";
     proxy_set_header X-Original-URI $request_uri;
+    # Forward the real client IP on the subrequest so rauth logs/acts on it
+    # instead of nginx's own address. Pair with TRUST_X_REAL_IP=true (or
+    # TRUST_X_FORWARDED_FOR=true) on the rauth container.
     proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 }
 
 # 2. Protect your application

@@ -40,11 +40,12 @@ func (t *TemplateRenderer) Render(w io.Writer, name string, data interface{}, c 
 }
 
 func main() {
-	// Initialize the structured JSON logger before parsing config so the
+	// Initialize the structured logger before parsing config so the
 	// getEnvInt/getEnvBool warnings about invalid env values are emitted through
 	// the same handler (LOG_LEVEL is read directly here since LoadConfig hasn't
-	// run yet; parseLogLevel defaults to Info on an empty value).
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: parseLogLevel(os.Getenv("LOG_LEVEL"))}))
+	// run yet; parseLogLevel defaults to Info on an empty value). A text handler
+	// keeps logs human-readable in `docker logs`/journald.
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: parseLogLevel(os.Getenv("LOG_LEVEL"))}))
 	slog.SetDefault(logger)
 
 	cfg := core.LoadConfig()
@@ -173,42 +174,38 @@ func setupLoggingMiddleware(e *echo.Echo) {
 		LogError:    true,
 		HandleError: true,
 		LogValuesFunc: func(c echo.Context, v echoMiddleware.RequestLoggerValues) error {
-			xForwardedFor := c.Request().Header.Get("X-Forwarded-For")
-			if xForwardedFor == "" {
-				xForwardedFor = "-"
+			req := c.Request()
+
+			// client_ip is the IP resolved by CreateIPExtractor (honouring the
+			// configured trust settings). The raw forwarding headers are logged
+			// only when present so the common case stays uncluttered and, when
+			// the resolved IP looks wrong, the chain is visible for debugging.
+			attrs := []slog.Attr{
+				slog.String("client_ip", v.RemoteIP),
+				slog.String("method", v.Method),
+				slog.String("uri", v.URI),
+				slog.Int("status", v.Status),
+				slog.Duration("latency", v.Latency),
+				slog.String("geo", core.GetCountryCode(v.RemoteIP)),
+			}
+			if xff := req.Header.Get("X-Forwarded-For"); xff != "" {
+				attrs = append(attrs, slog.String("x_forwarded_for", xff))
+			}
+			if xri := req.Header.Get("X-Real-IP"); xri != "" {
+				attrs = append(attrs, slog.String("x_real_ip", xri))
+			}
+			if cf := req.Header.Get("CF-Connecting-IP"); cf != "" {
+				attrs = append(attrs, slog.String("cf_ip", cf))
 			}
 
-			cfIP := c.Request().Header.Get("CF-Connecting-IP")
-			if cfIP == "" {
-				cfIP = "-"
+			level := slog.LevelInfo
+			msg := "request"
+			if v.Error != nil {
+				level = slog.LevelError
+				msg = "request error"
+				attrs = append(attrs, slog.String("err", v.Error.Error()))
 			}
-
-			geoIP := core.GetCountryCode(v.RemoteIP)
-
-			if v.Error == nil {
-				slog.Info("request",
-					slog.String("ip", v.RemoteIP),
-					slog.String("x_forwarded_for", xForwardedFor),
-					slog.String("cf_ip", cfIP),
-					slog.String("geo", geoIP),
-					slog.String("method", v.Method),
-					slog.String("uri", v.URI),
-					slog.Int("status", v.Status),
-					slog.Duration("latency", v.Latency),
-				)
-			} else {
-				slog.Error("request error",
-					slog.String("ip", v.RemoteIP),
-					slog.String("x_forwarded_for", xForwardedFor),
-					slog.String("cf_ip", cfIP),
-					slog.String("geo", geoIP),
-					slog.String("method", v.Method),
-					slog.String("uri", v.URI),
-					slog.Int("status", v.Status),
-					slog.Duration("latency", v.Latency),
-					slog.String("err", v.Error.Error()),
-				)
-			}
+			slog.LogAttrs(req.Context(), level, msg, attrs...)
 			return nil
 		},
 	}))
