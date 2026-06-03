@@ -117,10 +117,16 @@ func parseLogLevel(level string) slog.Level {
 }
 
 func setupMiddleware(e *echo.Echo) {
+	// Order matters: Secure headers and BodyLimit run first, then Client Hints
+	// and the request logger, then Recover and CSRF last. Keeping the logger
+	// ahead of Recover/CSRF ensures every request — including CSRF rejections —
+	// is logged.
 	setupSecurityMiddleware(e)
 	setupClientHintsMiddleware(e)
 	setupLoggingMiddleware(e)
+	e.Use(echoMiddleware.Recover())
 	setupErrorHandlers(e)
+	setupCSRFMiddleware(e)
 }
 
 func setupSecurityMiddleware(e *echo.Echo) {
@@ -142,8 +148,9 @@ func setupSecurityMiddleware(e *echo.Echo) {
 		ContentSecurityPolicy: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'",
 	}))
 	e.Use(echoMiddleware.BodyLimit("1M"))
-	e.Use(echoMiddleware.Recover())
+}
 
+func setupCSRFMiddleware(e *echo.Echo) {
 	// CSRF Protection
 	e.Use(echoMiddleware.CSRFWithConfig(echoMiddleware.CSRFConfig{ // #nosec G101
 		TokenLookup:    "header:X-CSRF-Token,form:csrf",
