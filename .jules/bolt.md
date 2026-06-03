@@ -16,3 +16,7 @@
 ## 2026-06-02 - Redis Pipeline Error Handling and Global Initialization
 **Learning:** When using Redis pipelines to optimize N+1 queries (e.g., in `EnsureUserUIDs`), remember that `pipe.Exec()` returns the FIRST error encountered by any command in the pipeline. If some keys are missing (`redis.Nil`), `Exec` will return `redis.Nil`. You must explicitly check for this and distinguish it from critical errors (e.g., network failure).
 **Action:** Always check `if err != nil && err != redis.Nil` after `pipe.Exec()` if your pipeline includes commands that might return `redis.Nil` as a valid state (like `HGet` for a missing field). Additionally, when background goroutines use global Redis clients (like `TokenDB`), ensure they handle `nil` clients or provide a way to bypass execution during early system initialization to avoid panics in tests.
+
+## 2026-05-27 - Reducing Allocations with bufio.Scanner
+**Learning:** Parsing large embedded strings (like blocklists) using `strings.Split` creates a large slice of strings that persists until the loop finishes. This is inefficient for one-time map population.
+**Action:** Use `bufio.Scanner` with `strings.NewReader` to process the string line-by-line. This minimizes temporary allocations and is significantly more memory-efficient for large text datasets.
