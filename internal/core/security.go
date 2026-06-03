@@ -89,11 +89,6 @@ func CheckPasswordHash(password, hash string) bool {
 	return err == nil
 }
 
-func getAESKeyLegacy(key string) []byte {
-	hash := sha256.Sum256([]byte(key))
-	return hash[:]
-}
-
 func getAESKey(key string) []byte {
 	hash := sha256.New
 	hk := hkdf.New(hash, []byte(key), nil, []byte("rauth-aes-key"))
@@ -131,19 +126,7 @@ func DecryptToken(encryptedText string, key string) (string, error) {
 		return "", err
 	}
 
-	// Try with the new KDF first
-	plaintext, err := decryptWithKey(data, getAESKey(key))
-	if err == nil {
-		return plaintext, nil
-	}
-
-	// Fallback to legacy KDF (SHA256). Track successful legacy decrypts so the
-	// fallback's continued necessity is observable before it is removed.
-	legacyPlaintext, legacyErr := decryptWithKey(data, getAESKeyLegacy(key))
-	if legacyErr == nil {
-		LegacyKDFDecryptTotal.Inc()
-	}
-	return legacyPlaintext, legacyErr
+	return decryptWithKey(data, getAESKey(key))
 }
 
 func decryptWithKey(data []byte, key []byte) (string, error) {

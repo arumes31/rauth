@@ -1,11 +1,6 @@
 package core
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
-	"encoding/base64"
-	"io"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -309,49 +304,6 @@ func TestIsUserAgentCompatible(t *testing.T) {
 			res := IsUserAgentCompatible(tt.oldUA, tt.newUA)
 			assert.Equal(t, tt.expected, res)
 		})
-	}
-}
-
-func TestLegacyDecryption(t *testing.T) {
-	key := "test-secret-key"
-	plaintext := "secret-message"
-
-	// Encrypt using legacy method manually to simulate old data
-	block, err := aes.NewCipher(getAESKeyLegacy(key))
-	if err != nil {
-		t.Fatalf("Failed to create cipher: %v", err)
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		t.Fatalf("Failed to create GCM: %v", err)
-	}
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		t.Fatalf("Failed to read nonce: %v", err)
-	}
-	ciphertext := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
-	encrypted := base64.StdEncoding.EncodeToString(ciphertext)
-
-	// Decrypt using the updated DecryptToken
-	decrypted, err := DecryptToken(encrypted, key)
-	if err != nil {
-		t.Fatalf("Failed to decrypt legacy data: %v", err)
-	}
-	if decrypted != plaintext {
-		t.Errorf("Expected %s, got %s", plaintext, decrypted)
-	}
-
-	// Also verify that NEW encryption can be decrypted
-	newEncrypted, err := EncryptToken(plaintext, key)
-	if err != nil {
-		t.Fatalf("Failed to encrypt with new method: %v", err)
-	}
-	newDecrypted, err := DecryptToken(newEncrypted, key)
-	if err != nil {
-		t.Fatalf("Failed to decrypt new data: %v", err)
-	}
-	if newDecrypted != plaintext {
-		t.Errorf("Expected %s, got %s", plaintext, newDecrypted)
 	}
 }
 
