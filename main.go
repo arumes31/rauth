@@ -73,7 +73,8 @@ func main() {
 	}
 
 	// Startup Initialization
-	initializeSystem(cfg)
+	stopSync := initializeSystem(cfg)
+	defer stopSync()
 
 	e := echo.New()
 	e.HideBanner = true
@@ -435,7 +436,11 @@ func setupRoutes(e *echo.Echo, cfg *core.Config) {
 	admin.POST("/invite/create", inviteHandler.Create)
 }
 
-func initializeSystem(cfg *core.Config) {
+// initializeSystem performs startup tasks and launches the background
+// metrics/index synchronization loop. It returns a stop function that signals
+// the background goroutine to exit and blocks until it has fully stopped — this
+// lets callers (notably tests) tear down shared state without racing the loop.
+func initializeSystem(cfg *core.Config) func() {
 	// Start GeoIP Updater
 	core.StartGeoUpdater(cfg)
 
@@ -453,15 +458,27 @@ func initializeSystem(cfg *core.Config) {
 	}
 
 	// Background metrics and index synchronization
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		ticker := time.NewTicker(1 * time.Minute)
 		defer ticker.Stop()
 		for {
 			count := core.SyncSessionIndexes()
 			core.ActiveSessionsGauge.Set(float64(count))
-			<-ticker.C
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
 		}
 	}()
+
+	return func() {
+		cancel()
+		<-done
+	}
 }
 
 // CreateIPExtractor returns a function that extracts the real client IP from request headers.

@@ -104,7 +104,10 @@ func TestInitializeSystem(t *testing.T) {
 		Initial2FASecret: "",
 	}
 
-	initializeSystem(cfg)
+	// Stop the background sync loop before the deferred cleanup restores the
+	// shared DB globals, otherwise the loop would race the writes above.
+	stopSync := initializeSystem(cfg)
+	defer stopSync()
 
 	// The initial admin user should have been created.
 	exists, err := core.UserDB.Exists(core.Ctx, "user:bootadmin").Result()
