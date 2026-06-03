@@ -8,3 +8,7 @@
 ## 2026-06-02 - Consolidating Unit Tests and Coverage
 **Learning:** When adding missing test files for specific components (e.g., `passwords.go`), always check if partial tests already exist in misplaced locations (e.g., `twofactor_test.go`). Consolidation improves maintainability and ensures that logic is tested where it resides. Additionally, always verify boundary conditions like length limits (e.g., bcrypt's 72-byte limit) to prevent silent failures.
 **Action:** Consolidate related tests into a single file (`passwords_test.go`) and expand them to cover all exported/internal logic and edge cases.
+
+## 2026-06-02 - WebAuthn Hash Migration
+**Learning:** Migrating from Redis Lists to Hashes for entity storage (like WebAuthn credentials) eliminates N+1 query patterns and O(N) mutation overhead. Using a lazy migration strategy in the getter ensures zero-downtime data transition.
+**Action:** Implement lazy migration in `GetStoredCredentials` to move data from legacy List keys to Hash keys. Ensure all mutation functions (`Update*`, `Delete*`) also trigger or handle this migration to maintain data integrity.

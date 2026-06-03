@@ -189,16 +189,68 @@ func TestUpdateWebAuthnSignCount(t *testing.T) {
 	data, err := json.Marshal(stored)
 	require.NoError(t, err)
 
-	UserDB.RPush(Ctx, "user:testuser:webauthn_creds", string(data))
+	// Seed directly in Hash
+	UserDB.HSet(Ctx, "user:testuser:webauthn_creds_v2", "6372656431", string(data))
 
-	UpdateWebAuthnSignCount("testuser", []byte("cred1"), 20)
-
-	results, err := UserDB.LRange(Ctx, "user:testuser:webauthn_creds", 0, -1).Result()
+	err = UpdateWebAuthnSignCount("testuser", []byte("cred1"), 20)
 	require.NoError(t, err)
-	require.Len(t, results, 1)
+
+	val, err := UserDB.HGet(Ctx, "user:testuser:webauthn_creds_v2", "6372656431").Result()
+	require.NoError(t, err)
 
 	var updated StoredCredential
-	err = json.Unmarshal([]byte(results[0]), &updated)
+	err = json.Unmarshal([]byte(val), &updated)
 	require.NoError(t, err)
 	require.Equal(t, uint32(20), updated.Authenticator.SignCount)
+}
+
+func TestWebAuthnMigration(t *testing.T) {
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	client := redis.NewClient(&redis.Options{
+		Addr: mr.Addr(),
+	})
+	UserDB = client
+	Ctx = context.Background()
+
+	username := "migrationuser"
+	listKey := "user:" + username + ":webauthn_creds"
+	hashKey := "user:" + username + ":webauthn_creds_v2"
+
+	c1 := StoredCredential{Credential: webauthn.Credential{ID: []byte("id1")}, Nickname: "Key 1", CreatedAt: 100}
+	c2 := StoredCredential{Credential: webauthn.Credential{ID: []byte("id2")}, Nickname: "Key 2", CreatedAt: 200}
+
+	d1, _ := json.Marshal(c1)
+	d2, _ := json.Marshal(c2)
+
+	// Seed List (Legacy format)
+	UserDB.RPush(Ctx, listKey, string(d1), string(d2))
+
+	// Trigger lazy migration via GetStoredCredentials
+	creds := GetStoredCredentials(username)
+	require.Len(t, creds, 2)
+	require.Equal(t, "Key 1", creds[0].Nickname)
+	require.Equal(t, "Key 2", creds[1].Nickname)
+
+	// Verify Hash exists and List is gone
+	exists, err := UserDB.Exists(Ctx, hashKey).Result()
+	require.NoError(t, err)
+	require.Equal(t, int64(1), exists)
+
+	exists, err = UserDB.Exists(Ctx, listKey).Result()
+	require.NoError(t, err)
+	require.Equal(t, int64(0), exists)
+
+	// Verify Hash content
+	val1, err := UserDB.HGet(Ctx, hashKey, "696431").Result()
+	require.NoError(t, err)
+	var sc1 StoredCredential
+	json.Unmarshal([]byte(val1), &sc1)
+	require.Equal(t, "Key 1", sc1.Nickname)
+
+	// Test case: missing keys
+	credsEmpty := GetStoredCredentials("nonexistent")
+	require.Nil(t, credsEmpty)
 }
