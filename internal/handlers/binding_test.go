@@ -78,6 +78,29 @@ func TestHardwareBinding_Coverage(t *testing.T) {
 		assert.Equal(t, http.StatusUnauthorized, rec.Code)
 	})
 
+	t.Run("Binding Success - Model hint absent on current request", func(t *testing.T) {
+		// Mobile case: the session captured a high-entropy model at login
+		// (rauth's origin advertises Accept-CH), but the /rauthvalidate
+		// auth_request subrequest carries the headers the client sent to the
+		// protected app, which does not request Client Hints, so the model is
+		// absent. Platform/mobile still match, so the session must remain valid.
+		cookie, _ := setupSession("Android", "?1", "SM-S921B")
+		e := echo.New()
+		req := httptest.NewRequest(http.MethodGet, "/rauthvalidate", nil)
+		req.Header.Set("User-Agent", "Mozilla/5.0")
+		req.Header.Set("Sec-CH-UA-Platform", "Android")
+		req.Header.Set("Sec-CH-UA-Mobile", "?1")
+		// No Sec-CH-UA-Model header on this request.
+		req.AddCookie(cookie)
+		req.RemoteAddr = "127.0.0.1:1234"
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := h.Validate(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusOK, rec.Code)
+	})
+
 	t.Run("Binding Success - Fallback if no request hints", func(t *testing.T) {
 		cookie, _ := setupSession("Android", "?1", "Pixel 6")
 		e := echo.New()

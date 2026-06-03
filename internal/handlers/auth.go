@@ -225,16 +225,25 @@ func (h *AuthHandler) sessionUAMatches(c echo.Context, token, redisKey string, d
 	// If session HAS Hints, we enforce binding if the current request also HAS Hints.
 	// If the current request has NO hints but the session DOES, we fall back to UA matching
 	// unless we want to be extremely strict (which might break on proxy header stripping).
+	//
+	// A hint is only compared when it is present on BOTH the stored session and the
+	// current request. A hint that is absent on the current request is NOT a mismatch:
+	// high-entropy hints (notably Sec-CH-UA-Model) are delivered inconsistently. They are
+	// sent to rauth's own origin at login (it advertises Accept-CH/Critical-CH), but the
+	// /rauthvalidate auth_request subrequest carries the headers the client sent to the
+	// protected app, which usually does not request Client Hints. Treating the missing
+	// model hint as a mismatch invalidated every mobile session on the next validation
+	// (e.g. stored model "SM-S921B" vs an empty current model), causing a login loop.
 	if storedPlatform != "" || storedMobile != "" || storedModel != "" {
 		if chPlatform != "" || chMobile != "" || chModel != "" {
 			useClientHints = true
-			if storedPlatform != "" && normalizeCH(storedPlatform) != normalizeCH(chPlatform) {
+			if storedPlatform != "" && chPlatform != "" && normalizeCH(storedPlatform) != normalizeCH(chPlatform) {
 				uaIsValid = false
 			}
-			if uaIsValid && storedMobile != "" && normalizeCH(storedMobile) != normalizeCH(chMobile) {
+			if uaIsValid && storedMobile != "" && chMobile != "" && normalizeCH(storedMobile) != normalizeCH(chMobile) {
 				uaIsValid = false
 			}
-			if uaIsValid && storedModel != "" && normalizeCH(storedModel) != normalizeCH(chModel) {
+			if uaIsValid && storedModel != "" && chModel != "" && normalizeCH(storedModel) != normalizeCH(chModel) {
 				uaIsValid = false
 			}
 		}
