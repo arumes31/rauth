@@ -81,7 +81,7 @@ func main() {
 	e.IPExtractor = CreateIPExtractor(cfg)
 
 	// Setup everything
-	setupMiddleware(e, cfg)
+	setupMiddleware(e)
 	setupRenderer(e)
 	setupRoutes(e, cfg)
 
@@ -116,7 +116,20 @@ func parseLogLevel(level string) slog.Level {
 	}
 }
 
-func setupMiddleware(e *echo.Echo, cfg *core.Config) {
+func setupMiddleware(e *echo.Echo) {
+	// Order matters: Secure headers and BodyLimit run first, then Client Hints
+	// and the request logger, then Recover and CSRF last. Keeping the logger
+	// ahead of Recover/CSRF ensures every request — including CSRF rejections —
+	// is logged.
+	setupSecurityMiddleware(e)
+	setupClientHintsMiddleware(e)
+	setupLoggingMiddleware(e)
+	e.Use(echoMiddleware.Recover())
+	setupErrorHandlers(e)
+	setupCSRFMiddleware(e)
+}
+
+func setupSecurityMiddleware(e *echo.Echo) {
 	// Security headers and hardening. Secure()'s defaults leave HSTS disabled
 	// and set no CSP, so configure both explicitly. The CSP allows inline
 	// scripts/styles because the templates rely on inline <script> blocks and
@@ -135,24 +148,21 @@ func setupMiddleware(e *echo.Echo, cfg *core.Config) {
 		ContentSecurityPolicy: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'",
 	}))
 	e.Use(echoMiddleware.BodyLimit("1M"))
+}
 
-	// User-Agent Client Hints negotiation middleware
-	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
-			c.Response().Header().Set("Accept-CH", "Sec-CH-UA-Platform, Sec-CH-UA-Mobile, Sec-CH-UA-Model")
+func setupCSRFMiddleware(e *echo.Echo) {
+	// CSRF Protection
+	e.Use(echoMiddleware.CSRFWithConfig(echoMiddleware.CSRFConfig{ // #nosec G101
+		TokenLookup:    "header:X-CSRF-Token,form:csrf",
+		CookieName:     "_csrf",
+		CookiePath:     "/",
+		CookieHTTPOnly: true,
+		CookieSecure:   true,
+		CookieSameSite: http.SameSiteLaxMode,
+	}))
+}
 
-			// Only negotiate Critical-CH on idempotent GET/HEAD requests to prevent non-idempotent retries (like POST logins)
-			if c.Request().Method == http.MethodGet || c.Request().Method == http.MethodHead {
-				c.Response().Header().Set("Critical-CH", "Sec-CH-UA-Platform, Sec-CH-UA-Mobile, Sec-CH-UA-Model")
-			}
-
-			c.Response().Header().Add("Vary", "Sec-CH-UA-Platform")
-			c.Response().Header().Add("Vary", "Sec-CH-UA-Mobile")
-			c.Response().Header().Add("Vary", "Sec-CH-UA-Model")
-			return next(c)
-		}
-	})
-
+func setupLoggingMiddleware(e *echo.Echo) {
 	// Structured logging middleware
 	e.Use(echoMiddleware.RequestLoggerWithConfig(echoMiddleware.RequestLoggerConfig{
 		LogStatus:   true,
@@ -202,9 +212,28 @@ func setupMiddleware(e *echo.Echo, cfg *core.Config) {
 			return nil
 		},
 	}))
+}
 
-	e.Use(echoMiddleware.Recover())
+func setupClientHintsMiddleware(e *echo.Echo) {
+	// User-Agent Client Hints negotiation middleware
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Response().Header().Set("Accept-CH", "Sec-CH-UA-Platform, Sec-CH-UA-Mobile, Sec-CH-UA-Model")
 
+			// Only negotiate Critical-CH on idempotent GET/HEAD requests to prevent non-idempotent retries (like POST logins)
+			if c.Request().Method == http.MethodGet || c.Request().Method == http.MethodHead {
+				c.Response().Header().Set("Critical-CH", "Sec-CH-UA-Platform, Sec-CH-UA-Mobile, Sec-CH-UA-Model")
+			}
+
+			c.Response().Header().Add("Vary", "Sec-CH-UA-Platform")
+			c.Response().Header().Add("Vary", "Sec-CH-UA-Mobile")
+			c.Response().Header().Add("Vary", "Sec-CH-UA-Model")
+			return next(c)
+		}
+	})
+}
+
+func setupErrorHandlers(e *echo.Echo) {
 	// Custom HTTP Error Handler
 	e.HTTPErrorHandler = func(err error, c echo.Context) {
 		if c.Response().Committed {
@@ -272,16 +301,6 @@ func setupMiddleware(e *echo.Echo, cfg *core.Config) {
 	echo.NotFoundHandler = func(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound)
 	}
-
-	// CSRF Protection
-	e.Use(echoMiddleware.CSRFWithConfig(echoMiddleware.CSRFConfig{ // #nosec G101
-		TokenLookup:    "header:X-CSRF-Token,form:csrf",
-		CookieName:     "_csrf",
-		CookiePath:     "/",
-		CookieHTTPOnly: true,
-		CookieSecure:   true,
-		CookieSameSite: http.SameSiteLaxMode,
-	}))
 }
 
 func setupRenderer(e *echo.Echo) {
