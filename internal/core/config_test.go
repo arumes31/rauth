@@ -82,11 +82,19 @@ func TestIsAllowedHost(t *testing.T) {
 		{"..example.com", true},
 		{".example.com.", true},
 		{"   example.com   ", true},
+		{"", false},
+		{"   ", false},
+		{"example.com.", true},
+		{".example.com", true},
+		{"app.example.com.", true},
+		{"evilexample.com", false},
+		{"not-other.org", false},
+		{"app.not-other.org", false},
 	}
 
 	for _, tt := range tests {
 		if got := cfg.IsAllowedHost(tt.host); got != tt.expected {
-			t.Errorf("IsAllowedHost(%s) = %v; want %v", tt.host, got, tt.expected)
+			t.Errorf("IsAllowedHost(%q) = %v; want %v", tt.host, got, tt.expected)
 		}
 	}
 }
