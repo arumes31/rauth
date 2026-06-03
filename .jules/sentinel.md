@@ -38,3 +38,13 @@
 **Vulnerability:** In `internal/middleware/auth.go`, when a request was unauthorized, the middleware would redirect the user to `/rauthlogin?rd=` appended directly with `c.Request().RequestURI`. An attacker could exploit this by appending characters like `&` and `=` to manipulate parameters, causing HTTP Parameter Injection, or potentially bypass open redirect mitigations depending on how `rd` was processed by the login handler.
 **Learning:** Raw request URIs or arbitrary user inputs must be properly URL-encoded before being interpolated into a new URL's query parameters to ensure they are treated purely as data and not structural characters.
 **Prevention:** Always use `url.QueryEscape` when passing URIs or paths as query parameters in redirect flows.
+
+## 2026-06-02 - Insecure Cookie Deletion
+**Vulnerability:** A cookie deletion function in `internal/handlers/webauthn.go` did not set `SameSite: http.SameSiteLaxMode` mirroring the cookie creation options, possibly allowing persistent session vulnerability or causing the browser to refuse to delete the cookie due to mismatched security attributes.
+**Learning:** Browsers may refuse to delete a cookie if the security attributes (Secure, HttpOnly, SameSite) do not exactly match the original creation parameters.
+**Prevention:** Always mirror the security attributes (`Secure`, `HttpOnly`, `SameSite`) when deleting a cookie by setting `MaxAge: -1`.
+
+## 2026-06-02 - False Positive Gosec G302 on Directory Permissions
+**Vulnerability:** A false positive Gosec warning G302 on `os.Chmod` expecting permissions 0600 or less, even though it was setting directory permissions to 0700.
+**Learning:** `os.Chmod` with permissions greater than 0600 triggers a `gosec` G302 warning. However, for directories, 0700 or greater is expected because the execute bit is required to traverse directories.
+**Prevention:** Use a `// #nosec G302` comment before `os.Chmod` for directories to prevent the false positive alert.
