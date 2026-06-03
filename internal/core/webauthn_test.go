@@ -247,7 +247,7 @@ func TestWebAuthnMigration(t *testing.T) {
 	val1, err := UserDB.HGet(Ctx, hashKey, "696431").Result()
 	require.NoError(t, err)
 	var sc1 StoredCredential
-	json.Unmarshal([]byte(val1), &sc1)
+	require.NoError(t, json.Unmarshal([]byte(val1), &sc1))
 	require.Equal(t, "Key 1", sc1.Nickname)
 
 	// Test case: missing keys
