@@ -175,6 +175,9 @@ func SyncSessionIndexes() int64 {
 // reconcileIndexSets prunes dead token members from every index set matching
 // pattern and returns the number of live members across those sets.
 func reconcileIndexSets(pattern string) int64 {
+	if TokenDB == nil {
+		return 0
+	}
 	var live int64
 	var cursor uint64
 

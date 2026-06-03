@@ -92,8 +92,27 @@ func EnsureUserUIDs() {
 		slog.Error("EnsureUserUIDs: failed to list users", "error", err)
 		return
 	}
+
+	if len(usernames) == 0 {
+		return
+	}
+
+	pipe := UserDB.Pipeline()
+	cmds := make(map[string]*redis.StringCmd, len(usernames))
 	for _, username := range usernames {
-		uid, err := UserDB.HGet(Ctx, "user:"+username, "uid").Result()
+		cmds[username] = pipe.HGet(Ctx, "user:"+username, "uid")
+	}
+
+	// pipe.Exec returns the first error encountered by any command in the pipeline.
+	// We ignore redis.Nil here because it's expected for users needing backfill.
+	_, err = pipe.Exec(Ctx)
+	if err != nil && err != redis.Nil {
+		slog.Error("EnsureUserUIDs: pipeline failed", "error", err)
+		return
+	}
+
+	for _, username := range usernames {
+		uid, err := cmds[username].Result()
 		if err == nil && uid != "" {
 			continue
 		}
