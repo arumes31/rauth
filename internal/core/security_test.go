@@ -1,11 +1,20 @@
 package core
 
 import (
+	"encoding/base64"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// errorReader always fails, used to exercise GenerateRandomString's RNG-failure path.
+type errorReader struct{}
+
+func (errorReader) Read(p []byte) (int, error) {
+	return 0, errors.New("mock RNG failure")
+}
 
 func TestEncryption(t *testing.T) {
 	key := "12345678901234567890123456789012" // 32 bytes
@@ -341,6 +350,7 @@ func TestGenerateRandomString(t *testing.T) {
 		name   string
 		length int
 	}{
+		{"Length 0", 0},
 		{"Length 10", 10},
 		{"Length 32", 32},
 		{"Length 64", 64},
@@ -348,11 +358,27 @@ func TestGenerateRandomString(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := GenerateRandomString(tt.length)
-			require.NotEmpty(t, got)
-			got2 := GenerateRandomString(tt.length)
-			require.NotEqual(t, got, got2)
+
+			// Output is URL-safe base64 that decodes back to exactly n bytes.
+			decoded, err := base64.URLEncoding.DecodeString(got)
+			require.NoError(t, err)
+			require.Equal(t, tt.length, len(decoded))
+
+			if tt.length > 0 {
+				require.NotEmpty(t, got)
+				got2 := GenerateRandomString(tt.length)
+				require.NotEqual(t, got, got2, "two calls must not collide")
+			}
 		})
 	}
+
+	t.Run("Error Path", func(t *testing.T) {
+		orig := cryptoRandReader
+		defer func() { cryptoRandReader = orig }()
+
+		cryptoRandReader = errorReader{}
+		require.Empty(t, GenerateRandomString(32))
+	})
 }
 
 func TestDecrypt2FASecret(t *testing.T) {

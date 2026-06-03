@@ -18,6 +18,11 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// cryptoRandReader is the source of randomness for GenerateRandomString. It
+// defaults to crypto/rand.Reader and is only overridden in tests to exercise
+// the read-failure path.
+var cryptoRandReader = rand.Reader
+
 var (
 	emailRegex    = regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$`)
 	usernameRegex = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
@@ -154,9 +159,14 @@ func decryptWithKey(data []byte, key []byte) (string, error) {
 	return string(plaintext), nil
 }
 
+// GenerateRandomString returns a URL-safe, base64-encoded string backed by n
+// bytes of cryptographically secure randomness. It returns an empty string if
+// the system RNG cannot be read.
 func GenerateRandomString(n int) string {
 	b := make([]byte, n)
-	if _, err := io.ReadFull(rand.Reader, b); err != nil {
+	if _, err := io.ReadFull(cryptoRandReader, b); err != nil {
+		// Highly unlikely unless the OS RNG is exhausted or broken.
+		slog.Error("Failed to generate random string", "error", err)
 		return ""
 	}
 	return base64.URLEncoding.EncodeToString(b)
