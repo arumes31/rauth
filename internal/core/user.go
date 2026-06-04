@@ -69,20 +69,6 @@ func GetUser(username string) (User, error) {
 }
 
 // ensureUID assigns a UID and its lookup indexes to a user that lacks one.
-func ensureUID(username string) (string, error) {
-	newUUID := uuid.New()
-	uidStr := newUUID.String()
-
-	pipe := UserDB.TxPipeline()
-	pipe.Set(Ctx, "uid:"+uidStr, username, 0)
-	pipe.Set(Ctx, "uid_bin:"+string(newUUID[:]), username, 0)
-	pipe.HSet(Ctx, "user:"+username, "uid", uidStr)
-
-	if _, err := pipe.Exec(Ctx); err != nil {
-		return "", err
-	}
-	return uidStr, nil
-}
 
 // EnsureUserUIDs backfills UIDs for any legacy users created before UIDs
 // existed. Run once at startup so GetUser can remain read-only.
