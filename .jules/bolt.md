@@ -20,3 +20,6 @@
 ## 2026-05-27 - Reducing Allocations with bufio.Scanner
 **Learning:** Parsing large embedded strings (like blocklists) using `strings.Split` creates a large slice of strings that persists until the loop finishes. This is inefficient for one-time map population.
 **Action:** Use `bufio.Scanner` with `strings.NewReader` to process the string line-by-line. This minimizes temporary allocations and is significantly more memory-efficient for large text datasets.
+## 2026-06-04 - Optimization Verification
+**Learning:** Sometimes tasks ask to optimize code that has already been optimized (e.g. `strings.Split` -> `bufio.Scanner` in `passwords.go`). It is important to trace the codebase history and identify if the optimization is already present, verify it using benchmarks, and report the findings rather than modifying the already-optimized code or creating duplicate changes.
+**Action:** When asked to optimize an issue, first verify if the issue currently exists in the codebase. If the codebase is already optimized, create benchmarks to verify the optimization's performance characteristics, and report the findings in the PR.
