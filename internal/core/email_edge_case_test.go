@@ -1,8 +1,8 @@
 package core
 
 import (
-	"testing"
 	"github.com/stretchr/testify/assert"
+	"testing"
 )
 
 func TestSanitizeEmailHeader_EdgeCases(t *testing.T) {

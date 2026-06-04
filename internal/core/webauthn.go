@@ -189,12 +189,16 @@ func GetStoredCredentials(username string) []StoredCredential {
 	if len(results) > 0 {
 		var creds []StoredCredential
 		pipe := UserDB.Pipeline()
+		updates := make(map[string]interface{})
 		for _, r := range results {
 			var c StoredCredential
 			if err := json.Unmarshal([]byte(r), &c); err == nil {
 				creds = append(creds, c)
-				pipe.HSet(Ctx, hashKey, fmt.Sprintf("%x", c.ID), r)
+				updates[fmt.Sprintf("%x", c.ID)] = r
 			}
+		}
+		if len(updates) > 0 {
+			pipe.HSet(Ctx, hashKey, updates)
 		}
 		pipe.Del(Ctx, listKey)
 		// Best-effort migration: if it fails we still return what we read from

@@ -20,3 +20,7 @@
 ## 2026-05-27 - Reducing Allocations with bufio.Scanner
 **Learning:** Parsing large embedded strings (like blocklists) using `strings.Split` creates a large slice of strings that persists until the loop finishes. This is inefficient for one-time map population.
 **Action:** Use `bufio.Scanner` with `strings.NewReader` to process the string line-by-line. This minimizes temporary allocations and is significantly more memory-efficient for large text datasets.
+
+
+**Learning:** `InvalidateUserSessions` was using a Redis pipeline to issue a single variadic `Del` command. While correct, using a pipeline for a single command adds unnecessary overhead (object allocation, internal queuing). Direct execution is more efficient for single round-trip variadic commands. In `GetStoredCredentials`, legacy WebAuthn credentials were being migrated one-by-one using `pipe.HSet` inside a loop, creating an N+1 pattern within the pipeline payload.
+**Action:** Simplified `InvalidateUserSessions` to use direct `TokenDB.Del(Ctx, toDel...)`. Optimized WebAuthn migration in `GetStoredCredentials` to accumulate all credential fields into a map and perform a single `pipe.HSet(Ctx, hashKey, updates)` call, drastically reducing the command count for users with many credentials.

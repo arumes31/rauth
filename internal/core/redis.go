@@ -68,10 +68,8 @@ func InvalidateUserSessions(username string) {
 	}
 	toDel = append(toDel, indexKey)
 
-	pipe := TokenDB.Pipeline()
-	pipe.Del(Ctx, toDel...)
-	if _, err := pipe.Exec(Ctx); err != nil {
-		slog.Error("Failed to execute InvalidateUserSessions pipeline", "error", err)
+	if err := TokenDB.Del(Ctx, toDel...).Err(); err != nil {
+		slog.Error("Failed to execute InvalidateUserSessions delete", "error", err)
 	}
 }
 
