@@ -405,6 +405,7 @@ func setupRoutes(e *echo.Echo, cfg *core.Config) {
 			Path:     "/",
 			Domain:   cfg.CookieDomains[0],
 			Expires:  time.Now().Add(-1 * time.Hour),
+			MaxAge:   -1,
 			HttpOnly: true,
 			Secure:   true,
 			SameSite: http.SameSiteLaxMode,
