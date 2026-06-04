@@ -20,3 +20,7 @@
 ## 2026-05-27 - Reducing Allocations with bufio.Scanner
 **Learning:** Parsing large embedded strings (like blocklists) using `strings.Split` creates a large slice of strings that persists until the loop finishes. This is inefficient for one-time map population.
 **Action:** Use `bufio.Scanner` with `strings.NewReader` to process the string line-by-line. This minimizes temporary allocations and is significantly more memory-efficient for large text datasets.
+
+## 2026-06-04 - Refactoring Middleware and Error Handling
+**Learning:** Refactoring large initialization functions (like `setupMiddleware` and `setupErrorHandlers`) into separate files (`middleware.go`) and extracting complex logic into smaller helper functions (`logRequest`, `customHTTPErrorHandler`, `getErrorPageData`) significantly improves maintainability and readability of the entry point (`main.go`). Using `echo.HTTPErrorHandler` and custom `NotFoundHandler` with shared data generation logic reduces duplication in error handling.
+**Action:** Move middleware-specific setup and complex closure logic out of `main.go` into domain-specific files (`middleware.go`) to keep the main initialization loop clean and focused on high-level orchestration.
