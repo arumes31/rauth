@@ -20,3 +20,5 @@
 ## 2026-05-27 - Reducing Allocations with bufio.Scanner
 **Learning:** Parsing large embedded strings (like blocklists) using `strings.Split` creates a large slice of strings that persists until the loop finishes. This is inefficient for one-time map population.
 **Action:** Use `bufio.Scanner` with `strings.NewReader` to process the string line-by-line. This minimizes temporary allocations and is significantly more memory-efficient for large text datasets.
+>> * When resolving testing improvement tasks, do not assume a test file does not exist even if the issue description claims so. Verify its existence first and add the required tests to the existing file if present.
+>> * Global state modifications in tests (like toggling `commonPasswordsOn` via `InitCommonPasswords`) must carefully avoid data races. Do not invoke them concurrently in tests (e.g., using `sync.WaitGroup` and goroutines) without synchronization mechanisms if they modify non-atomic global variables.

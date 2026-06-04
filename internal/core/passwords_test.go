@@ -24,6 +24,8 @@ func TestIsCommonPassword(t *testing.T) {
 		{"Non-common password", "ThisIsAUniquePassword123!", false},
 		{"Empty password", "", false},
 		{"Whitespace only", "   ", false},
+		{"Substring prefix", "prefix_password", false},
+		{"Substring suffix", "123456_suffix", false},
 	}
 
 	for _, tt := range tests {
@@ -56,4 +58,14 @@ func TestInitCommonPasswords(t *testing.T) {
 	// Test re-enabling
 	InitCommonPasswords(true)
 	require.True(t, isCommonPassword("123456"), "Should return true for common password when enabled")
+}
+
+func TestInitCommonPasswords_MultipleCalls(t *testing.T) {
+	// Test that it is safe to call multiple times
+	InitCommonPasswords(true)
+	InitCommonPasswords(true)
+	InitCommonPasswords(false)
+	require.False(t, isCommonPassword("123456"))
+	InitCommonPasswords(true)
+	require.True(t, isCommonPassword("123456"))
 }
