@@ -119,17 +119,17 @@ func HasActiveSessions(ip string) bool {
 
 	// ⚡ Bolt optimization: Batch HGetAll requests to avoid N+1 queries.
 	pipe := TokenDB.Pipeline()
-	cmds := make(map[string]*redis.MapStringStringCmd, len(tokens))
+	cmds := make(map[string]*redis.StringCmd, len(tokens))
 	for _, token := range tokens {
-		cmds[token] = pipe.HGetAll(Ctx, "X-rauth-authtoken="+token)
+		cmds[token] = pipe.HGet(Ctx, "X-rauth-authtoken="+token, "status")
 	}
 	_, _ = pipe.Exec(Ctx)
 
 	var stale []interface{}
 	hasActive := false
 	for _, token := range tokens {
-		data, err := cmds[token].Result()
-		if err == nil && len(data) > 0 && data["status"] == "valid" {
+		status, err := cmds[token].Result()
+		if err == nil && status == "valid" {
 			hasActive = true
 		} else {
 			stale = append(stale, token)
@@ -199,16 +199,16 @@ func reconcileIndexSets(pattern string) int64 {
 
 			// ⚡ Bolt optimization: Batch HGetAll requests in a pipeline and remove stale tokens variadically.
 			pipe := TokenDB.Pipeline()
-			cmds := make(map[string]*redis.MapStringStringCmd, len(tokens))
+			cmds := make(map[string]*redis.StringCmd, len(tokens))
 			for _, token := range tokens {
-				cmds[token] = pipe.HGetAll(Ctx, "X-rauth-authtoken="+token)
+				cmds[token] = pipe.HGet(Ctx, "X-rauth-authtoken="+token, "status")
 			}
 			_, _ = pipe.Exec(Ctx)
 
 			var stale []interface{}
 			for _, token := range tokens {
-				data, err := cmds[token].Result()
-				if err == nil && len(data) > 0 && data["status"] == "valid" {
+				status, err := cmds[token].Result()
+				if err == nil && status == "valid" {
 					live++
 				} else {
 					stale = append(stale, token)
