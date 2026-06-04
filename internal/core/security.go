@@ -159,17 +159,21 @@ func decryptWithKey(data []byte, key []byte) (string, error) {
 	return string(plaintext), nil
 }
 
-// GenerateRandomString returns a URL-safe, base64-encoded string backed by n
-// bytes of cryptographically secure randomness. It returns an empty string if
+// GenerateRandomString creates a cryptographically secure random string
+// of length n using a URL-safe character set. It returns an empty string if
 // the system RNG cannot be read.
 func GenerateRandomString(n int) string {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
 	b := make([]byte, n)
 	if _, err := io.ReadFull(cryptoRandReader, b); err != nil {
-		// Highly unlikely unless the OS RNG is exhausted or broken.
+		// Highly unlikely to fail unless the OS RNG is exhausted/broken.
 		slog.Error("Failed to generate random string", "error", err)
 		return ""
 	}
-	return base64.URLEncoding.EncodeToString(b)
+	for i := range b {
+		b[i] = charset[int(b[i])%len(charset)]
+	}
+	return string(b)
 }
 
 func Encrypt2FASecret(secret string, key string) string {

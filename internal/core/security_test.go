@@ -1,7 +1,6 @@
 package core
 
 import (
-	"encoding/base64"
 	"errors"
 	"testing"
 
@@ -346,6 +345,7 @@ func TestValidateEmail(t *testing.T) {
 }
 
 func TestGenerateRandomString(t *testing.T) {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
 	tests := []struct {
 		name   string
 		length int
@@ -358,11 +358,11 @@ func TestGenerateRandomString(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := GenerateRandomString(tt.length)
+			require.Equal(t, tt.length, len(got))
 
-			// Output is URL-safe base64 that decodes back to exactly n bytes.
-			decoded, err := base64.URLEncoding.DecodeString(got)
-			require.NoError(t, err)
-			require.Equal(t, tt.length, len(decoded))
+			for _, char := range got {
+				require.Contains(t, charset, string(char))
+			}
 
 			if tt.length > 0 {
 				require.NotEmpty(t, got)
@@ -371,7 +371,6 @@ func TestGenerateRandomString(t *testing.T) {
 			}
 		})
 	}
-
 	t.Run("Error Path", func(t *testing.T) {
 		orig := cryptoRandReader
 		defer func() { cryptoRandReader = orig }()
