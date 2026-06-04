@@ -1,6 +1,9 @@
 package core
 
 import (
+	"bytes"
+	"errors"
+	"log/slog"
 	"net/smtp"
 	"os"
 	"strings"
@@ -11,16 +14,52 @@ import (
 )
 
 func TestSendEmail_NotConfigured(t *testing.T) {
-	// We don't want to actually send an email in tests anyway unless mocked
-	err := os.Setenv("SMTP_HOST", "")
-	require.NoError(t, err)
-	defer func() {
-		err := os.Unsetenv("SMTP_HOST")
-		require.NoError(t, err)
-	}()
+	// Setup log capturing
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, nil))
+	oldLogger := slog.Default()
+	slog.SetDefault(logger)
+	defer slog.SetDefault(oldLogger)
 
-	err = SendEmail("test@example.com", "Test Subject", "Test Body")
+	// We don't want to actually send an email in tests anyway unless mocked
+	t.Setenv("SMTP_HOST", "")
+
+	err := SendEmail("test@example.com", "Test Subject", "Test Body")
 	assert.NoError(t, err) // Should return nil when not configured
+
+	logOutput := buf.String()
+	assert.Contains(t, logOutput, "SMTP not configured, skipping email")
+	assert.Contains(t, logOutput, "test@example.com")
+	assert.Contains(t, logOutput, "Test Subject")
+}
+
+func TestSendEmail_SMTPError(t *testing.T) {
+	// Setup log capturing
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, nil))
+	oldLogger := slog.Default()
+	slog.SetDefault(logger)
+	defer slog.SetDefault(oldLogger)
+
+	// Setup config
+	t.Setenv("SMTP_HOST", "localhost")
+
+	// Mock sendMail to return error
+	smtpErr := errors.New("smtp connection failed")
+	origSendMail := sendMail
+	sendMail = func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
+		return smtpErr
+	}
+	defer func() { sendMail = origSendMail }()
+
+	err := SendEmail("test@example.com", "Subject", "Body")
+	assert.Error(t, err)
+	assert.Equal(t, smtpErr, err)
+
+	logOutput := buf.String()
+	assert.Contains(t, logOutput, "Failed to send email")
+	assert.Contains(t, logOutput, "smtp connection failed")
+	assert.Contains(t, logOutput, "test@example.com")
 }
 
 func TestNotifications(t *testing.T) {
