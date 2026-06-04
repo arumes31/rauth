@@ -1,8 +1,8 @@
 package handlers
 
 import (
-	"encoding/json"
 	"fmt"
+	"html/template"
 	"log/slog"
 	"net/http"
 	"rauth/internal/core"
@@ -22,10 +22,9 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 		slog.Error("Failed to list users", "error", err)
 	}
 
-	// Fetch sessions using Pipeline to avoid N+1 queries
 	var sessions []map[string]string
-	var keys []string
 	iter := core.TokenDB.Scan(core.Ctx, 0, "X-rauth-authtoken=*", 0).Iterator()
+	var keys []string
 	for iter.Next(core.Ctx) {
 		keys = append(keys, iter.Val())
 	}
@@ -86,13 +85,11 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 		slog.Error("Failed to fetch audit logs from Redis", "error", err)
 	}
 
-	var logs []core.AuditLog
-	for _, l := range rawLogs {
-		var log core.AuditLog
-		if err := json.Unmarshal([]byte(l), &log); err != nil {
-			continue
-		}
-		logs = append(logs, log)
+	// Optimize: Pass raw JSON strings to template instead of unmarshaling them server-side.
+	// We wrap them in a single JS array for client-side rendering.
+	logs := template.JS("[" + strings.Join(rawLogs, ",") + "]")
+	if len(rawLogs) == 0 {
+		logs = template.JS("[]")
 	}
 
 	return c.Render(http.StatusOK, "management.html", map[string]interface{}{

@@ -1,341 +1,279 @@
 {{define "management.html"}}
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-bs-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Management | RAuth</title>
-    <link rel="icon" type="image/png" href="/static/favicon.png">
+    <title>rAuth Management</title>
     <link href="/static/css/bootstrap.min.css" rel="stylesheet">
-    <link href="/static/css/bootstrap-icons.min.css" rel="stylesheet">
-    <link href="/static/css/modern.css" rel="stylesheet">
+    <link href="/static/css/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/style.css" rel="stylesheet">
+    <style>
+        .identicon { image-rendering: pixelated; }
+        .command-option { cursor: pointer; padding: 10px; border-radius: 6px; transition: background 0.2s; }
+        .command-option:hover, .command-option.active { background: rgba(255,255,255,0.1); }
+        .command-shortcut { font-family: monospace; opacity: 0.5; font-size: 0.8rem; }
+        .extra-small { font-size: 0.7rem; }
+    </style>
 </head>
-<body class="bg-light-animated">
-    <div class="scanlines"></div>
-    
-    <!-- Audit Detail Modal -->
-    <div class="modal fade" id="auditDetailModal" tabindex="-1">
+<body class="bg-black text-white">
+    <!-- Command Palette -->
+    <div class="modal fade" id="commandPalette" tabindex="-1">
         <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content border-0 shadow-lg">
-                <div class="modal-header border-0 pb-0">
-                    <h5 class="modal-title fw-bold text-primary">EVENT METADATA</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body p-4">
-                    <div id="auditDetailContent" class="bg-black p-3 rounded border border-secondary border-opacity-25 extra-small">
-                        <!-- JSON data injected here -->
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Command Palette Modal -->
-    <div class="modal fade" id="commandPalette" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content command-palette">
+            <div class="modal-content bg-dark border-secondary shadow-lg">
                 <div class="modal-body p-0">
-                    <input type="text" id="commandInput" class="form-control command-input" placeholder="Type a command (e.g., 'sessions', 'audit', 'new user')..." autocomplete="off">
-                    <div id="commandResults" class="py-2">
-                        <!-- Options will be injected here -->
+                    <div class="input-group input-group-lg border-bottom border-secondary">
+                        <span class="input-group-text bg-transparent border-0"><i class="bi bi-terminal"></i></span>
+                        <input type="text" id="commandInput" class="form-control bg-transparent border-0 text-white shadow-none" placeholder="Type a command or search...">
+                    </div>
+                    <div id="commandResults" class="p-2" style="max-height: 300px; overflow-y: auto;">
+                        <!-- Results injected here -->
+                    </div>
+                    <div class="p-2 border-top border-secondary text-muted extra-small d-flex justify-content-between">
+                        <span><kbd class="bg-secondary">↑↓</kbd> to navigate</span>
+                        <span><kbd class="bg-secondary">Enter</kbd> to select</span>
+                        <span><kbd class="bg-secondary">ESC</kbd> to close</span>
                     </div>
                 </div>
-                <div class="modal-footer border-0 p-2 opacity-50 small">
-                    <span class="me-3"><kbd>↑↓</kbd> to navigate</span>
-                    <span class="me-3"><kbd>Enter</kbd> to select</span>
-                    <span><kbd>Esc</kbd> to close</span>
-                </div>
             </div>
         </div>
     </div>
 
-    <!-- Toast Container -->
-    <div class="toast-container position-fixed bottom-0 end-0 p-3">
-        <div id="successToast" class="toast matrix-toast" role="alert" aria-live="assertive" aria-atomic="true">
-            <div class="toast-header border-0">
-                <i class="bi bi-shield-check me-2"></i>
-                <strong class="me-auto">SECURE OPS NOTIFICATION</strong>
-                <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
-            </div>
-            <div class="toast-body small fw-bold" id="toastMessage">
-                Administrative operation successful.
-            </div>
-        </div>
-    </div>
-
-    <nav class="navbar navbar-expand-lg sticky-top">
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg border-bottom border-secondary sticky-top bg-black bg-opacity-75" style="backdrop-filter: blur(10px);">
         <div class="container">
-            <a class="navbar-brand fs-3" href="#">RAuth</a>
+            <a class="navbar-brand fw-bold text-success d-flex align-items-center" href="/rauthmgmt">
+                <i class="bi bi-shield-lock-fill me-2"></i> rAuth <span class="ms-2 badge bg-success-subtle text-success border border-success border-opacity-25" style="font-size: 0.6rem;">MGMT</span>
+            </a>
             <div class="d-flex align-items-center">
-                <a href="/rauthprofile" class="btn btn-sm btn-link text-decoration-none text-muted me-3">
-                    <i class="bi bi-person-circle me-1"></i> My Profile
-                </a>
-                <span class="text-muted small me-4">Admin: <strong>{{.username}}</strong></span>
-                <form method="POST" action="/logout">
+                <span class="text-muted me-3 small"><i class="bi bi-person-badge me-1"></i> {{.username}}</span>
+                <form action="/logout" method="POST" class="m-0">
                     <input type="hidden" name="csrf" value="{{.csrf}}">
-                    <button type="submit" class="btn btn-sm btn-outline-danger">
-                        <i class="bi bi-box-arrow-right"></i>
-                    </button>
+                    <button type="submit" class="btn btn-outline-danger btn-sm border-0"><i class="bi bi-box-arrow-right"></i></button>
                 </form>
             </div>
         </div>
     </nav>
 
-    <div class="container mt-5 animate-fade-in">
-        <ul class="nav nav-tabs mb-4" id="adminTabs" role="tablist">
-            <li class="nav-item">
-                <button class="nav-link active" id="sessions-tab" data-bs-toggle="tab" data-bs-target="#sessions" type="button" role="tab">
-                    <i class="bi bi-activity me-2"></i> Active Sessions
+    <div class="container py-5">
+        <div class="row mb-4">
+            <div class="col">
+                <h1 class="h3 fw-bold mb-0">System Control</h1>
+                <p class="text-muted small">Manage identities, active sessions, and security audits.</p>
+            </div>
+            <div class="col-auto d-flex align-items-end">
+                <div class="btn-group shadow-sm">
+                    <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#createUserModal">
+                        <i class="bi bi-person-plus me-2"></i>Create User
+                    </button>
+                    <button class="btn btn-outline-secondary" onclick="cpModal.show()">
+                        <i class="bi bi-terminal me-2"></i>Command Palette <span class="ms-2 badge bg-secondary opacity-50">⌘K</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Dashboard Tabs -->
+        <ul class="nav nav-tabs border-secondary mb-4" id="mgmtTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active text-white border-0 bg-transparent py-3" id="users-tab" data-bs-toggle="tab" data-bs-target="#users" type="button" role="tab">
+                    <i class="bi bi-people me-2"></i>Directory
                 </button>
             </li>
-            <li class="nav-item">
-                <button class="nav-link" id="users-tab" data-bs-toggle="tab" data-bs-target="#users" type="button" role="tab">
-                    <i class="bi bi-people me-2"></i> User Directory
+            <li class="nav-item" role="presentation">
+                <button class="nav-link text-white border-0 bg-transparent py-3" id="sessions-tab" data-bs-toggle="tab" data-bs-target="#sessions" type="button" role="tab">
+                    <i class="bi bi-activity me-2"></i>Active Sessions
                 </button>
             </li>
-            <li class="nav-item">
-                <button class="nav-link" id="audit-tab" data-bs-toggle="tab" data-bs-target="#audit" type="button" role="tab">
-                    <i class="bi bi-journal-text me-2"></i> Audit Logs
+            <li class="nav-item" role="presentation">
+                <button class="nav-link text-white border-0 bg-transparent py-3" id="audit-tab" data-bs-toggle="tab" data-bs-target="#audit" type="button" role="tab">
+                    <i class="bi bi-shield-check me-2"></i>Security Audit
                 </button>
             </li>
-            <li class="nav-item">
-                <button class="nav-link" id="invites-tab" data-bs-toggle="tab" data-bs-target="#invites" type="button" role="tab">
-                    <i class="bi bi-envelope-plus me-2"></i> Invitations
+            <li class="nav-item" role="presentation">
+                <button class="nav-link text-white border-0 bg-transparent py-3" id="invites-tab" data-bs-toggle="tab" data-bs-target="#invites" type="button" role="tab">
+                    <i class="bi bi-envelope-plus me-2"></i>Invitations
                 </button>
             </li>
         </ul>
 
-        <div class="tab-content" id="adminTabsContent">
-            <!-- Sessions Tab -->
-            <div class="tab-pane fade show active" id="sessions" role="tabpanel">
-                <div class="card shadow-sm border-0">
-                    <div class="card-header py-3">
-                        <h6 class="mb-0 fw-bold">Active Session Monitor</h6>
-                    </div>
-                    <div class="card-body p-0">
-                        <div class="table-responsive">
-                            <table class="table table-hover mb-0">
-                                <thead>
-                                    <tr>
-                                        <th class="ps-4">User</th>
-                                        <th>Location</th>
-                                        <th>Device / User Agent</th>
-                                        <th>Started</th>
-                                        <th>Expires In</th>
-                                        <th class="text-end pe-4">Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {{range .sessions}}
-                                    <tr class="align-middle">
-                                        <td class="ps-4">
-                                            <div class="d-flex align-items-center">
-                                                <img data-identicon="{{index . "username"}}" class="identicon rounded me-3" width="32" height="32">
-                                                <div>
-                                                    <div class="fw-bold text-primary">{{index . "username"}}</div>
-                                                    <div class="extra-small text-muted d-flex align-items-center">
-                                                        {{index . "ip"}}
-                                                        {{if eq (index . "country") "Tailscale"}}
-                                                            <span class="ms-1 badge bg-info bg-opacity-25 text-info border border-info border-opacity-25 py-0 px-1" style="font-size: 0.6rem;">
-                                                                <i class="bi bi-shield-shaded me-1"></i>TAILSCALE
-                                                            </span>
-                                                        {{end}}
-                                                    </div>
-                                                </div>
+        <div class="tab-content" id="mgmtTabsContent">
+            <!-- Directory Tab -->
+            <div class="tab-pane fade show active" id="users" role="tabpanel">
+                <div class="card bg-dark border-secondary shadow-sm">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead>
+                                <tr>
+                                    <th class="ps-4">User</th>
+                                    <th>Status</th>
+                                    <th>Email</th>
+                                    <th class="text-end pe-4">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {{range .users}}
+                                <tr class="align-middle">
+                                    <td class="ps-4">
+                                        <div class="d-flex align-items-center">
+                                            <img data-identicon="{{.username}}" class="identicon rounded me-3 shadow-sm" width="40" height="40">
+                                            <div>
+                                                <div class="fw-bold">{{.username}}</div>
+                                                <div class="extra-small text-muted">ID: {{.uid}}</div>
                                             </div>
-                                        </td>
-                                        <td>
-                                            <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25">
-                                                {{index . "country"}}
-                                            </span>
-                                        </td>
-                                        <td>
-                                            <div class="d-flex align-items-center">
-                                                <div class="fs-5 me-2 text-primary opacity-50">
-                                                    <i class="bi {{index . "device_icon"}}"></i>
-                                                </div>
-                                                <div class="extra-small text-truncate text-muted" style="max-width: 200px;" title="{{index . "user_agent"}}">
-                                                    {{index . "friendly_ua"}}
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td class="text-muted small">
-                                            {{index . "created_at" | formatTime}}
-                                        </td>
-                                        <td>
-                                            <span class="text-success small fw-bold">
-                                                <i class="bi bi-clock-history me-1"></i>
-                                                {{index . "ttl" | formatSeconds}}
-                                            </span>
-                                        </td>
-                                        <td class="text-end pe-4">
-                                            <form method="POST" action="/rauthmgmt/session/invalidate" onsubmit="return confirm('Invalidate this session?')">
+                                        </div>
+                                    </td>
+                                    <td>
+                                        {{if .is_admin}}
+                                            <span class="badge bg-primary bg-opacity-25 text-primary border border-primary border-opacity-25 extra-small">ADMIN</span>
+                                        {{else}}
+                                            <span class="badge bg-secondary bg-opacity-25 text-secondary border border-secondary border-opacity-25 extra-small">USER</span>
+                                        {{end}}
+                                        {{if .two_fa_enabled}}
+                                            <span class="badge bg-success bg-opacity-25 text-success border border-success border-opacity-25 extra-small ms-1"><i class="bi bi-shield-lock"></i> 2FA</span>
+                                        {{end}}
+                                    </td>
+                                    <td class="text-muted small">{{if .email}}{{.email}}{{else}}-{{end}}</td>
+                                    <td class="text-end pe-4">
+                                        <div class="btn-group">
+                                            <button class="btn btn-outline-secondary btn-sm" onclick="openEditModal('{{.username}}', '{{.email}}')">
+                                                <i class="bi bi-pencil"></i>
+                                            </button>
+                                            <form action="/rauthmgmt/user/delete" method="POST" onsubmit="return confirm('Permanently delete user {{.username}}?')">
                                                 <input type="hidden" name="csrf" value="{{$.csrf}}">
-                                                <input type="hidden" name="token" value="{{index . "token"}}">
-                                                <button type="submit" class="btn btn-sm btn-outline-danger border-0" title="Terminate Session">
-                                                    <i class="bi bi-trash"></i>
-                                                </button>
+                                                <input type="hidden" name="username" value="{{.username}}">
+                                                <button type="submit" class="btn btn-outline-danger btn-sm border-start-0"><i class="bi bi-trash"></i></button>
                                             </form>
-                                        </td>
-                                    </tr>
-                                    {{else}}
-                                    <tr>
-                                        <td colspan="6" class="text-center py-5 text-muted">No active sessions found</td>
-                                    </tr>
-                                    {{end}}
-                                </tbody>
-                            </table>
-                        </div>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {{else}}
+                                <tr>
+                                    <td colspan="4" class="text-center py-5 text-muted small">No users found in directory.</td>
+                                </tr>
+                                {{end}}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
 
-            <!-- Users Tab -->
-            <div class="tab-pane fade" id="users" role="tabpanel">
-                <div class="card shadow-sm border-0">
-                    <div class="card-header py-3 d-flex justify-content-between align-items-center">
-                        <h6 class="mb-0 fw-bold">User Access Management</h6>
-                        <button class="btn btn-sm btn-danger" data-bs-toggle="modal" data-bs-target="#createUserModal">
-                            <i class="bi bi-person-plus me-1"></i> Add User
-                        </button>
-                    </div>
-                    <div class="card-body p-0">
-                        <div class="table-responsive">
-                            <table class="table table-hover mb-0">
-                                <thead>
-                                    <tr>
-                                        <th class="ps-4">Username</th>
-                                        <th>Email</th>
-                                        <th>Role</th>
-                                        <th class="text-end pe-4">Manage</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {{range .users}}
-                                    <tr class="align-middle">
-                                        <td class="ps-4">
-                                            <div class="d-flex align-items-center">
-                                                <img data-identicon="{{.Username}}" class="identicon rounded me-3" width="32" height="32">
-                                                <strong>{{.Username}}</strong>
+            <!-- Sessions Tab -->
+            <div class="tab-pane fade" id="sessions" role="tabpanel">
+                <div class="card bg-dark border-secondary shadow-sm">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead>
+                                <tr>
+                                    <th class="ps-4">User</th>
+                                    <th>Client / IP</th>
+                                    <th>Expires</th>
+                                    <th class="text-end pe-4">Control</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {{range .sessions}}
+                                <tr class="align-middle">
+                                    <td class="ps-4">
+                                        <div class="fw-bold small">{{.username}}</div>
+                                        <div class="extra-small text-muted">{{.token}}</div>
+                                    </td>
+                                    <td>
+                                        <div class="d-flex align-items-center">
+                                            <i class="bi {{.device_icon}} me-2 fs-5 opacity-75"></i>
+                                            <div>
+                                                <div class="small fw-bold">{{.friendly_ua}}</div>
+                                                <div class="extra-small text-muted">{{.ip}}</div>
                                             </div>
-                                        </td>
-                                        <td>{{.Email}}</td>
-                                        <td>
-                                            {{if eq .IsAdmin "1"}}
-                                            <span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25">Administrator</span>
-                                            {{else}}
-                                            <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25">User</span>
-                                            {{end}}
-                                        </td>
-                                        <td class="text-end pe-4">
-                                            <div class="btn-group">
-                                                <button class="btn btn-sm btn-outline-primary border-0" 
-                                                        onclick="openEditModal('{{.Username}}', '{{.Email}}')" 
-                                                        title="Edit User">
-                                                    <i class="bi bi-pencil"></i>
-                                                </button>
-                                                <form method="POST" action="/rauthmgmt/user/delete" onsubmit="return confirm('Are you sure you want to delete this user?')">
-                                                    <input type="hidden" name="csrf" value="{{$.csrf}}">
-                                                    <input type="hidden" name="username" value="{{.Username}}">
-                                                    <button type="submit" class="btn btn-sm btn-outline-danger border-0" title="Delete User"><i class="bi bi-person-x"></i></button>
-                                                </form>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                    {{end}}
-                                </tbody>
-                            </table>
-                        </div>
+                                        </div>
+                                    </td>
+                                    <td class="text-muted extra-small">
+                                        <i class="bi bi-clock-history me-1"></i> {{.ttl | formatSeconds}}
+                                    </td>
+                                    <td class="text-end pe-4">
+                                        <form action="/rauthmgmt/session/invalidate" method="POST" class="m-0">
+                                            <input type="hidden" name="csrf" value="{{$.csrf}}">
+                                            <input type="hidden" name="token" value="{{.token}}">
+                                            <button type="submit" class="btn btn-outline-danger btn-sm">Terminate</button>
+                                        </form>
+                                    </td>
+                                </tr>
+                                {{else}}
+                                <tr>
+                                    <td colspan="4" class="text-center py-5 text-muted small">No active sessions tracked.</td>
+                                </tr>
+                                {{end}}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
 
             <!-- Audit Tab -->
             <div class="tab-pane fade" id="audit" role="tabpanel">
-                <div class="card shadow-sm border-0">
-                    <div class="card-header py-3 d-flex justify-content-between align-items-center">
-                        <h6 class="mb-0 fw-bold">System Audit Logs</h6>
-                        <div class="input-group input-group-sm" style="max-width: 300px;">
-                            <span class="input-group-text bg-transparent border-end-0 text-muted"><i class="bi bi-search"></i></span>
-                            <input type="text" id="auditSearch" class="form-control border-start-0" placeholder="Filter events, users, or IPs...">
+                <div class="card bg-dark border-secondary shadow-sm">
+                    <div class="card-header bg-black bg-opacity-50 border-secondary py-3">
+                        <div class="input-group input-group-sm w-25">
+                            <span class="input-group-text bg-transparent border-secondary text-muted"><i class="bi bi-search"></i></span>
+                            <input type="text" id="auditSearch" class="form-control bg-transparent border-secondary text-white" placeholder="Filter logs...">
                         </div>
                     </div>
-                    <div class="card-body p-0">
-                        <div class="table-responsive">
-                            <table class="table table-hover mb-0" id="auditTable">
-                                <thead>
-                                    <tr>
-                                        <th class="ps-4">Timestamp</th>
-                                        <th>Event</th>
-                                        <th>Context</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {{range .logs}}
-                                    <tr class="align-middle audit-row" style="cursor: pointer;" onclick='showAuditDetail({{.Details | marshal}})'>
-                                        <td class="ps-4 text-muted small">{{.Timestamp | formatTime}}</td>
-                                        <td><span class="{{.Action | statusColor}} extra-small fw-bold text-uppercase" style="letter-spacing: 0.5px;">{{.Action}}</span></td>
-                                        <td>
-                                            <div class="d-flex align-items-center">
-                                                <img data-identicon="{{.Username}}" class="identicon rounded me-2" width="24" height="24">
-                                                <div class="small fw-bold text-primary">{{.Username}}</div>
-                                            </div>
-                                            <div class="extra-small text-muted">
-                                                <i class="bi bi-hdd-network me-1"></i> {{.IP}}
-                                                {{if eq .Details.country "Tailscale"}}
-                                                    <span class="ms-1 badge bg-info bg-opacity-25 text-info border border-info border-opacity-25 py-0 px-1" style="font-size: 0.6rem;">
-                                                        <i class="bi bi-shield-shaded me-1"></i>TAILSCALE
-                                                    </span>
-                                                {{else if .Details.country}}
-                                                    <span class="ms-2 badge bg-secondary bg-opacity-25 text-secondary border border-secondary border-opacity-25">{{.Details.country}}</span>
-                                                {{end}}
-                                            </div>
-                                        </td>
-                                    </tr>
-                                    {{else}}
-                                    <tr>
-                                        <td colspan="3" class="text-center py-5 text-muted">No audit logs found</td>
-                                    </tr>
-                                    {{end}}
-                                </tbody>
-                            </table>
-                        </div>
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0" id="auditTable">
+                            <thead>
+                                <tr>
+                                    <th class="ps-4">Timestamp</th>
+                                    <th>Event</th>
+                                    <th>Context</th>
+                                </tr>
+                            </thead>
+                            <tbody id="audit-log-container">
+                                <!-- Audit logs injected here via JS -->
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
 
             <!-- Invitations Tab -->
             <div class="tab-pane fade" id="invites" role="tabpanel">
-                <div class="card shadow-sm border-0">
-                    <div class="card-header py-3">
-                        <h6 class="mb-0 fw-bold">Secure Invitation System</h6>
+                <div class="row">
+                    <div class="col-md-5">
+                        <div class="card bg-dark border-secondary shadow-sm p-4">
+                            <h5 class="fw-bold mb-3 small text-uppercase" style="letter-spacing: 1px;">Generate Invitation</h5>
+                            <form id="inviteForm">
+                                <input type="hidden" name="csrf" value="{{$.csrf}}">
+                                <div class="mb-3">
+                                    <label class="form-label text-muted small">Recipient Email (Optional)</label>
+                                    <input type="email" name="email" class="form-control bg-black border-secondary text-white shadow-none" placeholder="invitee@example.com">
+                                </div>
+                                <div class="mb-4">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" name="is_admin" id="inviteIsAdmin">
+                                        <label class="form-check-label small" for="inviteIsAdmin">Assign Administrative Privileges</label>
+                                    </div>
+                                </div>
+                                <button type="submit" class="btn btn-success w-100 shadow-sm">Generate Link</button>
+                            </form>
+                        </div>
                     </div>
-                    <div class="card-body p-4">
-                        <p class="text-muted small mb-4">
-                            Instead of creating a password for the user, generate a secure invitation link. 
-                            The user will be able to set their own username and password upon redemption.
-                        </p>
-                        <form id="inviteForm" class="row g-3">
-                            <input type="hidden" name="csrf" value="{{.csrf}}">
-                            <div class="col-md-8">
-                                <label class="form-label small fw-bold text-muted">Recipient Email Address</label>
-                                <input type="email" name="email" id="inviteEmail" class="form-control" placeholder="user@example.com" required>
+                    <div class="col-md-7">
+                        <div id="inviteResult" class="d-none">
+                            <div class="card bg-success bg-opacity-10 border-success border-opacity-25 shadow-sm p-4 h-100">
+                                <h5 class="text-success fw-bold mb-3"><i class="bi bi-check2-circle me-2"></i>Invitation Ready</h5>
+                                <p class="small text-muted mb-4">Share this unique link with the user. It can only be used once.</p>
+                                <div class="input-group">
+                                    <input type="text" id="inviteUrl" class="form-control bg-black border-secondary text-white fw-bold shadow-none" readonly>
+                                    <button class="btn btn-outline-success" type="button" onclick="copyInviteUrl()">
+                                        <i class="bi bi-clipboard"></i> Copy
+                                    </button>
+                                </div>
                             </div>
-                            <div class="col-md-4 d-flex align-items-end">
-                                <button type="submit" class="btn btn-danger w-100 py-2 fw-bold">Generate Link</button>
-                            </div>
-                        </form>
-
-                        <div id="inviteResult" class="mt-4 d-none">
-                            <label class="form-label small fw-bold text-success">Invitation Link Generated</label>
-                            <div class="input-group">
-                                <input type="text" id="inviteUrl" class="form-control bg-light" readonly>
-                                <button class="btn btn-outline-success" type="button" onclick="copyInviteUrl()">
-                                    <i class="bi bi-clipboard me-1"></i> Copy
-                                </button>
-                            </div>
-                            <div class="extra-small text-muted mt-2">
-                                <i class="bi bi-info-circle me-1"></i> This link will expire in 24 hours.
+                        </div>
+                        <div id="invitePlaceholder" class="card bg-dark border-secondary border-dashed shadow-sm p-4 h-100 d-flex align-items-center justify-content-center text-muted small">
+                            <div class="text-center">
+                                <i class="bi bi-link-45deg fs-1 mb-2 opacity-25"></i>
+                                <p>Generated links will appear here.</p>
                             </div>
                         </div>
                     </div>
@@ -347,33 +285,34 @@
     <!-- Create User Modal -->
     <div class="modal fade" id="createUserModal" tabindex="-1">
         <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content border-0 shadow-lg">
-                <form method="POST" action="/rauthmgmt/user/create">
-                    <div class="modal-header border-0 pb-0">
+            <div class="modal-content bg-dark border-secondary shadow-lg">
+                <form action="/rauthmgmt/user/create" method="POST">
+                    <input type="hidden" name="csrf" value="{{.csrf}}">
+                    <div class="modal-header border-secondary">
                         <h5 class="modal-title fw-bold">New Identity</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                     </div>
-                    <div class="modal-body p-4">
-                        <input type="hidden" name="csrf" value="{{.csrf}}">
+                    <div class="modal-body py-4">
                         <div class="mb-3">
-                            <label class="form-label small fw-bold text-muted">Username</label>
-                            <input type="text" name="new_username" class="form-control" required placeholder="e.g. john.doe">
+                            <label class="form-label text-muted small">Username</label>
+                            <input type="text" name="new_username" class="form-control bg-black border-secondary text-white shadow-none" required>
                         </div>
                         <div class="mb-3">
-                            <label class="form-label small fw-bold text-muted">Password</label>
-                            <input type="password" name="new_password" class="form-control" required placeholder="••••••••">
+                            <label class="form-label text-muted small">Email (Optional)</label>
+                            <input type="email" name="new_email" class="form-control bg-black border-secondary text-white shadow-none">
                         </div>
-                        <div class="mb-3">
-                            <label class="form-label small fw-bold text-muted">Email</label>
-                            <input type="email" name="new_email" class="form-control" placeholder="user@example.com">
+                        <div class="mb-4">
+                            <label class="form-label text-muted small">Initial Password</label>
+                            <input type="password" name="new_password" class="form-control bg-black border-secondary text-white shadow-none" required>
                         </div>
-                        <div class="form-check form-switch mt-4">
-                            <input class="form-check-input" type="checkbox" name="is_admin" id="isAdminCheck">
-                            <label class="form-check-label small fw-bold text-muted" for="isAdminCheck">Grant administrative privileges</label>
+                        <div class="form-check form-switch mb-2">
+                            <input class="form-check-input" type="checkbox" name="is_admin" id="newIsAdmin">
+                            <label class="form-check-label" for="newIsAdmin">Administrator Privileges</label>
                         </div>
                     </div>
-                    <div class="modal-footer border-0 pt-0">
-                        <button type="submit" class="btn btn-danger w-100 py-2 fw-bold">Create Account</button>
+                    <div class="modal-footer border-secondary">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-success px-4">Create User</button>
                     </div>
                 </form>
             </div>
@@ -382,52 +321,75 @@
 
     <!-- Edit User Modal -->
     <div class="modal fade" id="editUserModal" tabindex="-1">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content border-0 shadow-lg">
-                <div class="modal-header border-0 pb-0">
-                    <h5 class="modal-title fw-bold">Edit User: <span id="editModalUsername"></span></h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content bg-dark border-secondary shadow-lg">
+                <div class="modal-header border-secondary">
+                    <h5 class="modal-title fw-bold">Edit User: <span id="editModalUsername" class="text-success"></span></h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
-                <div class="modal-body p-4">
-                    <!-- Update Email Section -->
-                    <form method="POST" action="/rauthmgmt/user/update-email" class="mb-4">
-                        <input type="hidden" name="csrf" value="{{.csrf}}">
-                        <input type="hidden" name="username" id="emailUsernameInput">
-                        <label class="form-label small fw-bold text-muted">Update Email Address</label>
-                        <div class="input-group mb-3">
-                            <input type="email" name="new_email" id="emailInput" class="form-control" placeholder="new.email@example.com" required>
-                            <button class="btn btn-outline-danger" type="submit">Save</button>
+                <div class="modal-body p-0">
+                    <div class="row g-0">
+                        <div class="col-md-6 border-end border-secondary p-4">
+                            <h6 class="fw-bold mb-3 small text-uppercase">Update Security</h6>
+                            <form action="/rauthmgmt/user/change-password" method="POST" class="mb-4">
+                                <input type="hidden" name="csrf" value="{{.csrf}}">
+                                <input type="hidden" name="username" id="passwordUsernameInput">
+                                <div class="mb-3">
+                                    <label class="form-label text-muted small">New Password</label>
+                                    <input type="password" name="new_password" class="form-control bg-black border-secondary text-white shadow-none" required>
+                                </div>
+                                <button type="submit" class="btn btn-outline-primary btn-sm w-100">Change Password</button>
+                            </form>
+
+                            <h6 class="fw-bold mb-3 small text-uppercase">Account Email</h6>
+                            <form action="/rauthmgmt/user/update-email" method="POST">
+                                <input type="hidden" name="csrf" value="{{.csrf}}">
+                                <input type="hidden" name="username" id="emailUsernameInput">
+                                <div class="mb-3">
+                                    <input type="email" name="new_email" id="emailInput" class="form-control bg-black border-secondary text-white shadow-none" required>
+                                </div>
+                                <button type="submit" class="btn btn-outline-info btn-sm w-100">Update Email</button>
+                            </form>
                         </div>
-                    </form>
-
-                    <hr class="border-secondary opacity-25 my-4">
-
-                    <!-- Change Password Section -->
-                    <form method="POST" action="/rauthmgmt/user/change-password" class="mb-4">
-                        <input type="hidden" name="csrf" value="{{.csrf}}">
-                        <input type="hidden" name="username" id="passwordUsernameInput">
-                        <label class="form-label small fw-bold text-muted">Change Password</label>
-                        <div class="input-group mb-3">
-                            <input type="password" name="new_password" class="form-control" placeholder="New Password" required>
-                            <button class="btn btn-outline-danger" type="submit">Update</button>
+                        <div class="col-md-6 p-4 bg-black bg-opacity-25">
+                            <h6 class="fw-bold mb-3 small text-uppercase text-warning">Advanced Recovery</h6>
+                            <p class="extra-small text-muted mb-4">Resetting 2FA will remove the secret and clear all recovery codes. The user will need to re-enroll on next login.</p>
+                            <form action="/rauthmgmt/user/reset-2fa" method="POST" onsubmit="return confirm('Reset 2FA for this user?')">
+                                <input type="hidden" name="csrf" value="{{.csrf}}">
+                                <input type="hidden" name="username" id="reset2faUsernameInput">
+                                <button type="submit" class="btn btn-outline-warning w-100">Reset 2FA</button>
+                            </form>
                         </div>
-                    </form>
-
-                    <hr class="border-secondary opacity-25 my-4">
-
-                    <!-- Reset 2FA Section -->
-                    <div class="d-flex justify-content-between align-items-center">
-                        <div>
-                            <label class="form-label small fw-bold text-muted mb-0">Two-Factor Authentication</label>
-                            <p class="extra-small text-muted mb-0">Clear the 2FA secret to allow user re-setup</p>
-                        </div>
-                        <form method="POST" action="/rauthmgmt/user/reset-2fa" onsubmit="return confirm('Reset 2FA for this user?')">
-                            <input type="hidden" name="csrf" value="{{.csrf}}">
-                            <input type="hidden" name="username" id="reset2faUsernameInput">
-                            <button type="submit" class="btn btn-sm btn-outline-warning">Reset 2FA</button>
-                        </form>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Audit Detail Modal -->
+    <div class="modal fade" id="auditDetailModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content bg-dark border-secondary shadow-lg">
+                <div class="modal-header border-secondary">
+                    <h5 class="modal-title fw-bold">Audit Detail</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body p-4 bg-black">
+                    <div id="auditDetailContent"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Success Toast -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="successToast" class="toast align-items-center text-white bg-success border-0" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="d-flex">
+                <div class="toast-body">
+                    <i class="bi bi-check-circle-fill me-2"></i>
+                    <span id="toastMessage">Action completed successfully.</span>
+                </div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
             </div>
         </div>
     </div>
@@ -473,8 +435,65 @@
             return canvas.toDataURL();
         }
 
+        // Helper functions for client-side rendering
+        function formatTime(timestamp) {
+            if (!timestamp) return "N/A";
+            const date = new Date(timestamp * 1000);
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            const seconds = String(date.getSeconds()).padStart(2, '0');
+            return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+        }
+
+        function getStatusColor(action) {
+            if (action === "LOGIN_SUCCESS" || action === "2FA_SETUP_SUCCESS") return "text-success";
+            if (action === "LOGIN_FAILED" || action === "2FA_FAILED" || action === "COUNTRY_CHANGE_DETECTED") return "text-danger";
+            return "text-info";
+        }
+
+        // Audit Log Rendering
+        const auditLogs = {{.logs}};
+        const container = document.getElementById('audit-log-container');
+
+        function renderAuditLogs() {
+            if (!auditLogs || auditLogs.length === 0) {
+                container.innerHTML = '<tr><td colspan="3" class="text-center py-5 text-muted">No audit logs found</td></tr>';
+                return;
+            }
+
+            container.innerHTML = auditLogs.map(log => {
+                const countryBadge = log.details.country === "Tailscale"
+                    ? `<span class="ms-1 badge bg-info bg-opacity-25 text-info border border-info border-opacity-25 py-0 px-1" style="font-size: 0.6rem;">
+                        <i class="bi bi-shield-shaded me-1"></i>TAILSCALE
+                       </span>`
+                    : (log.details.country ? `<span class="ms-2 badge bg-secondary bg-opacity-25 text-secondary border border-secondary border-opacity-25">${log.details.country}</span>` : "");
+
+                return `
+                    <tr class="align-middle audit-row" style="cursor: pointer;" onclick='showAuditDetail(${JSON.stringify(log.details)})'>
+                        <td class="ps-4 text-muted small">${formatTime(log.timestamp)}</td>
+                        <td><span class="${getStatusColor(log.action)} extra-small fw-bold text-uppercase" style="letter-spacing: 0.5px;">${log.action}</span></td>
+                        <td>
+                            <div class="d-flex align-items-center">
+                                <img data-identicon="${log.username}" class="identicon rounded me-2" width="24" height="24">
+                                <div class="small fw-bold text-primary">${log.username}</div>
+                            </div>
+                            <div class="extra-small text-muted">
+                                <i class="bi bi-hdd-network me-1"></i> ${log.ip}
+                                ${countryBadge}
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
         // Apply identicons and handle audit clicks on load
         window.addEventListener('load', () => {
+            renderAuditLogs();
+
             document.querySelectorAll('[data-identicon]').forEach(el => {
                 el.src = generateIdenticon(el.getAttribute('data-identicon'), 48);
             });
