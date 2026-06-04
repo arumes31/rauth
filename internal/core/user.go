@@ -87,43 +87,18 @@ func ensureUID(username string) (string, error) {
 // EnsureUserUIDs backfills UIDs for any legacy users created before UIDs
 // existed. Run once at startup so GetUser can remain read-only.
 func EnsureUserUIDs() {
-	usernames, err := UserDB.SMembers(Ctx, "users").Result()
+	users, err := ListUsers()
 	if err != nil {
 		slog.Error("EnsureUserUIDs: failed to list users", "error", err)
 		return
 	}
 
-	if len(usernames) == 0 {
-		return
-	}
-
-	pipe := UserDB.Pipeline()
-	cmds := make(map[string]*redis.StringCmd, len(usernames))
-	for _, username := range usernames {
-		cmds[username] = pipe.HGet(Ctx, "user:"+username, "uid")
-	}
-
-	// pipe.Exec returns the first error encountered by any command in the pipeline.
-	// We ignore redis.Nil here because it's expected for users needing backfill.
-	_, err = pipe.Exec(Ctx)
-	if err != nil && err != redis.Nil {
-		slog.Error("EnsureUserUIDs: pipeline failed", "error", err)
-		return
-	}
-
-	for _, username := range usernames {
-		uid, err := cmds[username].Result()
-		if err == nil && uid != "" {
+	for _, user := range users {
+		if user.UID != "" {
 			continue
 		}
-		// Only the missing-field case (redis.Nil) warrants a backfill; a real
-		// Redis error must not be mistaken for "no uid" and trigger a rewrite.
-		if err != nil && err != redis.Nil {
-			slog.Error("EnsureUserUIDs: failed to read uid", "user", username, "error", err)
-			continue
-		}
-		if _, err := ensureUID(username); err != nil {
-			slog.Warn("EnsureUserUIDs: failed to backfill UID", "user", username, "error", err)
+		if _, err := ensureUID(user.Username); err != nil {
+			slog.Warn("EnsureUserUIDs: failed to backfill UID", "user", user.Username, "error", err)
 		}
 	}
 }
