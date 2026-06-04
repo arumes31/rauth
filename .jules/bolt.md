@@ -20,3 +20,6 @@
 ## 2026-05-27 - Reducing Allocations with bufio.Scanner
 **Learning:** Parsing large embedded strings (like blocklists) using `strings.Split` creates a large slice of strings that persists until the loop finishes. This is inefficient for one-time map population.
 **Action:** Use `bufio.Scanner` with `strings.NewReader` to process the string line-by-line. This minimizes temporary allocations and is significantly more memory-efficient for large text datasets.
+## 2026-06-04 - Batched UID Backfill in EnsureUserUIDs
+**Learning:** Calling `TxPipeline` inside a loop for each backfill operation results in O(N) network roundtrips to Redis. Backfilling operations should be batched.
+**Action:** When performing batched backfills, accumulate the missing keys in a slice first, then process them inside a single `TxPipeline` to minimize network overhead and drastically improve execution time.

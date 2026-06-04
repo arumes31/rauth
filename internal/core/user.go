@@ -111,6 +111,7 @@ func EnsureUserUIDs() {
 		return
 	}
 
+	var usersToBackfill []string
 	for _, username := range usernames {
 		uid, err := cmds[username].Result()
 		if err == nil && uid != "" {
@@ -122,9 +123,24 @@ func EnsureUserUIDs() {
 			slog.Error("EnsureUserUIDs: failed to read uid", "user", username, "error", err)
 			continue
 		}
-		if _, err := ensureUID(username); err != nil {
-			slog.Warn("EnsureUserUIDs: failed to backfill UID", "user", username, "error", err)
-		}
+		usersToBackfill = append(usersToBackfill, username)
+	}
+
+	if len(usersToBackfill) == 0 {
+		return
+	}
+
+	txPipe := UserDB.TxPipeline()
+	for _, username := range usersToBackfill {
+		newUUID := uuid.New()
+		uidStr := newUUID.String()
+		txPipe.Set(Ctx, "uid:"+uidStr, username, 0)
+		txPipe.Set(Ctx, "uid_bin:"+string(newUUID[:]), username, 0)
+		txPipe.HSet(Ctx, "user:"+username, "uid", uidStr)
+	}
+
+	if _, err := txPipe.Exec(Ctx); err != nil {
+		slog.Error("EnsureUserUIDs: failed to backfill UIDs in batch", "error", err)
 	}
 }
 
