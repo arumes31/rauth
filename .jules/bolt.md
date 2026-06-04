@@ -20,3 +20,6 @@
 ## 2026-05-27 - Reducing Allocations with bufio.Scanner
 **Learning:** Parsing large embedded strings (like blocklists) using `strings.Split` creates a large slice of strings that persists until the loop finishes. This is inefficient for one-time map population.
 **Action:** Use `bufio.Scanner` with `strings.NewReader` to process the string line-by-line. This minimizes temporary allocations and is significantly more memory-efficient for large text datasets.
+## 2026-06-04 - Batch-Level Redis Pipelining with SCAN
+**Learning:** When resolving an N+1 query issue inside a `SCAN` loop that involves nested collections (e.g., getting all members of a set, then getting hashes for each member), pipelining operations per-set-key is better, but pipelining across the *entire batch* of keys returned by `SCAN` is vastly superior.
+**Action:** Instead of putting the pipeline inside the inner loop (one pipeline per index key), move the pipelines outside. Use multiple phases: 1) Pipeline all `SMembers` for the batch. 2) Collect results, deduplicate tokens, and pipeline all `HGetAll` for the batch. 3) Evaluate results and pipeline all `SRem` for the batch. This drops Redis roundtrips from O(K) to O(1) per `SCAN` batch.

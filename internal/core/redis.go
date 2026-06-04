@@ -188,27 +188,64 @@ func reconcileIndexSets(pattern string) int64 {
 			break
 		}
 
-		for _, indexKey := range keys {
-			tokens, err := TokenDB.SMembers(Ctx, indexKey).Result()
-			if err != nil {
-				continue
+		if len(keys) == 0 {
+			cursor = nextCursor
+			if cursor == 0 {
+				break
 			}
+			continue
+		}
+
+		// Phase 1: Pipeline SMembers for all keys in this SCAN batch
+		pipe := TokenDB.Pipeline()
+		smembersCmds := make(map[string]*redis.StringSliceCmd, len(keys))
+		for _, key := range keys {
+			smembersCmds[key] = pipe.SMembers(Ctx, key)
+		}
+		_, err = pipe.Exec(Ctx)
+		if err != nil && err != redis.Nil {
+			slog.Error("SyncSessionIndexes: SMembers pipeline failed", "error", err)
+		}
+
+		// Phase 2: Pipeline HGetAll for all tokens across all keys
+		pipe = TokenDB.Pipeline()
+		hgetallCmds := make(map[string]*redis.MapStringStringCmd)
+		for _, key := range keys {
+			tokens, _ := smembersCmds[key].Result()
+			for _, token := range tokens {
+				if _, exists := hgetallCmds[token]; !exists { // Deduplicate just in case
+					hgetallCmds[token] = pipe.HGetAll(Ctx, "X-rauth-authtoken="+token)
+				}
+			}
+		}
+
+		// Only execute if we have commands
+		if len(hgetallCmds) > 0 {
+			_, err = pipe.Exec(Ctx)
+			if err != nil && err != redis.Nil {
+				slog.Error("SyncSessionIndexes: HGetAll pipeline failed", "error", err)
+			}
+		}
+
+		// Phase 3: Evaluate token validity and pipeline SRem for stale tokens
+		pipe = TokenDB.Pipeline()
+		var sremCount int
+		for _, key := range keys {
+			tokens, _ := smembersCmds[key].Result()
 			if len(tokens) == 0 {
 				continue
 			}
 
-			// ⚡ Bolt optimization: Batch HGetAll requests in a pipeline and remove stale tokens variadically.
-			pipe := TokenDB.Pipeline()
-			cmds := make(map[string]*redis.MapStringStringCmd, len(tokens))
-			for _, token := range tokens {
-				cmds[token] = pipe.HGetAll(Ctx, "X-rauth-authtoken="+token)
-			}
-			_, _ = pipe.Exec(Ctx)
-
 			var stale []interface{}
 			for _, token := range tokens {
-				data, err := cmds[token].Result()
-				if err == nil && len(data) > 0 && data["status"] == "valid" {
+				cmd, exists := hgetallCmds[token]
+				if !exists {
+					stale = append(stale, token)
+					continue
+				}
+
+				data, _ := cmd.Result()
+				if len(data) > 0 && data["status"] == "valid" {
 					live++
 				} else {
 					stale = append(stale, token)
@@ -216,7 +253,15 @@ func reconcileIndexSets(pattern string) int64 {
 			}
 
 			if len(stale) > 0 {
-				TokenDB.SRem(Ctx, indexKey, stale...)
+				pipe.SRem(Ctx, key, stale...)
+				sremCount++
+			}
+		}
+
+		if sremCount > 0 {
+			_, err = pipe.Exec(Ctx)
+			if err != nil {
+				slog.Error("SyncSessionIndexes: SRem pipeline failed", "error", err)
 			}
 		}
 
