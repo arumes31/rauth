@@ -61,7 +61,7 @@ func (h *InviteHandler) RedeemPage(c echo.Context) error {
 
 func (h *InviteHandler) Redeem(c echo.Context) error {
 	token := c.FormValue("token")
-	username := c.FormValue("username")
+	username := strings.TrimSpace(c.FormValue("username"))
 	password := c.FormValue("password")
 
 	email, err := core.InviteDB.Get(core.Ctx, "invite:"+token).Result()
