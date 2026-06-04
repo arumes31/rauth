@@ -20,3 +20,6 @@
 ## 2026-05-27 - Reducing Allocations with bufio.Scanner
 **Learning:** Parsing large embedded strings (like blocklists) using `strings.Split` creates a large slice of strings that persists until the loop finishes. This is inefficient for one-time map population.
 **Action:** Use `bufio.Scanner` with `strings.NewReader` to process the string line-by-line. This minimizes temporary allocations and is significantly more memory-efficient for large text datasets.
+## 2026-06-04 - Unnecessary Pipeline Overhead
+**Learning:** While Redis pipelines are great for batching *multiple* commands to avoid network round-trips, wrapping a *single* variadic command (like `Del` with multiple keys) inside a `Pipeline` introduces unnecessary client-side allocation and processing overhead. The variadic command itself already achieves the goal of a single round-trip.
+**Action:** When a pipeline would only contain exactly one command (e.g. after optimizing an N+1 loop into a single variadic call), execute the command directly against the client (e.g., `TokenDB.Del(Ctx, toDel...)`) rather than allocating a `Pipeline` object.
