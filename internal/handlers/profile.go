@@ -27,10 +27,30 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to load profile")
 	}
 
+	sessions := h.fetchSessions(username, currentToken)
+	logs := h.fetchAuditLogs(username)
+	passkeys := core.GetStoredCredentials(username)
+
+	return c.Render(http.StatusOK, "profile.html", map[string]interface{}{
+		"username":      username,
+		"email":         userData["email"],
+		"groups":        userData["groups"],
+		"isAdmin":       userData["is_admin"] == "1",
+		"has2FA":        userData["2fa_secret"] != "",
+		"recoveryCount": core.CountRecoveryCodes(username),
+		"sessions":      sessions,
+		"logs":          logs,
+		"passkeys":      passkeys,
+		"csrf":          c.Get("csrf"),
+	})
+}
+
+func (h *ProfileHandler) fetchSessions(username, currentToken string) []map[string]string {
 	// Fetch sessions for this user efficiently
 	tokens, err := core.TokenDB.SMembers(core.Ctx, "user_sessions:"+username).Result()
 	if err != nil {
 		slog.Error("Failed to fetch sessions from Redis", "error", err)
+		return nil
 	}
 
 	var sessions []map[string]string
@@ -82,11 +102,15 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 		data["device_icon"] = core.GetDeviceIcon(ua)
 		sessions = append(sessions, data)
 	}
+	return sessions
+}
 
+func (h *ProfileHandler) fetchAuditLogs(username string) []core.AuditLog {
 	// Personal Logs
 	rawLogs, err := core.AuditDB.LRange(core.Ctx, "user_audit_logs:"+username, 0, 99).Result()
 	if err != nil {
 		slog.Error("Failed to fetch audit logs", "error", err)
+		return nil
 	}
 
 	var logs []core.AuditLog
@@ -97,21 +121,7 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 		}
 		logs = append(logs, log)
 	}
-
-	passkeys := core.GetStoredCredentials(username)
-
-	return c.Render(http.StatusOK, "profile.html", map[string]interface{}{
-		"username":      username,
-		"email":         userData["email"],
-		"groups":        userData["groups"],
-		"isAdmin":       userData["is_admin"] == "1",
-		"has2FA":        userData["2fa_secret"] != "",
-		"recoveryCount": core.CountRecoveryCodes(username),
-		"sessions":      sessions,
-		"logs":          logs,
-		"passkeys":      passkeys,
-		"csrf":          c.Get("csrf"),
-	})
+	return logs
 }
 
 // GenerateRecoveryCodes issues a fresh batch of single-use 2FA recovery codes
