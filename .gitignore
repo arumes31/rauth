@@ -23,4 +23,7 @@ coverage.html
 
 # Docker
 .docker-compose.un~
+
+# Agent scratch artifacts
 .jules/
+plan.md
