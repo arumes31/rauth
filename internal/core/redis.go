@@ -123,7 +123,11 @@ func HasActiveSessions(ip string) bool {
 	for _, token := range tokens {
 		cmds[token] = pipe.HGetAll(Ctx, "X-rauth-authtoken="+token)
 	}
-	_, _ = pipe.Exec(Ctx)
+	_, err = pipe.Exec(Ctx)
+	if err != nil && err != redis.Nil {
+		slog.Error("HasActiveSessions: pipeline failed", "error", err)
+		return false
+	}
 
 	var stale []interface{}
 	hasActive := false
@@ -188,35 +192,42 @@ func reconcileIndexSets(pattern string) int64 {
 			break
 		}
 
-		for _, indexKey := range keys {
-			tokens, err := TokenDB.SMembers(Ctx, indexKey).Result()
-			if err != nil {
-				continue
+		if len(keys) > 0 {
+			// ⚡ Bolt optimization: Batch SMembers for all keys in the page to eliminate N+1 queries.
+			pipeS := TokenDB.Pipeline()
+			sMembersCmds := make([]*redis.StringSliceCmd, len(keys))
+			for i, key := range keys {
+				sMembersCmds[i] = pipeS.SMembers(Ctx, key)
 			}
-			if len(tokens) == 0 {
-				continue
-			}
+			_, _ = pipeS.Exec(Ctx)
 
-			// ⚡ Bolt optimization: Batch HGetAll requests in a pipeline and remove stale tokens variadically.
-			pipe := TokenDB.Pipeline()
-			cmds := make(map[string]*redis.MapStringStringCmd, len(tokens))
-			for _, token := range tokens {
-				cmds[token] = pipe.HGetAll(Ctx, "X-rauth-authtoken="+token)
-			}
-			_, _ = pipe.Exec(Ctx)
-
-			var stale []interface{}
-			for _, token := range tokens {
-				data, err := cmds[token].Result()
-				if err == nil && len(data) > 0 && data["status"] == "valid" {
-					live++
-				} else {
-					stale = append(stale, token)
+			for i, indexKey := range keys {
+				tokens, err := sMembersCmds[i].Result()
+				if err != nil || len(tokens) == 0 {
+					continue
 				}
-			}
 
-			if len(stale) > 0 {
-				TokenDB.SRem(Ctx, indexKey, stale...)
+				// ⚡ Bolt optimization: Batch HGetAll requests in a pipeline and remove stale tokens variadically.
+				pipe := TokenDB.Pipeline()
+				cmds := make(map[string]*redis.MapStringStringCmd, len(tokens))
+				for _, token := range tokens {
+					cmds[token] = pipe.HGetAll(Ctx, "X-rauth-authtoken="+token)
+				}
+				_, _ = pipe.Exec(Ctx)
+
+				var stale []interface{}
+				for _, token := range tokens {
+					data, err := cmds[token].Result()
+					if err == nil && len(data) > 0 && data["status"] == "valid" {
+						live++
+					} else {
+						stale = append(stale, token)
+					}
+				}
+
+				if len(stale) > 0 {
+					TokenDB.SRem(Ctx, indexKey, stale...)
+				}
 			}
 		}
 

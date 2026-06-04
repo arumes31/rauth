@@ -20,3 +20,6 @@
 ## 2026-05-27 - Reducing Allocations with bufio.Scanner
 **Learning:** Parsing large embedded strings (like blocklists) using `strings.Split` creates a large slice of strings that persists until the loop finishes. This is inefficient for one-time map population.
 **Action:** Use `bufio.Scanner` with `strings.NewReader` to process the string line-by-line. This minimizes temporary allocations and is significantly more memory-efficient for large text datasets.
+## 2026-06-03 - Redis N+1 Pipeline Optimizations
+**Learning:** Even when using pipelines, N+1 query patterns can still exist if higher-level keys (like those from a `SCAN`) are iterated over and each triggers a separate `SMembers` or `HGetAll` round-trip. Pipelining should be applied at multiple levels of the hierarchy where possible. Additionally, robust error handling in `pipe.Exec` is crucial; ignoring errors can lead to logic failures, such as accidentally pruning valid index entries during a Redis timeout.
+**Action:** In `reconcileIndexSets`, batch the `SMembers` calls for all keys in the `SCAN` result page. In `HasActiveSessions`, check for `err != nil && err != redis.Nil` after `pipe.Exec` to ensure that state mutations (pruning) only happen when the backend is healthy.

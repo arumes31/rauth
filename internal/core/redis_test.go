@@ -120,3 +120,102 @@ func TestSessionManagement(t *testing.T) {
 		require.NotContains(t, members, "ghost_token")
 	})
 }
+
+func TestHasActiveSessionsTable(t *testing.T) {
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	client := redis.NewClient(&redis.Options{
+		Addr: mr.Addr(),
+	})
+	TokenDB = client
+	Ctx = context.Background()
+
+	tests := []struct {
+		name       string
+		ip         string
+		setup      func(ip string)
+		wantActive bool
+		wantStale  []string
+	}{
+		{
+			name: "Valid active session",
+			ip:   "1.1.1.1",
+			setup: func(ip string) {
+				TokenDB.HSet(Ctx, "X-rauth-authtoken=t1", "status", "valid", "ip", ip)
+				AddIPSessionIndex(ip, "t1")
+			},
+			wantActive: true,
+			wantStale:  nil,
+		},
+		{
+			name: "Missing token (should prune)",
+			ip:   "2.2.2.2",
+			setup: func(ip string) {
+				AddIPSessionIndex(ip, "ghost")
+			},
+			wantActive: false,
+			wantStale:  []string{"ghost"},
+		},
+		{
+			name: "Invalid session status (should prune)",
+			ip:   "3.3.3.3",
+			setup: func(ip string) {
+				TokenDB.HSet(Ctx, "X-rauth-authtoken=t2", "status", "expired")
+				AddIPSessionIndex(ip, "t2")
+			},
+			wantActive: false,
+			wantStale:  []string{"t2"},
+		},
+		{
+			name: "Mixed sessions (one valid, one stale)",
+			ip:   "4.4.4.4",
+			setup: func(ip string) {
+				TokenDB.HSet(Ctx, "X-rauth-authtoken=t3", "status", "valid")
+				TokenDB.HSet(Ctx, "X-rauth-authtoken=t4", "status", "invalid")
+				AddIPSessionIndex(ip, "t3")
+				AddIPSessionIndex(ip, "t4")
+			},
+			wantActive: true,
+			wantStale:  []string{"t4"},
+		},
+		{
+			name: "Empty session hash (should prune)",
+			ip:   "5.5.5.5",
+			setup: func(ip string) {
+				// Key exists but no fields
+				TokenDB.HSet(Ctx, "X-rauth-authtoken=t5", "dummy", "val")
+				TokenDB.HDel(Ctx, "X-rauth-authtoken=t5", "dummy")
+				AddIPSessionIndex(ip, "t5")
+			},
+			wantActive: false,
+			wantStale:  []string{"t5"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.setup(tt.ip)
+			active := HasActiveSessions(tt.ip)
+			assert.Equal(t, tt.wantActive, active)
+
+			members, _ := TokenDB.SMembers(Ctx, "ip_sessions:"+tt.ip).Result()
+			for _, s := range tt.wantStale {
+				assert.NotContains(t, members, s)
+			}
+			if tt.wantActive {
+				// Ensure active remains
+				found := false
+				for _, m := range members {
+					data, _ := TokenDB.HGetAll(Ctx, "X-rauth-authtoken="+m).Result()
+					if data["status"] == "valid" {
+						found = true
+						break
+					}
+				}
+				assert.True(t, found)
+			}
+		})
+	}
+}
