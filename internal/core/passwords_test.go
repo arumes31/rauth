@@ -24,6 +24,9 @@ func TestIsCommonPassword(t *testing.T) {
 		{"Non-common password", "ThisIsAUniquePassword123!", false},
 		{"Empty password", "", false},
 		{"Whitespace only", "   ", false},
+		{"Contains common password", "prefix123456", false},
+		{"Substring but not in list", "this-is-not-common-123456", false},
+		{"Common password with different spacing", " 123456 ", true},
 	}
 
 	for _, tt := range tests {
