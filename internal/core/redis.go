@@ -3,9 +3,10 @@ package core
 import (
 	"context"
 	"fmt"
-	"github.com/redis/go-redis/v9"
 	"log/slog"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
 var (
@@ -188,35 +189,54 @@ func reconcileIndexSets(pattern string) int64 {
 			break
 		}
 
-		for _, indexKey := range keys {
-			tokens, err := TokenDB.SMembers(Ctx, indexKey).Result()
-			if err != nil {
-				continue
-			}
-			if len(tokens) == 0 {
-				continue
-			}
-
-			// ⚡ Bolt optimization: Batch HGetAll requests in a pipeline and remove stale tokens variadically.
+		if len(keys) > 0 {
+			// ⚡ Bolt optimization: Pipeline SMembers for the entire batch of index keys.
 			pipe := TokenDB.Pipeline()
-			cmds := make(map[string]*redis.MapStringStringCmd, len(tokens))
-			for _, token := range tokens {
-				cmds[token] = pipe.HGetAll(Ctx, "X-rauth-authtoken="+token)
+			smembersCmds := make([]*redis.StringSliceCmd, len(keys))
+			for i, key := range keys {
+				smembersCmds[i] = pipe.SMembers(Ctx, key)
 			}
 			_, _ = pipe.Exec(Ctx)
 
-			var stale []interface{}
-			for _, token := range tokens {
-				data, err := cmds[token].Result()
-				if err == nil && len(data) > 0 && data["status"] == "valid" {
-					live++
-				} else {
-					stale = append(stale, token)
+			type tokenMeta struct {
+				token string
+				key   string
+			}
+			var allTokens []tokenMeta
+			for i, key := range keys {
+				tokens, _ := smembersCmds[i].Result()
+				for _, t := range tokens {
+					allTokens = append(allTokens, tokenMeta{token: t, key: key})
 				}
 			}
 
-			if len(stale) > 0 {
-				TokenDB.SRem(Ctx, indexKey, stale...)
+			if len(allTokens) > 0 {
+				// ⚡ Bolt optimization: Pipeline HGetAll for all tokens across all scanned index keys.
+				hgetallPipe := TokenDB.Pipeline()
+				hgetallCmds := make([]*redis.MapStringStringCmd, len(allTokens))
+				for i, tm := range allTokens {
+					hgetallCmds[i] = hgetallPipe.HGetAll(Ctx, "X-rauth-authtoken="+tm.token)
+				}
+				_, _ = hgetallPipe.Exec(Ctx)
+
+				staleBySet := make(map[string][]interface{})
+				for i, tm := range allTokens {
+					data, err := hgetallCmds[i].Result()
+					if err == nil && len(data) > 0 && data["status"] == "valid" {
+						live++
+					} else {
+						staleBySet[tm.key] = append(staleBySet[tm.key], tm.token)
+					}
+				}
+
+				if len(staleBySet) > 0 {
+					// ⚡ Bolt optimization: Batch SRem calls to prune stale tokens from their respective indices.
+					sremPipe := TokenDB.Pipeline()
+					for key, stale := range staleBySet {
+						sremPipe.SRem(Ctx, key, stale...)
+					}
+					_, _ = sremPipe.Exec(Ctx)
+				}
 			}
 		}
 
