@@ -492,3 +492,16 @@ func TestValidateUsername(t *testing.T) {
 		})
 	}
 }
+
+func TestGetAESKey(t *testing.T) {
+	key := "some-secret-key"
+	derived1 := getAESKey(key)
+	derived2 := getAESKey(key)
+
+	assert.Equal(t, 32, len(derived1), "Key length should be 32 bytes for AES-256")
+	assert.Equal(t, derived1, derived2, "Derived keys for the same input should be identical")
+
+	differentKey := "another-secret-key"
+	derived3 := getAESKey(differentKey)
+	assert.NotEqual(t, derived1, derived3, "Derived keys for different inputs should be different")
+}
