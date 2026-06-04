@@ -1,8 +1,8 @@
 package handlers
 
 import (
-	"encoding/json"
 	"fmt"
+	"html/template"
 	"log/slog"
 	"net/http"
 	"rauth/internal/core"
@@ -89,13 +89,9 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 		slog.Error("Failed to fetch audit logs", "error", err)
 	}
 
-	var logs []core.AuditLog
+	var logs []template.JS
 	for _, l := range rawLogs {
-		var log core.AuditLog
-		if err := json.Unmarshal([]byte(l), &log); err != nil {
-			continue
-		}
-		logs = append(logs, log)
+		logs = append(logs, template.JS(l))
 	}
 
 	passkeys := core.GetStoredCredentials(username)

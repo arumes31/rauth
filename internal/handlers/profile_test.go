@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"html/template"
 	"net/http"
 	"net/url"
 	"rauth/internal/core"
@@ -42,9 +43,12 @@ func TestProfileHandler_Show(t *testing.T) {
 		assert.NoError(t, err)
 
 		data := renderer.LastData.(map[string]interface{})
-		logs := data["logs"].([]core.AuditLog)
+		logs := data["logs"].([]template.JS)
 
-		for _, log := range logs {
+		for _, jsLog := range logs {
+			var log core.AuditLog
+			err := json.Unmarshal([]byte(jsLog), &log)
+			assert.NoError(t, err)
 			assert.Equal(t, "profileuser", log.Username)
 			assert.NotEqual(t, "OTHER_ACTION", log.Action)
 		}

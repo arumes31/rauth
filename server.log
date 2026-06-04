@@ -1,0 +1,6 @@
+redis: 2026/06/04 07:05:49 pool.go:715: redis: connection pool: failed to dial after 5 attempts: dial tcp [::1]:6379: connect: connection refused
+redis: 2026/06/04 07:05:50 pool.go:715: redis: connection pool: failed to dial after 5 attempts: dial tcp [::1]:6379: connect: connection refused
+redis: 2026/06/04 07:05:50 pool.go:715: redis: connection pool: failed to dial after 5 attempts: dial tcp [::1]:6379: connect: connection refused
+redis: 2026/06/04 07:05:51 pool.go:715: redis: connection pool: failed to dial after 5 attempts: dial tcp [::1]:6379: connect: connection refused
+time=2026-06-04T07:05:51.300Z level=ERROR msg="Redis initialization failed" error="failed to connect to Redis DB 0: dial tcp [::1]:6379: connect: connection refused"
+exit status 1

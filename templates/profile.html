@@ -4,292 +4,190 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>My Profile | RAuth</title>
-    <link rel="icon" type="image/png" href="/static/favicon.png">
-    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
-    <link href="/static/css/bootstrap-icons.min.css" rel="stylesheet">
-    <link href="/static/css/modern.css" rel="stylesheet">
+    <title>Identity Profile | rAuth</title>
+    <link rel="stylesheet" href="/static/css/bootstrap.min.css">
+    <link rel="stylesheet" href="/static/css/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="/static/css/modern.css">
+    <style>
+        .identicon { background-color: #0a0a0a; border: 1px solid rgba(255,255,255,0.1); }
+        .card { border-radius: 12px; margin-bottom: 1.5rem; border: 1px solid rgba(255,255,255,0.05); }
+        .card-header { background: rgba(255,255,255,0.02); border-bottom: 1px solid rgba(255,255,255,0.05); padding: 1rem 1.25rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; font-size: 0.75rem; color: #888; }
+        .list-group-item { background: transparent; border: none; border-bottom: 1px solid rgba(255,255,255,0.05); padding: 1rem 1.25rem; }
+        .list-group-item:last-child { border-bottom: none; }
+        .extra-small { font-size: 0.7rem; }
+        kbd { background-color: #333; padding: 2px 4px; border-radius: 4px; font-size: 0.75rem; }
+        .nav-pills .nav-link { border-radius: 8px; color: #888; font-size: 0.9rem; }
+        .nav-pills .nav-link.active { background: #22c55e20; color: #22c55e; border: 1px solid #22c55e40; }
+        .passkey-nickname { font-weight: 600; color: #eee; }
+        .command-option { padding: 10px 15px; border-radius: 8px; cursor: pointer; transition: all 0.2s; }
+        .command-option:hover, .command-option.active { background: rgba(34, 197, 94, 0.1); color: #22c55e; }
+        .command-shortcut { font-size: 0.7rem; opacity: 0.5; font-family: monospace; }
+        #commandPalette .modal-content { background: #0f1115; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); }
+        #commandInput { background: transparent; border: none; border-bottom: 1px solid rgba(255,255,255,0.1); border-radius: 0; padding: 20px; color: #eee; font-size: 1.1rem; }
+        #commandInput:focus { box-shadow: none; }
+    </style>
 </head>
-<body class="bg-light-animated">
-    <div class="scanlines"></div>
-    
-    <!-- Audit Detail Modal -->
-    <div class="modal fade" id="auditDetailModal" tabindex="-1">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content border-0 shadow-lg">
-                <div class="modal-header border-0 pb-0">
-                    <h5 class="modal-title fw-bold text-primary">EVENT METADATA</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body p-4">
-                    <div id="auditDetailContent" class="bg-black p-3 rounded border border-secondary border-opacity-25 extra-small">
-                        <!-- JSON data injected here -->
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Command Palette Modal -->
-    <div class="modal fade" id="commandPalette" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content command-palette">
-                <div class="modal-body p-0">
-                    <input type="text" id="commandInput" class="form-control command-input" placeholder="Type a command (e.g., 'password', 'sessions', 'logout')..." autocomplete="off">
-                    <div id="commandResults" class="py-2">
-                        <!-- Options will be injected here -->
-                    </div>
-                </div>
-                <div class="modal-footer border-0 p-2 opacity-50 small">
-                    <span class="me-3"><kbd>↑↓</kbd> to navigate</span>
-                    <span class="me-3"><kbd>Enter</kbd> to select</span>
-                    <span><kbd>Esc</kbd> to close</span>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Toast Container -->
-    <div class="toast-container position-fixed bottom-0 end-0 p-3">
-        <div id="successToast" class="toast matrix-toast" role="alert" aria-live="assertive" aria-atomic="true">
-            <div class="toast-header border-0">
-                <i class="bi bi-shield-check me-2"></i>
-                <strong class="me-auto">SYSTEM NOTIFICATION</strong>
-                <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
-            </div>
-            <div class="toast-body small fw-bold" id="toastMessage">
-                Operation completed successfully.
-            </div>
-        </div>
-    </div>
-
-    <nav class="navbar navbar-expand-lg sticky-top">
+<body class="bg-black text-white">
+    <nav class="navbar navbar-expand-lg border-bottom border-secondary border-opacity-10 py-3">
         <div class="container">
-            <a class="navbar-brand fs-3" href="#">RAuth</a>
-            <div class="navbar-nav ms-auto align-items-center">
-                {{if .isAdmin}}
-                    <a class="btn btn-sm btn-outline-primary me-3" href="/rauthmgmt">
-                        <i class="bi bi-speedometer2 me-1"></i> Dashboard
-                    </a>
-                {{end}}
-                <form method="POST" action="/logout">
-                    <input type="hidden" name="csrf" value="{{.csrf}}">
-                    <button type="submit" class="btn btn-sm btn-outline-danger px-3">
-                        <i class="bi bi-box-arrow-right"></i>
+            <a class="navbar-brand d-flex align-items-center fw-bold text-success" href="/rauthprofile">
+                <i class="bi bi-shield-shaded me-2 fs-4"></i> rAuth<span class="text-white opacity-50 ms-1 fw-light">ID</span>
+            </a>
+            <div class="d-flex align-items-center">
+                <button class="btn btn-link text-white text-decoration-none d-none d-md-block me-3 opacity-50" onclick="cpModal.show()">
+                    <kbd class="me-1">⌘</kbd><kbd>K</kbd>
+                </button>
+                <div class="dropdown">
+                    <button class="btn btn-dark btn-sm rounded-pill px-3 border border-secondary border-opacity-25 dropdown-toggle d-flex align-items-center" data-bs-toggle="dropdown">
+                        <img data-identicon="{{.username}}" class="identicon rounded-circle me-2" width="20" height="20">
+                        {{.username}}
                     </button>
-                </form>
+                    <ul class="dropdown-menu dropdown-menu-end dropdown-menu-dark border border-secondary border-opacity-25 shadow-lg">
+                        {{if .isAdmin}}
+                        <li><a class="dropdown-item py-2" href="/rauthmgmt"><i class="bi bi-speedometer2 me-2"></i> Dashboard</a></li>
+                        <li><hr class="dropdown-divider opacity-10"></li>
+                        {{end}}
+                        <li>
+                            <form action="/logout" method="POST" class="m-0">
+                                <input type="hidden" name="csrf" value="{{.csrf}}">
+                                <button type="submit" class="dropdown-item py-2 text-danger"><i class="bi bi-box-arrow-right me-2"></i> Sign Out</button>
+                            </form>
+                        </li>
+                    </ul>
+                </div>
             </div>
         </div>
     </nav>
 
-    <div class="container mt-5 animate-fade-in">
+    <div class="container py-5">
         <div class="row g-4">
+            <!-- Profile Sidebar -->
             <div class="col-lg-4">
-                <div class="card mb-4">
-                    <div class="card-body p-4 text-center">
-                        <div class="mb-3">
-                            <img data-identicon="{{.username}}" class="identicon rounded-circle shadow-lg" width="120" height="120">
-                        </div>
-                        <h4 class="mb-1 text-primary">{{.username}}</h4>
-                        <p class="text-muted small">{{.email}}</p>
-                        <div class="d-flex justify-content-center mt-3">
-                            <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 px-3">
-                                {{.groups}}
-                            </span>
+                <div class="card shadow-sm text-center p-4">
+                    <div class="mb-3 position-relative d-inline-block mx-auto">
+                        <img data-identicon="{{.username}}" class="identicon rounded-circle border border-3 border-dark shadow" width="100" height="100">
+                        {{if .isAdmin}}
+                        <span class="position-absolute bottom-0 end-0 badge rounded-pill bg-success border border-2 border-dark">ADMIN</span>
+                        {{end}}
+                    </div>
+                    <h4 class="mb-1">{{.username}}</h4>
+                    <p class="text-muted small mb-4">{{.email}}</p>
+
+                    <div class="d-flex justify-content-center gap-2 mb-4">
+                        <span class="badge bg-dark border border-secondary border-opacity-25 px-3 py-2">
+                            <i class="bi bi-shield-check text-success me-2"></i> TOTP {{if .has2FA}}Enabled{{else}}Disabled{{end}}
+                        </span>
+                        <span class="badge bg-dark border border-secondary border-opacity-25 px-3 py-2">
+                            <i class="bi bi-key text-info me-2"></i> {{.recoveryCount}} Codes
+                        </span>
+                    </div>
+
+                    <div class="list-group text-start extra-small">
+                        <div class="list-group-item d-flex justify-content-between align-items-center">
+                            <span class="text-muted">Assigned Groups</span>
+                            <span class="fw-bold">{{if .groups}}{{.groups}}{{else}}Default{{end}}</span>
                         </div>
                     </div>
                 </div>
 
-                <div class="card mb-4">
-                    <div class="card-header border-0 pb-0">
-                        <h6 class="mb-0">Security Posture</h6>
-                    </div>
-                    <div class="card-body p-4">
-                        <div class="checklist-item d-flex align-items-center">
-                            <div class="checklist-icon checklist-done"><i class="bi bi-check-lg"></i></div>
-                            <div class="small fw-bold">Password Set</div>
-                        </div>
-                        <div class="checklist-item d-flex align-items-center">
-                            <div class="checklist-icon {{if .has2FA}}checklist-done{{else}}checklist-todo{{end}}">
-                                {{if .has2FA}}<i class="bi bi-check-lg"></i>{{else}}<i class="bi bi-shield-slash"></i>{{end}}
+                <div class="card">
+                    <div class="card-header">Security Settings</div>
+                    <div class="card-body p-0">
+                        <div class="list-group">
+                            <button class="list-group-item list-group-item-action d-flex justify-content-between align-items-center" data-bs-toggle="collapse" data-bs-target="#changePassword">
+                                <span><i class="bi bi-lock me-3 text-muted"></i> Update Password</span>
+                                <i class="bi bi-chevron-down extra-small opacity-50"></i>
+                            </button>
+                            <div class="collapse p-3 bg-dark bg-opacity-10" id="changePassword">
+                                <form action="/rauthprofile/password" method="POST">
+                                    <input type="hidden" name="csrf" value="{{.csrf}}">
+                                    <div class="mb-3">
+                                        <label class="extra-small text-muted mb-1">Current Password</label>
+                                        <input type="password" name="current_password" class="form-control form-control-sm bg-black border-secondary border-opacity-25 text-white" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="extra-small text-muted mb-1">New Password</label>
+                                        <input type="password" name="new_password" class="form-control form-control-sm bg-black border-secondary border-opacity-25 text-white" oninput="checkStrength(this.value)" required>
+                                        <div class="progress mt-2" style="height: 3px; background: rgba(255,255,255,0.05);">
+                                            <div id="strength-bar" class="progress-bar" style="width: 0%"></div>
+                                        </div>
+                                        <div id="strength-text" class="extra-small mt-1 text-muted text-uppercase fw-bold">Entropy: None</div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="extra-small text-muted mb-1">Confirm New Password</label>
+                                        <input type="password" name="confirm_password" class="form-control form-control-sm bg-black border-secondary border-opacity-25 text-white" required>
+                                    </div>
+                                    {{if .has2FA}}
+                                    <div class="mb-3">
+                                        <label class="extra-small text-muted mb-1">2FA Verification Code</label>
+                                        <input type="text" name="otp_code" class="form-control form-control-sm bg-black border-secondary border-opacity-25 text-white" placeholder="000000" required>
+                                    </div>
+                                    {{end}}
+                                    <button type="submit" class="btn btn-success btn-sm w-100 py-2 fw-bold shadow-sm">Update Credentials</button>
+                                </form>
                             </div>
-                            <div class="small fw-bold">Two-Factor Auth (TOTP)</div>
-                        </div>
-                        <div class="checklist-item d-flex align-items-center">
-                            <div class="checklist-icon {{if .passkeys}}checklist-done{{else}}checklist-todo{{end}}">
-                                {{if .passkeys}}<i class="bi bi-check-lg"></i>{{else}}<i class="bi bi-key"></i>{{end}}
+
+                            <div class="list-group-item d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-shield-plus me-3 text-muted"></i> 2FA Status</span>
+                                {{if .has2FA}}
+                                <button class="btn btn-outline-danger btn-sm extra-small py-1" data-bs-toggle="modal" data-bs-target="#disableTotpModal">Disable</button>
+                                {{else}}
+                                <a href="/rauthsetup2fa" class="btn btn-outline-success btn-sm extra-small py-1">Setup</a>
+                                {{end}}
                             </div>
-                            <div class="small fw-bold">Security Key / Passkey</div>
-                        </div>
-                        <div class="mt-3 p-2 bg-primary bg-opacity-10 border border-primary border-opacity-25 rounded text-center">
-                            <div class="extra-small text-uppercase fw-bold text-primary mb-1">Account Hardening</div>
-                            <div class="progress" style="height: 6px; background: rgba(0,0,0,0.3);">
-                                <div class="progress-bar bg-primary" role="progressbar" style="width: {{if and .has2FA .passkeys}}100%{{else if or .has2FA .passkeys}}66%{{else}}33%{{end}}"></div>
+
+                            <div class="list-group-item d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-safe me-3 text-muted"></i> Recovery Codes</span>
+                                <button class="btn btn-outline-secondary btn-sm extra-small py-1" data-bs-toggle="modal" data-bs-target="#recoveryCodesModal">Regenerate</button>
                             </div>
                         </div>
                     </div>
                 </div>
 
                 <div class="card">
-                    <div class="card-header border-0 pb-0">
-                        <h6 class="mb-0">Security Settings</h6>
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span>Hardware Keys</span>
+                        <button class="btn btn-link btn-sm p-0 text-success text-decoration-none extra-small" id="register-webauthn">
+                            <i class="bi bi-plus-circle me-1"></i> Add Key
+                        </button>
                     </div>
-                    <div class="card-body p-4">
-                        <form method="POST" action="/rauthprofile/password">
-                            <input type="hidden" name="csrf" value="{{.csrf}}">
-                            <div class="mb-3">
-                                <label class="form-label text-muted small fw-bold">Current Password</label>
-                                <input type="password" name="current_password" class="form-control" required>
-                            </div>
-                            <div class="mb-3">
-                                <label class="form-label text-muted small fw-bold">New Password</label>
-                                <input type="password" name="new_password" id="new_password" class="form-control" required oninput="checkStrength(this.value)">
-                                <div class="progress mt-2" style="height: 4px; background: rgba(239, 68, 68, 0.1);">
-                                    <div id="strength-bar" class="progress-bar" role="progressbar" style="width: 0%"></div>
+                    <div class="card-body p-0">
+                        <div class="list-group" id="passkey-list">
+                            {{range .passkeys}}
+                            <div class="list-group-item">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <span class="passkey-nickname small"><i class="bi bi-key-fill me-2 text-warning opacity-75"></i>{{.Nickname}}</span>
+                                    <div class="dropdown">
+                                        <button class="btn btn-link btn-sm p-0 text-muted" data-bs-toggle="dropdown"><i class="bi bi-three-dots-vertical"></i></button>
+                                        <ul class="dropdown-menu dropdown-menu-end dropdown-menu-dark shadow-lg border border-secondary border-opacity-25">
+                                            <li><button class="dropdown-item py-2" onclick="renamePasskey('{{.ID}}', '{{.Nickname}}')"><i class="bi bi-pencil me-2"></i> Rename</button></li>
+                                            <li><button class="dropdown-item py-2 text-danger" onclick="revokePasskey('{{.ID}}')"><i class="bi bi-trash me-2"></i> Revoke</button></li>
+                                        </ul>
+                                    </div>
                                 </div>
-                                <div id="strength-text" class="extra-small mt-1 text-muted text-uppercase fw-bold" style="letter-spacing: 1px;">Entropy: None</div>
-                            </div>
-                            <div class="mb-3">
-                                <label class="form-label text-muted small fw-bold">Verify Password</label>
-                                <input type="password" name="confirm_password" class="form-control" required>
-                            </div>
-                            {{if .has2FA}}
-                            <div class="mb-4">
-                                <label class="form-label text-danger small fw-bold"><i class="bi bi-shield-lock me-1"></i> 2FA Code</label>
-                                <input type="text" id="otp_code_input" name="otp_code" class="form-control border-danger border-opacity-25" placeholder="000000" required maxlength="6" inputmode="numeric">
-                                <div class="extra-small text-muted mt-1">Required to authorize sensitive changes</div>
+                                <div class="extra-small text-muted">
+                                    Used: {{.LastUsed | formatTime}}
+                                </div>
                             </div>
                             {{else}}
-                            <div class="mb-4"></div>
+                            <div class="p-4 text-center text-muted">
+                                <i class="bi bi-usb-symbol fs-2 opacity-10 mb-2 d-block"></i>
+                                <span class="extra-small">No security keys registered</span>
+                            </div>
                             {{end}}
-                            <div class="d-flex gap-2">
-                                <button type="submit" class="btn btn-primary flex-grow-1 py-2">Update Credentials</button>
-                                {{if .has2FA}}
-                                <button type="button" class="btn btn-outline-danger py-2 px-3" 
-                                        onclick="if(confirm('Are you sure you want to disable TOTP authentication? This will lower your account security.')) { const form = document.createElement('form'); form.method='POST'; form.action='/rauthprofile/disable-totp'; const c = document.createElement('input'); c.type='hidden'; c.name='csrf'; c.value='{{.csrf}}'; form.appendChild(c); const o = document.createElement('input'); o.type='hidden'; o.name='otp_code'; o.value=document.getElementById('otp_code_input').value; form.appendChild(o); document.body.appendChild(form); form.submit(); }">
-                                    <i class="bi bi-shield-slash"></i>
-                                </button>
-                                {{end}}
-                            </div>
-                        </form>
-
-                        <hr class="my-4">
-                        
-                        <div class="mb-3">
-                            <h6 class="small fw-bold text-muted text-uppercase mb-3">Passwordless Access</h6>
-                            <button id="register-webauthn" class="btn btn-outline-danger btn-sm w-100 py-2">
-                                <i class="bi bi-key me-2"></i>Add Security Key (Passkey)
-                            </button>
-                            <div id="webauthn-message" class="extra-small mt-2"></div>
                         </div>
-
-                        {{if .has2FA}}
-                        <hr class="my-4">
-                        <div class="mb-3">
-                            <h6 class="small fw-bold text-muted text-uppercase mb-3">Recovery Codes</h6>
-                            <p class="extra-small text-muted">Single-use codes to sign in if you lose your authenticator. You have <span class="fw-bold">{{.recoveryCount}}</span> unused code(s).</p>
-                            <form method="POST" action="/rauthprofile/recovery/generate" onsubmit="return confirm('Generate new recovery codes? Any existing codes will stop working.');">
-                                <input type="hidden" name="csrf" value="{{.csrf}}">
-                                <div class="input-group input-group-sm mb-2">
-                                    <span class="input-group-text">2FA Code</span>
-                                    <input type="text" name="otp_code" class="form-control" placeholder="000000" required maxlength="6" inputmode="numeric">
-                                </div>
-                                <button type="submit" class="btn btn-outline-danger btn-sm w-100 py-2"><i class="bi bi-arrow-repeat me-2"></i>Generate Recovery Codes</button>
-                            </form>
-                        </div>
-                        {{end}}
-
-                        <script src="/static/js/simplewebauthn-browser.min.js"></script>
-                        <script>
-                            document.getElementById('register-webauthn').addEventListener('click', async () => {
-                                const { startRegistration } = SimpleWebAuthnBrowser;
-                                const msg = document.getElementById('webauthn-message');
-                                msg.className = "extra-small mt-2 text-primary";
-                                msg.textContent = "Requesting challenge from server...";
-                                
-                                try {
-                                    const response = await fetch('/webauthn/register/begin');
-                                    const optionsJSON = await response.json();
-                                    console.log("WebAuthn Registration Options:", optionsJSON);
-                                    
-                                    msg.textContent = "Please touch your security key...";
-                                    const credential = await startRegistration({ optionsJSON });
-                                    
-                                    msg.textContent = "Verifying with server...";
-                                    const finishResponse = await fetch('/webauthn/register/finish', {
-                                        method: 'POST',
-                                        headers: { 
-                                            'Content-Type': 'application/json',
-                                            'X-CSRF-Token': '{{.csrf}}'
-                                        },
-                                        body: JSON.stringify(credential)
-                                    });
-
-                                    if (finishResponse.ok) {
-                                        msg.className = "extra-small mt-2 text-success";
-                                        msg.textContent = "Success! Your security key is now active.";
-                                        setTimeout(() => location.reload(), 1500);
-                                    } else {
-                                        const err = await finishResponse.json();
-                                        msg.className = "extra-small mt-2 text-danger";
-                                        msg.textContent = "Verification failed: " + (err.message || "Invalid response");
-                                    }
-                                } catch (e) {
-                                    msg.className = "extra-small mt-2 text-danger";
-                                    msg.textContent = "Error: " + e.message;
-                                }
-                            });
-                        </script>
-
-                        {{if .passkeys}}
-                        <div class="mt-4">
-                            <h6 class="small fw-bold text-muted text-uppercase mb-3">Registered Passkeys</h6>
-                            <div class="list-group list-group-flush border-top">
-                                {{range .passkeys}}
-                                <div class="list-group-item px-0 py-3 d-flex justify-content-between align-items-center">
-                                    <div>
-                                        <div class="small fw-bold text-primary">{{.Nickname}}</div>
-                                        <div class="extra-small text-muted">
-                                            Added: {{.CreatedAt | formatTime}}
-                                            {{if .LastUsed}}<br>Last used: {{.LastUsed | formatTime}}{{end}}
-                                        </div>
-                                    </div>
-                                    <div class="d-flex gap-2">
-                                        <button class="btn btn-sm btn-link text-muted p-0" 
-                                                onclick="const nick = prompt('New nickname:', '{{.Nickname}}'); if(nick) { document.getElementById('rename-id-{{printf "%x" .ID}}').value = nick; document.getElementById('rename-form-{{printf "%x" .ID}}').submit(); }">
-                                            <i class="bi bi-pencil-square"></i>
-                                        </button>
-                                        <form id="rename-form-{{printf "%x" .ID}}" method="POST" action="/rauthprofile/passkey/rename">
-                                            <input type="hidden" name="csrf" value="{{$.csrf}}">
-                                            <input type="hidden" name="id" value="{{printf "%x" .ID}}">
-                                            <input type="hidden" id="rename-id-{{printf "%x" .ID}}" name="nickname">
-                                        </form>
-                                        <form method="POST" action="/rauthprofile/passkey/revoke" onsubmit="return confirm('Revoke this passkey? You will no longer be able to use it to login.');">
-                                            <input type="hidden" name="csrf" value="{{$.csrf}}">
-                                            <input type="hidden" name="id" value="{{printf "%x" .ID}}">
-                                            <button type="submit" class="btn btn-sm btn-link text-danger p-0">
-                                                <i class="bi bi-trash"></i>
-                                            </button>
-                                        </form>
-                                    </div>
-                                </div>
-                                {{end}}
-                            </div>
-                        </div>
-                        {{end}}
                     </div>
                 </div>
             </div>
 
+            <!-- Main Content Area -->
             <div class="col-lg-8">
-                <div class="card mb-4">
-                    <div class="card-header border-0 d-flex justify-content-between align-items-center">
-                        <h6 class="mb-0">Active Sessions</h6>
-                        <form method="POST" action="/rauthprofile/session/terminate-others" onsubmit="return confirm('Terminate all other active sessions?');">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0">Active Identity Sessions</h6>
+                        <form action="/rauthprofile/session/terminate-others" method="POST" class="m-0">
                             <input type="hidden" name="csrf" value="{{.csrf}}">
-                            <button type="submit" class="btn btn-sm btn-outline-danger">
-                                <i class="bi bi-shield-slash me-1"></i> Logout from all other devices
-                            </button>
+                            <button type="submit" class="btn btn-outline-danger btn-sm extra-small py-1">Terminate All Others</button>
                         </form>
                     </div>
                     <div class="card-body p-0">
@@ -297,48 +195,40 @@
                             <table class="table table-hover mb-0">
                                 <thead>
                                     <tr>
-                                        <th class="ps-4">Device / Location</th>
-                                        <th>Started</th>
-                                        <th class="text-end pe-4">Action</th>
+                                        <th class="ps-4">Platform / Device</th>
+                                        <th>IP Address</th>
+                                        <th>Status</th>
+                                        <th class="pe-4"></th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {{range .sessions}}
-                                    <tr class="align-middle {{if eq .is_current "1"}}bg-primary bg-opacity-10{{end}}">
+                                    <tr class="align-middle">
                                         <td class="ps-4">
                                             <div class="d-flex align-items-center">
-                                                <div class="fs-5 me-3 text-primary opacity-50">
+                                                <div class="me-3 fs-5 opacity-75">
                                                     <i class="bi {{.device_icon}}"></i>
                                                 </div>
                                                 <div>
-                                                    <div class="small fw-bold">
-                                                        {{if eq .is_current "1"}}<span class="badge bg-primary me-2">Current</span>{{end}}
-                                                        {{.friendly_ua}}
-                                                    </div>
-                                                    <div class="extra-small text-muted" title="{{.user_agent}}">
-                                                        <i class="bi bi-geo-alt me-1"></i> {{.ip}} 
-                                                        {{if eq .country "Tailscale"}}
-                                                            <span class="ms-1 badge bg-info bg-opacity-25 text-info border border-info border-opacity-25 py-0 px-1" style="font-size: 0.6rem;">
-                                                                <i class="bi bi-shield-shaded me-1"></i>TAILSCALE
-                                                            </span>
-                                                        {{else if .country}}
-                                                            <span class="ms-1 badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25">{{.country}}</span>
-                                                        {{end}}
-                                                    </div>
+                                                    <div class="small fw-bold">{{.friendly_ua}}</div>
+                                                    <div class="extra-small text-muted">Expires in {{.ttl | formatSeconds}}</div>
                                                 </div>
                                             </div>
                                         </td>
-                                        <td class="text-muted small">
-                                            {{.created_at | formatTime}}
+                                        <td class="small font-monospace">{{.ip}}</td>
+                                        <td>
+                                            {{if eq .is_current "1"}}
+                                            <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-2 py-1 extra-small">CURRENT</span>
+                                            {{else}}
+                                            <span class="badge bg-secondary bg-opacity-10 text-muted border border-secondary border-opacity-25 px-2 py-1 extra-small">ACTIVE</span>
+                                            {{end}}
                                         </td>
-                                        <td class="text-end pe-4">
+                                        <td class="pe-4 text-end">
                                             {{if ne .is_current "1"}}
-                                            <form method="POST" action="/rauthprofile/session/terminate">
+                                            <form action="/rauthprofile/session/terminate" method="POST" class="m-0">
                                                 <input type="hidden" name="csrf" value="{{$.csrf}}">
                                                 <input type="hidden" name="token" value="{{.token}}">
-                                                <button type="submit" class="btn btn-sm btn-link text-danger p-0" title="Logout this device">
-                                                    <i class="bi bi-x-circle fs-5"></i>
-                                                </button>
+                                                <button type="submit" class="btn btn-link text-danger p-0 extra-small text-decoration-none">Terminate</button>
                                             </form>
                                             {{end}}
                                         </td>
@@ -356,7 +246,7 @@
                     </div>
                     <div class="card-body p-0">
                         <div class="table-responsive">
-                            <table class="table table-hover mb-0">
+                            <table class="table table-hover mb-0" id="auditFeedTable">
                                 <thead>
                                     <tr>
                                         <th class="ps-4">Time</th>
@@ -365,23 +255,7 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {{range .logs}}
-                                    <tr class="align-middle" style="cursor: pointer;" onclick='showAuditDetail({{.Details | marshal}})'>
-                                        <td class="ps-4 text-muted small">{{.Timestamp | formatTime}}</td>
-                                        <td><span class="{{.Action | statusColor}} small fw-bold">{{.Action}}</span></td>
-                                        <td class="pe-4">
-                                            <div class="d-flex align-items-center">
-                                                <img data-identicon="{{.Username}}" class="identicon rounded me-2" width="20" height="20">
-                                                <div class="extra-small text-muted">
-                                                    <i class="bi bi-hdd-network me-1"></i> {{.IP}}
-                                                    {{if .Details.country}}
-                                                        <span class="ms-2 badge bg-secondary bg-opacity-25 text-secondary border border-secondary border-opacity-25">{{.Details.country}}</span>
-                                                    {{end}}
-                                                </div>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                    {{end}}
+                                    <!-- Rendered client-side for performance -->
                                 </tbody>
                             </table>
                         </div>
@@ -390,7 +264,96 @@
             </div>
         </div>
     </div>
+
+    <!-- Modals -->
+    <div class="modal fade" id="recoveryCodesModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg bg-dark text-white">
+                <div class="modal-header border-bottom border-secondary border-opacity-25">
+                    <h5 class="modal-title">Regenerate Recovery Codes</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body p-4 text-center">
+                    <div class="mb-4">
+                        <i class="bi bi-exclamation-triangle text-warning fs-1"></i>
+                    </div>
+                    <p class="mb-4">Regenerating codes will invalidate all your current recovery codes. You must store the new ones immediately.</p>
+                    <form action="/rauthprofile/recovery/generate" method="POST">
+                        <input type="hidden" name="csrf" value="{{.csrf}}">
+                        <div class="mb-4 text-start">
+                            <label class="extra-small text-muted mb-1 text-uppercase fw-bold">2FA Verification</label>
+                            <input type="text" name="otp_code" class="form-control bg-black border-secondary border-opacity-25 text-white text-center fs-4 letter-spacing-lg" placeholder="000000" required>
+                        </div>
+                        <button type="submit" class="btn btn-warning w-100 py-2 fw-bold">Confirm & Generate New Codes</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="disableTotpModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content border-0 shadow-lg bg-dark text-white">
+                <div class="modal-header border-bottom border-secondary border-opacity-25">
+                    <h5 class="modal-title fs-6">Disable 2FA</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <form action="/rauthprofile/disable-totp" method="POST">
+                    <div class="modal-body p-3">
+                        <input type="hidden" name="csrf" value="{{.csrf}}">
+                        <p class="small text-muted mb-3">Please enter your current TOTP code to confirm disabling two-factor authentication.</p>
+                        <input type="text" name="otp_code" class="form-control form-control-sm bg-black border-secondary border-opacity-25 text-white text-center" placeholder="000000" required>
+                    </div>
+                    <div class="modal-footer border-0 p-3 pt-0">
+                        <button type="submit" class="btn btn-danger btn-sm w-100 py-2">Disable Protection</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Audit Detail Modal -->
+    <div class="modal fade" id="auditDetailModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg bg-dark text-white">
+                <div class="modal-header border-bottom border-secondary border-opacity-25">
+                    <h5 class="modal-title fs-6">Event Metadata</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body p-0" id="auditDetailContent">
+                    <!-- JSON view -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Command Palette -->
+    <div class="modal fade" id="commandPalette" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-body p-0">
+                    <input type="text" id="commandInput" class="form-control" placeholder="Search commands or type /..." autocomplete="off">
+                    <div id="commandResults" class="p-2" style="max-height: 400px; overflow-y: auto;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Success Toast -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="successToast" class="toast align-items-center text-white bg-success border-0" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="d-flex">
+                <div class="toast-body d-flex align-items-center">
+                    <i class="bi bi-check-circle-fill me-2 fs-5"></i>
+                    <span id="toastMessage">Action successful</span>
+                </div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="modal"></button>
+            </div>
+        </div>
+    </div>
+
     <script src="/static/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/simplewebauthn-browser.min.js"></script>
     <script>
         // Identicon Generator
         function generateIdenticon(str, size = 40) {
@@ -423,8 +386,132 @@
         // Audit Detail Logic
         const auditModal = new bootstrap.Modal(document.getElementById('auditDetailModal'));
         function showAuditDetail(detailsJson) {
-            document.getElementById('auditDetailContent').innerHTML = `<pre class="mb-0 text-success">${JSON.stringify(detailsJson, null, 2)}</pre>`;
+            document.getElementById('auditDetailContent').innerHTML = `<pre class="mb-0 text-success p-3">${JSON.stringify(detailsJson, null, 2)}</pre>`;
             auditModal.show();
+        }
+
+        // Audit Logs Client-Side Rendering
+        const auditLogs = {{.logs}};
+
+        function formatTime(timestamp) {
+            if (!timestamp) return "N/A";
+            const date = new Date(timestamp * 1000);
+            return date.getFullYear() + "-" +
+                   String(date.getMonth() + 1).padStart(2, '0') + "-" +
+                   String(date.getDate()).padStart(2, '0') + " " +
+                   String(date.getHours()).padStart(2, '0') + ":" +
+                   String(date.getMinutes()).padStart(2, '0') + ":" +
+                   String(date.getSeconds()).padStart(2, '0');
+        }
+
+        function getStatusColor(action) {
+            const success = ["LOGIN_SUCCESS", "2FA_SETUP_SUCCESS"];
+            const danger = ["LOGIN_FAILED", "2FA_FAILED", "COUNTRY_CHANGE_DETECTED"];
+            if (success.includes(action)) return "text-success";
+            if (danger.includes(action)) return "text-danger";
+            return "text-info";
+        }
+
+        function renderAuditLogs() {
+            const tbody = document.querySelector('#auditFeedTable tbody');
+            if (!tbody) return;
+            tbody.innerHTML = '';
+
+            auditLogs.forEach(log => {
+                const tr = document.createElement('tr');
+                tr.className = 'align-middle';
+                tr.style.cursor = 'pointer';
+                tr.onclick = () => showAuditDetail(log.details);
+
+                const countryBadge = log.details.country ?
+                    `<span class="ms-2 badge bg-secondary bg-opacity-25 text-secondary border border-secondary border-opacity-25">${log.details.country}</span>` : '';
+
+                tr.innerHTML = `
+                    <td class="ps-4 text-muted small">${formatTime(log.timestamp)}</td>
+                    <td><span class="${getStatusColor(log.action)} small fw-bold">${log.action}</span></td>
+                    <td class="pe-4">
+                        <div class="d-flex align-items-center">
+                            <img data-identicon="${log.username}" class="identicon rounded me-2" width="20" height="20" src="${generateIdenticon(log.username, 60)}">
+                            <div class="extra-small text-muted">
+                                <i class="bi bi-hdd-network me-1"></i> ${log.ip}
+                                ${countryBadge}
+                            </div>
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            if (auditLogs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" class="text-center py-5 text-muted">No audit events recorded yet</td></tr>';
+            }
+        }
+
+        // WebAuthn Passkey Logic
+        const { startRegistration } = SimpleWebAuthnBrowser;
+        document.getElementById('register-webauthn').addEventListener('click', async () => {
+            const btn = document.getElementById('register-webauthn');
+            const originalHtml = btn.innerHTML;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Pending...';
+            btn.disabled = true;
+
+            try {
+                const resp = await fetch('/webauthn/register/begin');
+                const options = await resp.json();
+                const attResp = await startRegistration(options);
+                const nickname = prompt("Enter a nickname for this security key:", "My Hardware Key");
+                if (!nickname) { btn.innerHTML = originalHtml; btn.disabled = false; return; }
+
+                const verificationResp = await fetch('/webauthn/register/finish?nickname=' + encodeURIComponent(nickname), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(attResp),
+                });
+
+                if (verificationResp.ok) {
+                    window.location.href = "/rauthprofile?success=passkey_registered";
+                } else {
+                    const error = await verificationResp.json();
+                    alert("Registration failed: " + error.message);
+                    btn.innerHTML = originalHtml;
+                    btn.disabled = false;
+                }
+            } catch (err) {
+                console.error(err);
+                alert("Security key registration failed or was cancelled.");
+                btn.innerHTML = originalHtml;
+                btn.disabled = false;
+            }
+        });
+
+        function renamePasskey(id, currentNickname) {
+            const nickname = prompt("New nickname for this key:", currentNickname);
+            if (nickname && nickname !== currentNickname) {
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = '/rauthprofile/passkey/rename';
+                form.innerHTML = `
+                    <input type="hidden" name="csrf" value="{{.csrf}}">
+                    <input type="hidden" name="id" value="${id}">
+                    <input type="hidden" name="nickname" value="${nickname}">
+                `;
+                document.body.appendChild(form);
+                form.submit();
+            }
+        }
+
+        function revokePasskey(id) {
+            if (confirm("Are you sure you want to revoke this security key? You will not be able to use it to log in.")) {
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = '/rauthprofile/passkey/revoke';
+                form.innerHTML = `
+                    <input type="hidden" name="csrf" value="{{.csrf}}">
+                    <input type="hidden" name="id" value="${id}">
+                `;
+                document.body.appendChild(form);
+                form.submit();
+            }
         }
 
         // Command Palette Logic
@@ -508,8 +595,11 @@
 
         // Handle success messages
         window.addEventListener('load', () => {
+            // Render audit logs
+            renderAuditLogs();
+
             // Apply identicons
-            document.querySelectorAll('[data-identicon]').forEach(el => {
+            document.querySelectorAll('[data-identicon]:not([src])').forEach(el => {
                 el.src = generateIdenticon(el.getAttribute('data-identicon'), 120);
             });
 
@@ -523,7 +613,8 @@
                     'totp_disabled': 'Two-factor authentication has been disabled.',
                     'passkey_renamed': 'Security key nickname updated.',
                     'passkey_revoked': 'Security key has been revoked.',
-                    'recovery_generated': 'New recovery codes generated.'
+                    'recovery_generated': 'New recovery codes generated.',
+                    'passkey_registered': 'New security key registered.'
                 };
                 
                 const msg = messages[success] || 'Operation successful.';

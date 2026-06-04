@@ -20,3 +20,7 @@
 ## 2026-05-27 - Reducing Allocations with bufio.Scanner
 **Learning:** Parsing large embedded strings (like blocklists) using `strings.Split` creates a large slice of strings that persists until the loop finishes. This is inefficient for one-time map population.
 **Action:** Use `bufio.Scanner` with `strings.NewReader` to process the string line-by-line. This minimizes temporary allocations and is significantly more memory-efficient for large text datasets.
+
+## 2026-06-04 - Performance Optimization: Client-side Rendering for Audit Logs
+**Learning:** For features that require iterating over a significant number of JSON records from Redis (like audit logs), server-side unmarshaling and template rendering can be a bottleneck. Up to 100 entries per profile view were being unmarshaled into Go structs and then rendered via templates.
+**Action:** Optimize by passing raw JSON strings (`[]template.JS`) from the server and implementing client-side rendering with JavaScript. This eliminates the server-side unmarshaling overhead and reduces CPU/memory usage during page generation. Ensure that template-specific functions (like `formatTime` or `statusColor`) are correctly reimplemented in JavaScript for the frontend.
