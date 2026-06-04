@@ -20,3 +20,7 @@
 ## 2026-05-27 - Reducing Allocations with bufio.Scanner
 **Learning:** Parsing large embedded strings (like blocklists) using `strings.Split` creates a large slice of strings that persists until the loop finishes. This is inefficient for one-time map population.
 **Action:** Use `bufio.Scanner` with `strings.NewReader` to process the string line-by-line. This minimizes temporary allocations and is significantly more memory-efficient for large text datasets.
+
+## 2026-06-04 - Concurrent Redis Pings in Health Check
+**Learning:** Sequential Redis pings in a health check can lead to increased latency, especially as the number of databases grows. Using goroutines with a `sync.WaitGroup` and a `sync.Mutex` allows for concurrent execution, significantly reducing the total response time to the duration of the slowest ping.
+**Action:** Refactor the health check loop to spawn a goroutine for each Redis client's ping operation. Ensure thread-safe updates to the results map using a mutex and use a WaitGroup to block until all pings are complete.

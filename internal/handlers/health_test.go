@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"time"
 	"net/http"
 	"rauth/internal/core"
 	"testing"
@@ -53,5 +54,64 @@ func TestHealthCheck(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 		assert.Contains(t, rec.Body.String(), "FAIL")
+	})
+
+	t.Run("Redis RateLimitDB Failure", func(t *testing.T) {
+		originalRateLimitDB := core.RateLimitDB
+		failClient := redis.NewClient(&redis.Options{Addr: "localhost:1"})
+		core.RateLimitDB = failClient
+		defer func() { core.RateLimitDB = originalRateLimitDB }()
+
+		c, rec := createTestContext(e, http.MethodGet, "/health", nil)
+
+		err := h.Check(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+		assert.Contains(t, rec.Body.String(), "FAIL")
+	})
+
+	t.Run("Redis AuditDB Failure", func(t *testing.T) {
+		originalAuditDB := core.AuditDB
+		failClient := redis.NewClient(&redis.Options{Addr: "localhost:1"})
+		core.AuditDB = failClient
+		defer func() { core.AuditDB = originalAuditDB }()
+
+		c, rec := createTestContext(e, http.MethodGet, "/health", nil)
+
+		err := h.Check(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+		assert.Contains(t, rec.Body.String(), "FAIL")
+	})
+
+	t.Run("Redis InviteDB Failure", func(t *testing.T) {
+		originalInviteDB := core.InviteDB
+		failClient := redis.NewClient(&redis.Options{Addr: "localhost:1"})
+		core.InviteDB = failClient
+		defer func() { core.InviteDB = originalInviteDB }()
+
+		c, rec := createTestContext(e, http.MethodGet, "/health", nil)
+
+		err := h.Check(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+		assert.Contains(t, rec.Body.String(), "FAIL")
+	})
+
+	t.Run("Multiple Redis Failure Concurrency Check", func(t *testing.T) {
+		originalUser := core.UserDB
+		originalToken := core.TokenDB
+		failClient := redis.NewClient(&redis.Options{Addr: "localhost:1", DialTimeout: 1 * time.Second})
+		core.UserDB = failClient
+		core.TokenDB = failClient
+		defer func() {
+			core.UserDB = originalUser
+			core.TokenDB = originalToken
+		}()
+
+		c, rec := createTestContext(e, http.MethodGet, "/health", nil)
+		err := h.Check(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	})
 }

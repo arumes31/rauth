@@ -30,11 +30,12 @@ func (h *HealthHandler) Check(c echo.Context) error {
 	// Redis checks. These back-ends are required for the service to function,
 	// so a failure makes the service unready (503), not merely degraded.
 	redisChecks := map[string]*redis.Client{
-		"redis_user":  core.UserDB,
-		"redis_token": core.TokenDB,
-		"redis_rate":  core.RateLimitDB,
+		"redis_user":   core.UserDB,
+		"redis_token":  core.TokenDB,
+		"redis_rate":   core.RateLimitDB,
+		"redis_audit":  core.AuditDB,
+		"redis_invite": core.InviteDB,
 	}
-
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	for name, client := range redisChecks {
