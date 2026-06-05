@@ -1,6 +1,7 @@
 package core
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -56,4 +57,46 @@ func TestInitCommonPasswords(t *testing.T) {
 	// Test re-enabling
 	InitCommonPasswords(true)
 	require.True(t, isCommonPassword("123456"), "Should return true for common password when enabled")
+}
+
+func TestParseCommonPasswordsEdgeCases(t *testing.T) {
+	// Backup original raw string and restore it after test
+	originalRaw := commonPasswordsRaw
+	defer func() {
+		commonPasswordsRaw = originalRaw
+		// Reset the once mechanism and parse again to restore state
+		commonPasswordsOnce = sync.Once{}
+		commonPasswordsOn = true
+		InitCommonPasswords(true)
+	}()
+
+	// Provide a test raw string with comments, empty lines, and spaces
+	commonPasswordsRaw = `
+# This is a comment
+123456
+  password
+# Another comment
+
+qwerty
+`
+	// Reset the once mechanism so it parses the new string
+	commonPasswordsOnce = sync.Once{}
+
+	// Call parse directly via InitCommonPasswords to populate commonPasswords map
+	InitCommonPasswords(true)
+
+	require.NotNil(t, commonPasswords)
+
+	// Should contain the passwords, trimmed and lowercased
+	_, has123456 := commonPasswords["123456"]
+	require.True(t, has123456, "Should contain 123456")
+
+	_, hasPassword := commonPasswords["password"]
+	require.True(t, hasPassword, "Should contain password, ignoring surrounding spaces")
+
+	_, hasQwerty := commonPasswords["qwerty"]
+	require.True(t, hasQwerty, "Should contain qwerty")
+
+	// Should not contain comments or empty strings
+	require.Len(t, commonPasswords, 3, "Should only have 3 valid passwords")
 }

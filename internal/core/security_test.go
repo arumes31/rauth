@@ -492,3 +492,25 @@ func TestValidateUsername(t *testing.T) {
 		})
 	}
 }
+
+func TestValidatePasswordLength(t *testing.T) {
+	cfg := &Config{
+		MinPasswordLength:      8,
+		RequirePasswordUpper:   false,
+		RequirePasswordLower:   false,
+		RequirePasswordNumber:  false,
+		RequirePasswordSpecial: false,
+	}
+
+	validPassword := "a"
+	for len(validPassword) < 72 {
+		validPassword += "a"
+	}
+	err := ValidatePassword(validPassword, cfg)
+	require.NoError(t, err, "72 bytes password should be valid")
+
+	invalidPassword := validPassword + "a"
+	err = ValidatePassword(invalidPassword, cfg)
+	require.Error(t, err, "73 bytes password should be invalid")
+	require.Contains(t, err.Error(), "password must be at most 72 bytes long")
+}
