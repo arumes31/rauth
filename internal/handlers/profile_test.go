@@ -157,3 +157,124 @@ func TestProfileHandler_ChangePassword(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
 }
+
+
+func TestProfileHandler_GenerateRecoveryCodes(t *testing.T) {
+	setupHandlersTest(t)
+	h := &ProfileHandler{Cfg: &core.Config{ServerSecret: "01234567890123456789012345678901"}}
+	e := echo.New()
+
+	t.Run("Generate recovery codes missing 2fa", func(t *testing.T) {
+		core.UserDB.Del(core.Ctx, "user:profileuser")
+
+		f := make(url.Values)
+		f.Set("otp_code", "123456")
+
+		c, _ := createTestContext(e, http.MethodPost, "/rauthprofile/recovery", f)
+		c.Set("username", "profileuser")
+
+		err := h.GenerateRecoveryCodes(c)
+		assert.Error(t, err)
+		he, ok := err.(*echo.HTTPError)
+		assert.True(t, ok)
+		assert.Equal(t, http.StatusBadRequest, he.Code)
+	})
+}
+
+func TestProfileHandler_RenamePasskey(t *testing.T) {
+	setupHandlersTest(t)
+	h := &ProfileHandler{Cfg: &core.Config{}}
+	e := echo.New()
+
+	t.Run("Rename passkey successfully", func(t *testing.T) {
+		f := make(url.Values)
+		f.Set("id", "dGVzdGlk")
+		f.Set("nickname", "New Name")
+
+		c, _ := createTestContext(e, http.MethodPost, "/rauthprofile/passkeys/rename", f)
+		c.Set("username", "profileuser")
+
+		// Pre-populate credential properly mapped
+        core.UserDB.HSet(core.Ctx, "user:profileuser:webauthn_creds_v2", "dGVzdGlk", `{"id":"dGVzdGlk","publicKey":"","attestationType":"","authenticator":{"aaguid":"","signCount":0,"cloneWarning":false}}`)
+
+
+		err := h.RenamePasskey(c)
+		assert.NoError(t, err)
+	})
+}
+
+func TestProfileHandler_RevokePasskey(t *testing.T) {
+	setupHandlersTest(t)
+	h := &ProfileHandler{Cfg: &core.Config{}}
+	e := echo.New()
+
+	t.Run("Revoke passkey successfully", func(t *testing.T) {
+		f := make(url.Values)
+		f.Set("id", "dGVzdGlk")
+
+		c, _ := createTestContext(e, http.MethodPost, "/rauthprofile/passkeys/revoke", f)
+		c.Set("username", "profileuser")
+
+		core.UserDB.HSet(core.Ctx, "user:profileuser:webauthn_creds_v2", "dGVzdGlk", `{"id":"dGVzdGlk","publicKey":"","attestationType":"","authenticator":{"aaguid":"","signCount":0,"cloneWarning":false}}`)
+
+		err := h.RevokePasskey(c)
+		assert.NoError(t, err)
+	})
+}
+
+func TestProfileHandler_DisableTOTP(t *testing.T) {
+	setupHandlersTest(t)
+	h := &ProfileHandler{Cfg: &core.Config{}}
+	e := echo.New()
+
+	t.Run("Disable TOTP missing secret", func(t *testing.T) {
+		core.UserDB.Del(core.Ctx, "user:profileuser")
+
+		f := make(url.Values)
+		f.Set("otp_code", "123456")
+
+		c, _ := createTestContext(e, http.MethodPost, "/rauthprofile/2fa/disable", f)
+		c.Set("username", "profileuser")
+
+		err := h.DisableTOTP(c)
+		assert.NoError(t, err)
+	})
+}
+
+func TestProfileHandler_TerminateAllOtherSessions(t *testing.T) {
+	setupHandlersTest(t)
+	h := &ProfileHandler{Cfg: &core.Config{}}
+	e := echo.New()
+
+	t.Run("Terminate other sessions successfully", func(t *testing.T) {
+        pwd := "SecurePass123!"
+        hashedPwd, _ := core.HashPassword(pwd)
+
+		f := make(url.Values)
+		f.Set("password", pwd)
+
+		c, _ := createTestContext(e, http.MethodPost, "/rauthprofile/sessions/terminate", f)
+		c.Set("username", "profileuser")
+		c.Set("token", "currenttoken")
+
+		core.UserDB.HSet(core.Ctx, "user:profileuser", "password", string(hashedPwd))
+		core.TokenDB.SAdd(core.Ctx, "user_sessions:profileuser", "currenttoken", "othertoken")
+		core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken=othertoken", "status", "valid")
+
+		err := h.TerminateAllOtherSessions(c)
+		assert.NoError(t, err)
+
+		assert.False(t, core.TokenDB.SIsMember(core.Ctx, "user_sessions:profileuser", "othertoken").Val())
+		assert.True(t, core.TokenDB.SIsMember(core.Ctx, "user_sessions:profileuser", "currenttoken").Val())
+	})
+}
+
+func TestProfileHandler_validateTOTP(t *testing.T) {
+	setupHandlersTest(t)
+	h := &ProfileHandler{Cfg: &core.Config{}}
+
+	t.Run("Missing OTP", func(t *testing.T) {
+		err := h.validateTOTP("user", "", "secret")
+		assert.Error(t, err)
+	})
+}
