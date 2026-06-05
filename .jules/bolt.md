@@ -20,3 +20,7 @@
 ## 2026-05-27 - Reducing Allocations with bufio.Scanner
 **Learning:** Parsing large embedded strings (like blocklists) using `strings.Split` creates a large slice of strings that persists until the loop finishes. This is inefficient for one-time map population.
 **Action:** Use `bufio.Scanner` with `strings.NewReader` to process the string line-by-line. This minimizes temporary allocations and is significantly more memory-efficient for large text datasets.
+
+## 2026-06-05 - Optimizing string parsing
+**Learning:** Using bufio.Scanner for parsing strings in memory still requires allocating scanner structures and copying slices. A loop matching on newlines (`strings.IndexByte`) and slicing directly from the original string is significantly faster and requires zero extra allocations.
+**Action:** Use index-based slicing instead of bufio.Scanner when extracting lines from embedded strings that are only parsed once.
