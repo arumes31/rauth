@@ -15,7 +15,7 @@ func TestReconcileIndexSets(t *testing.T) {
 	defer mr.Close()
 
 	TokenDB = redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	defer TokenDB.Close()
+	defer func() { _ = TokenDB.Close() }()
 	Ctx = context.Background()
 
 	// Set up mock data
