@@ -188,36 +188,67 @@ func reconcileIndexSets(pattern string) int64 {
 			break
 		}
 
+		if len(keys) == 0 {
+			cursor = nextCursor
+			if cursor == 0 {
+				break
+			}
+			continue
+		}
+
+		// Phase 1: Batch SMembers requests across all keys to gather tokens
+		pipe1 := TokenDB.Pipeline()
+		smembersCmds := make(map[string]*redis.StringSliceCmd, len(keys))
 		for _, indexKey := range keys {
-			tokens, err := TokenDB.SMembers(Ctx, indexKey).Result()
-			if err != nil {
+			smembersCmds[indexKey] = pipe1.SMembers(Ctx, indexKey)
+		}
+		_, _ = pipe1.Exec(Ctx)
+
+		// Phase 2: Batch HGet requests for status across all unique tokens
+		pipe2 := TokenDB.Pipeline()
+		hgetCmds := make(map[string]*redis.StringCmd)
+		for _, indexKey := range keys {
+			tokens, err := smembersCmds[indexKey].Result()
+			if err != nil || len(tokens) == 0 {
 				continue
 			}
-			if len(tokens) == 0 {
-				continue
-			}
-
-			// ⚡ Bolt optimization: Batch HGetAll requests in a pipeline and remove stale tokens variadically.
-			pipe := TokenDB.Pipeline()
-			cmds := make(map[string]*redis.MapStringStringCmd, len(tokens))
 			for _, token := range tokens {
-				cmds[token] = pipe.HGetAll(Ctx, "X-rauth-authtoken="+token)
-			}
-			_, _ = pipe.Exec(Ctx)
-
-			var stale []interface{}
-			for _, token := range tokens {
-				data, err := cmds[token].Result()
-				if err == nil && len(data) > 0 && data["status"] == "valid" {
-					live++
-				} else {
-					stale = append(stale, token)
+				if _, exists := hgetCmds[token]; !exists {
+					hgetCmds[token] = pipe2.HGet(Ctx, "X-rauth-authtoken="+token, "status")
 				}
 			}
+		}
 
-			if len(stale) > 0 {
-				TokenDB.SRem(Ctx, indexKey, stale...)
+		if len(hgetCmds) > 0 {
+			_, _ = pipe2.Exec(Ctx)
+		}
+
+		// Phase 3: Evaluate liveness and batch removals per index key
+		pipe3 := TokenDB.Pipeline()
+		hasRemovals := false
+
+		for _, indexKey := range keys {
+			tokens, _ := smembersCmds[indexKey].Result()
+			var stale []interface{}
+			for _, token := range tokens {
+				cmd := hgetCmds[token]
+				if cmd != nil {
+					status, err := cmd.Result()
+					if err == nil && status == "valid" {
+						live++
+						continue
+					}
+				}
+				stale = append(stale, token)
 			}
+			if len(stale) > 0 {
+				pipe3.SRem(Ctx, indexKey, stale...)
+				hasRemovals = true
+			}
+		}
+
+		if hasRemovals {
+			_, _ = pipe3.Exec(Ctx)
 		}
 
 		cursor = nextCursor
