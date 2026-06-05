@@ -20,3 +20,4 @@
 ## 2026-05-27 - Reducing Allocations with bufio.Scanner
 **Learning:** Parsing large embedded strings (like blocklists) using `strings.Split` creates a large slice of strings that persists until the loop finishes. This is inefficient for one-time map population.
 **Action:** Use `bufio.Scanner` with `strings.NewReader` to process the string line-by-line. This minimizes temporary allocations and is significantly more memory-efficient for large text datasets.
+>> Refactored redisChecks to use a preallocated checks map and iterate via a slice instead of a map to reduce memory allocations during Health check operations.

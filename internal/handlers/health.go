@@ -25,19 +25,24 @@ type HealthStatus struct {
 
 func (h *HealthHandler) Check(c echo.Context) error {
 	status := "OK"
-	checks := make(map[string]string)
+	checks := make(map[string]string, 4)
 
 	// Redis checks. These back-ends are required for the service to function,
 	// so a failure makes the service unready (503), not merely degraded.
-	redisChecks := map[string]*redis.Client{
-		"redis_user":  core.UserDB,
-		"redis_token": core.TokenDB,
-		"redis_rate":  core.RateLimitDB,
+	redisChecks := []struct {
+		name   string
+		client *redis.Client
+	}{
+		{"redis_user", core.UserDB},
+		{"redis_token", core.TokenDB},
+		{"redis_rate", core.RateLimitDB},
 	}
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	for name, client := range redisChecks {
+	for _, check := range redisChecks {
+		name := check.name
+		client := check.client
 		wg.Add(1)
 		go func(name string, client *redis.Client) {
 			defer wg.Done()
