@@ -60,6 +60,12 @@ func (h *InviteHandler) RedeemPage(c echo.Context) error {
 }
 
 func (h *InviteHandler) Redeem(c echo.Context) error {
+	clientIP := c.RealIP()
+	// Security: Rate limit registration/redemption attempts by IP to mitigate automated mass-creation and brute-force attacks.
+	if !core.CheckRateLimit("reg_ip:"+clientIP, h.Cfg.RateLimitRegistrationMax, h.Cfg.RateLimitRegistrationDecay) {
+		return echo.NewHTTPError(http.StatusTooManyRequests, "Too many registration attempts from this IP. Please try again later.")
+	}
+
 	token := c.FormValue("token")
 	username := c.FormValue("username")
 	password := c.FormValue("password")

@@ -59,3 +59,8 @@
 **Vulnerability:** Admin user management handlers (`CreateUser`, `DeleteUser`, `ResetUser2FA`, `ChangeUserPassword`, `UpdateUserEmail`) were missing robust username validation and existence checks. They accepted raw, untrimmed inputs and proceeded to perform operations even if the target user did not exist or (in the case of creation) was invalid, potentially leading to data integrity issues or side-effects on non-existent records.
 **Learning:** Even internal admin-only endpoints must rigorously validate all inputs. Assuming data is safe because it comes from an authorized user is a dangerous anti-pattern.
 **Prevention:** Always use centralized validation helpers (like `core.ValidateUsername`) and explicitly verify resource existence (e.g., `core.GetUser`) before processing management actions. Trim whitespace from all user-provided identifiers.
+
+## 2026-06-05 - Rate Limit Bypass & DoS in Invite Redemption
+**Vulnerability:** The invite redemption endpoint (`/rauthredeem`) lacked rate-limiting controls, potentially allowing an attacker to brute force tokens or rapidly exhaust database connections via repeated invalid requests.
+**Learning:** All endpoints that accept arbitrary user input and perform database interactions or sensitive logic must enforce rate limits based on client identity (e.g. IP address) to prevent resource exhaustion and brute force attempts.
+**Prevention:** Apply the existing `core.CheckRateLimit` logic, using appropriate parameters such as `RateLimitRegistrationMax`, to any endpoint processing registrations or code redemptions.
