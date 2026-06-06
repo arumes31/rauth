@@ -448,8 +448,7 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 	userRecord, _ := core.GetUser(username)
 	secret := core.Decrypt2FASecret(userRecord.TwoFactor, h.Cfg.ServerSecret)
 
-	exceeded, _, err := core.ReserveRateLimitAttempt("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay)
-	if exceeded || err != nil {
+	if core.IsRateLimitExceeded("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax) {
 		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many failed attempts. Please try again later.", "csrf": c.Get("csrf"), "display2fa": true})
 	}
 
@@ -505,6 +504,8 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 	core.LogAudit("2FA_FAILED", username, clientIP, nil)
 
 	// Penalize failed 2FA attempts
+	core.CheckRateLimit("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay)
+
 	if !core.HasActiveSessions(clientIP) {
 		if !core.CheckRateLimit("login_fail_ip:"+clientIP, h.Cfg.RateLimitLoginFailIPMax, h.Cfg.RateLimitLoginFailIPDecay) {
 			return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many failed attempts. Please try again later.", "csrf": c.Get("csrf"), "display2fa": true})
@@ -584,8 +585,7 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 		return c.Redirect(http.StatusFound, "/rauthsetup2fa")
 	}
 
-	exceeded, _, err := core.ReserveRateLimitAttempt("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay)
-	if exceeded || err != nil {
+	if core.IsRateLimitExceeded("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax) {
 		return c.Render(http.StatusTooManyRequests, "setup_2fa.html", map[string]interface{}{"error": "Too many failed attempts. Please try again later.", "csrf": c.Get("csrf")})
 	}
 
@@ -630,6 +630,8 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 	}
 
 	// Penalize failed setup attempts
+	core.CheckRateLimit("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay)
+
 	if !core.HasActiveSessions(clientIP) {
 		if !core.CheckRateLimit("login_fail_ip:"+clientIP, h.Cfg.RateLimitLoginFailIPMax, h.Cfg.RateLimitLoginFailIPDecay) {
 			return c.Render(http.StatusTooManyRequests, "setup_2fa.html", map[string]interface{}{"error": "Too many failed attempts. Please try again later.", "csrf": c.Get("csrf")})
