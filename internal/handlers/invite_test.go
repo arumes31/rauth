@@ -99,6 +99,8 @@ func TestInviteHandler_Redeem(t *testing.T) {
 	cfg := &core.Config{
 		MinPasswordLength: 8,
 		ServerSecret:      "32byte-secret-key-for-testing-!!",
+		RateLimitRegistrationMax:   100,
+		RateLimitRegistrationDecay: 60,
 	}
 	h := &InviteHandler{Cfg: cfg}
 	e := echo.New()
@@ -178,5 +180,36 @@ func TestInviteHandler_Redeem(t *testing.T) {
 
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusConflict, rec.Code)
+	})
+
+	t.Run("Rate limit exceeded", func(t *testing.T) {
+		token := "rate-limit-token"
+		email := "test4@example.com"
+		core.InviteDB.Set(core.Ctx, "invite:"+token, email, 0)
+
+		f := make(url.Values)
+		f.Set("token", token)
+		f.Set("username", "newuser4")
+		f.Set("password", "strongpassword123")
+
+		c, _ := createTestContext(e, http.MethodPost, "/rauthredeem", f)
+
+		// Exceed the limit
+		for i := 0; i < cfg.RateLimitRegistrationMax+1; i++ {
+			err := h.Redeem(c)
+			if i < cfg.RateLimitRegistrationMax {
+				// We don't care about the result of the first N requests,
+				// some might fail due to "Username already taken" but we only care about the rate limit
+				// For the first request, it succeeds and deletes the token, making subsequent requests fail with 404
+				// So we need to re-insert the token
+				core.InviteDB.Set(core.Ctx, "invite:"+token, email, 0)
+			} else {
+				// The N+1 request should fail with 429
+				assert.Error(t, err)
+				he, ok := err.(*echo.HTTPError)
+				assert.True(t, ok)
+				assert.Equal(t, http.StatusTooManyRequests, he.Code)
+			}
+		}
 	})
 }
