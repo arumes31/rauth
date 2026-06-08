@@ -22,6 +22,7 @@ func TestInviteHandler_Create(t *testing.T) {
 		f.Set("email", "test@example.com")
 
 		c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/invite", f)
+		c.Request().RemoteAddr = "127.0.0.1:12345"
 		err := h.Create(c)
 
 		assert.NoError(t, err)
@@ -42,6 +43,7 @@ func TestInviteHandler_Create(t *testing.T) {
 	t.Run("Missing email", func(t *testing.T) {
 		f := make(url.Values)
 		c, _ := createTestContext(e, http.MethodPost, "/rauthmgmt/invite", f)
+		c.Request().RemoteAddr = "127.0.0.1:12345"
 		err := h.Create(c)
 
 		assert.Error(t, err)
@@ -65,6 +67,7 @@ func TestInviteHandler_RedeemPage(t *testing.T) {
 		core.InviteDB.Set(core.Ctx, "invite:"+token, email, 0)
 
 		c, rec := createTestContext(e, http.MethodGet, "/rauthredeem?token="+token, nil)
+		c.Request().RemoteAddr = "127.0.0.1:12345"
 		err := h.RedeemPage(c)
 
 		assert.NoError(t, err)
@@ -76,6 +79,7 @@ func TestInviteHandler_RedeemPage(t *testing.T) {
 
 	t.Run("Missing token", func(t *testing.T) {
 		c, rec := createTestContext(e, http.MethodGet, "/rauthredeem", nil)
+		c.Request().RemoteAddr = "127.0.0.1:12345"
 		err := h.RedeemPage(c)
 
 		assert.NoError(t, err)
@@ -85,6 +89,7 @@ func TestInviteHandler_RedeemPage(t *testing.T) {
 
 	t.Run("Invalid token", func(t *testing.T) {
 		c, _ := createTestContext(e, http.MethodGet, "/rauthredeem?token=invalid", nil)
+		c.Request().RemoteAddr = "127.0.0.1:12345"
 		err := h.RedeemPage(c)
 
 		assert.Error(t, err)
@@ -97,8 +102,10 @@ func TestInviteHandler_RedeemPage(t *testing.T) {
 func TestInviteHandler_Redeem(t *testing.T) {
 	setupHandlersTest(t)
 	cfg := &core.Config{
-		MinPasswordLength: 8,
-		ServerSecret:      "32byte-secret-key-for-testing-!!",
+		MinPasswordLength:          8,
+		ServerSecret:               "32byte-secret-key-for-testing-!!",
+		RateLimitRegistrationMax:   10,
+		RateLimitRegistrationDecay: 300,
 	}
 	h := &InviteHandler{Cfg: cfg}
 	e := echo.New()
@@ -114,6 +121,7 @@ func TestInviteHandler_Redeem(t *testing.T) {
 		f.Set("password", "strongpassword123")
 
 		c, rec := createTestContext(e, http.MethodPost, "/rauthredeem", f)
+		c.Request().RemoteAddr = "127.0.0.1:12345"
 		err := h.Redeem(c)
 
 		assert.NoError(t, err)
@@ -136,6 +144,7 @@ func TestInviteHandler_Redeem(t *testing.T) {
 		f.Set("password", "strongpassword123")
 
 		c, _ := createTestContext(e, http.MethodPost, "/rauthredeem", f)
+		c.Request().RemoteAddr = "127.0.0.1:12345"
 		err := h.Redeem(c)
 
 		assert.Error(t, err)
@@ -155,6 +164,7 @@ func TestInviteHandler_Redeem(t *testing.T) {
 		f.Set("password", "weak")
 
 		c, rec := createTestContext(e, http.MethodPost, "/rauthredeem", f)
+		c.Request().RemoteAddr = "127.0.0.1:12345"
 		err := h.Redeem(c)
 
 		assert.NoError(t, err)
@@ -174,6 +184,7 @@ func TestInviteHandler_Redeem(t *testing.T) {
 		f.Set("password", "strongpassword123")
 
 		c, rec := createTestContext(e, http.MethodPost, "/rauthredeem", f)
+		c.Request().RemoteAddr = "127.0.0.1:12345"
 		err := h.Redeem(c)
 
 		assert.NoError(t, err)

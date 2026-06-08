@@ -60,6 +60,11 @@ func (h *InviteHandler) RedeemPage(c echo.Context) error {
 }
 
 func (h *InviteHandler) Redeem(c echo.Context) error {
+
+	if !core.CheckRateLimit("reg_ip:"+c.RealIP(), h.Cfg.RateLimitRegistrationMax, h.Cfg.RateLimitRegistrationDecay) {
+		return c.JSON(http.StatusTooManyRequests, map[string]string{"error": "Too many requests. Please try again later."})
+	}
+
 	token := c.FormValue("token")
 	username := c.FormValue("username")
 	password := c.FormValue("password")
