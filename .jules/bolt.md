@@ -20,3 +20,6 @@
 ## 2026-05-27 - Reducing Allocations with bufio.Scanner
 **Learning:** Parsing large embedded strings (like blocklists) using `strings.Split` creates a large slice of strings that persists until the loop finishes. This is inefficient for one-time map population.
 **Action:** Use `bufio.Scanner` with `strings.NewReader` to process the string line-by-line. This minimizes temporary allocations and is significantly more memory-efficient for large text datasets.
+## 2026-06-08 - HGetAll vs HGet in Pipelines
+**Learning:** When retrieving a single field from a Redis hash inside a pipeline loop, replacing `HGetAll` with `HGet` reduces memory allocations and parsing overhead. However, be careful to use `*redis.StringCmd` instead of `*redis.MapStringStringCmd` for the command array, and handle potential `redis.Nil` errors which `HGetAll` does not throw.
+**Action:** Always prefer `HGet` over `HGetAll` when only one field is needed, even in pipelines. Update variable types and error handling accordingly.
