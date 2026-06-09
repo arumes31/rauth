@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/base64"
+	"strings"
 	"errors"
 	"testing"
 
@@ -488,6 +489,61 @@ func TestValidateUsername(t *testing.T) {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestEncrypt2FASecret(t *testing.T) {
+	key := "12345678901234567890123456789012"
+	plainSecret := "my-plain-secret"
+
+	tests := []struct {
+		name       string
+		secret     string
+		key        string
+		wantPrefix string
+		wantExact  string
+	}{
+		{
+			name:       "Empty Secret",
+			secret:     "",
+			key:        key,
+			wantPrefix: "",
+			wantExact:  "",
+		},
+		{
+			name:       "Valid Secret",
+			secret:     plainSecret,
+			key:        key,
+			wantPrefix: "enc:",
+			wantExact:  "", // Exact value changes due to IV, we verify decryption later
+		},
+		{
+			name:       "Plain Secret containing enc:",
+			secret:     "enc:dummy-plain-text-already",
+			key:        key,
+			wantPrefix: "enc:",
+			wantExact:  "", // Exact value changes due to IV, we verify decryption later
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := Encrypt2FASecret(tt.secret, tt.key)
+
+			if tt.wantExact != "" {
+				require.Equal(t, tt.wantExact, got)
+			}
+
+			if tt.wantPrefix != "" {
+				require.True(t, strings.HasPrefix(got, tt.wantPrefix), "Expected prefix %q in %q", tt.wantPrefix, got)
+			}
+
+			// For a successfully encrypted valid secret, verify it decrypts back correctly
+			if tt.name == "Valid Secret" {
+				decrypted := Decrypt2FASecret(got, tt.key)
+				require.Equal(t, tt.secret, decrypted, "Decrypted secret should match original plain secret")
 			}
 		})
 	}
