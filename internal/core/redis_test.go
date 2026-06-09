@@ -112,6 +112,20 @@ func TestSessionManagement(t *testing.T) {
 		require.False(t, HasActiveSessions("10.0.0.1"))
 	})
 
+	t.Run("RemoveIPSessionIndex", func(t *testing.T) {
+		AddIPSessionIndex("192.168.1.100", "token-to-remove")
+
+		members_before, err := TokenDB.SMembers(Ctx, "ip_sessions:192.168.1.100").Result()
+		require.NoError(t, err)
+		require.Contains(t, members_before, "token-to-remove")
+
+		RemoveIPSessionIndex("192.168.1.100", "token-to-remove")
+
+		members_after, err := TokenDB.SMembers(Ctx, "ip_sessions:192.168.1.100").Result()
+		require.NoError(t, err)
+		require.NotContains(t, members_after, "token-to-remove")
+	})
+
 	t.Run("HasActiveSessions prunes stale index entries", func(t *testing.T) {
 		// Index points at a token that no longer exists -> pruned, returns false.
 		AddIPSessionIndex("172.16.0.1", "ghost_token")
