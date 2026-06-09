@@ -157,3 +157,80 @@ func TestProfileHandler_ChangePassword(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
 }
+
+func TestProfileHandler_RenamePasskey(t *testing.T) {
+	setupHandlersTest(t)
+	h := &ProfileHandler{Cfg: &core.Config{}}
+	e := echo.New()
+
+	username := "testuser"
+	credID := "testcred"
+	hashKey := "user:" + username + ":webauthn_creds_v2"
+
+	cred := core.StoredCredential{
+		Nickname: "oldname",
+	}
+	data, _ := json.Marshal(cred)
+	core.UserDB.HSet(core.Ctx, hashKey, credID, data)
+
+	t.Run("Successfully rename passkey", func(t *testing.T) {
+		f := make(url.Values)
+		f.Set("id", credID)
+		f.Set("nickname", "newname")
+
+		c, rec := createTestContext(e, http.MethodPost, "/rauthprofile/passkey/rename", f)
+		c.Set("username", username)
+
+		err := h.RenamePasskey(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+
+		val, _ := core.UserDB.HGet(core.Ctx, hashKey, credID).Result()
+		var c2 core.StoredCredential
+		json.Unmarshal([]byte(val), &c2)
+		assert.Equal(t, "newname", c2.Nickname)
+	})
+
+	t.Run("Missing ID", func(t *testing.T) {
+		f := make(url.Values)
+		f.Set("nickname", "newname")
+
+		c, _ := createTestContext(e, http.MethodPost, "/rauthprofile/passkey/rename", f)
+		c.Set("username", username)
+
+		err := h.RenamePasskey(c)
+		assert.Error(t, err)
+		echoErr, ok := err.(*echo.HTTPError)
+		assert.True(t, ok)
+		assert.Equal(t, http.StatusBadRequest, echoErr.Code)
+	})
+
+	t.Run("Missing Nickname", func(t *testing.T) {
+		f := make(url.Values)
+		f.Set("id", credID)
+
+		c, _ := createTestContext(e, http.MethodPost, "/rauthprofile/passkey/rename", f)
+		c.Set("username", username)
+
+		err := h.RenamePasskey(c)
+		assert.Error(t, err)
+		echoErr, ok := err.(*echo.HTTPError)
+		assert.True(t, ok)
+		assert.Equal(t, http.StatusBadRequest, echoErr.Code)
+	})
+
+	t.Run("Passkey not found", func(t *testing.T) {
+		f := make(url.Values)
+		f.Set("id", "invalidcred")
+		f.Set("nickname", "newname")
+
+		c, _ := createTestContext(e, http.MethodPost, "/rauthprofile/passkey/rename", f)
+		c.Set("username", username)
+
+		err := h.RenamePasskey(c)
+		assert.Error(t, err)
+		echoErr, ok := err.(*echo.HTTPError)
+		assert.True(t, ok)
+		assert.Equal(t, http.StatusInternalServerError, echoErr.Code)
+	})
+}
