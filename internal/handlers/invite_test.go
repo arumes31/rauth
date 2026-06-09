@@ -97,13 +97,16 @@ func TestInviteHandler_RedeemPage(t *testing.T) {
 func TestInviteHandler_Redeem(t *testing.T) {
 	setupHandlersTest(t)
 	cfg := &core.Config{
-		MinPasswordLength: 8,
-		ServerSecret:      "32byte-secret-key-for-testing-!!",
+		MinPasswordLength:          8,
+		ServerSecret:               "32byte-secret-key-for-testing-!!",
+		RateLimitRegistrationMax:   10,
+		RateLimitRegistrationDecay: 60,
 	}
 	h := &InviteHandler{Cfg: cfg}
 	e := echo.New()
 
 	t.Run("Successful redemption", func(t *testing.T) {
+		core.RateLimitDB.FlushAll(core.Ctx)
 		token := "redeem-token"
 		email := "test@example.com"
 		core.InviteDB.Set(core.Ctx, "invite:"+token, email, 0)
@@ -130,6 +133,7 @@ func TestInviteHandler_Redeem(t *testing.T) {
 	})
 
 	t.Run("Invalid token", func(t *testing.T) {
+		core.RateLimitDB.FlushAll(core.Ctx)
 		f := make(url.Values)
 		f.Set("token", "invalid")
 		f.Set("username", "newuser2")
@@ -139,12 +143,15 @@ func TestInviteHandler_Redeem(t *testing.T) {
 		err := h.Redeem(c)
 
 		assert.Error(t, err)
-		he, ok := err.(*echo.HTTPError)
-		assert.True(t, ok)
-		assert.Equal(t, http.StatusNotFound, he.Code)
+		if err != nil {
+			he, ok := err.(*echo.HTTPError)
+			assert.True(t, ok)
+			assert.Equal(t, http.StatusNotFound, he.Code)
+		}
 	})
 
 	t.Run("Weak password", func(t *testing.T) {
+		core.RateLimitDB.FlushAll(core.Ctx)
 		token := "weak-pass-token"
 		email := "test2@example.com"
 		core.InviteDB.Set(core.Ctx, "invite:"+token, email, 0)
@@ -162,6 +169,7 @@ func TestInviteHandler_Redeem(t *testing.T) {
 	})
 
 	t.Run("Username already taken", func(t *testing.T) {
+		core.RateLimitDB.FlushAll(core.Ctx)
 		token := "taken-user-token"
 		email := "test3@example.com"
 		core.InviteDB.Set(core.Ctx, "invite:"+token, email, 0)
@@ -178,5 +186,27 @@ func TestInviteHandler_Redeem(t *testing.T) {
 
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusConflict, rec.Code)
+	})
+
+	t.Run("Rate limit exceeded", func(t *testing.T) {
+		core.RateLimitDB.FlushAll(core.Ctx) // Reset any existing limits
+
+		// Fill up the rate limit
+		for i := 0; i < cfg.RateLimitRegistrationMax; i++ {
+			c, _ := createTestContext(e, http.MethodPost, "/rauthredeem", make(url.Values))
+			h.Redeem(c)
+		}
+
+		f := make(url.Values)
+		c, rec := createTestContext(e, http.MethodPost, "/rauthredeem", f)
+		err := h.Redeem(c)
+
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusTooManyRequests, rec.Code)
+
+		var resp map[string]string
+		err = json.Unmarshal(rec.Body.Bytes(), &resp)
+		assert.NoError(t, err)
+		assert.Equal(t, "Too many registration attempts. Please try again later.", resp["error"])
 	})
 }
