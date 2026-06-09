@@ -166,13 +166,21 @@ func SendAccountCreatedNotification(email, username string) {
 	_ = SendEmail(email, subject, body)
 }
 
-func Send2FAModifiedNotification(email, username, action, ip, device string) {
-	subject := sanitizeEmailHeader(fmt.Sprintf("[RAuth] Security Alert: 2FA %s", action))
+type TwoFactorNotificationOptions struct {
+	Email    string
+	Username string
+	Action   string
+	IP       string
+	Device   string
+}
 
-	eUsername := html.EscapeString(username)
-	eAction := html.EscapeString(action)
-	eIP := html.EscapeString(ip)
-	eDevice := html.EscapeString(device)
+func Send2FAModifiedNotification(opts TwoFactorNotificationOptions) {
+	subject := sanitizeEmailHeader(fmt.Sprintf("[RAuth] Security Alert: 2FA %s", opts.Action))
+
+	eUsername := html.EscapeString(opts.Username)
+	eAction := html.EscapeString(opts.Action)
+	eIP := html.EscapeString(opts.IP)
+	eDevice := html.EscapeString(opts.Device)
 
 	body := fmt.Sprintf(`
 		<h2>Two-Factor Authentication %s</h2>
@@ -189,6 +197,6 @@ func Send2FAModifiedNotification(email, username, action, ip, device string) {
 		</div>
 	`, eAction, eUsername, eAction, eAction, eDevice, eIP, time.Now().Format("Jan 02, 2006 15:04:05 MST"))
 
-	_ = SendEmail(email, subject, body)
+	_ = SendEmail(opts.Email, subject, body)
 
 }
