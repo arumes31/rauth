@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"rauth/internal/core"
@@ -155,5 +156,56 @@ func TestProfileHandler_ChangePassword(t *testing.T) {
 		err := h.ChangePassword(c)
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+}
+
+func TestProfileHandler_RevokePasskey(t *testing.T) {
+	setupHandlersTest(t)
+	h := &ProfileHandler{Cfg: &core.Config{}}
+	e := echo.New()
+
+	t.Run("Successfully revoke passkey", func(t *testing.T) {
+		username := "revokeuser"
+		credID := "test-cred-id"
+
+		// Setup mock user
+		core.UserDB.HSet(core.Ctx, "user:"+username, "email", "test@example.com")
+
+		// Setup mock credential directly in Redis
+		// To mock the credential, we need to save it as stored JSON
+		hashKey := "user:" + username + ":webauthn_creds_v2"
+		field := fmt.Sprintf("%x", []byte(credID))
+
+		// This uses map instead of proper struct, let's just make it match the struct
+		storedJson := fmt.Sprintf(`{"nickname":"My Passkey","created_at":123456789,"last_used":0,"id":"%s","public_key":"base64_encoded_key"}`,
+			"dGVzdC1jcmVkLWlk") // Base64 for "test-cred-id" (if we used standard encoding but here ID is []byte)
+
+		core.UserDB.HSet(core.Ctx, hashKey, field, storedJson)
+
+		f := make(url.Values)
+		f.Set("id", field)
+
+		c, rec := createTestContext(e, http.MethodPost, "/rauthprofile/passkey/revoke", f)
+		c.Set("username", username)
+
+		err := h.RevokePasskey(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+
+		// Verify credential is removed
+		exists, _ := core.UserDB.HExists(core.Ctx, hashKey, field).Result()
+		assert.False(t, exists)
+	})
+
+	t.Run("Fail without ID", func(t *testing.T) {
+		c, _ := createTestContext(e, http.MethodPost, "/rauthprofile/passkey/revoke", nil)
+		c.Set("username", "revokeuser")
+
+		err := h.RevokePasskey(c)
+		assert.Error(t, err)
+		echoErr, ok := err.(*echo.HTTPError)
+		assert.True(t, ok)
+		assert.Equal(t, http.StatusBadRequest, echoErr.Code)
+		assert.Equal(t, "ID is required", echoErr.Message)
 	})
 }
