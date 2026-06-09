@@ -254,3 +254,52 @@ func TestWebAuthnMigration(t *testing.T) {
 	credsEmpty := GetStoredCredentials("nonexistent")
 	require.Nil(t, credsEmpty)
 }
+
+func TestStoredCredential_UnmarshalJSON(t *testing.T) {
+	tests := []struct {
+		name    string
+		json    string
+		wantErr bool
+		check   func(t *testing.T, cred *StoredCredential)
+	}{
+		{
+			name:    "Valid JSON with all fields",
+			json:    `{"id":"dGVzdA==","nickname":"My Key","created_at":1234567890,"last_used":1234567899,"authenticator":{"signCount":42}}`,
+			wantErr: false,
+			check: func(t *testing.T, cred *StoredCredential) {
+				require.NotNil(t, cred)
+				assert.Equal(t, "My Key", cred.Nickname)
+				assert.Equal(t, int64(1234567890), cred.CreatedAt)
+				assert.Equal(t, int64(1234567899), cred.LastUsed)
+				assert.Equal(t, []byte("test"), cred.ID)
+				assert.Equal(t, uint32(42), cred.Authenticator.SignCount)
+			},
+		},
+		{
+			name:    "Invalid JSON syntax",
+			json:    `{"id":"dGVzdA==","nickname":"My Key",`, // Truncated JSON
+			wantErr: true,
+		},
+		{
+			name:    "Invalid type for integer field",
+			json:    `{"nickname":"My Key","created_at":"not_a_number"}`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var cred StoredCredential
+			err := json.Unmarshal([]byte(tt.json), &cred)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				if tt.check != nil {
+					tt.check(t, &cred)
+				}
+			}
+		})
+	}
+}
