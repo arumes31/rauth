@@ -1,6 +1,9 @@
 package handlers
 
 import (
+	"github.com/pquerna/otp/totp"
+	"time"
+
 	"encoding/json"
 	"net/http"
 	"net/url"
@@ -155,5 +158,146 @@ func TestProfileHandler_ChangePassword(t *testing.T) {
 		err := h.ChangePassword(c)
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+}
+
+func TestProfileHandler_GenerateRecoveryCodes(t *testing.T) {
+	setupHandlersTest(t)
+	cfg := &core.Config{
+		ServerSecret: "test-server-secret-key-1234567890",
+	}
+	h := &ProfileHandler{Cfg: cfg}
+	e := echo.New()
+	e.Renderer = &mockRenderer{}
+
+	// Setup a user with TOTP
+	username := "recoveryuser"
+
+	key, err := totp.Generate(totp.GenerateOpts{
+		Issuer:      "rauth",
+		AccountName: username,
+	})
+	assert.NoError(t, err)
+
+	secret := key.Secret()
+	encryptedSecret := core.Encrypt2FASecret(secret, cfg.ServerSecret)
+
+	core.UserDB.HSet(core.Ctx, "user:"+username, "password", "hashedpass", "2fa_secret", encryptedSecret)
+
+	t.Run("Generate successful", func(t *testing.T) {
+		code, _ := totp.GenerateCode(secret, time.Now())
+		f := make(url.Values)
+		f.Set("otp_code", code)
+
+		c, rec := createTestContext(e, http.MethodPost, "/rauthprofile/recovery-codes", f)
+		c.Set("username", username)
+
+		err := h.GenerateRecoveryCodes(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
+
+		// Check renderer
+		renderer := e.Renderer.(*mockRenderer)
+		data := renderer.LastData.(map[string]interface{})
+
+		assert.Equal(t, username, data["username"])
+		codes, ok := data["codes"].([]string)
+		assert.True(t, ok)
+		assert.Len(t, codes, 10)
+
+		// Check DB
+		dbCodes, _ := core.UserDB.SMembers(core.Ctx, "user:"+username+":recovery_codes").Result()
+		assert.Len(t, dbCodes, 10)
+	})
+
+	t.Run("Missing OTP code", func(t *testing.T) {
+		f := make(url.Values)
+
+		c, _ := createTestContext(e, http.MethodPost, "/rauthprofile/recovery-codes", f)
+		c.Set("username", username)
+
+		err := h.GenerateRecoveryCodes(c)
+		assert.Error(t, err)
+
+		httpErr, ok := err.(*echo.HTTPError)
+		assert.True(t, ok)
+		assert.Equal(t, http.StatusBadRequest, httpErr.Code)
+		assert.Contains(t, httpErr.Message, "2FA code required")
+	})
+
+	t.Run("Invalid OTP code", func(t *testing.T) {
+		f := make(url.Values)
+		f.Set("otp_code", "000000")
+
+		c, _ := createTestContext(e, http.MethodPost, "/rauthprofile/recovery-codes", f)
+		c.Set("username", username)
+
+		err := h.GenerateRecoveryCodes(c)
+		assert.Error(t, err)
+
+		httpErr, ok := err.(*echo.HTTPError)
+		assert.True(t, ok)
+		assert.Equal(t, http.StatusBadRequest, httpErr.Code)
+		assert.Contains(t, httpErr.Message, "Invalid 2FA code")
+	})
+
+	t.Run("Reused OTP code", func(t *testing.T) {
+		code, _ := totp.GenerateCode(secret, time.Now())
+
+		// First use
+		f1 := make(url.Values)
+		f1.Set("otp_code", code)
+		c1, _ := createTestContext(e, http.MethodPost, "/rauthprofile/recovery-codes", f1)
+		c1.Set("username", username)
+		_ = h.GenerateRecoveryCodes(c1)
+
+		// Second use
+		f2 := make(url.Values)
+		f2.Set("otp_code", code)
+		c2, _ := createTestContext(e, http.MethodPost, "/rauthprofile/recovery-codes", f2)
+		c2.Set("username", username)
+
+		err := h.GenerateRecoveryCodes(c2)
+		assert.Error(t, err)
+
+		httpErr, ok := err.(*echo.HTTPError)
+		assert.True(t, ok)
+		assert.Equal(t, http.StatusBadRequest, httpErr.Code)
+		assert.Contains(t, httpErr.Message, "already used")
+	})
+
+	t.Run("TOTP not enabled", func(t *testing.T) {
+		core.UserDB.HSet(core.Ctx, "user:nototp", "password", "hashedpass")
+
+		f := make(url.Values)
+		f.Set("otp_code", "123456")
+
+		c, _ := createTestContext(e, http.MethodPost, "/rauthprofile/recovery-codes", f)
+		c.Set("username", "nototp")
+
+		err := h.GenerateRecoveryCodes(c)
+		assert.Error(t, err)
+
+		httpErr, ok := err.(*echo.HTTPError)
+		assert.True(t, ok)
+		assert.Equal(t, http.StatusBadRequest, httpErr.Code)
+		assert.Contains(t, httpErr.Message, "Enable TOTP before")
+	})
+
+	t.Run("User not found", func(t *testing.T) {
+		f := make(url.Values)
+		f.Set("otp_code", "123456")
+
+		c, _ := createTestContext(e, http.MethodPost, "/rauthprofile/recovery-codes", f)
+		c.Set("username", "nonexistent")
+
+		err := h.GenerateRecoveryCodes(c)
+		assert.Error(t, err)
+
+		httpErr, ok := err.(*echo.HTTPError)
+		assert.True(t, ok)
+		assert.Equal(t, http.StatusBadRequest, httpErr.Code)
+		assert.Contains(t, httpErr.Message, "Enable TOTP before") // HGetAll on non-existent returns empty map
 	})
 }
