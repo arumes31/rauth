@@ -492,3 +492,161 @@ func TestValidateUsername(t *testing.T) {
 		})
 	}
 }
+
+func TestParseUserAgent(t *testing.T) {
+	tests := []struct {
+		name     string
+		ua       string
+		expected ParsedUA
+	}{
+		{
+			name: "Windows PC - Chrome",
+			ua:   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+			expected: ParsedUA{
+				OS:       "Windows",
+				Platform: "PC",
+				Browser:  "Chrome",
+				IsMobile: false,
+			},
+		},
+		{
+			name: "Mac PC - Safari",
+			ua:   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.1 Safari/605.1.15",
+			expected: ParsedUA{
+				OS:       "macOS",
+				Platform: "Mac",
+				Browser:  "Safari",
+				IsMobile: false,
+			},
+		},
+		{
+			name: "Linux PC - Firefox",
+			ua:   "Mozilla/5.0 (X11; Linux x86_64; rv:122.0) Gecko/20100101 Firefox/122.0",
+			expected: ParsedUA{
+				OS:       "Linux",
+				Platform: "PC",
+				Browser:  "Firefox",
+				IsMobile: false,
+			},
+		},
+		{
+			name: "iPhone - Safari",
+			ua:   "Mozilla/5.0 (iPhone; CPU iPhone OS 17_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Mobile/15E148 Safari/604.1",
+			expected: ParsedUA{
+				OS:       "iOS",
+				Platform: "iPhone",
+				Browser:  "Safari",
+				IsMobile: true,
+			},
+		},
+		{
+			name: "iPad - Safari",
+			ua:   "Mozilla/5.0 (iPad; CPU OS 17_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Mobile/15E148 Safari/604.1",
+			expected: ParsedUA{
+				OS:       "iOS",
+				Platform: "iPad",
+				Browser:  "Safari",
+				IsMobile: true,
+			},
+		},
+		{
+			name: "Android - Chrome",
+			ua:   "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+			expected: ParsedUA{
+				OS:       "Android",
+				Platform: "",
+				Browser:  "Chrome",
+				IsMobile: true,
+			},
+		},
+		{
+			name: "Windows PC - Edge",
+			ua:   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+			expected: ParsedUA{
+				OS:       "Windows",
+				Platform: "PC",
+				Browser:  "Edge",
+				IsMobile: false,
+			},
+		},
+		{
+			name: "Mac PC - Opera",
+			ua:   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 OPR/106.0.0.0",
+			expected: ParsedUA{
+				OS:       "macOS",
+				Platform: "Mac",
+				Browser:  "Opera",
+				IsMobile: false,
+			},
+		},
+		{
+			name: "iPhone - Chrome (CriOS)",
+			ua:   "Mozilla/5.0 (iPhone; CPU iPhone OS 17_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/120.0.6099.119 Mobile/15E148 Safari/604.1",
+			expected: ParsedUA{
+				OS:       "iOS",
+				Platform: "iPhone",
+				Browser:  "Chrome",
+				IsMobile: true,
+			},
+		},
+		{
+			name: "iPhone - Firefox (FxiOS)",
+			ua:   "Mozilla/5.0 (iPhone; CPU iPhone OS 17_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/122.0 Mobile/15E148 Safari/605.1.15",
+			expected: ParsedUA{
+				OS:       "iOS",
+				Platform: "iPhone",
+				Browser:  "Firefox",
+				IsMobile: true,
+			},
+		},
+		{
+			name: "Unknown Device and Browser",
+			ua:   "Custom/1.0",
+			expected: ParsedUA{
+				OS:       "Unknown OS",
+				Platform: "",
+				Browser:  "Unknown Browser",
+				IsMobile: false,
+			},
+		},
+		{
+			name: "Empty String",
+			ua:   "",
+			expected: ParsedUA{
+				OS:       "Unknown OS",
+				Platform: "",
+				Browser:  "Unknown Browser",
+				IsMobile: false,
+			},
+		},
+		{
+			name: "Opera Legacy",
+			ua:   "Opera/9.80 (Windows NT 6.0) Presto/2.12.388 Version/12.14",
+			expected: ParsedUA{
+				OS:       "Windows",
+				Platform: "PC",
+				Browser:  "Opera",
+				IsMobile: false,
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := ParseUserAgent(tc.ua)
+
+			if result.OS != tc.expected.OS {
+				t.Errorf("Expected OS %q, got %q for UA %q", tc.expected.OS, result.OS, tc.ua)
+			}
+			if result.Platform != tc.expected.Platform {
+				t.Errorf("Expected Platform %q, got %q for UA %q", tc.expected.Platform, result.Platform, tc.ua)
+			}
+			if result.Browser != tc.expected.Browser {
+				t.Errorf("Expected Browser %q, got %q for UA %q", tc.expected.Browser, result.Browser, tc.ua)
+			}
+			if result.IsMobile != tc.expected.IsMobile {
+				t.Errorf("Expected IsMobile %v, got %v for UA %q", tc.expected.IsMobile, result.IsMobile, tc.ua)
+			}
+		})
+	}
+}
