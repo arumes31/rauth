@@ -6,8 +6,10 @@ import (
 	"net/url"
 	"rauth/internal/core"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/pquerna/otp/totp"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -155,5 +157,75 @@ func TestProfileHandler_ChangePassword(t *testing.T) {
 		err := h.ChangePassword(c)
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+}
+
+func TestProfileHandler_DisableTOTP(t *testing.T) {
+	setupHandlersTest(t)
+	cfg := &core.Config{
+		ServerSecret: "32byte-secret-key-for-testing-!!",
+	}
+	h := &ProfileHandler{Cfg: cfg}
+	e := echo.New()
+
+	key, _ := totp.Generate(totp.GenerateOpts{
+		Issuer:      "RAuth",
+		AccountName: "testuser@example.com",
+	})
+	secret := key.Secret()
+	encryptedSecret := core.Encrypt2FASecret(secret, cfg.ServerSecret)
+
+	core.UserDB.HSet(core.Ctx, "user:totpuser", map[string]interface{}{
+		"username":   "totpuser",
+		"2fa_secret": encryptedSecret,
+	})
+
+	t.Run("Successfully disable TOTP", func(t *testing.T) {
+		code, _ := totp.GenerateCode(secret, time.Now())
+
+		f := make(url.Values)
+		f.Set("otp_code", code)
+
+		c, rec := createTestContext(e, http.MethodPost, "/rauthprofile/disable-totp", f)
+		c.Set("username", "totpuser")
+
+		err := h.DisableTOTP(c)
+		assert.NoError(t, err)
+
+		// The handler returns a redirect wrapped in a redirect method. Check rec.Code or err
+		assert.Equal(t, http.StatusFound, rec.Code)
+
+		// Verify TOTP is disabled
+		userData, _ := core.UserDB.HGetAll(core.Ctx, "user:totpuser").Result()
+		assert.Equal(t, "", userData["2fa_secret"])
+	})
+
+	t.Run("Fail with invalid code", func(t *testing.T) {
+		// Reset TOTP secret
+		core.UserDB.HSet(core.Ctx, "user:totpuser", "2fa_secret", encryptedSecret)
+
+		f := make(url.Values)
+		f.Set("otp_code", "000000")
+
+		c, rec := createTestContext(e, http.MethodPost, "/rauthprofile/disable-totp", f)
+		c.Set("username", "totpuser")
+
+		err := h.DisableTOTP(c)
+		assert.NoError(t, err) // It returns c.JSON() which returns nil error but sets HTTP status
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("Success when TOTP is already disabled", func(t *testing.T) {
+		core.UserDB.HSet(core.Ctx, "user:totpuser", "2fa_secret", "")
+
+		f := make(url.Values)
+		// No code provided
+
+		c, rec := createTestContext(e, http.MethodPost, "/rauthprofile/disable-totp", f)
+		c.Set("username", "totpuser")
+
+		err := h.DisableTOTP(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
 	})
 }
