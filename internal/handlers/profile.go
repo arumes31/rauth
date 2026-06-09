@@ -184,13 +184,13 @@ func (h *ProfileHandler) RevokePasskey(c echo.Context) error {
 	}
 
 	// Send notification email
-	userRecord, _ := core.GetUser(username)
-	if userRecord.Email != "" {
+	userEmail, _ := core.UserDB.HGet(core.Ctx, "user:"+username, "email").Result()
+	if userEmail != "" {
 		device := core.FormatDevice(c.Request().UserAgent(),
 			c.Request().Header.Get("Sec-CH-UA-Platform"),
 			c.Request().Header.Get("Sec-CH-UA-Mobile"),
 			c.Request().Header.Get("Sec-CH-UA-Model"))
-		go core.Send2FAModifiedNotification(userRecord.Email, username, "Removed (Passkey)", c.RealIP(), device)
+		go core.Send2FAModifiedNotification(userEmail, username, "Removed (Passkey)", c.RealIP(), device)
 	}
 
 	core.LogAudit("PASSKEY_REVOKE", username, c.RealIP(), nil)
@@ -319,13 +319,13 @@ func (h *ProfileHandler) ChangePassword(c echo.Context) error {
 	}
 
 	// Send notification email
-	userRecord, _ := core.GetUser(username)
-	if userRecord.Email != "" {
+	userEmail, _ := core.UserDB.HGet(core.Ctx, "user:"+username, "email").Result()
+	if userEmail != "" {
 		device := core.FormatDevice(c.Request().UserAgent(),
 			c.Request().Header.Get("Sec-CH-UA-Platform"),
 			c.Request().Header.Get("Sec-CH-UA-Mobile"),
 			c.Request().Header.Get("Sec-CH-UA-Model"))
-		go core.SendPasswordChangeNotification(userRecord.Email, username, c.RealIP(), device)
+		go core.SendPasswordChangeNotification(userEmail, username, c.RealIP(), device)
 	}
 
 	// Security Hardening: Invalidate all other sessions
