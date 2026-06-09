@@ -194,7 +194,7 @@ func TestInviteHandler_Redeem(t *testing.T) {
 		// Fill up the rate limit
 		for i := 0; i < cfg.RateLimitRegistrationMax; i++ {
 			c, _ := createTestContext(e, http.MethodPost, "/rauthredeem", make(url.Values))
-			h.Redeem(c)
+			_ = h.Redeem(c)
 		}
 
 		f := make(url.Values)
