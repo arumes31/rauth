@@ -1,6 +1,9 @@
 package handlers
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -14,7 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestAuthHandler_Verify2FA_Reproduction(t *testing.T) {
+func TestAuthHandler_Verify2FA(t *testing.T) {
 	setupHandlersTest(t)
 
 	cfg := &core.Config{
@@ -24,30 +27,38 @@ func TestAuthHandler_Verify2FA_Reproduction(t *testing.T) {
 		RateLimitLoginMax:         1000,
 		RateLimitLoginDecay:       60,
 		RateLimitLoginAccessMax:   1000,
+		RateLimitLoginAccessDecay: 60,
 		RateLimitLoginFailUserMax: 1000,
+		RateLimitLoginFailUserDecay: 60,
 		RateLimitLoginFailIPMax:   1000,
+		RateLimitLoginFailIPDecay: 60,
 	}
+	// Important to use a valid test context setup
 	h := &AuthHandler{Cfg: cfg}
 	e := echo.New()
-	e.Renderer = &mockRenderer{}
 
 	// Create test user with 2FA
 	key, _ := totp.Generate(totp.GenerateOpts{
 		Issuer:      "RAuth",
-		AccountName: "testuser@example.com",
+		AccountName: "testuser",
 	})
 	secret := key.Secret()
+	encryptedSecret := core.Encrypt2FASecret(secret, cfg.ServerSecret)
 
 	core.UserDB.HSet(core.Ctx, "user:testuser", map[string]interface{}{
 		"username":   "testuser",
-		"2fa_secret": secret,
+		"2fa_secret": encryptedSecret,
+		"password":   "dummy",
 	})
 
 	// Setup pending 2FA session
 	pendingToken := "pending-token-123"
-	core.TokenDB.Set(core.Ctx, "pending_2fa:"+pendingToken, "testuser", 5*time.Minute)
+	encryptedPendingToken, _ := core.EncryptToken(pendingToken, cfg.ServerSecret)
 
 	t.Run("Valid TOTP Code", func(t *testing.T) {
+		core.TokenDB.Set(core.Ctx, "pending_2fa:"+pendingToken, "testuser", 5*time.Minute)
+		defer core.TokenDB.Del(core.Ctx, "pending_2fa:"+pendingToken)
+
 		code, _ := totp.GenerateCode(secret, time.Now())
 
 		f := make(url.Values)
@@ -55,7 +66,58 @@ func TestAuthHandler_Verify2FA_Reproduction(t *testing.T) {
 
 		req := httptest.NewRequest(http.MethodPost, "/rauthlogin", strings.NewReader(f.Encode()))
 		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
-		req.AddCookie(&http.Cookie{Name: "rauth_2fa_pending", Value: pendingToken})
+		req.AddCookie(&http.Cookie{Name: "rauth_2fa_pending", Value: encryptedPendingToken})
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		c.Set("csrf", "test_csrf")
+		// needed for issueToken
+		c.SetPath("/rauthlogin")
+		req.RemoteAddr = "192.0.2.1:1234"
+
+		err := h.Verify2FA(c)
+		assert.NoError(t, err)
+
+		assert.Equal(t, http.StatusFound, rec.Code)
+		assert.True(t, strings.HasPrefix(rec.Header().Get("Location"), "/rauthdashboard") || strings.HasPrefix(rec.Header().Get("Location"), "/rauthsetup2fa") || strings.HasPrefix(rec.Header().Get("Location"), "/"))
+	})
+
+	t.Run("Invalid TOTP Code", func(t *testing.T) {
+		core.TokenDB.Set(core.Ctx, "pending_2fa:"+pendingToken, "testuser", 5*time.Minute)
+		defer core.TokenDB.Del(core.Ctx, "pending_2fa:"+pendingToken)
+
+		f := make(url.Values)
+		f.Set("totp_code", "000000") // Invalid code
+
+		req := httptest.NewRequest(http.MethodPost, "/rauthlogin", strings.NewReader(f.Encode()))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
+		req.AddCookie(&http.Cookie{Name: "rauth_2fa_pending", Value: encryptedPendingToken})
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		renderer := &mockRenderer{}
+		e.Renderer = renderer
+		c.Set("csrf", "test_csrf")
+		c.SetPath("/rauthlogin")
+
+		err := h.Verify2FA(c)
+		assert.NoError(t, err)
+
+		assert.Equal(t, http.StatusOK, rec.Code) // Renders login page with error
+		if renderer.LastData != nil {
+			assert.Equal(t, "Invalid 2FA code", renderer.LastData.(map[string]interface{})["error"])
+		} else {
+			t.Errorf("renderer.LastData is nil")
+		}
+	})
+
+	t.Run("Missing Pending Cookie", func(t *testing.T) {
+		f := make(url.Values)
+		f.Set("totp_code", "123456")
+
+		req := httptest.NewRequest(http.MethodPost, "/rauthlogin", strings.NewReader(f.Encode()))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
+		// Missing cookie
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
 
@@ -63,5 +125,268 @@ func TestAuthHandler_Verify2FA_Reproduction(t *testing.T) {
 		assert.NoError(t, err)
 
 		assert.Equal(t, http.StatusFound, rec.Code)
+		assert.Equal(t, "/rauthlogin", rec.Header().Get("Location"))
+	})
+
+	t.Run("Invalid Pending Cookie", func(t *testing.T) {
+		f := make(url.Values)
+		f.Set("totp_code", "123456")
+
+		req := httptest.NewRequest(http.MethodPost, "/rauthlogin", strings.NewReader(f.Encode()))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
+		req.AddCookie(&http.Cookie{Name: "rauth_2fa_pending", Value: "invalid-token"}) // Invalid token
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := h.Verify2FA(c)
+		assert.NoError(t, err)
+
+		assert.Equal(t, http.StatusFound, rec.Code)
+		assert.Equal(t, "/rauthlogin", rec.Header().Get("Location"))
+	})
+
+	t.Run("Missing Token in DB", func(t *testing.T) {
+		f := make(url.Values)
+		f.Set("totp_code", "123456")
+
+		req := httptest.NewRequest(http.MethodPost, "/rauthlogin", strings.NewReader(f.Encode()))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
+		req.AddCookie(&http.Cookie{Name: "rauth_2fa_pending", Value: encryptedPendingToken})
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := h.Verify2FA(c)
+		assert.NoError(t, err)
+
+		assert.Equal(t, http.StatusFound, rec.Code)
+		assert.Equal(t, "/rauthlogin", rec.Header().Get("Location"))
+	})
+
+	t.Run("Rate Limit Access Exceeded", func(t *testing.T) {
+		// Fill up rate limit
+		for i := 0; i < cfg.RateLimitLoginAccessMax; i++ {
+			core.CheckRateLimit("login_access:1.2.3.4", cfg.RateLimitLoginAccessMax, cfg.RateLimitLoginAccessDecay)
+		}
+
+		f := make(url.Values)
+		f.Set("totp_code", "123456")
+
+		req := httptest.NewRequest(http.MethodPost, "/rauthlogin", strings.NewReader(f.Encode()))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
+		req.Header.Set("X-Real-IP", "1.2.3.4")
+		req.AddCookie(&http.Cookie{Name: "rauth_2fa_pending", Value: encryptedPendingToken})
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		renderer := &mockRenderer{}
+		e.Renderer = renderer
+		c.Set("csrf", "test_csrf")
+		req.RemoteAddr = "1.2.3.4:1234"
+		c.SetPath("/rauthlogin")
+
+		err := h.Verify2FA(c)
+		assert.NoError(t, err)
+
+		assert.Equal(t, http.StatusTooManyRequests, rec.Code)
+		if renderer.LastData != nil {
+			assert.Equal(t, "Too many requests. Please wait a minute.", renderer.LastData.(map[string]interface{})["error"])
+		} else {
+			t.Errorf("renderer.LastData is nil")
+		}
+		core.ResetRateLimit("login_access:1.2.3.4")
+	})
+
+	t.Run("Rate Limit Post Exceeded", func(t *testing.T) {
+		// Fill up rate limit
+		for i := 0; i < cfg.RateLimitLoginMax; i++ {
+			core.CheckRateLimit("login_post_ip:1.2.3.5", cfg.RateLimitLoginMax, cfg.RateLimitLoginDecay)
+		}
+
+		f := make(url.Values)
+		f.Set("totp_code", "123456")
+
+		req := httptest.NewRequest(http.MethodPost, "/rauthlogin", strings.NewReader(f.Encode()))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
+		req.Header.Set("X-Real-IP", "1.2.3.5")
+		req.AddCookie(&http.Cookie{Name: "rauth_2fa_pending", Value: encryptedPendingToken})
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		renderer := &mockRenderer{}
+		e.Renderer = renderer
+		c.Set("csrf", "test_csrf")
+		req.RemoteAddr = "1.2.3.5:1234"
+		c.SetPath("/rauthlogin")
+
+		err := h.Verify2FA(c)
+		assert.NoError(t, err)
+
+		assert.Equal(t, http.StatusTooManyRequests, rec.Code)
+		if renderer.LastData != nil {
+			assert.Equal(t, fmt.Sprintf("Too many attempts from this IP (%s). Please try again later.", "1.2.3.5"), renderer.LastData.(map[string]interface{})["error"])
+		} else {
+			t.Errorf("renderer.LastData is nil")
+		}
+		core.ResetRateLimit("login_post_ip:1.2.3.5")
+	})
+
+	t.Run("User Rate Limit Failed 2FA", func(t *testing.T) {
+		core.TokenDB.Set(core.Ctx, "pending_2fa:"+pendingToken, "testuser", 5*time.Minute)
+		defer core.TokenDB.Del(core.Ctx, "pending_2fa:"+pendingToken)
+
+		// Fill up rate limit
+		for i := 0; i < cfg.RateLimitLoginFailUserMax; i++ {
+			core.ReserveRateLimitAttempt("2fa_fail_user:testuser", cfg.RateLimitLoginFailUserMax, cfg.RateLimitLoginFailUserDecay)
+		}
+
+		f := make(url.Values)
+		f.Set("totp_code", "123456")
+
+		req := httptest.NewRequest(http.MethodPost, "/rauthlogin", strings.NewReader(f.Encode()))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
+		req.AddCookie(&http.Cookie{Name: "rauth_2fa_pending", Value: encryptedPendingToken})
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		renderer := &mockRenderer{}
+		e.Renderer = renderer
+		c.Set("csrf", "test_csrf")
+		c.SetPath("/rauthlogin")
+		req.RemoteAddr = "192.0.2.1:1234"
+
+		err := h.Verify2FA(c)
+		assert.NoError(t, err)
+
+		assert.Equal(t, http.StatusTooManyRequests, rec.Code)
+		if renderer.LastData != nil {
+			assert.Equal(t, "Too many failed attempts. Please try again later.", renderer.LastData.(map[string]interface{})["error"])
+		} else {
+			t.Errorf("renderer.LastData is nil")
+		}
+
+		// clear limit so subsequent tests don't fail
+		core.ResetRateLimit("2fa_fail_user:testuser")
+	})
+
+	t.Run("Replay Code", func(t *testing.T) {
+		core.TokenDB.Set(core.Ctx, "pending_2fa:"+pendingToken, "testuser", 5*time.Minute)
+		defer core.TokenDB.Del(core.Ctx, "pending_2fa:"+pendingToken)
+
+		code, _ := totp.GenerateCode(secret, time.Now())
+
+		// Generate an older code and use it, validating that it passes but marks it
+		// then trying again
+
+		// mark as used
+		core.TokenDB.Set(core.Ctx, "totp_used:testuser:"+code, "1", time.Minute*3)
+		// ensure rate limits don't break us
+		core.ResetRateLimit("2fa_fail_user:testuser")
+
+		f := make(url.Values)
+		f.Set("totp_code", code)
+
+		req := httptest.NewRequest(http.MethodPost, "/rauthlogin", strings.NewReader(f.Encode()))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
+		req.AddCookie(&http.Cookie{Name: "rauth_2fa_pending", Value: encryptedPendingToken})
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		req.RemoteAddr = "192.0.2.1:1234"
+
+		renderer := &mockRenderer{}
+		e.Renderer = renderer
+		c.Set("csrf", "test_csrf")
+		c.SetPath("/rauthlogin")
+
+		err := h.Verify2FA(c)
+		assert.NoError(t, err)
+
+		assert.Equal(t, http.StatusUnauthorized, rec.Code)
+		if renderer.LastData != nil {
+			assert.Equal(t, "Invalid 2FA code", renderer.LastData.(map[string]interface{})["error"])
+		} else {
+			t.Errorf("renderer.LastData is nil")
+		}
+
+		// cleanup
+		core.TokenDB.Del(core.Ctx, "totp_used:testuser:"+code)
+	})
+
+	t.Run("Valid Recovery Code", func(t *testing.T) {
+		core.TokenDB.Set(core.Ctx, "pending_2fa:"+pendingToken, "testuser", 5*time.Minute)
+		defer core.TokenDB.Del(core.Ctx, "pending_2fa:"+pendingToken)
+
+		// Add recovery code
+		recoveryCode := "recovery123"
+
+		norm := strings.ToLower(strings.TrimSpace(recoveryCode))
+		norm = strings.ReplaceAll(norm, "-", "")
+		norm = strings.ReplaceAll(norm, " ", "")
+		sum := sha256.Sum256([]byte(norm))
+		recoveryCodeHash := hex.EncodeToString(sum[:])
+
+		core.UserDB.SAdd(core.Ctx, "user:testuser:recovery_codes", recoveryCodeHash)
+		// reset recovery code after test
+		defer core.UserDB.Del(core.Ctx, "user:testuser:recovery_codes")
+		// ensure rate limits don't break us
+		core.ResetRateLimit("2fa_fail_user:testuser")
+
+		f := make(url.Values)
+		f.Set("totp_code", recoveryCode)
+
+		req := httptest.NewRequest(http.MethodPost, "/rauthlogin", strings.NewReader(f.Encode()))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
+		req.AddCookie(&http.Cookie{Name: "rauth_2fa_pending", Value: encryptedPendingToken})
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		req.RemoteAddr = "192.0.2.1:1234"
+
+		c.Set("csrf", "test_csrf")
+		c.SetPath("/rauthlogin")
+
+		err := h.Verify2FA(c)
+		assert.NoError(t, err)
+
+		assert.Equal(t, http.StatusFound, rec.Code)
+		assert.True(t, strings.HasPrefix(rec.Header().Get("Location"), "/rauthdashboard") || strings.HasPrefix(rec.Header().Get("Location"), "/rauthsetup2fa") || strings.HasPrefix(rec.Header().Get("Location"), "/"))
+	})
+
+	t.Run("Failed 2FA Penalty", func(t *testing.T) {
+		core.TokenDB.Set(core.Ctx, "pending_2fa:"+pendingToken, "testuser", 5*time.Minute)
+		defer core.TokenDB.Del(core.Ctx, "pending_2fa:"+pendingToken)
+
+		// Fill up rate limit
+		for i := 0; i < cfg.RateLimitLoginFailIPMax; i++ {
+			core.CheckRateLimit("login_fail_ip:1.2.3.6", cfg.RateLimitLoginFailIPMax, cfg.RateLimitLoginFailIPDecay)
+		}
+		// ensure user limit doesn't trigger first
+		core.ResetRateLimit("2fa_fail_user:testuser")
+
+		f := make(url.Values)
+		f.Set("totp_code", "000000") // Invalid code
+
+		req := httptest.NewRequest(http.MethodPost, "/rauthlogin", strings.NewReader(f.Encode()))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
+		req.Header.Set("X-Real-IP", "1.2.3.6")
+		req.AddCookie(&http.Cookie{Name: "rauth_2fa_pending", Value: encryptedPendingToken})
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		renderer := &mockRenderer{}
+		e.Renderer = renderer
+		c.Set("csrf", "test_csrf")
+		req.RemoteAddr = "1.2.3.6:1234"
+		c.SetPath("/rauthlogin")
+
+		err := h.Verify2FA(c)
+		assert.NoError(t, err)
+
+		assert.Equal(t, http.StatusTooManyRequests, rec.Code)
+		if renderer.LastData != nil {
+			assert.Equal(t, "Too many failed attempts. Please try again later.", renderer.LastData.(map[string]interface{})["error"])
+		} else {
+			t.Errorf("renderer.LastData is nil")
+		}
+
+		core.ResetRateLimit("login_fail_ip:1.2.3.6")
 	})
 }
