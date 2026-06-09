@@ -236,7 +236,7 @@ func TestAuthHandler_Verify2FA(t *testing.T) {
 
 		// Fill up rate limit
 		for i := 0; i < cfg.RateLimitLoginFailUserMax; i++ {
-			core.ReserveRateLimitAttempt("2fa_fail_user:testuser", cfg.RateLimitLoginFailUserMax, cfg.RateLimitLoginFailUserDecay)
+			_, _, _ = core.ReserveRateLimitAttempt("2fa_fail_user:testuser", cfg.RateLimitLoginFailUserMax, cfg.RateLimitLoginFailUserDecay)
 		}
 
 		f := make(url.Values)
