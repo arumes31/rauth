@@ -433,6 +433,32 @@ func TestFormatUserAgent(t *testing.T) {
 	}
 }
 
+func TestFormatDevice(t *testing.T) {
+	tests := []struct {
+		name     string
+		ua       string
+		platform string
+		mobile   string
+		model    string
+		want     string
+	}{
+		{"Empty", "", "", "", "", "Unknown Device"},
+		{"Standard UA", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0", "Windows", "", "", "Chrome on Windows (PC)"},
+		{"With Model", "Mozilla/5.0 (Windows NT 10.0) Chrome/91.0", "Windows", "", "Pixel 5", "Chrome on Windows (PC) [Pixel 5]"},
+		{"With Quoted Model", "Mozilla/5.0 (Windows NT 10.0) Chrome/91.0", "Windows", "", `"Pixel 5"`, "Chrome on Windows (PC) [Pixel 5]"},
+		{"Unknown Model Ignored", "Mozilla/5.0 (Windows NT 10.0) Chrome/91.0", "Windows", "", "Unknown", "Chrome on Windows (PC)"},
+		{"Sec-CH-UA-Mobile true", "Mozilla/5.0 (Windows NT 10.0) Chrome/91.0", "Windows", "?1", "", "Chrome on Windows (PC) [Mobile]"},
+		{"Sec-CH-UA-Mobile true but already mobile", "Mozilla/5.0 (Linux; Android 11; SM-G998B) Chrome/91.0 Mobile", "Android", "?1", "", "Chrome on Android [Mobile]"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := FormatDevice(tt.ua, tt.platform, tt.mobile, tt.model)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestGetDeviceIcon(t *testing.T) {
 	tests := []struct {
 		name string
