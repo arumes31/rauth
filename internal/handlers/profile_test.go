@@ -157,3 +157,50 @@ func TestProfileHandler_ChangePassword(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
 }
+
+func TestProfileHandler_TerminateAllOtherSessions(t *testing.T) {
+	setupHandlersTest(t)
+	h := &ProfileHandler{Cfg: &core.Config{}}
+	e := echo.New()
+
+	t.Run("Successfully terminate other sessions", func(t *testing.T) {
+		currentToken := "current-token"
+		otherToken1 := "other-token-1"
+		otherToken2 := "other-token-2"
+
+		// Setup current session
+		core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken="+currentToken, "username", "profileuser")
+		core.AddSessionIndex("profileuser", currentToken)
+
+		// Setup other sessions
+		core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken="+otherToken1, "username", "profileuser")
+		core.AddSessionIndex("profileuser", otherToken1)
+
+		core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken="+otherToken2, "username", "profileuser")
+		core.AddSessionIndex("profileuser", otherToken2)
+
+		c, rec := createTestContext(e, http.MethodPost, "/rauthprofile/sessions/terminate-others", nil)
+		c.Set("username", "profileuser")
+		c.Set("token", currentToken)
+
+		err := h.TerminateAllOtherSessions(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+
+		// Verify current session still exists
+		exists, _ := core.TokenDB.Exists(core.Ctx, "X-rauth-authtoken="+currentToken).Result()
+		assert.Equal(t, int64(1), exists)
+
+		// Verify other sessions are gone
+		exists, _ = core.TokenDB.Exists(core.Ctx, "X-rauth-authtoken="+otherToken1).Result()
+		assert.Equal(t, int64(0), exists)
+
+		exists, _ = core.TokenDB.Exists(core.Ctx, "X-rauth-authtoken="+otherToken2).Result()
+		assert.Equal(t, int64(0), exists)
+
+		// Verify index only contains current session
+		tokens, _ := core.TokenDB.SMembers(core.Ctx, "user_sessions:profileuser").Result()
+		assert.Len(t, tokens, 1)
+		assert.Equal(t, currentToken, tokens[0])
+	})
+}
