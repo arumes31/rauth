@@ -187,7 +187,7 @@ func TestProfileHandler_RenamePasskey(t *testing.T) {
 
 		val, _ := core.UserDB.HGet(core.Ctx, hashKey, credID).Result()
 		var c2 core.StoredCredential
-		json.Unmarshal([]byte(val), &c2)
+		_ = json.Unmarshal([]byte(val), &c2)
 		assert.Equal(t, "newname", c2.Nickname)
 	})
 
