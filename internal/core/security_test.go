@@ -492,3 +492,29 @@ func TestValidateUsername(t *testing.T) {
 		})
 	}
 }
+
+func TestSetBcryptCost(t *testing.T) {
+	// Save the original value to restore it after the test
+	origCost := bcryptCost
+	defer func() { bcryptCost = origCost }()
+
+	tests := []struct {
+		name     string
+		cost     int
+		expected int
+	}{
+		{"Valid Cost Minimum", 4, 4},       // bcrypt.MinCost is 4
+		{"Valid Cost Average", 10, 10},
+		{"Valid Cost High", 14, 14},
+		{"Valid Cost Maximum", 31, 31},     // bcrypt.MaxCost is 31
+		{"Invalid Cost Too Low", 3, 12},    // Falls back to 12
+		{"Invalid Cost Too High", 32, 12},  // Falls back to 12
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			SetBcryptCost(tt.cost)
+			require.Equal(t, tt.expected, bcryptCost)
+		})
+	}
+}
