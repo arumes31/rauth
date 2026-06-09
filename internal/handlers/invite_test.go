@@ -99,9 +99,30 @@ func TestInviteHandler_Redeem(t *testing.T) {
 	cfg := &core.Config{
 		MinPasswordLength: 8,
 		ServerSecret:      "32byte-secret-key-for-testing-!!",
+		RateLimitRegistrationMax:   100,
+		RateLimitRegistrationDecay: 60,
 	}
 	h := &InviteHandler{Cfg: cfg}
 	e := echo.New()
+
+	t.Run("Rate limit exceeded", func(t *testing.T) {
+		oldMax := h.Cfg.RateLimitRegistrationMax
+		h.Cfg.RateLimitRegistrationMax = 0
+		defer func() { h.Cfg.RateLimitRegistrationMax = oldMax }()
+
+		f := make(url.Values)
+		f.Set("token", "any-token")
+		f.Set("username", "rateuser")
+		f.Set("password", "strongpassword123")
+
+		c, _ := createTestContext(e, http.MethodPost, "/rauthredeem", f)
+		err := h.Redeem(c)
+		assert.Error(t, err)
+
+		he, ok := err.(*echo.HTTPError)
+		assert.True(t, ok)
+		assert.Equal(t, http.StatusTooManyRequests, he.Code)
+	})
 
 	t.Run("Successful redemption", func(t *testing.T) {
 		token := "redeem-token"
