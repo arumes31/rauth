@@ -25,12 +25,19 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 	// Fetch sessions using Pipeline to avoid N+1 queries
 	var sessions []map[string]string
 	var keys []string
-	iter := core.TokenDB.Scan(core.Ctx, 0, "X-rauth-authtoken=*", 0).Iterator()
-	for iter.Next(core.Ctx) {
-		keys = append(keys, iter.Val())
-	}
-	if err := iter.Err(); err != nil {
-		slog.Error("Failed to scan sessions from Redis", "error", err)
+	var cursor uint64
+	for {
+		var keysChunk []string
+		var err error
+		keysChunk, cursor, err = core.TokenDB.Scan(core.Ctx, cursor, "X-rauth-authtoken=*", 1000).Result()
+		if err != nil {
+			slog.Error("Failed to scan sessions from Redis", "error", err)
+			break
+		}
+		keys = append(keys, keysChunk...)
+		if cursor == 0 {
+			break
+		}
 	}
 
 	if len(keys) > 0 {
