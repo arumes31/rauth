@@ -97,8 +97,10 @@ func TestInviteHandler_RedeemPage(t *testing.T) {
 func TestInviteHandler_Redeem(t *testing.T) {
 	setupHandlersTest(t)
 	cfg := &core.Config{
-		MinPasswordLength: 8,
-		ServerSecret:      "32byte-secret-key-for-testing-!!",
+		MinPasswordLength:          8,
+		ServerSecret:               "32byte-secret-key-for-testing-!!",
+		RateLimitRegistrationMax:   10,
+		RateLimitRegistrationDecay: 60,
 	}
 	h := &InviteHandler{Cfg: cfg}
 	e := echo.New()
