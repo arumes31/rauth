@@ -23,8 +23,9 @@ type AuthHandler struct {
 
 // dummyBcryptHash is a valid bcrypt hash of a random value used to perform a
 // constant-time comparison when no real user/credential exists, mitigating
-// username-enumeration timing attacks.
-const dummyBcryptHash = "$2a$12$WJlQ/t/NbjXzEfIi2P54vecljh4fSRxYOkWj5Kbs7hM0eZFmL/Nyq"
+// username-enumeration timing attacks. It is a var so tests can substitute a
+// low-cost hash; production code never reassigns it.
+var dummyBcryptHash = "$2a$12$WJlQ/t/NbjXzEfIi2P54vecljh4fSRxYOkWj5Kbs7hM0eZFmL/Nyq"
 
 const (
 	// pendingTokenBytes sizes the short-lived 2FA/setup pending tokens.
@@ -53,8 +54,9 @@ func (h *AuthHandler) Root(c echo.Context) error {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
 
-	data, err := core.TokenDB.HGetAll(core.Ctx, "X-rauth-authtoken="+token).Result()
-	if err != nil || len(data) == 0 || data["status"] != "valid" {
+	// ⚡ Bolt optimization: Use HMGet instead of HGetAll since we only need the status field.
+	vals, err := core.TokenDB.HMGet(core.Ctx, "X-rauth-authtoken="+token, "status").Result()
+	if err != nil || len(vals) == 0 || vals[0] == nil || vals[0].(string) != "valid" {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
 
@@ -448,8 +450,7 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 	userRecord, _ := core.GetUser(username)
 	secret := core.Decrypt2FASecret(userRecord.TwoFactor, h.Cfg.ServerSecret)
 
-	exceeded, _, err := core.ReserveRateLimitAttempt("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay)
-	if exceeded || err != nil {
+	if core.IsRateLimitExceeded("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax) {
 		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many failed attempts. Please try again later.", "csrf": c.Get("csrf"), "display2fa": true})
 	}
 
@@ -495,7 +496,7 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 					c.Request().Header.Get("Sec-CH-UA-Platform"),
 					c.Request().Header.Get("Sec-CH-UA-Mobile"),
 					c.Request().Header.Get("Sec-CH-UA-Model"))
-				go core.Send2FAModifiedNotification(userRecord.Email, username, fmt.Sprintf("Recovery code used (%d remaining)", remaining), clientIP, device)
+				go core.Send2FAModifiedNotification(core.TwoFactorNotificationOptions{Email: userRecord.Email, Username: username, Action: fmt.Sprintf("Recovery code used (%d remaining)", remaining), IP: clientIP, Device: device})
 			}
 		}
 
@@ -505,6 +506,8 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 	core.LogAudit("2FA_FAILED", username, clientIP, nil)
 
 	// Penalize failed 2FA attempts
+	core.CheckRateLimit("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay)
+
 	if !core.HasActiveSessions(clientIP) {
 		if !core.CheckRateLimit("login_fail_ip:"+clientIP, h.Cfg.RateLimitLoginFailIPMax, h.Cfg.RateLimitLoginFailIPDecay) {
 			return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many failed attempts. Please try again later.", "csrf": c.Get("csrf"), "display2fa": true})
@@ -584,8 +587,7 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 		return c.Redirect(http.StatusFound, "/rauthsetup2fa")
 	}
 
-	exceeded, _, err := core.ReserveRateLimitAttempt("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay)
-	if exceeded || err != nil {
+	if core.IsRateLimitExceeded("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax) {
 		return c.Render(http.StatusTooManyRequests, "setup_2fa.html", map[string]interface{}{"error": "Too many failed attempts. Please try again later.", "csrf": c.Get("csrf")})
 	}
 
@@ -619,7 +621,7 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 				c.Request().Header.Get("Sec-CH-UA-Platform"),
 				c.Request().Header.Get("Sec-CH-UA-Mobile"),
 				c.Request().Header.Get("Sec-CH-UA-Model"))
-			go core.Send2FAModifiedNotification(userRecord.Email, username, "Enabled", clientIP, device)
+			go core.Send2FAModifiedNotification(core.TwoFactorNotificationOptions{Email: userRecord.Email, Username: username, Action: "Enabled", IP: clientIP, Device: device})
 		}
 
 		core.ResetRateLimit("login_post_ip:" + clientIP)
@@ -630,6 +632,8 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 	}
 
 	// Penalize failed setup attempts
+	core.CheckRateLimit("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay)
+
 	if !core.HasActiveSessions(clientIP) {
 		if !core.CheckRateLimit("login_fail_ip:"+clientIP, h.Cfg.RateLimitLoginFailIPMax, h.Cfg.RateLimitLoginFailIPDecay) {
 			return c.Render(http.StatusTooManyRequests, "setup_2fa.html", map[string]interface{}{"error": "Too many failed attempts. Please try again later.", "csrf": c.Get("csrf")})

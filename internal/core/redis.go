@@ -61,17 +61,15 @@ func InvalidateUserSessions(username string) {
 		return
 	}
 
-	// ⚡ Bolt optimization: Batch variadic string keys to delete in one pipeline round trip.
+	// ⚡ Bolt optimization: Batch variadic string keys to delete in one round trip, avoiding pipeline overhead.
 	var toDel []string
 	for _, token := range tokens {
 		toDel = append(toDel, "X-rauth-authtoken="+token)
 	}
 	toDel = append(toDel, indexKey)
 
-	pipe := TokenDB.Pipeline()
-	pipe.Del(Ctx, toDel...)
-	if _, err := pipe.Exec(Ctx); err != nil {
-		slog.Error("Failed to execute InvalidateUserSessions pipeline", "error", err)
+	if err := TokenDB.Del(Ctx, toDel...).Err(); err != nil {
+		slog.Error("Failed to execute InvalidateUserSessions", "error", err)
 	}
 }
 
@@ -117,19 +115,22 @@ func HasActiveSessions(ip string) bool {
 		return false
 	}
 
-	// ⚡ Bolt optimization: Batch HGetAll requests to avoid N+1 queries.
+	// ⚡ Bolt optimization: Batch HGet requests to avoid N+1 queries and HGetAll parsing overhead.
 	pipe := TokenDB.Pipeline()
-	cmds := make(map[string]*redis.MapStringStringCmd, len(tokens))
+	cmds := make(map[string]*redis.StringCmd, len(tokens))
 	for _, token := range tokens {
-		cmds[token] = pipe.HGetAll(Ctx, "X-rauth-authtoken="+token)
+		cmds[token] = pipe.HGet(Ctx, "X-rauth-authtoken="+token, "status")
 	}
-	_, _ = pipe.Exec(Ctx)
+	_, err = pipe.Exec(Ctx)
+	if err != nil && err != redis.Nil {
+		return false
+	}
 
 	var stale []interface{}
 	hasActive := false
 	for _, token := range tokens {
-		data, err := cmds[token].Result()
-		if err == nil && len(data) > 0 && data["status"] == "valid" {
+		status, err := cmds[token].Result()
+		if err == nil && status == "valid" {
 			hasActive = true
 		} else {
 			stale = append(stale, token)
@@ -168,7 +169,7 @@ func RemoveIPSessionIndex(ip, token string) {
 func SyncSessionIndexes() int64 {
 	var count int64
 	count += reconcileIndexSets("user_sessions:*")
-	reconcileIndexSets("ip_sessions:*")
+	count += reconcileIndexSets("ip_sessions:*")
 	return count
 }
 
@@ -197,18 +198,18 @@ func reconcileIndexSets(pattern string) int64 {
 				continue
 			}
 
-			// ⚡ Bolt optimization: Batch HGetAll requests in a pipeline and remove stale tokens variadically.
+			// ⚡ Bolt optimization: Batch HGet requests in a pipeline and remove stale tokens variadically.
 			pipe := TokenDB.Pipeline()
-			cmds := make(map[string]*redis.MapStringStringCmd, len(tokens))
+			cmds := make(map[string]*redis.StringCmd, len(tokens))
 			for _, token := range tokens {
-				cmds[token] = pipe.HGetAll(Ctx, "X-rauth-authtoken="+token)
+				cmds[token] = pipe.HGet(Ctx, "X-rauth-authtoken="+token, "status")
 			}
 			_, _ = pipe.Exec(Ctx)
 
 			var stale []interface{}
 			for _, token := range tokens {
-				data, err := cmds[token].Result()
-				if err == nil && len(data) > 0 && data["status"] == "valid" {
+				status, err := cmds[token].Result()
+				if err == nil && status == "valid" {
 					live++
 				} else {
 					stale = append(stale, token)

@@ -12,6 +12,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/labstack/echo/v4"
 	"github.com/redis/go-redis/v9"
+	"golang.org/x/crypto/bcrypt"
 )
 
 var (
@@ -22,6 +23,13 @@ var (
 func setupHandlersTest(t *testing.T) {
 	globalTestMu.Lock()
 	if sharedMiniredis == nil {
+		// The cost-12 dummy hash makes brute-force tests (~130 failed logins)
+		// exceed the 10m test timeout under -race; use MinCost in tests.
+		cheapHash, err := bcrypt.GenerateFromPassword([]byte("test-dummy"), bcrypt.MinCost)
+		if err != nil {
+			t.Fatalf("failed to generate test dummy hash: %v", err)
+		}
+		dummyBcryptHash = string(cheapHash)
 		s, err := miniredis.Run()
 		if err != nil {
 			t.Fatalf("failed to run miniredis: %v", err)

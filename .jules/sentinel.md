@@ -59,3 +59,8 @@
 **Vulnerability:** Admin user management handlers (`CreateUser`, `DeleteUser`, `ResetUser2FA`, `ChangeUserPassword`, `UpdateUserEmail`) were missing robust username validation and existence checks. They accepted raw, untrimmed inputs and proceeded to perform operations even if the target user did not exist or (in the case of creation) was invalid, potentially leading to data integrity issues or side-effects on non-existent records.
 **Learning:** Even internal admin-only endpoints must rigorously validate all inputs. Assuming data is safe because it comes from an authorized user is a dangerous anti-pattern.
 **Prevention:** Always use centralized validation helpers (like `core.ValidateUsername`) and explicitly verify resource existence (e.g., `core.GetUser`) before processing management actions. Trim whitespace from all user-provided identifiers.
+
+## 2026-06-06 - 2FA Verification Account Lockout DoS
+**Vulnerability:** The 2FA verification logic (`Verify2FA` and `CompleteSetup2FA`) used `ReserveRateLimitAttempt` before verifying the token, which unconditionally increments the failure count on every attempt. This allows an attacker to spam invalid 2FA attempts to trivially lock a legitimate user out of their account.
+**Learning:** Security checks that consume rate limits must only increment the failure count when the check actually fails, and only perform a read-only check (`IsRateLimitExceeded`) prior to execution.
+**Prevention:** Use non-mutating rate limit checks before executing sensitive operations, and conditionally apply the rate limit penalty strictly on the failure path.

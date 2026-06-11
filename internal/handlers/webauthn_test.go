@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"github.com/go-webauthn/webauthn/protocol"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"rauth/internal/core"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/labstack/echo/v4"
@@ -101,6 +103,109 @@ func TestWebAuthnHandlers(t *testing.T) {
 		}
 	})
 
+	t.Run("FinishRegistration_RateLimitExceeded", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/webauthn/register/finish", nil)
+		req.RemoteAddr = "192.168.1.1:12345" // For clientIP
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		// Max out rate limit
+		for i := 0; i < cfg.RateLimitRegistrationMax; i++ {
+			core.CheckRateLimit("reg_ip:192.168.1.1", cfg.RateLimitRegistrationMax, cfg.RateLimitRegistrationDecay)
+		}
+
+		err := h.FinishRegistration(c)
+		if assert.Error(t, err) {
+			he, ok := err.(*echo.HTTPError)
+			assert.True(t, ok)
+			assert.Equal(t, http.StatusTooManyRequests, he.Code)
+		}
+
+		// Clear rate limit for other tests
+		core.TokenDB.Del(core.Ctx, "reg_ip:192.168.1.1")
+	})
+
+	t.Run("FinishRegistration_Unauthorized", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/webauthn/register/finish", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := h.FinishRegistration(c)
+		if assert.Error(t, err) {
+			he, ok := err.(*echo.HTTPError)
+			assert.True(t, ok)
+			assert.Equal(t, http.StatusUnauthorized, he.Code)
+		}
+	})
+
+	t.Run("FinishRegistration_UserNotFound", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/webauthn/register/finish", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		c.Set("username", "nonexistentuser")
+
+		err := h.FinishRegistration(c)
+		if assert.Error(t, err) {
+			he, ok := err.(*echo.HTTPError)
+			assert.True(t, ok)
+			assert.Equal(t, http.StatusInternalServerError, he.Code)
+			assert.Equal(t, "User not found", he.Message)
+		}
+	})
+
+	t.Run("FinishRegistration_SessionExpired", func(t *testing.T) {
+		_ = core.CreateUser("testuser2", "password123", "test2@example.com", false, "")
+		req := httptest.NewRequest(http.MethodPost, "/webauthn/register/finish", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		c.Set("username", "testuser2")
+
+		err := h.FinishRegistration(c)
+		if assert.Error(t, err) {
+			he, ok := err.(*echo.HTTPError)
+			assert.True(t, ok)
+			assert.Equal(t, http.StatusBadRequest, he.Code)
+			assert.Equal(t, "Session expired", he.Message)
+		}
+	})
+
+	t.Run("FinishRegistration_WebAuthnError", func(t *testing.T) {
+		_ = core.CreateUser("testuser4", "password123", "test4@example.com", false, "")
+
+		// Valid JSON, but not matching what the webauthn library expects to correctly verify an empty request
+		sessionJSON := `{"challenge":"aGVsbG8=","user_id":"dGVzdHVzZXI0","allowed_credentials":[],"userVerification":"preferred"}`
+		core.TokenDB.Set(core.Ctx, "webauthn_reg:testuser4", sessionJSON, 5*time.Minute)
+
+		req := httptest.NewRequest(http.MethodPost, "/webauthn/register/finish", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		c.Set("username", "testuser4")
+
+		err := h.FinishRegistration(c)
+		if assert.Error(t, err) {
+			he, ok := err.(*echo.HTTPError)
+			assert.True(t, ok)
+			assert.Equal(t, http.StatusBadRequest, he.Code)
+		}
+	})
+
+	t.Run("FinishRegistration_InvalidSessionData", func(t *testing.T) {
+		_ = core.CreateUser("testuser3", "password123", "test3@example.com", false, "")
+		core.TokenDB.Set(core.Ctx, "webauthn_reg:testuser3", "invalid json", 0)
+		req := httptest.NewRequest(http.MethodPost, "/webauthn/register/finish", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		c.Set("username", "testuser3")
+
+		err := h.FinishRegistration(c)
+		if assert.Error(t, err) {
+			he, ok := err.(*echo.HTTPError)
+			assert.True(t, ok)
+			assert.Equal(t, http.StatusInternalServerError, he.Code)
+			assert.Equal(t, "Failed to parse session data", he.Message)
+		}
+	})
+
 	// Regression: a passkey-issued session must stamp groups/is_admin and the
 	// per-IP session index, matching the password-login path (issueToken), so
 	// forward-auth forwards X-RAuth-Groups/X-RAuth-Admin and brute-force checks
@@ -130,5 +235,44 @@ func TestWebAuthnHandlers(t *testing.T) {
 			assert.Equal(t, "engineering,ops", data["groups"])
 			assert.Equal(t, "1", data["is_admin"])
 		}
+	})
+}
+
+
+func TestWebAuthnHandler_identifyWebAuthnUser(t *testing.T) {
+	setupHandlersTest(t)
+	h := &WebAuthnHandler{Cfg: &core.Config{}}
+	e := echo.New()
+
+	t.Run("Identify missing both", func(t *testing.T) {
+		parsedResponse := &protocol.ParsedCredentialAssertionData{
+			Response: protocol.ParsedAssertionResponse{
+				UserHandle: []byte{},
+			},
+		}
+
+		c, _ := createTestContext(e, http.MethodPost, "/auth/webauthn/login/finish", nil)
+
+		_, _, _, err := h.identifyWebAuthnUser(c, parsedResponse)
+		assert.Error(t, err)
+	})
+
+	t.Run("Identify by usernameParam", func(t *testing.T) {
+		// Mock user in DB
+		core.UserDB.HSet(core.Ctx, "user:testuser", "username", "testuser", "uid", "test-uid")
+
+		parsedResponse := &protocol.ParsedCredentialAssertionData{
+			Response: protocol.ParsedAssertionResponse{
+				UserHandle: []byte{},
+			},
+		}
+
+		c, _ := createTestContext(e, http.MethodGet, "/auth/webauthn/login/finish?username=testuser", nil)
+
+		username, userID, userRec, err := h.identifyWebAuthnUser(c, parsedResponse)
+		assert.NoError(t, err)
+		assert.Equal(t, "testuser", username)
+		assert.Equal(t, []byte("test-uid"), userID)
+		assert.NotNil(t, userRec)
 	})
 }

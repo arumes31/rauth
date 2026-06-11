@@ -18,5 +18,26 @@
 **Action:** Always check `if err != nil && err != redis.Nil` after `pipe.Exec()` if your pipeline includes commands that might return `redis.Nil` as a valid state (like `HGet` for a missing field). Additionally, when background goroutines use global Redis clients (like `TokenDB`), ensure they handle `nil` clients or provide a way to bypass execution during early system initialization to avoid panics in tests.
 
 ## 2026-05-27 - Reducing Allocations with bufio.Scanner
+> **Revised 2026-06-05:** Superseded for hot paths by [Optimizing string parsing](#2026-06-05---optimizing-string-parsing). Prefer `bufio.Scanner` for readability with moderate-size inputs parsed occasionally; prefer manual index-based newline parsing (`strings.IndexByte` + slicing) for hot loops, zero-allocation requirements, or very large embedded strings parsed once.
+
 **Learning:** Parsing large embedded strings (like blocklists) using `strings.Split` creates a large slice of strings that persists until the loop finishes. This is inefficient for one-time map population.
-**Action:** Use `bufio.Scanner` with `strings.NewReader` to process the string line-by-line. This minimizes temporary allocations and is significantly more memory-efficient for large text datasets.
+**Action:** Use `bufio.Scanner` with `strings.NewReader` to process the string line-by-line. This minimizes temporary allocations and is significantly more memory-efficient for large text datasets than `strings.Split`. For one-time parsing of very large strings in hot paths, go a step further with index-based slicing (see 2026-06-05).
+## 2026-06-05 - Avoid Redundant Pipeline Wrapping
+**Learning:** While pipelining is crucial for batching multiple commands, wrapping a *single* variadic command (like `Del(keys...)`) inside a pipeline introduces unnecessary overhead. Direct command execution via the client is faster when only one network round-trip is required.
+**Action:** When performing a single bulk operation with a variadic command, call it directly on the client (e.g., `TokenDB.Del(...)`) instead of initializing and executing a pipeline.
+
+## 2026-06-08 - HGetAll vs HGet in Pipelines
+**Learning:** When retrieving a single field from a Redis hash inside a pipeline loop, replacing `HGetAll` with `HGet` reduces memory allocations and parsing overhead. However, be careful to use `*redis.StringCmd` instead of `*redis.MapStringStringCmd` for the command array, and handle potential `redis.Nil` errors which `HGetAll` does not throw.
+**Action:** Always prefer `HGet` over `HGetAll` when only one field is needed, even in pipelines. Update variable types and error handling accordingly.
+
+## 2026-06-05 - Optimizing string parsing
+**Learning:** Using bufio.Scanner for parsing strings in memory still requires allocating scanner structures and copying slices. A loop matching on newlines (`strings.IndexByte`) and slicing directly from the original string is significantly faster and requires zero extra allocations.
+**Action:** Use index-based slicing instead of bufio.Scanner when extracting lines from embedded strings that are only parsed once.
+
+## 2026-06-11 - Health Check Allocation and Iteration
+**Learning:** Building the health-check Redis client set as a `map` forces non-deterministic iteration order and an extra allocation, while the result map can be sized up front.
+**Action:** Use a preallocated `checks` map (`make(map[string]string, 4)`) and iterate the clients via a fixed slice of structs instead of a map for deterministic order and fewer allocations.
+
+## 2026-06-11 - HGetAll vs HMGet Overhead
+**Learning:** `HGetAll` reads and decodes the entire Redis hash map into memory, which incurs unnecessary overhead for authentication and routing middleware that only requires checking specific fields (like `status`, `username`, `groups`, `is_admin`). `HMGet` is significantly faster because it only fetches and transfers the requested fields over the network, returning a slice rather than a map.
+**Action:** When validating sessions in middleware or routing handlers that only need partial hash data, prefer `HMGet(ctx, key, fields...)` over `HGetAll(ctx, key)` to minimize redis parsing and network serialization overhead.

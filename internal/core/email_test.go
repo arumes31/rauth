@@ -73,7 +73,7 @@ func TestNotifications(t *testing.T) {
 	})
 
 	t.Run("Send2FAModifiedNotification", func(t *testing.T) {
-		Send2FAModifiedNotification("user@example.com", "testuser", "Enabled", "9.10.11.12", "Firefox on Android [Mobile]")
+		Send2FAModifiedNotification(TwoFactorNotificationOptions{Email: "user@example.com", Username: "testuser", Action: "Enabled", IP: "9.10.11.12", Device: "Firefox on Android [Mobile]"})
 
 		assert.Contains(t, capturedMsg, "Subject: [RAuth] Security Alert: 2FA Enabled")
 		assert.Contains(t, capturedMsg, "testuser")
@@ -150,4 +150,50 @@ func TestSendAccountCreatedNotificationRobust(t *testing.T) {
 	// Verify it's wrapped in the template
 	assert.Contains(t, capturedMsg, "<!DOCTYPE html>")
 	assert.Contains(t, capturedMsg, "RAuth Security</h1>")
+}
+
+func TestSanitizeEmailHeader(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "leading space",
+			input:    "  leading",
+			expected: "leading",
+		},
+		{
+			name:     "trailing space",
+			input:    "trailing  ",
+			expected: "trailing",
+		},
+		{
+			name:     "both spaces",
+			input:    "  both  ",
+			expected: "both",
+		},
+		{
+			name:     "inner newline",
+			input:    "inner\nnewline",
+			expected: "innernewline",
+		},
+		{
+			name:     "mixed whitespace and newlines",
+			input:    " \r\n  test  \n\r ",
+			expected: "test",
+		},
+		{
+			name:     "tab characters",
+			input:    "\ttab\t",
+			expected: "tab",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			actual := sanitizeEmailHeader(tt.input)
+			assert.Equal(t, tt.expected, actual)
+		})
+	}
 }

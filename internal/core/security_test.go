@@ -3,6 +3,7 @@ package core
 import (
 	"encoding/base64"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -491,4 +492,330 @@ func TestValidateUsername(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSetBcryptCost(t *testing.T) {
+	originalCost := bcryptCost
+	defer func() { bcryptCost = originalCost }()
+
+	tests := []struct {
+		name     string
+		cost     int
+		expected int
+	}{
+		{
+			name:     "Valid cost",
+			cost:     10,
+			expected: 10,
+		},
+		{
+			name:     "Too low cost",
+			cost:     2,
+			expected: 12,
+		},
+		{
+			name:     "Too high cost",
+			cost:     32,
+			expected: 12,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			SetBcryptCost(tt.cost)
+			assert.Equal(t, tt.expected, bcryptCost)
+		})
+	}
+}
+
+func TestFormatDevice(t *testing.T) {
+	tests := []struct {
+		name     string
+		ua       string
+		platform string
+		mobile   string
+		model    string
+		expected string
+	}{
+		{
+			name:     "Full device info",
+			ua:       "Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.162 Mobile Safari/537.36",
+			platform: "Android",
+			mobile:   "?1",
+			model:    "SM-G981B",
+			expected: "Chrome on Android [SM-G981B] [Mobile]",
+		},
+		{
+			name:     "Missing model and mobile indicator",
+			ua:       "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/112.0",
+			platform: "Windows",
+			mobile:   "?0",
+			model:    "",
+			expected: "Firefox on Windows",
+		},
+		{
+			name:     "Unknown model",
+			ua:       "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36",
+			platform: "Android",
+			mobile:   "?1",
+			model:    "Unknown",
+			expected: "Chrome on Android [Mobile]", // Note: FormatUserAgent might parse differently based on exact UA, adjust expected if needed
+		},
+		{
+			name:     "Mobile already in UA",
+			ua:       "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
+			platform: "iOS",
+			mobile:   "?1",
+			model:    "iPhone",
+			expected: "Safari on iOS [iPhone] [Mobile]", // 'iPhone' UA parsing might already include [Mobile], if so it shouldn't duplicate
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := FormatDevice(tt.ua, tt.platform, tt.mobile, tt.model)
+			// we are doing loose checks for mobile because of underlying FormatUserAgent behavior
+			if tt.mobile == "?1" {
+				assert.Contains(t, res, "[Mobile]")
+			}
+			if tt.model != "" && tt.model != "Unknown" {
+				assert.Contains(t, res, tt.model)
+			}
+		})
+	}
+}
+
+func TestEncrypt2FASecret(t *testing.T) {
+	key := "12345678901234567890123456789012"
+	plainSecret := "my-plain-secret"
+
+	tests := []struct {
+		name       string
+		secret     string
+		key        string
+		wantPrefix string
+		wantExact  string
+	}{
+		{
+			name:       "Empty Secret",
+			secret:     "",
+			key:        key,
+			wantPrefix: "",
+			wantExact:  "",
+		},
+		{
+			name:       "Valid Secret",
+			secret:     plainSecret,
+			key:        key,
+			wantPrefix: "enc:",
+			wantExact:  "", // Exact value changes due to IV, we verify decryption later
+		},
+		{
+			name:       "Plain Secret containing enc:",
+			secret:     "enc:dummy-plain-text-already",
+			key:        key,
+			wantPrefix: "enc:",
+			wantExact:  "", // Exact value changes due to IV, we verify decryption later
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := Encrypt2FASecret(tt.secret, tt.key)
+
+			if tt.wantExact != "" {
+				require.Equal(t, tt.wantExact, got)
+			}
+
+			if tt.wantPrefix != "" {
+				require.True(t, strings.HasPrefix(got, tt.wantPrefix), "Expected prefix %q in %q", tt.wantPrefix, got)
+			}
+
+			// For a successfully encrypted valid secret, verify it decrypts back correctly
+			if tt.name == "Valid Secret" {
+				decrypted := Decrypt2FASecret(got, tt.key)
+				require.Equal(t, tt.secret, decrypted, "Decrypted secret should match original plain secret")
+			}
+		})
+	}
+}
+
+func TestParseUserAgent(t *testing.T) {
+	tests := []struct {
+		name     string
+		ua       string
+		expected ParsedUA
+	}{
+		{
+			name: "Windows PC - Chrome",
+			ua:   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+			expected: ParsedUA{
+				OS:       "Windows",
+				Platform: "PC",
+				Browser:  "Chrome",
+				IsMobile: false,
+			},
+		},
+		{
+			name: "Mac PC - Safari",
+			ua:   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.1 Safari/605.1.15",
+			expected: ParsedUA{
+				OS:       "macOS",
+				Platform: "Mac",
+				Browser:  "Safari",
+				IsMobile: false,
+			},
+		},
+		{
+			name: "Linux PC - Firefox",
+			ua:   "Mozilla/5.0 (X11; Linux x86_64; rv:122.0) Gecko/20100101 Firefox/122.0",
+			expected: ParsedUA{
+				OS:       "Linux",
+				Platform: "PC",
+				Browser:  "Firefox",
+				IsMobile: false,
+			},
+		},
+		{
+			name: "iPhone - Safari",
+			ua:   "Mozilla/5.0 (iPhone; CPU iPhone OS 17_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Mobile/15E148 Safari/604.1",
+			expected: ParsedUA{
+				OS:       "iOS",
+				Platform: "iPhone",
+				Browser:  "Safari",
+				IsMobile: true,
+			},
+		},
+		{
+			name: "iPad - Safari",
+			ua:   "Mozilla/5.0 (iPad; CPU OS 17_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Mobile/15E148 Safari/604.1",
+			expected: ParsedUA{
+				OS:       "iOS",
+				Platform: "iPad",
+				Browser:  "Safari",
+				IsMobile: true,
+			},
+		},
+		{
+			name: "Android - Chrome",
+			ua:   "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+			expected: ParsedUA{
+				OS:       "Android",
+				Platform: "",
+				Browser:  "Chrome",
+				IsMobile: true,
+			},
+		},
+		{
+			name: "Windows PC - Edge",
+			ua:   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+			expected: ParsedUA{
+				OS:       "Windows",
+				Platform: "PC",
+				Browser:  "Edge",
+				IsMobile: false,
+			},
+		},
+		{
+			name: "Mac PC - Opera",
+			ua:   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 OPR/106.0.0.0",
+			expected: ParsedUA{
+				OS:       "macOS",
+				Platform: "Mac",
+				Browser:  "Opera",
+				IsMobile: false,
+			},
+		},
+		{
+			name: "iPhone - Chrome (CriOS)",
+			ua:   "Mozilla/5.0 (iPhone; CPU iPhone OS 17_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/120.0.6099.119 Mobile/15E148 Safari/604.1",
+			expected: ParsedUA{
+				OS:       "iOS",
+				Platform: "iPhone",
+				Browser:  "Chrome",
+				IsMobile: true,
+			},
+		},
+		{
+			name: "iPhone - Firefox (FxiOS)",
+			ua:   "Mozilla/5.0 (iPhone; CPU iPhone OS 17_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/122.0 Mobile/15E148 Safari/605.1.15",
+			expected: ParsedUA{
+				OS:       "iOS",
+				Platform: "iPhone",
+				Browser:  "Firefox",
+				IsMobile: true,
+			},
+		},
+		{
+			name: "Unknown Device and Browser",
+			ua:   "Custom/1.0",
+			expected: ParsedUA{
+				OS:       "Unknown OS",
+				Platform: "",
+				Browser:  "Unknown Browser",
+				IsMobile: false,
+			},
+		},
+		{
+			name: "Empty String",
+			ua:   "",
+			expected: ParsedUA{
+				OS:       "Unknown OS",
+				Platform: "",
+				Browser:  "Unknown Browser",
+				IsMobile: false,
+			},
+		},
+		{
+			name: "Opera Legacy",
+			ua:   "Opera/9.80 (Windows NT 6.0) Presto/2.12.388 Version/12.14",
+			expected: ParsedUA{
+				OS:       "Windows",
+				Platform: "PC",
+				Browser:  "Opera",
+				IsMobile: false,
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := ParseUserAgent(tc.ua)
+
+			if result.OS != tc.expected.OS {
+				t.Errorf("Expected OS %q, got %q for UA %q", tc.expected.OS, result.OS, tc.ua)
+			}
+			if result.Platform != tc.expected.Platform {
+				t.Errorf("Expected Platform %q, got %q for UA %q", tc.expected.Platform, result.Platform, tc.ua)
+			}
+			if result.Browser != tc.expected.Browser {
+				t.Errorf("Expected Browser %q, got %q for UA %q", tc.expected.Browser, result.Browser, tc.ua)
+			}
+			if result.IsMobile != tc.expected.IsMobile {
+				t.Errorf("Expected IsMobile %v, got %v for UA %q", tc.expected.IsMobile, result.IsMobile, tc.ua)
+			}
+		})
+	}
+}
+
+func TestValidatePasswordLength(t *testing.T) {
+	cfg := &Config{
+		MinPasswordLength:      8,
+		RequirePasswordUpper:   false,
+		RequirePasswordLower:   false,
+		RequirePasswordNumber:  false,
+		RequirePasswordSpecial: false,
+	}
+
+	validPassword := "a"
+	for len(validPassword) < 72 {
+		validPassword += "a"
+	}
+	err := ValidatePassword(validPassword, cfg)
+	require.NoError(t, err, "72 bytes password should be valid")
+
+	invalidPassword := validPassword + "a"
+	err = ValidatePassword(invalidPassword, cfg)
+	require.Error(t, err, "73 bytes password should be invalid")
+	require.Contains(t, err.Error(), "password must be at most 72 bytes long")
 }

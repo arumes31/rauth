@@ -1,7 +1,6 @@
 package core
 
 import (
-	"bufio"
 	_ "embed"
 	"strings"
 	"sync"
@@ -18,10 +17,16 @@ var (
 
 func parseCommonPasswords() {
 	commonPasswords = make(map[string]struct{})
-	scanner := bufio.NewScanner(strings.NewReader(commonPasswordsRaw))
-	for scanner.Scan() {
-		p := strings.TrimSpace(scanner.Text())
-		if p == "" || strings.HasPrefix(p, "#") {
+	s := commonPasswordsRaw
+	for len(s) > 0 {
+		var line string
+		if i := strings.IndexByte(s, '\n'); i >= 0 {
+			line, s = s[:i], s[i+1:]
+		} else {
+			line, s = s, ""
+		}
+		p := strings.TrimSpace(line)
+		if p == "" || p[0] == '#' {
 			continue
 		}
 		commonPasswords[strings.ToLower(p)] = struct{}{}
