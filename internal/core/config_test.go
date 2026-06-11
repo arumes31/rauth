@@ -76,7 +76,6 @@ func TestIsAllowedHost(t *testing.T) {
 		{"app.dotprefix.com", true},
 		{"evil.com", false},
 		{"notexample.com", false},
-		{"evil-example.com", false},
 		{"example.com.evil.com", false},
 		{"example.com..", true},
 		{"..example.com", true},
@@ -88,6 +87,7 @@ func TestIsAllowedHost(t *testing.T) {
 		{".example.com", true},
 		{"app.example.com.", true},
 		{"evilexample.com", false},
+		{"evil-example.com", false},
 		{"not-other.org", false},
 		{"app.not-other.org", false},
 	}
