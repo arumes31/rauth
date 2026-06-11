@@ -87,7 +87,12 @@ func (h *InviteHandler) Redeem(c echo.Context) error {
 	// Create User
 	err = core.CreateUser(username, password, email, false, "")
 	if err != nil {
-		return c.JSON(http.StatusConflict, map[string]string{"error": "Username already taken"})
+		if strings.Contains(err.Error(), "already exists") {
+			return c.JSON(http.StatusConflict, map[string]string{"error": "Username already taken"})
+		}
+		// Internal failure (e.g. storage error): keep the invite usable and
+		// report it as such instead of a misleading conflict.
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to create account. Please try again."})
 	}
 
 	// Cleanup token
