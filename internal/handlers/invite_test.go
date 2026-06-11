@@ -204,11 +204,13 @@ func TestInviteHandler_Redeem(t *testing.T) {
 		}
 
 		// Exceed rate limit
-		c, rec := createTestContext(e, http.MethodPost, "/rauthredeem", f)
+		c, _ := createTestContext(e, http.MethodPost, "/rauthredeem", f)
 		c.Request().RemoteAddr = "192.168.1.100:1234"
 		err := h.Redeem(c)
 
-		assert.NoError(t, err)
-		assert.Equal(t, http.StatusTooManyRequests, rec.Code)
+		assert.Error(t, err)
+		he, ok := err.(*echo.HTTPError)
+		assert.True(t, ok)
+		assert.Equal(t, http.StatusTooManyRequests, he.Code)
 	})
 }
