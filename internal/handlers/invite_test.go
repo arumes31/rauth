@@ -97,8 +97,10 @@ func TestInviteHandler_RedeemPage(t *testing.T) {
 func TestInviteHandler_Redeem(t *testing.T) {
 	setupHandlersTest(t)
 	cfg := &core.Config{
-		MinPasswordLength: 8,
-		ServerSecret:      "32byte-secret-key-for-testing-!!",
+		MinPasswordLength:          8,
+		ServerSecret:               "32byte-secret-key-for-testing-!!",
+		RateLimitRegistrationMax:   2,
+		RateLimitRegistrationDecay: 60,
 	}
 	h := &InviteHandler{Cfg: cfg}
 	e := echo.New()
@@ -130,6 +132,7 @@ func TestInviteHandler_Redeem(t *testing.T) {
 	})
 
 	t.Run("Invalid token", func(t *testing.T) {
+		core.RateLimitDB.FlushAll(core.Ctx)
 		f := make(url.Values)
 		f.Set("token", "invalid")
 		f.Set("username", "newuser2")
@@ -145,6 +148,7 @@ func TestInviteHandler_Redeem(t *testing.T) {
 	})
 
 	t.Run("Weak password", func(t *testing.T) {
+		core.RateLimitDB.FlushAll(core.Ctx)
 		token := "weak-pass-token"
 		email := "test2@example.com"
 		core.InviteDB.Set(core.Ctx, "invite:"+token, email, 0)
@@ -162,6 +166,7 @@ func TestInviteHandler_Redeem(t *testing.T) {
 	})
 
 	t.Run("Username already taken", func(t *testing.T) {
+		core.RateLimitDB.FlushAll(core.Ctx)
 		token := "taken-user-token"
 		email := "test3@example.com"
 		core.InviteDB.Set(core.Ctx, "invite:"+token, email, 0)
@@ -178,5 +183,32 @@ func TestInviteHandler_Redeem(t *testing.T) {
 
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusConflict, rec.Code)
+	})
+
+	t.Run("Rate limit exceeded", func(t *testing.T) {
+		core.RateLimitDB.FlushAll(core.Ctx)
+		token := "rate-limit-token"
+		email := "test4@example.com"
+		core.InviteDB.Set(core.Ctx, "invite:"+token, email, 0)
+
+		f := make(url.Values)
+		f.Set("token", token)
+		f.Set("username", "ratelimituser")
+		f.Set("password", "strongpassword123")
+
+		// Consume allowed attempts
+		for i := 0; i < 2; i++ {
+			c, _ := createTestContext(e, http.MethodPost, "/rauthredeem", f)
+			c.Request().RemoteAddr = "192.168.1.100:1234"
+			_ = h.Redeem(c)
+		}
+
+		// Exceed rate limit
+		c, rec := createTestContext(e, http.MethodPost, "/rauthredeem", f)
+		c.Request().RemoteAddr = "192.168.1.100:1234"
+		err := h.Redeem(c)
+
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusTooManyRequests, rec.Code)
 	})
 }
