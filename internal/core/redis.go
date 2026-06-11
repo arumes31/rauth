@@ -61,17 +61,15 @@ func InvalidateUserSessions(username string) {
 		return
 	}
 
-	// ⚡ Bolt optimization: Batch variadic string keys to delete in one pipeline round trip.
+	// ⚡ Bolt optimization: Batch variadic string keys to delete in one round trip, avoiding pipeline overhead.
 	var toDel []string
 	for _, token := range tokens {
 		toDel = append(toDel, "X-rauth-authtoken="+token)
 	}
 	toDel = append(toDel, indexKey)
 
-	pipe := TokenDB.Pipeline()
-	pipe.Del(Ctx, toDel...)
-	if _, err := pipe.Exec(Ctx); err != nil {
-		slog.Error("Failed to execute InvalidateUserSessions pipeline", "error", err)
+	if err := TokenDB.Del(Ctx, toDel...).Err(); err != nil {
+		slog.Error("Failed to execute InvalidateUserSessions", "error", err)
 	}
 }
 

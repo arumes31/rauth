@@ -20,3 +20,6 @@
 ## 2026-05-27 - Reducing Allocations with bufio.Scanner
 **Learning:** Parsing large embedded strings (like blocklists) using `strings.Split` creates a large slice of strings that persists until the loop finishes. This is inefficient for one-time map population.
 **Action:** Use `bufio.Scanner` with `strings.NewReader` to process the string line-by-line. This minimizes temporary allocations and is significantly more memory-efficient for large text datasets.
+## 2026-06-05 - Avoid Redundant Pipeline Wrapping
+**Learning:** While pipelining is crucial for batching multiple commands, wrapping a *single* variadic command (like `Del(keys...)`) inside a pipeline introduces unnecessary overhead. Direct command execution via the client is faster when only one network round-trip is required.
+**Action:** When performing a single bulk operation with a variadic command, call it directly on the client (e.g., `TokenDB.Del(...)`) instead of initializing and executing a pipeline.
