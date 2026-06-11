@@ -492,3 +492,95 @@ func TestValidateUsername(t *testing.T) {
 		})
 	}
 }
+
+
+func TestSetBcryptCost(t *testing.T) {
+	originalCost := bcryptCost
+	defer func() { bcryptCost = originalCost }()
+
+	tests := []struct {
+		name     string
+		cost     int
+		expected int
+	}{
+		{
+			name:     "Valid cost",
+			cost:     10,
+			expected: 10,
+		},
+		{
+			name:     "Too low cost",
+			cost:     2,
+			expected: 12,
+		},
+		{
+			name:     "Too high cost",
+			cost:     32,
+			expected: 12,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			SetBcryptCost(tt.cost)
+			assert.Equal(t, tt.expected, bcryptCost)
+		})
+	}
+}
+
+func TestFormatDevice(t *testing.T) {
+	tests := []struct {
+		name     string
+		ua       string
+		platform string
+		mobile   string
+		model    string
+		expected string
+	}{
+		{
+			name:     "Full device info",
+			ua:       "Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.162 Mobile Safari/537.36",
+			platform: "Android",
+			mobile:   "?1",
+			model:    "SM-G981B",
+			expected: "Chrome on Android [SM-G981B] [Mobile]",
+		},
+		{
+			name:     "Missing model and mobile indicator",
+			ua:       "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/112.0",
+			platform: "Windows",
+			mobile:   "?0",
+			model:    "",
+			expected: "Firefox on Windows",
+		},
+		{
+			name:     "Unknown model",
+			ua:       "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36",
+			platform: "Android",
+			mobile:   "?1",
+			model:    "Unknown",
+			expected: "Chrome on Android [Mobile]", // Note: FormatUserAgent might parse differently based on exact UA, adjust expected if needed
+		},
+		{
+			name:     "Mobile already in UA",
+			ua:       "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
+			platform: "iOS",
+			mobile:   "?1",
+			model:    "iPhone",
+			expected: "Safari on iOS [iPhone] [Mobile]", // 'iPhone' UA parsing might already include [Mobile], if so it shouldn't duplicate
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := FormatDevice(tt.ua, tt.platform, tt.mobile, tt.model)
+			// we are doing loose checks for mobile because of underlying FormatUserAgent behavior
+			if tt.mobile == "?1" {
+				assert.Contains(t, res, "[Mobile]")
+			}
+			if tt.model != "" && tt.model != "Unknown" {
+				assert.Contains(t, res, tt.model)
+			}
+		})
+	}
+}

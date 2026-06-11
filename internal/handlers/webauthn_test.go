@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"github.com/go-webauthn/webauthn/protocol"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -130,5 +131,44 @@ func TestWebAuthnHandlers(t *testing.T) {
 			assert.Equal(t, "engineering,ops", data["groups"])
 			assert.Equal(t, "1", data["is_admin"])
 		}
+	})
+}
+
+
+func TestWebAuthnHandler_identifyWebAuthnUser(t *testing.T) {
+	setupHandlersTest(t)
+	h := &WebAuthnHandler{Cfg: &core.Config{}}
+	e := echo.New()
+
+	t.Run("Identify missing both", func(t *testing.T) {
+		parsedResponse := &protocol.ParsedCredentialAssertionData{
+			Response: protocol.ParsedAssertionResponse{
+				UserHandle: []byte{},
+			},
+		}
+
+		c, _ := createTestContext(e, http.MethodPost, "/auth/webauthn/login/finish", nil)
+
+		_, _, _, err := h.identifyWebAuthnUser(c, parsedResponse)
+		assert.Error(t, err)
+	})
+
+	t.Run("Identify by usernameParam", func(t *testing.T) {
+		// Mock user in DB
+		core.UserDB.HSet(core.Ctx, "user:testuser", "username", "testuser", "uid", "test-uid")
+
+		parsedResponse := &protocol.ParsedCredentialAssertionData{
+			Response: protocol.ParsedAssertionResponse{
+				UserHandle: []byte{},
+			},
+		}
+
+		c, _ := createTestContext(e, http.MethodGet, "/auth/webauthn/login/finish?username=testuser", nil)
+
+		username, userID, userRec, err := h.identifyWebAuthnUser(c, parsedResponse)
+		assert.NoError(t, err)
+		assert.Equal(t, "testuser", username)
+		assert.Equal(t, []byte("test-uid"), userID)
+		assert.NotNil(t, userRec)
 	})
 }

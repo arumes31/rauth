@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/http"
 	"bytes"
 	"html/template"
 	"log/slog"
@@ -113,4 +114,78 @@ func TestInitializeSystem(t *testing.T) {
 	exists, err := core.UserDB.Exists(core.Ctx, "user:bootadmin").Result()
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), exists)
+}
+
+
+func TestCreateIPExtractor(t *testing.T) {
+	tests := []struct {
+		name              string
+		cfg               *core.Config
+		headers           map[string]string
+		remoteAddr        string
+		expectedIP        string
+	}{
+		{
+			name:       "Basic RemoteAddr",
+			cfg:        &core.Config{},
+			headers:    nil,
+			remoteAddr: "192.168.1.10:12345",
+			expectedIP: "192.168.1.10",
+		},
+		{
+			name: "TrustCloudflareIP",
+			cfg: &core.Config{
+				TrustCloudflareIP: true,
+			},
+			headers: map[string]string{
+				"CF-Connecting-IP": "203.0.113.1",
+			},
+			remoteAddr: "192.168.1.10:12345",
+			expectedIP: "203.0.113.1",
+		},
+		{
+			name: "TrustXRealIP explicitly trusted proxy",
+			cfg: &core.Config{
+				TrustXRealIP: true,
+			},
+			headers: map[string]string{
+				"X-Real-IP": "198.51.100.1",
+			},
+			remoteAddr: "192.168.1.10:12345",
+			expectedIP: "198.51.100.1",
+		},
+		{
+			name: "X-Real-IP smart mode",
+			cfg: &core.Config{}, // Not explicitly trusted, relying on private remoteHost
+			headers: map[string]string{
+				"X-Real-IP": "198.51.100.1",
+			},
+			remoteAddr: "10.0.0.5:12345", // Private IP
+			expectedIP: "198.51.100.1",
+		},
+		{
+			name: "X-Forwarded-For trusted proxy",
+			cfg: &core.Config{
+				TrustXForwardedFor: true,
+			},
+			headers: map[string]string{
+				"X-Forwarded-For": "203.0.113.5, 198.51.100.2",
+			},
+			remoteAddr: "192.168.1.10:12345",
+			expectedIP: "203.0.113.5",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			extractor := CreateIPExtractor(tt.cfg)
+			req, _ := http.NewRequest(http.MethodGet, "/", nil)
+			req.RemoteAddr = tt.remoteAddr
+			for k, v := range tt.headers {
+				req.Header.Set(k, v)
+			}
+			ip := extractor(req)
+			assert.Equal(t, tt.expectedIP, ip)
+		})
+	}
 }
