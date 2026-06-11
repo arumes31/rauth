@@ -26,24 +26,37 @@ func AuthMiddleware(cfg *core.Config) echo.MiddlewareFunc {
 				return c.Redirect(http.StatusFound, "/rauthlogin")
 			}
 
-			data, err := core.TokenDB.HGetAll(core.Ctx, "X-rauth-authtoken="+token).Result()
+			// ⚡ Bolt optimization: Use HMGet instead of HGetAll to avoid fetching/parsing unnecessary fields.
+			vals, err := core.TokenDB.HMGet(core.Ctx, "X-rauth-authtoken="+token, "status", "username", "is_admin", "groups").Result()
 			if err != nil {
 				slog.Error("Redis error in auth middleware", "error", err)
 				return c.Redirect(http.StatusFound, "/rauthlogin")
 			}
 
-			if len(data) == 0 || data["status"] != "valid" {
+			if len(vals) < 4 || vals[0] == nil || vals[0].(string) != "valid" {
 				return c.Redirect(http.StatusFound, "/rauthlogin")
 			}
 
-			c.Set("username", data["username"])
+			username := ""
+			if vals[1] != nil {
+				username = vals[1].(string)
+			}
+			if username == "" {
+				slog.Warn("Session missing username field", "ip", c.RealIP())
+				return c.Redirect(http.StatusFound, "/rauthlogin")
+			}
+
+			c.Set("username", username)
 			c.Set("token", token)
 
 			// is_admin is stamped into the token at issue time. Fall back to a
 			// single-field user lookup only for legacy sessions that predate it.
-			isAdmin := data["is_admin"]
+			isAdmin := ""
+			if vals[2] != nil {
+				isAdmin = vals[2].(string)
+			}
 			if isAdmin == "" {
-				if v, err := core.UserDB.HGet(core.Ctx, "user:"+data["username"], "is_admin").Result(); err == nil {
+				if v, err := core.UserDB.HGet(core.Ctx, "user:"+username, "is_admin").Result(); err == nil {
 					isAdmin = v
 				}
 			}
@@ -52,9 +65,14 @@ func AuthMiddleware(cfg *core.Config) echo.MiddlewareFunc {
 			}
 			c.Set("is_admin", isAdmin)
 
+			groups := ""
+			if vals[3] != nil {
+				groups = vals[3].(string)
+			}
+
 			// Set headers for Nginx auth_request to forward to upstream
-			c.Response().Header().Set("X-RAuth-User", data["username"])
-			c.Response().Header().Set("X-RAuth-Groups", data["groups"])
+			c.Response().Header().Set("X-RAuth-User", username)
+			c.Response().Header().Set("X-RAuth-Groups", groups)
 			c.Response().Header().Set("X-RAuth-Admin", isAdmin)
 
 			return next(c)

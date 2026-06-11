@@ -20,3 +20,7 @@
 ## 2026-05-27 - Reducing Allocations with bufio.Scanner
 **Learning:** Parsing large embedded strings (like blocklists) using `strings.Split` creates a large slice of strings that persists until the loop finishes. This is inefficient for one-time map population.
 **Action:** Use `bufio.Scanner` with `strings.NewReader` to process the string line-by-line. This minimizes temporary allocations and is significantly more memory-efficient for large text datasets.
+
+## 2026-06-11 - HGetAll vs HMGet Overhead
+**Learning:** `HGetAll` reads and decodes the entire Redis hash map into memory, which incurs unnecessary overhead for authentication and routing middleware that only requires checking specific fields (like `status`, `username`, `groups`, `is_admin`). `HMGet` is significantly faster because it only fetches and transfers the requested fields over the network, returning a slice rather than a map.
+**Action:** When validating sessions in middleware or routing handlers that only need partial hash data, prefer `HMGet(ctx, key, fields...)` over `HGetAll(ctx, key)` to minimize redis parsing and network serialization overhead.
