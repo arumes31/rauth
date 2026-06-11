@@ -327,8 +327,11 @@ func (h *ProfileHandler) ChangePassword(c echo.Context) error {
 		go core.SendPasswordChangeNotification(userData["email"], username, c.RealIP(), device)
 	}
 
-	// Security Hardening: Invalidate all other sessions
-	core.InvalidateUserSessions(username)
+	// Security Hardening: Invalidate all other sessions. The current session
+	// stays alive so the success redirect to the profile page does not bounce
+	// the user straight back to the login form.
+	currentToken, _ := c.Get("token").(string)
+	core.InvalidateOtherUserSessions(username, currentToken)
 
 	slog.Info("Password changed by user", "user", username)
 	core.LogAudit("USER_CHANGE_PASSWORD", username, c.RealIP(), nil)

@@ -51,6 +51,9 @@ func InitRedis(cfg *Config) error {
 }
 
 func InvalidateUserSessions(username string) {
+	if TokenDB == nil {
+		return
+	}
 	indexKey := "user_sessions:" + username
 	tokens, err := TokenDB.SMembers(Ctx, indexKey).Result()
 	if err != nil {

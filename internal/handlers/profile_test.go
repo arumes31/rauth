@@ -156,6 +156,33 @@ func TestProfileHandler_ChangePassword(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
+
+	t.Run("Keeps current session, invalidates others", func(t *testing.T) {
+		hash, _ := core.HashPassword(password)
+		core.UserDB.HSet(core.Ctx, "user:passuser2", "password", hash)
+		core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken=cur", "status", "valid", "username", "passuser2")
+		core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken=other", "status", "valid", "username", "passuser2")
+		core.AddSessionIndex("passuser2", "cur")
+		core.AddSessionIndex("passuser2", "other")
+
+		f := make(url.Values)
+		f.Set("current_password", password)
+		f.Set("new_password", "NewSecure123!")
+		f.Set("confirm_password", "NewSecure123!")
+
+		c, rec := createTestContext(e, http.MethodPost, "/rauthprofile/password", f)
+		c.Set("username", "passuser2")
+		c.Set("token", "cur")
+
+		err := h.ChangePassword(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+
+		curExists, _ := core.TokenDB.Exists(core.Ctx, "X-rauth-authtoken=cur").Result()
+		otherExists, _ := core.TokenDB.Exists(core.Ctx, "X-rauth-authtoken=other").Result()
+		assert.EqualValues(t, 1, curExists, "current session must survive a password change")
+		assert.EqualValues(t, 0, otherExists, "other sessions must be invalidated")
+	})
 }
 
 

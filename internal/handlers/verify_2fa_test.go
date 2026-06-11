@@ -82,6 +82,42 @@ func TestAuthHandler_Verify2FA(t *testing.T) {
 		assert.True(t, strings.HasPrefix(rec.Header().Get("Location"), "/rauthdashboard") || strings.HasPrefix(rec.Header().Get("Location"), "/rauthsetup2fa") || strings.HasPrefix(rec.Header().Get("Location"), "/"))
 	})
 
+	t.Run("Empty secret rejects instead of validating", func(t *testing.T) {
+		// 2FA was reset (or the user deleted) while the pending token was
+		// outstanding: codes derived from an empty key are publicly computable,
+		// so the handler must abort, not call totp.Validate with secret "".
+		emptyUser := "no2fauser"
+		core.UserDB.HSet(core.Ctx, "user:"+emptyUser, map[string]interface{}{
+			"username": emptyUser,
+			"password": "dummy",
+		})
+		emptyPending := "pending-empty-secret"
+		encryptedEmptyPending, _ := core.EncryptToken(emptyPending, cfg.ServerSecret)
+		core.TokenDB.Set(core.Ctx, "pending_2fa:"+emptyPending, emptyUser, 5*time.Minute)
+
+		// A code an attacker could derive from the empty key for the current step.
+		code, _ := totp.GenerateCode("", time.Now())
+
+		f := make(url.Values)
+		f.Set("totp_code", code)
+
+		req := httptest.NewRequest(http.MethodPost, "/rauthlogin", strings.NewReader(f.Encode()))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
+		req.AddCookie(&http.Cookie{Name: "rauth_2fa_pending", Value: encryptedEmptyPending})
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		c.Set("csrf", "test_csrf")
+
+		err := h.Verify2FA(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+		assert.Equal(t, "/rauthlogin", rec.Header().Get("Location"))
+
+		// The pending token must be consumed so it cannot be retried.
+		exists, _ := core.TokenDB.Exists(core.Ctx, "pending_2fa:"+emptyPending).Result()
+		assert.EqualValues(t, 0, exists)
+	})
+
 	t.Run("Invalid TOTP Code", func(t *testing.T) {
 		core.TokenDB.Set(core.Ctx, "pending_2fa:"+pendingToken, "testuser", 5*time.Minute)
 		defer core.TokenDB.Del(core.Ctx, "pending_2fa:"+pendingToken)

@@ -181,6 +181,12 @@ func DeleteUser(username string) error {
 		}
 	}
 	AuditDB.Del(Ctx, "user_audit_logs:"+username)
+	// A deleted user must not retain a usable session until token expiry.
+	InvalidateUserSessions(username)
+	// Remove per-user satellite keys so a future account with the same name
+	// does not inherit recovery codes or passkeys.
+	ClearRecoveryCodes(username)
+	UserDB.Del(Ctx, "user:"+username+":webauthn_creds_v2", "user:"+username+":webauthn_creds")
 	if err := UserDB.Del(Ctx, "user:"+username).Err(); err != nil {
 		return err
 	}
