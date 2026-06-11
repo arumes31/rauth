@@ -53,8 +53,9 @@ func (h *AuthHandler) Root(c echo.Context) error {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
 
-	data, err := core.TokenDB.HGetAll(core.Ctx, "X-rauth-authtoken="+token).Result()
-	if err != nil || len(data) == 0 || data["status"] != "valid" {
+	// ⚡ Bolt optimization: Use HMGet instead of HGetAll since we only need the status field.
+	vals, err := core.TokenDB.HMGet(core.Ctx, "X-rauth-authtoken="+token, "status").Result()
+	if err != nil || len(vals) == 0 || vals[0] == nil || vals[0].(string) != "valid" {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
 
