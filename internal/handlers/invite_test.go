@@ -104,6 +104,8 @@ func TestInviteHandler_Redeem(t *testing.T) {
 	}
 	h := &InviteHandler{Cfg: cfg}
 	e := echo.New()
+	mockR := &mockRenderer{}
+	e.Renderer = mockR
 
 	t.Run("Successful redemption", func(t *testing.T) {
 		token := "redeem-token"
@@ -163,6 +165,13 @@ func TestInviteHandler_Redeem(t *testing.T) {
 
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+		// The form must be re-rendered with the validation error and the
+		// invite context intact, not replaced by a raw JSON body.
+		data := mockR.LastData.(map[string]interface{})
+		assert.NotEmpty(t, data["error"])
+		assert.Equal(t, token, data["token"])
+		assert.Equal(t, email, data["email"])
 	})
 
 	t.Run("Username already taken", func(t *testing.T) {

@@ -14,6 +14,7 @@ func TestUserManagement(t *testing.T) {
 
 	UserDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
 	AuditDB = redis.NewClient(&redis.Options{Addr: s.Addr()}) // Reuse s for simplicity
+	TokenDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
 
 	err := CreateUser("newuser", "pass123", "user@test.com", false, "")
 	if err != nil {
@@ -41,6 +42,37 @@ func TestUserManagement(t *testing.T) {
 	users, _ = ListUsers()
 	if len(users) != 0 {
 		t.Error("User was not deleted")
+	}
+}
+
+func TestDeleteUserCleanup(t *testing.T) {
+	s := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: s.Addr()})
+	UserDB = client
+	AuditDB = client
+	TokenDB = client
+
+	username := "cleanupuser"
+	require.NoError(t, CreateUser(username, "pass123", "u@test.com", false, ""))
+
+	// Simulate an active session, recovery codes, and a stored passkey.
+	TokenDB.HSet(Ctx, "X-rauth-authtoken=tok1", "status", "valid", "username", username)
+	AddSessionIndex(username, "tok1")
+	_, err := GenerateRecoveryCodes(username)
+	require.NoError(t, err)
+	UserDB.HSet(Ctx, "user:"+username+":webauthn_creds_v2", "abcd", "{}")
+
+	require.NoError(t, DeleteUser(username))
+
+	for _, key := range []string{
+		"X-rauth-authtoken=tok1",
+		"user_sessions:" + username,
+		"user:" + username + ":recovery_codes",
+		"user:" + username + ":webauthn_creds_v2",
+	} {
+		n, err := client.Exists(Ctx, key).Result()
+		require.NoError(t, err)
+		require.Zero(t, n, "expected %s to be deleted", key)
 	}
 }
 

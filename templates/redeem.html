@@ -38,6 +38,11 @@
                         <h2 class="text-danger">SYSTEM ACCESS</h2>
                         <p class="text-muted small">Invitation redemption for {{.email}}</p>
                     </div>
+                    {{if .error}}
+                    <div class="alert alert-danger bg-danger bg-opacity-10 text-danger border-0 small mb-4">
+                        <i class="bi bi-exclamation-triangle-fill me-2"></i> {{.error}}
+                    </div>
+                    {{end}}
                     <form method="POST" action="/rauthredeem">
                         <input type="hidden" name="csrf" value="{{.csrf}}">
                         <input type="hidden" name="token" value="{{.token}}">

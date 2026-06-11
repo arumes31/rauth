@@ -57,6 +57,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Fail fast on an empty cookie domain list: CookieDomains[0] is used for
+	// every session cookie and as the WebAuthn RPID, so an empty COOKIE_DOMAIN
+	// would otherwise panic at runtime on the first login.
+	if len(cfg.CookieDomains) == 0 {
+		slog.Error("COOKIE_DOMAIN must contain at least one domain")
+		os.Exit(1)
+	}
+
 	// Apply the configurable bcrypt cost (BCRYPT_COST).
 	core.SetBcryptCost(cfg.BcryptCost)
 

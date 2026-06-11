@@ -66,7 +66,12 @@ func SendEmail(to, subject, body string) error {
 	to = sanitizeEmailHeader(to)
 	subject = sanitizeEmailHeader(subject)
 
-	auth := smtp.PlainAuth("", cfg.SMTPUser, cfg.SMTPPass, cfg.SMTPHost)
+	// Only authenticate when credentials are configured; otherwise an
+	// unauthenticated relay would be sent an empty-credential AUTH and refuse.
+	var auth smtp.Auth
+	if cfg.SMTPUser != "" {
+		auth = smtp.PlainAuth("", cfg.SMTPUser, cfg.SMTPPass, cfg.SMTPHost)
+	}
 
 	// If body doesn't look like HTML, wrap it in our base template
 	if !strings.Contains(body, "<html>") {

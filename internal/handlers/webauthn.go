@@ -117,6 +117,9 @@ func (h *WebAuthnHandler) BeginLogin(c echo.Context) error {
 	sessionJSON, _ := json.Marshal(sessionData)
 
 	sessionID := core.GenerateRandomString(32)
+	if sessionID == "" {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to generate session")
+	}
 	redisKey := "webauthn_login_session:" + sessionID
 	core.TokenDB.Set(core.Ctx, redisKey, sessionJSON, 5*time.Minute)
 
@@ -271,6 +274,10 @@ func (h *WebAuthnHandler) issuePasskeyToken(c echo.Context, username string, use
 	clientIP := c.RealIP()
 	ua := c.Request().UserAgent()
 	token := core.GenerateRandomString(32)
+	if token == "" {
+		// RNG failure: never issue a session keyed on an empty token.
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to generate session token")
+	}
 
 	encryptedToken, encErr := core.EncryptToken(token, h.Cfg.ServerSecret)
 	if encErr != nil {

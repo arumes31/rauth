@@ -116,7 +116,7 @@
                                 } else {
                                     const errorData = await finishResponse.json();
                                     msg.className = "text-center extra-small mt-2 text-danger";
-                                    msg.textContent = errorData.message || "Authentication failed";
+                                    msg.textContent = errorData.error || errorData.message || "Authentication failed";
                                 }
                             } catch (e) {
                                 msg.className = "text-center extra-small mt-2 text-danger";

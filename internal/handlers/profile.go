@@ -131,12 +131,6 @@ func (h *ProfileHandler) GenerateRecoveryCodes(c echo.Context) error {
 	if herr := h.validateTOTP(username, otpCode, userData["2fa_secret"]); herr != nil {
 		return herr
 	}
-	// Enforce single-use of the TOTP code (same replay protection as the login
-	// flow). This also makes the action idempotent against a browser refresh:
-	// re-submitting the same code regenerates nothing.
-	if core.TOTPCodeReused(username, otpCode) {
-		return echo.NewHTTPError(http.StatusBadRequest, "This code was already used. Please wait for a new code.")
-	}
 
 	codes, err := core.GenerateRecoveryCodes(username)
 	if err != nil {
@@ -327,8 +321,11 @@ func (h *ProfileHandler) ChangePassword(c echo.Context) error {
 		go core.SendPasswordChangeNotification(userData["email"], username, c.RealIP(), device)
 	}
 
-	// Security Hardening: Invalidate all other sessions
-	core.InvalidateUserSessions(username)
+	// Security Hardening: Invalidate all other sessions. The current session
+	// stays alive so the success redirect to the profile page does not bounce
+	// the user straight back to the login form.
+	currentToken, _ := c.Get("token").(string)
+	core.InvalidateOtherUserSessions(username, currentToken)
 
 	slog.Info("Password changed by user", "user", username)
 	core.LogAudit("USER_CHANGE_PASSWORD", username, c.RealIP(), nil)
@@ -347,6 +344,12 @@ func (h *ProfileHandler) validateTOTP(username, otpCode, encryptedSecret string)
 	if !totp.Validate(otpCode, secret) {
 		core.CheckRateLimit("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay)
 		return echo.NewHTTPError(http.StatusBadRequest, "Invalid 2FA code")
+	}
+	// Enforce single-use of the TOTP code (same replay protection as the login
+	// flow), so an intercepted code cannot be replayed to repeat or chain
+	// sensitive profile actions within its validity window.
+	if core.TOTPCodeReused(username, otpCode) {
+		return echo.NewHTTPError(http.StatusBadRequest, "This code was already used. Please wait for a new code.")
 	}
 	return nil
 }
