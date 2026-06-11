@@ -61,11 +61,6 @@ func (h *InviteHandler) RedeemPage(c echo.Context) error {
 }
 
 func (h *InviteHandler) Redeem(c echo.Context) error {
-	clientIP := c.RealIP()
-	if !core.CheckRateLimit("reg_ip:"+clientIP, h.Cfg.RateLimitRegistrationMax, h.Cfg.RateLimitRegistrationDecay) {
-		return echo.NewHTTPError(http.StatusTooManyRequests, fmt.Sprintf("Too many registration attempts from this IP (%s)", clientIP))
-	}
-
 	token := c.FormValue("token")
 	username := c.FormValue("username")
 	password := c.FormValue("password")
@@ -73,6 +68,13 @@ func (h *InviteHandler) Redeem(c echo.Context) error {
 	email, err := core.InviteDB.Get(core.Ctx, "invite:"+token).Result()
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, "Invalid or expired invitation")
+	}
+
+	// Rate-limit only valid redemption attempts so an attacker cannot exhaust
+	// the per-IP limit by spamming requests with bogus/missing invite tokens.
+	clientIP := c.RealIP()
+	if !core.CheckRateLimit("reg_ip:"+clientIP, h.Cfg.RateLimitRegistrationMax, h.Cfg.RateLimitRegistrationDecay) {
+		return echo.NewHTTPError(http.StatusTooManyRequests, fmt.Sprintf("Too many registration attempts from this IP (%s)", clientIP))
 	}
 
 	if err := core.ValidateUsername(username); err != nil {

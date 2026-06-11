@@ -18,8 +18,10 @@
 **Action:** Always check `if err != nil && err != redis.Nil` after `pipe.Exec()` if your pipeline includes commands that might return `redis.Nil` as a valid state (like `HGet` for a missing field). Additionally, when background goroutines use global Redis clients (like `TokenDB`), ensure they handle `nil` clients or provide a way to bypass execution during early system initialization to avoid panics in tests.
 
 ## 2026-05-27 - Reducing Allocations with bufio.Scanner
+> **Revised 2026-06-05:** Superseded for hot paths by [Optimizing string parsing](#2026-06-05---optimizing-string-parsing). Prefer `bufio.Scanner` for readability with moderate-size inputs parsed occasionally; prefer manual index-based newline parsing (`strings.IndexByte` + slicing) for hot loops, zero-allocation requirements, or very large embedded strings parsed once.
+
 **Learning:** Parsing large embedded strings (like blocklists) using `strings.Split` creates a large slice of strings that persists until the loop finishes. This is inefficient for one-time map population.
-**Action:** Use `bufio.Scanner` with `strings.NewReader` to process the string line-by-line. This minimizes temporary allocations and is significantly more memory-efficient for large text datasets.
+**Action:** Use `bufio.Scanner` with `strings.NewReader` to process the string line-by-line. This minimizes temporary allocations and is significantly more memory-efficient for large text datasets than `strings.Split`. For one-time parsing of very large strings in hot paths, go a step further with index-based slicing (see 2026-06-05).
 ## 2026-06-05 - Avoid Redundant Pipeline Wrapping
 **Learning:** While pipelining is crucial for batching multiple commands, wrapping a *single* variadic command (like `Del(keys...)`) inside a pipeline introduces unnecessary overhead. Direct command execution via the client is faster when only one network round-trip is required.
 **Action:** When performing a single bulk operation with a variadic command, call it directly on the client (e.g., `TokenDB.Del(...)`) instead of initializing and executing a pipeline.

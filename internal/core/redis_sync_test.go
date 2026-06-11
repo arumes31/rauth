@@ -93,7 +93,7 @@ func TestSyncSessionIndexes(t *testing.T) {
 
 				TokenDB.SAdd(Ctx, "ip_sessions:10.0.0.1", "invalid_ip_token")
 			},
-			expected: 1,
+			expected: 2,
 			checkFunc: func(t *testing.T) {
 				assert.False(t, TokenDB.SIsMember(Ctx, "user_sessions:user1", "invalid_token").Val())
 				assert.False(t, TokenDB.SIsMember(Ctx, "ip_sessions:10.0.0.1", "invalid_ip_token").Val())

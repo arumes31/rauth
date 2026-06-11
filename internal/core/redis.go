@@ -169,7 +169,7 @@ func RemoveIPSessionIndex(ip, token string) {
 func SyncSessionIndexes() int64 {
 	var count int64
 	count += reconcileIndexSets("user_sessions:*")
-	reconcileIndexSets("ip_sessions:*")
+	count += reconcileIndexSets("ip_sessions:*")
 	return count
 }
 
