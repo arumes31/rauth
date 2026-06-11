@@ -169,7 +169,7 @@
                                             </span>
                                         </td>
                                         <td class="text-end pe-4">
-                                            <form method="POST" action="/rauthmgmt/session/invalidate" onsubmit="return confirm('Invalidate this session?')">
+                                            <form method="POST" action="/rauthmgmt/session/invalidate" onsubmit="return false" data-confirm="Invalidate this session? The user will be forced to re-authenticate." data-confirm-title="Terminate Session" data-confirm-icon="bi-shield-slash" data-confirm-variant="danger">
                                                 <input type="hidden" name="csrf" value="{{$.csrf}}">
                                                 <input type="hidden" name="token" value="{{index . "token"}}">
                                                 <button type="submit" class="btn btn-sm btn-outline-danger border-0" title="Terminate Session">
@@ -234,7 +234,7 @@
                                                         title="Edit User">
                                                     <i class="bi bi-pencil"></i>
                                                 </button>
-                                                <form method="POST" action="/rauthmgmt/user/delete" onsubmit="return confirm('Are you sure you want to delete this user?')">
+                                                <form method="POST" action="/rauthmgmt/user/delete" onsubmit="return false" data-confirm="This will permanently delete the user account and all associated data. This action cannot be undone." data-confirm-title="Delete User" data-confirm-icon="bi-person-x-fill" data-confirm-variant="danger" data-confirm-btn="Delete">
                                                     <input type="hidden" name="csrf" value="{{$.csrf}}">
                                                     <input type="hidden" name="username" value="{{.Username}}">
                                                     <button type="submit" class="btn btn-sm btn-outline-danger border-0" title="Delete User"><i class="bi bi-person-x"></i></button>
@@ -421,7 +421,7 @@
                             <label class="form-label small fw-bold text-muted mb-0">Two-Factor Authentication</label>
                             <p class="extra-small text-muted mb-0">Clear the 2FA secret to allow user re-setup</p>
                         </div>
-                        <form method="POST" action="/rauthmgmt/user/reset-2fa" onsubmit="return confirm('Reset 2FA for this user?')">
+                        <form method="POST" action="/rauthmgmt/user/reset-2fa" onsubmit="return false" data-confirm="This will clear the user's two-factor authentication secret. They will need to set up 2FA again on next login." data-confirm-title="Reset 2FA" data-confirm-icon="bi-shield-exclamation" data-confirm-variant="warning" data-confirm-btn="Reset">
                             <input type="hidden" name="csrf" value="{{.csrf}}">
                             <input type="hidden" name="username" id="reset2faUsernameInput">
                             <button type="submit" class="btn btn-sm btn-outline-warning">Reset 2FA</button>
@@ -620,11 +620,21 @@
                     document.getElementById('inviteUrl').value = data.url;
                     document.getElementById('inviteResult').classList.remove('d-none');
                 } else {
-                    alert("Failed to generate invitation link.");
+                    rauthDialog.alert({
+                        title: 'Invitation Failed',
+                        message: 'Failed to generate invitation link. The server rejected the request.',
+                        icon: 'bi-envelope-x',
+                        variant: 'error'
+                    });
                 }
             } catch (err) {
                 console.error(err);
-                alert("An error occurred.");
+                rauthDialog.alert({
+                    title: 'Network Error',
+                    message: 'An unexpected error occurred while contacting the server. Please try again.',
+                    icon: 'bi-wifi-off',
+                    variant: 'error'
+                });
             }
         });
 
@@ -643,6 +653,187 @@
                 btn.className = "btn btn-outline-success";
             }, 2000);
         }
+    </script>
+    <script>
+    // =============================================
+    // Modern Dialog System (replaces native dialogs)
+    // =============================================
+    const rauthDialog = {
+        _createOverlay() {
+            const overlay = document.createElement('div');
+            overlay.className = 'rauth-dialog-overlay';
+            overlay.setAttribute('role', 'dialog');
+            overlay.setAttribute('aria-modal', 'true');
+            document.body.appendChild(overlay);
+            // Trigger reflow for animation
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => overlay.classList.add('visible'));
+            });
+            return overlay;
+        },
+
+        _dismiss(overlay) {
+            overlay.classList.remove('visible');
+            setTimeout(() => overlay.remove(), 300);
+        },
+
+        confirm({ title = 'Confirm Action', message = 'Are you sure?', icon = 'bi-exclamation-triangle-fill', variant = 'danger', confirmText = 'Confirm', cancelText = 'Cancel' } = {}) {
+            return new Promise((resolve) => {
+                const overlay = this._createOverlay();
+                overlay.innerHTML = `
+                    <div class="rauth-dialog">
+                        <div class="rauth-dialog-icon">
+                            <div class="rauth-dialog-icon-circle ${variant}">
+                                <i class="bi ${icon}"></i>
+                            </div>
+                        </div>
+                        <div class="rauth-dialog-body">
+                            <div class="rauth-dialog-title">${title}</div>
+                            <div class="rauth-dialog-message">${message}</div>
+                        </div>
+                        <div class="rauth-dialog-actions">
+                            <button class="rauth-dialog-btn rauth-dialog-btn-cancel" data-action="cancel">${cancelText}</button>
+                            <button class="rauth-dialog-btn rauth-dialog-btn-confirm ${variant}" data-action="confirm">${confirmText}</button>
+                        </div>
+                        <div class="rauth-dialog-hint">
+                            <span><kbd>Enter</kbd> confirm</span>
+                            <span><kbd>Esc</kbd> cancel</span>
+                        </div>
+                    </div>
+                `;
+
+                const confirmBtn = overlay.querySelector('[data-action="confirm"]');
+                const cancelBtn = overlay.querySelector('[data-action="cancel"]');
+                confirmBtn.focus();
+
+                const cleanup = (result) => {
+                    document.removeEventListener('keydown', keyHandler);
+                    this._dismiss(overlay);
+                    resolve(result);
+                };
+
+                const keyHandler = (e) => {
+                    if (e.key === 'Escape') { e.preventDefault(); cleanup(false); }
+                    if (e.key === 'Enter') { e.preventDefault(); cleanup(true); }
+                };
+
+                confirmBtn.addEventListener('click', () => cleanup(true));
+                cancelBtn.addEventListener('click', () => cleanup(false));
+                overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(false); });
+                document.addEventListener('keydown', keyHandler);
+            });
+        },
+
+        alert({ title = 'Notice', message = '', icon = 'bi-info-circle-fill', variant = 'info' } = {}) {
+            return new Promise((resolve) => {
+                const overlay = this._createOverlay();
+                overlay.innerHTML = `
+                    <div class="rauth-dialog">
+                        <div class="rauth-dialog-icon">
+                            <div class="rauth-dialog-icon-circle ${variant}">
+                                <i class="bi ${icon}"></i>
+                            </div>
+                        </div>
+                        <div class="rauth-dialog-body">
+                            <div class="rauth-dialog-title">${title}</div>
+                            <div class="rauth-dialog-message">${message}</div>
+                        </div>
+                        <div class="rauth-dialog-actions alert-only">
+                            <button class="rauth-dialog-btn rauth-dialog-btn-confirm ${variant}" data-action="ok">Acknowledged</button>
+                        </div>
+                    </div>
+                `;
+
+                const okBtn = overlay.querySelector('[data-action="ok"]');
+                okBtn.focus();
+
+                const cleanup = () => {
+                    document.removeEventListener('keydown', keyHandler);
+                    this._dismiss(overlay);
+                    resolve();
+                };
+
+                const keyHandler = (e) => {
+                    if (e.key === 'Escape' || e.key === 'Enter') { e.preventDefault(); cleanup(); }
+                };
+
+                okBtn.addEventListener('click', cleanup);
+                overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(); });
+                document.addEventListener('keydown', keyHandler);
+            });
+        },
+
+        prompt({ title = 'Input Required', message = '', icon = 'bi-pencil-square', variant = 'info', placeholder = '', defaultValue = '' } = {}) {
+            return new Promise((resolve) => {
+                const overlay = this._createOverlay();
+                overlay.innerHTML = `
+                    <div class="rauth-dialog">
+                        <div class="rauth-dialog-icon">
+                            <div class="rauth-dialog-icon-circle ${variant}">
+                                <i class="bi ${icon}"></i>
+                            </div>
+                        </div>
+                        <div class="rauth-dialog-body">
+                            <div class="rauth-dialog-title">${title}</div>
+                            <div class="rauth-dialog-message">${message}</div>
+                            <input type="text" class="rauth-dialog-input" placeholder="${placeholder}" value="${defaultValue.replace(/"/g, '&quot;')}">
+                        </div>
+                        <div class="rauth-dialog-actions">
+                            <button class="rauth-dialog-btn rauth-dialog-btn-cancel" data-action="cancel">Cancel</button>
+                            <button class="rauth-dialog-btn rauth-dialog-btn-confirm" data-action="confirm">Save</button>
+                        </div>
+                        <div class="rauth-dialog-hint">
+                            <span><kbd>Enter</kbd> save</span>
+                            <span><kbd>Esc</kbd> cancel</span>
+                        </div>
+                    </div>
+                `;
+
+                const input = overlay.querySelector('.rauth-dialog-input');
+                const confirmBtn = overlay.querySelector('[data-action="confirm"]');
+                const cancelBtn = overlay.querySelector('[data-action="cancel"]');
+                input.focus();
+                input.select();
+
+                const cleanup = (result) => {
+                    document.removeEventListener('keydown', keyHandler);
+                    this._dismiss(overlay);
+                    resolve(result);
+                };
+
+                const keyHandler = (e) => {
+                    if (e.key === 'Escape') { e.preventDefault(); cleanup(null); }
+                    if (e.key === 'Enter') { e.preventDefault(); cleanup(input.value); }
+                };
+
+                confirmBtn.addEventListener('click', () => cleanup(input.value));
+                cancelBtn.addEventListener('click', () => cleanup(null));
+                overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(null); });
+                document.addEventListener('keydown', keyHandler);
+            });
+        }
+    };
+
+    // Auto-wire all forms with data-confirm attribute
+    document.querySelectorAll('form[data-confirm]').forEach(form => {
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const confirmed = await rauthDialog.confirm({
+                title: form.dataset.confirmTitle || 'Confirm Action',
+                message: form.dataset.confirm,
+                icon: form.dataset.confirmIcon || 'bi-exclamation-triangle-fill',
+                variant: form.dataset.confirmVariant || 'danger',
+                confirmText: form.dataset.confirmBtn || 'Confirm'
+            });
+            if (confirmed) {
+                form.removeAttribute('onsubmit');
+                // Temporarily allow the submit
+                const origHandler = form.onsubmit;
+                form.onsubmit = null;
+                form.submit();
+            }
+        });
+    });
     </script>
 </body>
 </html>

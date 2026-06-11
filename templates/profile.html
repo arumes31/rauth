@@ -166,7 +166,8 @@
                                 <button type="submit" class="btn btn-primary flex-grow-1 py-2">Update Credentials</button>
                                 {{if .has2FA}}
                                 <button type="button" class="btn btn-outline-danger py-2 px-3" 
-                                        onclick="if(confirm('Are you sure you want to disable TOTP authentication? This will lower your account security.')) { const form = document.createElement('form'); form.method='POST'; form.action='/rauthprofile/disable-totp'; const c = document.createElement('input'); c.type='hidden'; c.name='csrf'; c.value='{{.csrf}}'; form.appendChild(c); const o = document.createElement('input'); o.type='hidden'; o.name='otp_code'; o.value=document.getElementById('otp_code_input').value; form.appendChild(o); document.body.appendChild(form); form.submit(); }">
+                                        id="disable-totp-btn"
+                                        title="Disable TOTP">
                                     <i class="bi bi-shield-slash"></i>
                                 </button>
                                 {{end}}
@@ -188,7 +189,7 @@
                         <div class="mb-3">
                             <h6 class="small fw-bold text-muted text-uppercase mb-3">Recovery Codes</h6>
                             <p class="extra-small text-muted">Single-use codes to sign in if you lose your authenticator. You have <span class="fw-bold">{{.recoveryCount}}</span> unused code(s).</p>
-                            <form method="POST" action="/rauthprofile/recovery/generate" onsubmit="return confirm('Generate new recovery codes? Any existing codes will stop working.');">
+                            <form method="POST" action="/rauthprofile/recovery/generate" onsubmit="return false" data-confirm="This will generate new recovery codes. Any existing unused codes will stop working immediately." data-confirm-title="Generate Recovery Codes" data-confirm-icon="bi-arrow-repeat" data-confirm-variant="warning" data-confirm-btn="Generate">
                                 <input type="hidden" name="csrf" value="{{.csrf}}">
                                 <div class="input-group input-group-sm mb-2">
                                     <span class="input-group-text">2FA Code</span>
@@ -256,7 +257,9 @@
                                     </div>
                                     <div class="d-flex gap-2">
                                         <button class="btn btn-sm btn-link text-muted p-0" 
-                                                onclick="const nick = prompt('New nickname:', '{{.Nickname}}'); if(nick) { document.getElementById('rename-id-{{printf "%x" .ID}}').value = nick; document.getElementById('rename-form-{{printf "%x" .ID}}').submit(); }">
+                                                data-rename-passkey
+                                                data-passkey-id="{{printf "%x" .ID}}"
+                                                data-passkey-name="{{.Nickname}}">
                                             <i class="bi bi-pencil-square"></i>
                                         </button>
                                         <form id="rename-form-{{printf "%x" .ID}}" method="POST" action="/rauthprofile/passkey/rename">
@@ -264,7 +267,7 @@
                                             <input type="hidden" name="id" value="{{printf "%x" .ID}}">
                                             <input type="hidden" id="rename-id-{{printf "%x" .ID}}" name="nickname">
                                         </form>
-                                        <form method="POST" action="/rauthprofile/passkey/revoke" onsubmit="return confirm('Revoke this passkey? You will no longer be able to use it to login.');">
+                                        <form method="POST" action="/rauthprofile/passkey/revoke" onsubmit="return false" data-confirm="This passkey will be permanently revoked. You will no longer be able to use it to sign in." data-confirm-title="Revoke Passkey" data-confirm-icon="bi-key-fill" data-confirm-variant="danger" data-confirm-btn="Revoke">
                                             <input type="hidden" name="csrf" value="{{$.csrf}}">
                                             <input type="hidden" name="id" value="{{printf "%x" .ID}}">
                                             <button type="submit" class="btn btn-sm btn-link text-danger p-0">
@@ -285,7 +288,7 @@
                 <div class="card mb-4">
                     <div class="card-header border-0 d-flex justify-content-between align-items-center">
                         <h6 class="mb-0">Active Sessions</h6>
-                        <form method="POST" action="/rauthprofile/session/terminate-others" onsubmit="return confirm('Terminate all other active sessions?');">
+                        <form method="POST" action="/rauthprofile/session/terminate-others" onsubmit="return false" data-confirm="All other active sessions will be terminated immediately. Those devices will need to re-authenticate." data-confirm-title="Terminate All Sessions" data-confirm-icon="bi-shield-slash" data-confirm-variant="danger" data-confirm-btn="Terminate All">
                             <input type="hidden" name="csrf" value="{{.csrf}}">
                             <button type="submit" class="btn btn-sm btn-outline-danger">
                                 <i class="bi bi-shield-slash me-1"></i> Logout from all other devices
@@ -561,6 +564,232 @@
                 text.style.color = colors[score-1] || colors[0];
             }
         }
+    </script>
+    <script>
+    // =============================================
+    // Modern Dialog System (replaces native dialogs)
+    // =============================================
+    const rauthDialog = {
+        _createOverlay() {
+            const overlay = document.createElement('div');
+            overlay.className = 'rauth-dialog-overlay';
+            overlay.setAttribute('role', 'dialog');
+            overlay.setAttribute('aria-modal', 'true');
+            document.body.appendChild(overlay);
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => overlay.classList.add('visible'));
+            });
+            return overlay;
+        },
+
+        _dismiss(overlay) {
+            overlay.classList.remove('visible');
+            setTimeout(() => overlay.remove(), 300);
+        },
+
+        confirm({ title = 'Confirm Action', message = 'Are you sure?', icon = 'bi-exclamation-triangle-fill', variant = 'danger', confirmText = 'Confirm', cancelText = 'Cancel' } = {}) {
+            return new Promise((resolve) => {
+                const overlay = this._createOverlay();
+                overlay.innerHTML = `
+                    <div class="rauth-dialog">
+                        <div class="rauth-dialog-icon">
+                            <div class="rauth-dialog-icon-circle ${variant}">
+                                <i class="bi ${icon}"></i>
+                            </div>
+                        </div>
+                        <div class="rauth-dialog-body">
+                            <div class="rauth-dialog-title">${title}</div>
+                            <div class="rauth-dialog-message">${message}</div>
+                        </div>
+                        <div class="rauth-dialog-actions">
+                            <button class="rauth-dialog-btn rauth-dialog-btn-cancel" data-action="cancel">${cancelText}</button>
+                            <button class="rauth-dialog-btn rauth-dialog-btn-confirm ${variant}" data-action="confirm">${confirmText}</button>
+                        </div>
+                        <div class="rauth-dialog-hint">
+                            <span><kbd>Enter</kbd> confirm</span>
+                            <span><kbd>Esc</kbd> cancel</span>
+                        </div>
+                    </div>
+                `;
+
+                const confirmBtn = overlay.querySelector('[data-action="confirm"]');
+                const cancelBtn = overlay.querySelector('[data-action="cancel"]');
+                confirmBtn.focus();
+
+                const cleanup = (result) => {
+                    document.removeEventListener('keydown', keyHandler);
+                    this._dismiss(overlay);
+                    resolve(result);
+                };
+
+                const keyHandler = (e) => {
+                    if (e.key === 'Escape') { e.preventDefault(); cleanup(false); }
+                    if (e.key === 'Enter') { e.preventDefault(); cleanup(true); }
+                };
+
+                confirmBtn.addEventListener('click', () => cleanup(true));
+                cancelBtn.addEventListener('click', () => cleanup(false));
+                overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(false); });
+                document.addEventListener('keydown', keyHandler);
+            });
+        },
+
+        alert({ title = 'Notice', message = '', icon = 'bi-info-circle-fill', variant = 'info' } = {}) {
+            return new Promise((resolve) => {
+                const overlay = this._createOverlay();
+                overlay.innerHTML = `
+                    <div class="rauth-dialog">
+                        <div class="rauth-dialog-icon">
+                            <div class="rauth-dialog-icon-circle ${variant}">
+                                <i class="bi ${icon}"></i>
+                            </div>
+                        </div>
+                        <div class="rauth-dialog-body">
+                            <div class="rauth-dialog-title">${title}</div>
+                            <div class="rauth-dialog-message">${message}</div>
+                        </div>
+                        <div class="rauth-dialog-actions alert-only">
+                            <button class="rauth-dialog-btn rauth-dialog-btn-confirm ${variant}" data-action="ok">Acknowledged</button>
+                        </div>
+                    </div>
+                `;
+
+                const okBtn = overlay.querySelector('[data-action="ok"]');
+                okBtn.focus();
+
+                const cleanup = () => {
+                    document.removeEventListener('keydown', keyHandler);
+                    this._dismiss(overlay);
+                    resolve();
+                };
+
+                const keyHandler = (e) => {
+                    if (e.key === 'Escape' || e.key === 'Enter') { e.preventDefault(); cleanup(); }
+                };
+
+                okBtn.addEventListener('click', cleanup);
+                overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(); });
+                document.addEventListener('keydown', keyHandler);
+            });
+        },
+
+        prompt({ title = 'Input Required', message = '', icon = 'bi-pencil-square', variant = 'info', placeholder = '', defaultValue = '' } = {}) {
+            return new Promise((resolve) => {
+                const overlay = this._createOverlay();
+                overlay.innerHTML = `
+                    <div class="rauth-dialog">
+                        <div class="rauth-dialog-icon">
+                            <div class="rauth-dialog-icon-circle ${variant}">
+                                <i class="bi ${icon}"></i>
+                            </div>
+                        </div>
+                        <div class="rauth-dialog-body">
+                            <div class="rauth-dialog-title">${title}</div>
+                            <div class="rauth-dialog-message">${message}</div>
+                            <input type="text" class="rauth-dialog-input" placeholder="${placeholder}" value="${defaultValue.replace(/"/g, '&quot;')}">
+                        </div>
+                        <div class="rauth-dialog-actions">
+                            <button class="rauth-dialog-btn rauth-dialog-btn-cancel" data-action="cancel">Cancel</button>
+                            <button class="rauth-dialog-btn rauth-dialog-btn-confirm" data-action="confirm">Save</button>
+                        </div>
+                        <div class="rauth-dialog-hint">
+                            <span><kbd>Enter</kbd> save</span>
+                            <span><kbd>Esc</kbd> cancel</span>
+                        </div>
+                    </div>
+                `;
+
+                const input = overlay.querySelector('.rauth-dialog-input');
+                const confirmBtn = overlay.querySelector('[data-action="confirm"]');
+                const cancelBtn = overlay.querySelector('[data-action="cancel"]');
+                input.focus();
+                input.select();
+
+                const cleanup = (result) => {
+                    document.removeEventListener('keydown', keyHandler);
+                    this._dismiss(overlay);
+                    resolve(result);
+                };
+
+                const keyHandler = (e) => {
+                    if (e.key === 'Escape') { e.preventDefault(); cleanup(null); }
+                    if (e.key === 'Enter') { e.preventDefault(); cleanup(input.value); }
+                };
+
+                confirmBtn.addEventListener('click', () => cleanup(input.value));
+                cancelBtn.addEventListener('click', () => cleanup(null));
+                overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(null); });
+                document.addEventListener('keydown', keyHandler);
+            });
+        }
+    };
+
+    // Disable TOTP button handler
+    const disableTotpBtn = document.getElementById('disable-totp-btn');
+    if (disableTotpBtn) {
+        disableTotpBtn.addEventListener('click', async () => {
+            const confirmed = await rauthDialog.confirm({
+                title: 'Disable TOTP',
+                message: 'Are you sure you want to disable TOTP authentication? This will lower your account security and remove two-factor verification from your login.',
+                icon: 'bi-shield-slash',
+                variant: 'danger',
+                confirmText: 'Disable 2FA'
+            });
+            if (confirmed) {
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = '/rauthprofile/disable-totp';
+                const c = document.createElement('input');
+                c.type = 'hidden'; c.name = 'csrf'; c.value = '{{.csrf}}';
+                form.appendChild(c);
+                const o = document.createElement('input');
+                o.type = 'hidden'; o.name = 'otp_code';
+                o.value = document.getElementById('otp_code_input').value;
+                form.appendChild(o);
+                document.body.appendChild(form);
+                form.submit();
+            }
+        });
+    }
+
+    // Passkey rename buttons
+    document.querySelectorAll('[data-rename-passkey]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const passkeyId = btn.dataset.passkeyId;
+            const currentName = btn.dataset.passkeyName;
+            const newName = await rauthDialog.prompt({
+                title: 'Rename Passkey',
+                message: 'Enter a new nickname for this security key to help you identify it.',
+                icon: 'bi-pencil-square',
+                variant: 'info',
+                placeholder: 'e.g. YubiKey 5, TouchID, ...',
+                defaultValue: currentName
+            });
+            if (newName) {
+                document.getElementById('rename-id-' + passkeyId).value = newName;
+                document.getElementById('rename-form-' + passkeyId).submit();
+            }
+        });
+    });
+
+    // Auto-wire all forms with data-confirm attribute
+    document.querySelectorAll('form[data-confirm]').forEach(form => {
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const confirmed = await rauthDialog.confirm({
+                title: form.dataset.confirmTitle || 'Confirm Action',
+                message: form.dataset.confirm,
+                icon: form.dataset.confirmIcon || 'bi-exclamation-triangle-fill',
+                variant: form.dataset.confirmVariant || 'danger',
+                confirmText: form.dataset.confirmBtn || 'Confirm'
+            });
+            if (confirmed) {
+                form.removeAttribute('onsubmit');
+                form.onsubmit = null;
+                form.submit();
+            }
+        });
+    });
     </script>
 </body>
 </html>
