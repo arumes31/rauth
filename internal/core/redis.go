@@ -117,19 +117,24 @@ func HasActiveSessions(ip string) bool {
 		return false
 	}
 
-	// ⚡ Bolt optimization: Batch HGetAll requests to avoid N+1 queries.
+	// ⚡ Bolt optimization: Batch HGet requests to avoid N+1 queries.
 	pipe := TokenDB.Pipeline()
-	cmds := make(map[string]*redis.MapStringStringCmd, len(tokens))
+	cmds := make(map[string]*redis.StringCmd, len(tokens))
 	for _, token := range tokens {
-		cmds[token] = pipe.HGetAll(Ctx, "X-rauth-authtoken="+token)
+		cmds[token] = pipe.HGet(Ctx, "X-rauth-authtoken="+token, "status")
 	}
-	_, _ = pipe.Exec(Ctx)
+	_, err = pipe.Exec(Ctx)
+	if err != nil && err != redis.Nil {
+		// A non-nil error from Exec means the pipeline completely failed.
+		// We shouldn't erroneously prune all tokens or return an incorrect result.
+		return false
+	}
 
 	var stale []interface{}
 	hasActive := false
 	for _, token := range tokens {
-		data, err := cmds[token].Result()
-		if err == nil && len(data) > 0 && data["status"] == "valid" {
+		status, err := cmds[token].Result()
+		if err == nil && status == "valid" {
 			hasActive = true
 		} else {
 			stale = append(stale, token)
