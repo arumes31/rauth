@@ -27,3 +27,7 @@
 ## 2026-06-08 - HGetAll vs HGet in Pipelines
 **Learning:** When retrieving a single field from a Redis hash inside a pipeline loop, replacing `HGetAll` with `HGet` reduces memory allocations and parsing overhead. However, be careful to use `*redis.StringCmd` instead of `*redis.MapStringStringCmd` for the command array, and handle potential `redis.Nil` errors which `HGetAll` does not throw.
 **Action:** Always prefer `HGet` over `HGetAll` when only one field is needed, even in pipelines. Update variable types and error handling accordingly.
+
+## 2026-06-05 - Optimizing string parsing
+**Learning:** Using bufio.Scanner for parsing strings in memory still requires allocating scanner structures and copying slices. A loop matching on newlines (`strings.IndexByte`) and slicing directly from the original string is significantly faster and requires zero extra allocations.
+**Action:** Use index-based slicing instead of bufio.Scanner when extracting lines from embedded strings that are only parsed once.
