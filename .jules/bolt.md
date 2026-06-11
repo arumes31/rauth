@@ -20,6 +20,7 @@
 ## 2026-05-27 - Reducing Allocations with bufio.Scanner
 **Learning:** Parsing large embedded strings (like blocklists) using `strings.Split` creates a large slice of strings that persists until the loop finishes. This is inefficient for one-time map population.
 **Action:** Use `bufio.Scanner` with `strings.NewReader` to process the string line-by-line. This minimizes temporary allocations and is significantly more memory-efficient for large text datasets.
+<<<<<<< HEAD
 ## 2026-06-05 - Avoid Redundant Pipeline Wrapping
 **Learning:** While pipelining is crucial for batching multiple commands, wrapping a *single* variadic command (like `Del(keys...)`) inside a pipeline introduces unnecessary overhead. Direct command execution via the client is faster when only one network round-trip is required.
 **Action:** When performing a single bulk operation with a variadic command, call it directly on the client (e.g., `TokenDB.Del(...)`) instead of initializing and executing a pipeline.
@@ -31,3 +32,7 @@
 ## 2026-06-05 - Optimizing string parsing
 **Learning:** Using bufio.Scanner for parsing strings in memory still requires allocating scanner structures and copying slices. A loop matching on newlines (`strings.IndexByte`) and slicing directly from the original string is significantly faster and requires zero extra allocations.
 **Action:** Use index-based slicing instead of bufio.Scanner when extracting lines from embedded strings that are only parsed once.
+
+## 2026-06-11 - Health Check Allocation and Iteration
+**Learning:** Building the health-check Redis client set as a `map` forces non-deterministic iteration order and an extra allocation, while the result map can be sized up front.
+**Action:** Use a preallocated `checks` map (`make(map[string]string, 4)`) and iterate the clients via a fixed slice of structs instead of a map for deterministic order and fewer allocations.
