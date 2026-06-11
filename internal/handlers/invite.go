@@ -3,6 +3,7 @@ package handlers
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"rauth/internal/core"
 	"time"
@@ -60,6 +61,11 @@ func (h *InviteHandler) RedeemPage(c echo.Context) error {
 }
 
 func (h *InviteHandler) Redeem(c echo.Context) error {
+	clientIP := c.RealIP()
+	if !core.CheckRateLimit("reg_ip:"+clientIP, h.Cfg.RateLimitRegistrationMax, h.Cfg.RateLimitRegistrationDecay) {
+		return echo.NewHTTPError(http.StatusTooManyRequests, fmt.Sprintf("Too many registration attempts from this IP (%s)", clientIP))
+	}
+
 	token := c.FormValue("token")
 	username := c.FormValue("username")
 	password := c.FormValue("password")
