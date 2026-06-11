@@ -495,7 +495,7 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 					c.Request().Header.Get("Sec-CH-UA-Platform"),
 					c.Request().Header.Get("Sec-CH-UA-Mobile"),
 					c.Request().Header.Get("Sec-CH-UA-Model"))
-				go core.Send2FAModifiedNotification(userRecord.Email, username, fmt.Sprintf("Recovery code used (%d remaining)", remaining), clientIP, device)
+				go core.Send2FAModifiedNotification(core.TwoFactorNotificationOptions{Email: userRecord.Email, Username: username, Action: fmt.Sprintf("Recovery code used (%d remaining)", remaining), IP: clientIP, Device: device})
 			}
 		}
 
@@ -620,7 +620,7 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 				c.Request().Header.Get("Sec-CH-UA-Platform"),
 				c.Request().Header.Get("Sec-CH-UA-Mobile"),
 				c.Request().Header.Get("Sec-CH-UA-Model"))
-			go core.Send2FAModifiedNotification(userRecord.Email, username, "Enabled", clientIP, device)
+			go core.Send2FAModifiedNotification(core.TwoFactorNotificationOptions{Email: userRecord.Email, Username: username, Action: "Enabled", IP: clientIP, Device: device})
 		}
 
 		core.ResetRateLimit("login_post_ip:" + clientIP)

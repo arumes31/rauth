@@ -190,7 +190,7 @@ func (h *ProfileHandler) RevokePasskey(c echo.Context) error {
 			c.Request().Header.Get("Sec-CH-UA-Platform"),
 			c.Request().Header.Get("Sec-CH-UA-Mobile"),
 			c.Request().Header.Get("Sec-CH-UA-Model"))
-		go core.Send2FAModifiedNotification(email, username, "Removed (Passkey)", c.RealIP(), device)
+		go core.Send2FAModifiedNotification(core.TwoFactorNotificationOptions{Email: email, Username: username, Action: "Removed (Passkey)", IP: c.RealIP(), Device: device})
 	}
 
 	core.LogAudit("PASSKEY_REVOKE", username, c.RealIP(), nil)
@@ -224,7 +224,7 @@ func (h *ProfileHandler) DisableTOTP(c echo.Context) error {
 			c.Request().Header.Get("Sec-CH-UA-Platform"),
 			c.Request().Header.Get("Sec-CH-UA-Mobile"),
 			c.Request().Header.Get("Sec-CH-UA-Model"))
-		go core.Send2FAModifiedNotification(userData["email"], username, "Disabled (TOTP)", c.RealIP(), device)
+		go core.Send2FAModifiedNotification(core.TwoFactorNotificationOptions{Email: userData["email"], Username: username, Action: "Disabled (TOTP)", IP: c.RealIP(), Device: device})
 	}
 
 	core.LogAudit("USER_DISABLE_TOTP", username, c.RealIP(), nil)

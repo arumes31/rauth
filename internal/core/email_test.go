@@ -73,7 +73,7 @@ func TestNotifications(t *testing.T) {
 	})
 
 	t.Run("Send2FAModifiedNotification", func(t *testing.T) {
-		Send2FAModifiedNotification("user@example.com", "testuser", "Enabled", "9.10.11.12", "Firefox on Android [Mobile]")
+		Send2FAModifiedNotification(TwoFactorNotificationOptions{Email: "user@example.com", Username: "testuser", Action: "Enabled", IP: "9.10.11.12", Device: "Firefox on Android [Mobile]"})
 
 		assert.Contains(t, capturedMsg, "Subject: [RAuth] Security Alert: 2FA Enabled")
 		assert.Contains(t, capturedMsg, "testuser")
