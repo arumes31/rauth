@@ -23,3 +23,7 @@
 ## 2026-06-05 - Avoid Redundant Pipeline Wrapping
 **Learning:** While pipelining is crucial for batching multiple commands, wrapping a *single* variadic command (like `Del(keys...)`) inside a pipeline introduces unnecessary overhead. Direct command execution via the client is faster when only one network round-trip is required.
 **Action:** When performing a single bulk operation with a variadic command, call it directly on the client (e.g., `TokenDB.Del(...)`) instead of initializing and executing a pipeline.
+
+## 2026-06-08 - HGetAll vs HGet in Pipelines
+**Learning:** When retrieving a single field from a Redis hash inside a pipeline loop, replacing `HGetAll` with `HGet` reduces memory allocations and parsing overhead. However, be careful to use `*redis.StringCmd` instead of `*redis.MapStringStringCmd` for the command array, and handle potential `redis.Nil` errors which `HGetAll` does not throw.
+**Action:** Always prefer `HGet` over `HGetAll` when only one field is needed, even in pipelines. Update variable types and error handling accordingly.
