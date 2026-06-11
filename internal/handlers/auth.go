@@ -23,8 +23,9 @@ type AuthHandler struct {
 
 // dummyBcryptHash is a valid bcrypt hash of a random value used to perform a
 // constant-time comparison when no real user/credential exists, mitigating
-// username-enumeration timing attacks.
-const dummyBcryptHash = "$2a$12$WJlQ/t/NbjXzEfIi2P54vecljh4fSRxYOkWj5Kbs7hM0eZFmL/Nyq"
+// username-enumeration timing attacks. It is a var so tests can substitute a
+// low-cost hash; production code never reassigns it.
+var dummyBcryptHash = "$2a$12$WJlQ/t/NbjXzEfIi2P54vecljh4fSRxYOkWj5Kbs7hM0eZFmL/Nyq"
 
 const (
 	// pendingTokenBytes sizes the short-lived 2FA/setup pending tokens.

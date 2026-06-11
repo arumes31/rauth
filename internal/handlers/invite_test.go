@@ -191,6 +191,10 @@ func TestInviteHandler_Redeem(t *testing.T) {
 		email := "test4@example.com"
 		core.InviteDB.Set(core.Ctx, "invite:"+token, email, 0)
 
+		// Pre-create the user so the warm-up attempts fail with a conflict
+		// instead of redeeming (and deleting) the invite token.
+		core.UserDB.HSet(core.Ctx, "user:ratelimituser", "username", "ratelimituser")
+
 		f := make(url.Values)
 		f.Set("token", token)
 		f.Set("username", "ratelimituser")

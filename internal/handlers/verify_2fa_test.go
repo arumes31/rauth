@@ -277,8 +277,8 @@ func TestAuthHandler_Verify2FA(t *testing.T) {
 		// Generate an older code and use it, validating that it passes but marks it
 		// then trying again
 
-		// mark as used
-		core.TokenDB.Set(core.Ctx, "totp_used:testuser:"+code, "1", time.Minute*3)
+		// mark as used (same key TOTPCodeReused checks via SetNX)
+		core.TokenDB.Set(core.Ctx, "2fa_used:testuser:"+code, "1", time.Minute*3)
 		// ensure rate limits don't break us
 		core.ResetRateLimit("2fa_fail_user:testuser")
 
@@ -308,7 +308,7 @@ func TestAuthHandler_Verify2FA(t *testing.T) {
 		}
 
 		// cleanup
-		core.TokenDB.Del(core.Ctx, "totp_used:testuser:"+code)
+		core.TokenDB.Del(core.Ctx, "2fa_used:testuser:"+code)
 	})
 
 	t.Run("Valid Recovery Code", func(t *testing.T) {
