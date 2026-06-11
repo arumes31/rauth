@@ -78,21 +78,21 @@ func (h *InviteHandler) Redeem(c echo.Context) error {
 	}
 
 	if err := core.ValidateUsername(username); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return h.renderRedeemError(c, http.StatusBadRequest, token, email, err.Error())
 	}
 	if err := core.ValidatePassword(password, h.Cfg); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return h.renderRedeemError(c, http.StatusBadRequest, token, email, err.Error())
 	}
 
 	// Create User
 	err = core.CreateUser(username, password, email, false, "")
 	if err != nil {
 		if strings.Contains(err.Error(), "already exists") {
-			return c.JSON(http.StatusConflict, map[string]string{"error": "Username already taken"})
+			return h.renderRedeemError(c, http.StatusConflict, token, email, "Username already taken")
 		}
 		// Internal failure (e.g. storage error): keep the invite usable and
 		// report it as such instead of a misleading conflict.
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to create account. Please try again."})
+		return h.renderRedeemError(c, http.StatusInternalServerError, token, email, "Failed to create account. Please try again.")
 	}
 
 	// Cleanup token
@@ -101,4 +101,16 @@ func (h *InviteHandler) Redeem(c echo.Context) error {
 	core.LogAudit("USER_INVITE_REDEEMED", username, c.RealIP(), map[string]interface{}{"email": email})
 
 	return c.Redirect(http.StatusFound, "/rauthlogin?success=account_created")
+}
+
+// renderRedeemError re-renders the redemption form with an error message. The
+// form is a plain HTML POST, so a JSON body here would replace the page with
+// raw JSON and strand the user.
+func (h *InviteHandler) renderRedeemError(c echo.Context, status int, token, email, msg string) error {
+	return c.Render(status, "redeem.html", map[string]interface{}{
+		"token": token,
+		"email": email,
+		"error": msg,
+		"csrf":  c.Get("csrf"),
+	})
 }

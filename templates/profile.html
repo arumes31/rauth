@@ -232,7 +232,7 @@
                                     } else {
                                         const err = await finishResponse.json();
                                         msg.className = "extra-small mt-2 text-danger";
-                                        msg.textContent = "Verification failed: " + (err.message || "Invalid response");
+                                        msg.textContent = "Verification failed: " + (err.error || err.message || "Invalid response");
                                     }
                                 } catch (e) {
                                     msg.className = "extra-small mt-2 text-danger";
