@@ -125,13 +125,13 @@ func TestMain_Execution(t *testing.T) {
 	defer func() { os.Args = oldArgs }()
 
 	// Set required environment variables for main()
-	os.Setenv("SERVER_SECRET", "1234567890123456")
-	os.Setenv("COOKIE_DOMAIN", "localhost")
-	os.Setenv("PORT", "0") // Use random port to prevent conflict
+	t.Setenv("SERVER_SECRET", "1234567890123456")
+	t.Setenv("COOKIE_DOMAIN", "localhost")
+	t.Setenv("PORT", "0") // Use random port to prevent conflict
 
 	// Setup miniredis for main() to connect to
 	s := miniredis.RunT(t)
-	os.Setenv("REDIS_ADDR", s.Addr())
+	t.Setenv("REDIS_ADDR", s.Addr())
 
 	// We need to run main in a goroutine and send SIGTERM to shut it down
 	done := make(chan struct{})
