@@ -152,3 +152,145 @@ func TestReconcileIndexSets(t *testing.T) {
 		})
 	}
 }
+
+func TestAddIPSessionIndex(t *testing.T) {
+	mr := setupTestRedis(t)
+	defer mr.Close()
+
+	tests := []struct {
+		name      string
+		ip        string
+		token     string
+		setup     func()
+		checkFunc func(*testing.T)
+	}{
+		{
+			name:  "Add to new IP index",
+			ip:    "192.168.1.1",
+			token: "token1",
+			setup: func() {},
+			checkFunc: func(t *testing.T) {
+				res := TokenDB.SIsMember(Ctx, "ip_sessions:192.168.1.1", "token1").Val()
+				assert.True(t, res)
+			},
+		},
+		{
+			name:  "Add to existing IP index",
+			ip:    "192.168.1.2",
+			token: "token3",
+			setup: func() {
+				TokenDB.SAdd(Ctx, "ip_sessions:192.168.1.2", "token2")
+			},
+			checkFunc: func(t *testing.T) {
+				res := TokenDB.SIsMember(Ctx, "ip_sessions:192.168.1.2", "token3").Val()
+				assert.True(t, res)
+				res2 := TokenDB.SIsMember(Ctx, "ip_sessions:192.168.1.2", "token2").Val()
+				assert.True(t, res2)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mr.FlushAll()
+			tt.setup()
+			AddIPSessionIndex(tt.ip, tt.token)
+			tt.checkFunc(t)
+		})
+	}
+}
+
+func TestAddSessionIndex(t *testing.T) {
+	mr := setupTestRedis(t)
+	defer mr.Close()
+
+	tests := []struct {
+		name      string
+		username  string
+		token     string
+		setup     func()
+		checkFunc func(*testing.T)
+	}{
+		{
+			name:     "Add new user session index",
+			username: "testuser1",
+			token:    "token123",
+			setup:    func() {},
+			checkFunc: func(t *testing.T) {
+				members, err := TokenDB.SMembers(Ctx, "user_sessions:testuser1").Result()
+				assert.NoError(t, err)
+				assert.Contains(t, members, "token123")
+			},
+		},
+		{
+			name:     "Add to existing user session index",
+			username: "testuser2",
+			token:    "token456",
+			setup: func() {
+				TokenDB.SAdd(Ctx, "user_sessions:testuser2", "token123")
+			},
+			checkFunc: func(t *testing.T) {
+				members, err := TokenDB.SMembers(Ctx, "user_sessions:testuser2").Result()
+				assert.NoError(t, err)
+				assert.Contains(t, members, "token456")
+				assert.Contains(t, members, "token123")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mr.FlushAll()
+			tt.setup()
+			AddSessionIndex(tt.username, tt.token)
+			tt.checkFunc(t)
+		})
+	}
+}
+
+func TestRemoveSessionIndex(t *testing.T) {
+	mr := setupTestRedis(t)
+	defer mr.Close()
+
+	tests := []struct {
+		name      string
+		username  string
+		token     string
+		setup     func()
+		checkFunc func(*testing.T)
+	}{
+		{
+			name:     "Remove existing user session index",
+			username: "testuser1",
+			token:    "token123",
+			setup: func() {
+				TokenDB.SAdd(Ctx, "user_sessions:testuser1", "token123")
+			},
+			checkFunc: func(t *testing.T) {
+				members, err := TokenDB.SMembers(Ctx, "user_sessions:testuser1").Result()
+				assert.NoError(t, err)
+				assert.NotContains(t, members, "token123")
+			},
+		},
+		{
+			name:     "Remove non-existing user session index",
+			username: "testuser2",
+			token:    "token456",
+			setup:    func() {},
+			checkFunc: func(t *testing.T) {
+				members, err := TokenDB.SMembers(Ctx, "user_sessions:testuser2").Result()
+				assert.NoError(t, err)
+				assert.NotContains(t, members, "token456")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mr.FlushAll()
+			tt.setup()
+			RemoveSessionIndex(tt.username, tt.token)
+			tt.checkFunc(t)
+		})
+	}
+}

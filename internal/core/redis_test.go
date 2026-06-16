@@ -45,22 +45,6 @@ func TestSessionManagement(t *testing.T) {
 	TokenDB = client
 	Ctx = context.Background()
 
-	t.Run("AddSessionIndex", func(t *testing.T) {
-		AddSessionIndex("testuser", "token123")
-
-		members, err := TokenDB.SMembers(Ctx, "user_sessions:testuser").Result()
-		require.NoError(t, err)
-		require.Contains(t, members, "token123")
-	})
-
-	t.Run("RemoveSessionIndex", func(t *testing.T) {
-		RemoveSessionIndex("testuser", "token123")
-
-		members, err := TokenDB.SMembers(Ctx, "user_sessions:testuser").Result()
-		require.NoError(t, err)
-		require.NotContains(t, members, "token123")
-	})
-
 	t.Run("InvalidateUserSessions", func(t *testing.T) {
 		AddSessionIndex("testuser2", "token456")
 		AddSessionIndex("testuser2", "token789")
