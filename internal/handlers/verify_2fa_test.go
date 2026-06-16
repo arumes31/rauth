@@ -21,17 +21,17 @@ func TestAuthHandler_Verify2FA(t *testing.T) {
 	setupHandlersTest(t)
 
 	cfg := &core.Config{
-		ServerSecret:              "32byte-secret-key-for-testing-!!",
-		CookieDomains:             []string{"example.com"},
-		TokenValidityMinutes:      60,
-		RateLimitLoginMax:         1000,
-		RateLimitLoginDecay:       60,
-		RateLimitLoginAccessMax:   1000,
-		RateLimitLoginAccessDecay: 60,
-		RateLimitLoginFailUserMax: 1000,
+		ServerSecret:                "32byte-secret-key-for-testing-!!",
+		CookieDomains:               []string{"example.com"},
+		TokenValidityMinutes:        60,
+		RateLimitLoginMax:           1000,
+		RateLimitLoginDecay:         60,
+		RateLimitLoginAccessMax:     1000,
+		RateLimitLoginAccessDecay:   60,
+		RateLimitLoginFailUserMax:   1000,
 		RateLimitLoginFailUserDecay: 60,
-		RateLimitLoginFailIPMax:   1000,
-		RateLimitLoginFailIPDecay: 60,
+		RateLimitLoginFailIPMax:     1000,
+		RateLimitLoginFailIPDecay:   60,
 	}
 	// Important to use a valid test context setup
 	h := &AuthHandler{Cfg: cfg}

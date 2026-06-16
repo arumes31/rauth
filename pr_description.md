@@ -1,0 +1,4 @@
+🎯 **What:** Extracted duplicate `login_access` and `login_post_ip` rate limiting checks from `Login`, `Verify2FA`, and `CompleteSetup2FA` into a new `checkLoginAccessAndPostLimits` helper method.
+💡 **Why:** This significantly reduces code duplication in `internal/handlers/auth.go`, making the authentication handlers more readable and ensuring rate limiting rules and their associated rendered error responses are applied consistently.
+✅ **Verification:** Ran `go test ./...` which confirmed all 100+ tests pass, including the specific table-driven tests for rate limits (`TestAuthHandler_Login`, `TestAuthHandler_Verify2FA`, and `TestAuthHandler_CompleteSetup2FA`). Followed up with `golangci-lint run` and `go fmt ./...` to ensure code health and formatting.
+✨ **Result:** Removed 3 duplicated blocks of rate limit checks, centralizing the logic into a single cohesive helper. The behavior remains functionally identical but the code is now more maintainable.
