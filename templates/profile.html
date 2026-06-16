@@ -426,7 +426,12 @@
         // Audit Detail Logic
         const auditModal = new bootstrap.Modal(document.getElementById('auditDetailModal'));
         function showAuditDetail(detailsJson) {
-            document.getElementById('auditDetailContent').innerHTML = `<pre class="mb-0 text-success">${JSON.stringify(detailsJson, null, 2)}</pre>`;
+            const pre = document.createElement('pre');
+            pre.className = 'mb-0 text-success';
+            pre.textContent = JSON.stringify(detailsJson, null, 2);
+            const content = document.getElementById('auditDetailContent');
+            content.innerHTML = '';
+            content.appendChild(pre);
             auditModal.show();
         }
 
