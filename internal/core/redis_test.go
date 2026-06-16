@@ -119,4 +119,15 @@ func TestSessionManagement(t *testing.T) {
 		members, _ := TokenDB.SMembers(Ctx, "ip_sessions:172.16.0.1").Result()
 		require.NotContains(t, members, "ghost_token")
 	})
+
+	t.Run("HasActiveSessions Error Paths", func(t *testing.T) {
+		// SMembers Error Path (Wrong Type)
+		TokenDB.Set(Ctx, "ip_sessions:1.1.1.1", "not_a_set", 0)
+		require.False(t, HasActiveSessions("1.1.1.1"))
+
+		// Pipeline Error Path (Wrong Type)
+		AddIPSessionIndex("2.2.2.2", "bad_token")
+		TokenDB.Set(Ctx, "X-rauth-authtoken=bad_token", "not_a_hash", 0)
+		require.False(t, HasActiveSessions("2.2.2.2"))
+	})
 }
