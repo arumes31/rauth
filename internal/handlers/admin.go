@@ -94,12 +94,18 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 	}
 
 	var logs []core.AuditLog
-	for _, l := range rawLogs {
-		var log core.AuditLog
-		if err := json.Unmarshal([]byte(l), &log); err != nil {
-			continue
+	if len(rawLogs) > 0 {
+		// Fallback approach: The combined JSON unmarshaling fails entirely if
+		// even a single log entry is malformed, breaking fault tolerance.
+		// We revert to looping, but pre-allocate the slice to save memory overhead.
+		logs = make([]core.AuditLog, 0, len(rawLogs))
+		for _, l := range rawLogs {
+			var log core.AuditLog
+			if err := json.Unmarshal([]byte(l), &log); err != nil {
+				continue
+			}
+			logs = append(logs, log)
 		}
-		logs = append(logs, log)
 	}
 
 	return c.Render(http.StatusOK, "management.html", map[string]interface{}{

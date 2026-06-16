@@ -185,7 +185,6 @@ func TestProfileHandler_ChangePassword(t *testing.T) {
 	})
 }
 
-
 func TestProfileHandler_GenerateRecoveryCodes(t *testing.T) {
 	setupHandlersTest(t)
 	h := &ProfileHandler{Cfg: &core.Config{ServerSecret: "01234567890123456789012345678901"}}
@@ -222,8 +221,7 @@ func TestProfileHandler_RenamePasskey(t *testing.T) {
 		c.Set("username", "profileuser")
 
 		// Pre-populate credential properly mapped
-        core.UserDB.HSet(core.Ctx, "user:profileuser:webauthn_creds_v2", "dGVzdGlk", `{"id":"dGVzdGlk","publicKey":"","attestationType":"","authenticator":{"aaguid":"","signCount":0,"cloneWarning":false}}`)
-
+		core.UserDB.HSet(core.Ctx, "user:profileuser:webauthn_creds_v2", "dGVzdGlk", `{"id":"dGVzdGlk","publicKey":"","attestationType":"","authenticator":{"aaguid":"","signCount":0,"cloneWarning":false}}`)
 
 		err := h.RenamePasskey(c)
 		assert.NoError(t, err)
@@ -274,8 +272,8 @@ func TestProfileHandler_TerminateAllOtherSessions(t *testing.T) {
 	e := echo.New()
 
 	t.Run("Terminate other sessions successfully", func(t *testing.T) {
-        pwd := "SecurePass123!"
-        hashedPwd, _ := core.HashPassword(pwd)
+		pwd := "SecurePass123!"
+		hashedPwd, _ := core.HashPassword(pwd)
 
 		f := make(url.Values)
 		f.Set("password", pwd)
