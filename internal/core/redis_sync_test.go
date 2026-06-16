@@ -25,6 +25,50 @@ func setupTestRedis(t *testing.T) *miniredis.Miniredis {
 	return mr
 }
 
+func TestRemoveSessionIndex(t *testing.T) {
+	mr := setupTestRedis(t)
+	defer mr.Close()
+
+	tests := []struct {
+		name      string
+		username  string
+		token     string
+		setup     func()
+		checkFunc func(*testing.T)
+	}{
+		{
+			name:     "Remove existing session index",
+			username: "testuser1",
+			token:    "token1",
+			setup: func() {
+				TokenDB.SAdd(Ctx, "user_sessions:testuser1", "token1")
+			},
+			checkFunc: func(t *testing.T) {
+				res := TokenDB.SIsMember(Ctx, "user_sessions:testuser1", "token1").Val()
+				assert.False(t, res)
+			},
+		},
+		{
+			name:     "Remove non-existing session index",
+			username: "testuser2",
+			token:    "token2",
+			setup:    func() {},
+			checkFunc: func(t *testing.T) {
+				res := TokenDB.SIsMember(Ctx, "user_sessions:testuser2", "token2").Val()
+				assert.False(t, res)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mr.FlushAll()
+			tt.setup()
+			RemoveSessionIndex(tt.username, tt.token)
+			tt.checkFunc(t)
+		})
+	}
+}
 func TestRemoveIPSessionIndex(t *testing.T) {
 	mr := setupTestRedis(t)
 	defer mr.Close()

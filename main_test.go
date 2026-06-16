@@ -1,10 +1,10 @@
 package main
 
 import (
-	"net/http"
 	"bytes"
 	"html/template"
 	"log/slog"
+	"net/http"
 	"path/filepath"
 	"rauth/internal/core"
 	"testing"
@@ -116,14 +116,13 @@ func TestInitializeSystem(t *testing.T) {
 	assert.Equal(t, int64(1), exists)
 }
 
-
 func TestCreateIPExtractor(t *testing.T) {
 	tests := []struct {
-		name              string
-		cfg               *core.Config
-		headers           map[string]string
-		remoteAddr        string
-		expectedIP        string
+		name       string
+		cfg        *core.Config
+		headers    map[string]string
+		remoteAddr string
+		expectedIP string
 	}{
 		{
 			name:       "Basic RemoteAddr",
@@ -156,7 +155,7 @@ func TestCreateIPExtractor(t *testing.T) {
 		},
 		{
 			name: "X-Real-IP smart mode",
-			cfg: &core.Config{}, // Not explicitly trusted, relying on private remoteHost
+			cfg:  &core.Config{}, // Not explicitly trusted, relying on private remoteHost
 			headers: map[string]string{
 				"X-Real-IP": "198.51.100.1",
 			},
