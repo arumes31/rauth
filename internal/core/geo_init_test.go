@@ -29,7 +29,7 @@ func TestInitGeoReader(t *testing.T) {
 
 	_, err = writer.WriteTo(fh)
 	require.NoError(t, err)
-	fh.Close()
+	require.NoError(t, fh.Close())
 
 	// Save existing environment and set a custom one
 	t.Setenv("MAXMIND_DB_PATH", dbPath)
