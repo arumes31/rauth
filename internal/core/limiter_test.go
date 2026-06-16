@@ -115,3 +115,37 @@ func TestReserveRateLimitAttempt(t *testing.T) {
 		t.Errorf("Attempt after reset failed: exceeded=%v, count=%d, err=%v", exceeded, count, err)
 	}
 }
+
+func TestResetRateLimit(t *testing.T) {
+	s := miniredis.RunT(t)
+	originalDB := RateLimitDB
+	defer func() { RateLimitDB = originalDB }()
+
+	RateLimitDB = redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
+	})
+
+	key := "test_reset_explicit_ip"
+	fullKey := "rate_limit:" + key
+
+	// Set a value
+	err := RateLimitDB.Set(Ctx, fullKey, "5", 0).Err()
+	if err != nil {
+		t.Fatalf("Failed to set initial value: %v", err)
+	}
+
+	// Verify it exists
+	exists, err := RateLimitDB.Exists(Ctx, fullKey).Result()
+	if err != nil || exists == 0 {
+		t.Fatalf("Key should exist before reset")
+	}
+
+	// Reset
+	ResetRateLimit(key)
+
+	// Verify it was deleted
+	exists, err = RateLimitDB.Exists(Ctx, fullKey).Result()
+	if err != nil || exists != 0 {
+		t.Errorf("Key should be deleted after reset, exists=%v, err=%v", exists, err)
+	}
+}
