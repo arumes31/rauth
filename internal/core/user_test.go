@@ -138,3 +138,107 @@ func TestGetUsernameByUID(t *testing.T) {
 		require.Error(t, err)
 	})
 }
+
+func TestListUsers(t *testing.T) {
+	s := miniredis.RunT(t)
+
+	UserDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
+	AuditDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
+	TokenDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
+	Ctx = context.Background()
+
+	t.Run("Empty", func(t *testing.T) {
+		users, err := ListUsers()
+		require.NoError(t, err)
+		require.Empty(t, users)
+	})
+
+	t.Run("MultipleUsers", func(t *testing.T) {
+		err := CreateUser("user1", "pass1", "user1@test.com", false, "")
+		require.NoError(t, err)
+		err = CreateUser("user2", "pass2", "user2@test.com", false, "")
+		require.NoError(t, err)
+
+		users, err := ListUsers()
+		require.NoError(t, err)
+		require.Len(t, users, 2)
+
+		// Create a map for easy lookup
+		userMap := make(map[string]User)
+		for _, u := range users {
+			userMap[u.Username] = u
+		}
+
+		require.Contains(t, userMap, "user1")
+		require.Contains(t, userMap, "user2")
+		require.Equal(t, "user1@test.com", userMap["user1"].Email)
+		require.Equal(t, "user2@test.com", userMap["user2"].Email)
+	})
+
+	t.Run("MissingUserData", func(t *testing.T) {
+		// Manually add a ghost username to the set without creating the hash
+		err := UserDB.SAdd(Ctx, "users", "ghostuser").Err()
+		require.NoError(t, err)
+
+		users, err := ListUsers()
+		require.NoError(t, err)
+
+		// The ghost user should be skipped, so length is still 2
+		require.Len(t, users, 2)
+
+		for _, u := range users {
+			require.NotEqual(t, "ghostuser", u.Username)
+		}
+	})
+
+	t.Run("SMembersError", func(t *testing.T) {
+		// Simulate a closed connection to trigger SMembers error
+		UserDB.Close()
+		_, err := ListUsers()
+		require.Error(t, err)
+
+		// Re-initialize for subsequent tests if any (though this is the last subtest)
+		UserDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
+	})
+
+	t.Run("PipelineExecError", func(t *testing.T) {
+		// Clean up users first
+		UserDB.Del(Ctx, "users")
+
+		// Add a valid user
+		err := CreateUser("pipeuser", "pass", "pipe@test.com", false, "")
+		require.NoError(t, err)
+
+		// Close connection to cause pipeline Exec to fail
+		UserDB.Close()
+
+		_, err = ListUsers()
+		require.Error(t, err)
+
+		// Re-initialize for next tests
+		UserDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
+	})
+
+	t.Run("ScanError", func(t *testing.T) {
+		// Clean up users first
+		UserDB.Del(Ctx, "users")
+
+		// Add a valid user
+		err := CreateUser("scanuser", "pass", "scan@test.com", false, "")
+		require.NoError(t, err)
+
+		// Corrupt the user hash data to cause a scan error
+		// Using a field that cannot be parsed into an int64 for created_at
+		UserDB.HSet(Ctx, "user:scanuser", "created_at", "not-an-int")
+
+		users, err := ListUsers()
+		require.NoError(t, err)
+
+		// The corrupted user should be skipped, returning 0 users
+		require.Empty(t, users)
+
+		// Re-initialize for next tests
+		UserDB.Del(Ctx, "users")
+		UserDB.Del(Ctx, "user:scanuser")
+	})
+}
