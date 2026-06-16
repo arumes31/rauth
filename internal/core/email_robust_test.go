@@ -58,3 +58,45 @@ func TestSendEmail_SMTPError(t *testing.T) {
 	assert.Contains(t, logOutput, "smtp connection failed")
 	assert.Contains(t, logOutput, "test@example.com")
 }
+
+func TestSendPasswordChangeNotificationRobust(t *testing.T) {
+	t.Setenv("SMTP_HOST", "smtp.example.com")
+	t.Setenv("SMTP_FROM", "noreply@rauth.example.com")
+	t.Setenv("PUBLIC_URL", "https://auth.example.com")
+
+	var capturedFrom string
+	var capturedTo []string
+	var capturedMsg string
+
+	origSendMail := sendMail
+	defer func() { sendMail = origSendMail }()
+
+	sendMail = func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
+		capturedFrom = from
+		capturedTo = to
+		capturedMsg = string(msg)
+		return nil
+	}
+
+	testEmail := "user@example.com"
+	testUsername := "user<script>alert(1)</script>"
+	testIP := "192.168.1.1<script>"
+	testDevice := "Safari on Mac <script>"
+
+	SendPasswordChangeNotification(testEmail, testUsername, testIP, testDevice)
+
+	assert.Equal(t, "noreply@rauth.example.com", capturedFrom)
+	assert.Equal(t, []string{testEmail}, capturedTo)
+	assert.Contains(t, capturedMsg, "Subject: [RAuth] Security Alert: Password Changed")
+
+	// Verify HTML escaping
+	assert.Contains(t, capturedMsg, "user&lt;script&gt;alert(1)&lt;/script&gt;")
+	assert.NotContains(t, capturedMsg, "<script>")
+
+	assert.Contains(t, capturedMsg, "192.168.1.1&lt;script&gt;")
+	assert.Contains(t, capturedMsg, "Safari on Mac &lt;script&gt;")
+
+	// Verify it's wrapped in the template
+	assert.Contains(t, capturedMsg, "<!DOCTYPE html>")
+	assert.Contains(t, capturedMsg, "RAuth Security</h1>")
+}
