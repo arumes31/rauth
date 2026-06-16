@@ -16,13 +16,7 @@ type AdminHandler struct {
 	Cfg *core.Config
 }
 
-func (h *AdminHandler) Dashboard(c echo.Context) error {
-	users, err := core.ListUsers()
-	if err != nil {
-		slog.Error("Failed to list users", "error", err)
-	}
-
-	// Fetch sessions using Pipeline to avoid N+1 queries
+func fetchAdminSessions() []map[string]string {
 	var sessions []map[string]string
 	var keys []string
 	var cursor uint64
@@ -86,8 +80,10 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 			sessions = append(sessions, data)
 		}
 	}
+	return sessions
+}
 
-	// Fetch Audit Logs
+func fetchAuditLogs() []core.AuditLog {
 	rawLogs, err := core.AuditDB.LRange(core.Ctx, "audit_logs", 0, 99).Result()
 	if err != nil {
 		slog.Error("Failed to fetch audit logs from Redis", "error", err)
@@ -101,7 +97,17 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 		}
 		logs = append(logs, log)
 	}
+	return logs
+}
 
+func (h *AdminHandler) Dashboard(c echo.Context) error {
+	users, err := core.ListUsers()
+	if err != nil {
+		slog.Error("Failed to list users", "error", err)
+	}
+
+	sessions := fetchAdminSessions()
+	logs := fetchAuditLogs()
 	return c.Render(http.StatusOK, "management.html", map[string]interface{}{
 		"username": c.Get("username"),
 		"users":    users,
