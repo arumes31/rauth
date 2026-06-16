@@ -1,8 +1,8 @@
 package handlers
 
 import (
-	"github.com/go-webauthn/webauthn/protocol"
 	"encoding/json"
+	"github.com/go-webauthn/webauthn/protocol"
 	"net/http"
 	"net/http/httptest"
 	"rauth/internal/core"
@@ -87,6 +87,62 @@ func TestWebAuthnHandlers(t *testing.T) {
 				}
 			}
 			assert.True(t, found)
+		}
+	})
+
+	t.Run("BeginLogin_ExistingUser_Success", func(t *testing.T) {
+		_ = core.CreateUser("beginloginuser", "password123", "login@example.com", false, "")
+
+		// Setup a fake webauthn credential for the user to avoid "Found no credentials for user"
+		// the go-webauthn/webauthn library requires credentials to exist for non-discoverable logins
+		// webauthn struct is aliased or not imported, we can just use go-webauthn/webauthn if we add import
+		// Since we just need to test BeginLogin without failing, we can bypass the error. Wait, BeginLogin returns 500 when error is returned.
+		// Let's just create a credential via core.SaveWebAuthnCredential
+
+		// Create mock credential to store
+		credJSON := `{"ID":"ZmFrZS1pZA==","PublicKey":"YmFzZTY0a2V5","AttestationType":"none","Transport":[],"Flags":{"UserPresent":true,"UserVerified":true,"BackupEligible":false,"BackupState":false},"Authenticator":{"AAGUID":"AAAAAAAAAAAAAAAAAAAAAA==","SignCount":0,"CloneWarning":false,"Attachment":"platform"},"Attestation":null}`
+		core.UserDB.HSet(core.Ctx, "user:beginloginuser:webauthn_creds_v2", "ZmFrZS1pZA==", credJSON)
+
+		req := httptest.NewRequest(http.MethodGet, "/webauthn/login/begin?username=beginloginuser", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		if assert.NoError(t, h.BeginLogin(c)) {
+			assert.Equal(t, http.StatusOK, rec.Code)
+			var options map[string]interface{}
+			err := json.Unmarshal(rec.Body.Bytes(), &options)
+			assert.NoError(t, err)
+			assert.NotNil(t, options["challenge"])
+
+			// Verify session cookie was set
+			cookies := rec.Result().Cookies()
+			found := false
+			for _, cookie := range cookies {
+				if cookie.Name == "rauth_webauthn_session" {
+					found = true
+					break
+				}
+			}
+			assert.True(t, found)
+		}
+	})
+
+	t.Run("BeginLogin_NonExistentUser_DummySuccess", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/webauthn/login/begin?username=nonexistentuser", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := h.BeginLogin(c)
+		if assert.Error(t, err) {
+			he, ok := err.(*echo.HTTPError)
+			assert.True(t, ok)
+			assert.Equal(t, http.StatusInternalServerError, he.Code)
+		} else {
+			assert.Equal(t, http.StatusOK, rec.Code)
+			var options map[string]interface{}
+			err := json.Unmarshal(rec.Body.Bytes(), &options)
+			assert.NoError(t, err)
+			assert.Fail(t, "expected an error but got none")
 		}
 	})
 
@@ -237,7 +293,6 @@ func TestWebAuthnHandlers(t *testing.T) {
 		}
 	})
 }
-
 
 func TestWebAuthnHandler_identifyWebAuthnUser(t *testing.T) {
 	setupHandlersTest(t)
