@@ -9,6 +9,9 @@ import (
 func TestRateLimiter(t *testing.T) {
 	s := miniredis.RunT(t)
 
+	originalDB := RateLimitDB
+	defer func() { RateLimitDB = originalDB }()
+
 	// Override RateLimitDB for testing
 	RateLimitDB = redis.NewClient(&redis.Options{
 		Addr: s.Addr(),
@@ -37,6 +40,14 @@ func TestRateLimiter(t *testing.T) {
 	if !CheckRateLimit(key, max, decay) {
 		t.Error("Attempt after reset should be allowed")
 	}
+
+	// Test fail-closed on DB error/disconnection
+	RateLimitDB = redis.NewClient(&redis.Options{
+		Addr: "localhost:12345", // Non-existent port to force connection failure
+	})
+	if CheckRateLimit(key, max, decay) {
+		t.Error("Should fail closed (return false) when DB is down or connection fails")
+	}
 }
 
 func TestIsRateLimitExceeded(t *testing.T) {
@@ -64,6 +75,12 @@ func TestIsRateLimitExceeded(t *testing.T) {
 	// Now it should be exceeded (count is 3 >= max)
 	if !IsRateLimitExceeded(key, max) {
 		t.Error("Should be exceeded after 3 attempts")
+	}
+
+	// Corrupt parsing by setting to invalid string
+	RateLimitDB.Set(Ctx, "rate_limit:"+key, "invalid", 0)
+	if !IsRateLimitExceeded(key, max) {
+		t.Error("Should fail closed (return true) when parsing error occurs")
 	}
 
 	// Test fail-closed on DB error/disconnection
@@ -113,5 +130,15 @@ func TestReserveRateLimitAttempt(t *testing.T) {
 	exceeded, count, err = ReserveRateLimitAttempt(key, limit, decay)
 	if err != nil || exceeded || count != 1 {
 		t.Errorf("Attempt after reset failed: exceeded=%v, count=%d, err=%v", exceeded, count, err)
+	}
+
+	// Test fail-closed on DB error/disconnection
+	RateLimitDB = redis.NewClient(&redis.Options{
+		Addr: "localhost:12345", // Non-existent port to force connection failure
+	})
+
+	exceeded, count, err = ReserveRateLimitAttempt(key, limit, decay)
+	if err == nil || !exceeded {
+		t.Errorf("Attempt with no DB failed closed incorrectly: exceeded=%v, count=%d, err=%v", exceeded, count, err)
 	}
 }
