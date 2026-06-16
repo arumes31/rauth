@@ -68,7 +68,7 @@ func TestConsumeRecoveryCode_RedisError(t *testing.T) {
 	// Use a new client with a closed connection
 	oldUserDB := UserDB
 	UserDB = redis.NewClient(&redis.Options{Addr: "localhost:1"}) // wrong port to simulate error
-	UserDB.Close()
+	_ = UserDB.Close() // Close immediately to simulate a broken connection
 	defer func() { UserDB = oldUserDB }()
 
 	require.False(t, ConsumeRecoveryCode("alice", "valid-code"))
