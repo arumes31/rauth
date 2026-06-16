@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"github.com/go-webauthn/webauthn/protocol"
 	"encoding/json"
 	"net/http"
@@ -102,6 +103,69 @@ func TestWebAuthnHandlers(t *testing.T) {
 			assert.Equal(t, http.StatusBadRequest, he.Code)
 		}
 	})
+
+	t.Run("FinishLogin_RateLimitExceeded", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/webauthn/login/finish", nil)
+		req.RemoteAddr = "192.168.1.100:12345" // For clientIP
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		// Max out rate limit
+		for i := 0; i < cfg.RateLimitLoginMax; i++ {
+			core.CheckRateLimit("login_ip:192.168.1.100", cfg.RateLimitLoginMax, cfg.RateLimitLoginDecay)
+		}
+
+		err := h.FinishLogin(c)
+		if assert.Error(t, err) {
+			he, ok := err.(*echo.HTTPError)
+			assert.True(t, ok)
+			assert.Equal(t, http.StatusTooManyRequests, he.Code)
+		}
+
+		// Clear rate limit for other tests
+		core.TokenDB.Del(core.Ctx, "login_ip:192.168.1.100")
+	})
+
+	t.Run("FinishLogin_InvalidSessionData", func(t *testing.T) {
+		sessionID := "invalid_session_id"
+		core.TokenDB.Set(core.Ctx, "webauthn_login_session:"+sessionID, "invalid json", 0)
+
+		req := httptest.NewRequest(http.MethodPost, "/webauthn/login/finish", nil)
+		req.AddCookie(&http.Cookie{Name: "rauth_webauthn_session", Value: sessionID})
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := h.FinishLogin(c)
+		if assert.Error(t, err) {
+			he, ok := err.(*echo.HTTPError)
+			assert.True(t, ok)
+			assert.Equal(t, http.StatusInternalServerError, he.Code)
+			assert.Equal(t, "Failed to parse session data", he.Message)
+		}
+	})
+
+	t.Run("FinishLogin_InvalidAssertion", func(t *testing.T) {
+		sessionID := "valid_session_id"
+		sessionJSON := `{"challenge":"aGVsbG8=","userVerification":"preferred"}`
+		core.TokenDB.Set(core.Ctx, "webauthn_login_session:"+sessionID, sessionJSON, 5*time.Minute)
+
+		req := httptest.NewRequest(http.MethodPost, "/webauthn/login/finish", bytes.NewReader([]byte("invalid json body")))
+		req.Header.Set("Content-Type", "application/json")
+		req.AddCookie(&http.Cookie{Name: "rauth_webauthn_session", Value: sessionID})
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := h.FinishLogin(c)
+		if assert.Error(t, err) {
+			he, ok := err.(*echo.HTTPError)
+			assert.True(t, ok)
+			assert.Equal(t, http.StatusBadRequest, he.Code)
+			assert.Equal(t, "Invalid assertion response", he.Message)
+		}
+	})
+
+
+
 
 	t.Run("FinishRegistration_RateLimitExceeded", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/webauthn/register/finish", nil)
