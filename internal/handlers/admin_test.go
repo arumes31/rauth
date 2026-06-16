@@ -186,6 +186,50 @@ func TestAdminHandler_DeleteUser(t *testing.T) {
 		assert.Equal(t, int64(1), exists)
 	})
 }
+func TestAdminHandler_ResetUser2FA(t *testing.T) {
+	setupHandlersTest(t)
+	cfg := &core.Config{
+		RateLimitLoginMax:         1000,
+		RateLimitLoginDecay:       60,
+		RateLimitLoginAccessMax:   1000,
+		RateLimitLoginFailUserMax: 1000,
+		RateLimitLoginFailIPMax:   1000,
+	}
+	h := &AdminHandler{Cfg: cfg}
+	e := echo.New()
+
+	t.Run("Reset 2FA successfully", func(t *testing.T) {
+		core.UserDB.HSet(core.Ctx, "user:victim", "username", "victim", "2fa_secret", "secret123")
+		core.UserDB.SAdd(core.Ctx, "users", "victim")
+
+		// Add mock sessions and recovery codes to check if they're cleared
+		core.UserDB.HSet(core.Ctx, "user:victim:recovery_codes", "c1", "c1")
+		core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken=token1", "username", "victim")
+		core.TokenDB.SAdd(core.Ctx, "user_sessions:victim", "X-rauth-authtoken=token1")
+
+		f := make(url.Values)
+		f.Set("username", "victim")
+		c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/user/reset2fa", f)
+		c.Set("username", "admin")
+
+		err := h.ResetUser2FA(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+
+		// Verify 2FA secret is cleared
+		secret := core.UserDB.HGet(core.Ctx, "user:victim", "2fa_secret").Val()
+		assert.Equal(t, "", secret)
+
+		// Verify recovery codes are cleared
+		exists := core.UserDB.Exists(core.Ctx, "user:victim:recovery_codes").Val()
+		assert.Equal(t, int64(0), exists)
+
+		// Verify sessions are invalidated
+		sessions := core.TokenDB.SMembers(core.Ctx, "user_sessions:victim").Val()
+		assert.Empty(t, sessions)
+	})
+}
+
 func TestAdminHandler_CreateUser_InvalidUsername(t *testing.T) {
 	setupHandlersTest(t)
 	cfg := &core.Config{
