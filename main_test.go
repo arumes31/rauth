@@ -8,6 +8,10 @@ import (
 	"path/filepath"
 	"rauth/internal/core"
 	"testing"
+	"os"
+	"os/exec"
+	"strings"
+
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/labstack/echo/v4"
@@ -186,6 +190,79 @@ func TestCreateIPExtractor(t *testing.T) {
 			}
 			ip := extractor(req)
 			assert.Equal(t, tt.expectedIP, ip)
+		})
+	}
+}
+
+func TestMainExecutionPaths(t *testing.T) {
+	if os.Getenv("BE_MAIN") == "1" {
+		main()
+		return
+	}
+
+	tests := []struct {
+		name         string
+		env          map[string]string
+		expectedExit int
+		expectOutput string
+	}{
+		{
+			name: "Weak Server Secret",
+			env: map[string]string{
+				"SERVER_SECRET": "short",
+			},
+			expectedExit: 1,
+			expectOutput: "SERVER_SECRET must be set to at least 16 characters",
+		},
+		{
+			name: "Missing Cookie Domain",
+			env: map[string]string{
+				"SERVER_SECRET": "1234567890123456",
+				"COOKIE_DOMAIN": "",
+			},
+			expectedExit: 1,
+			expectOutput: "COOKIE_DOMAIN must contain at least one domain",
+		},
+		{
+			name: "Redis Init Failure",
+			env: map[string]string{
+				"SERVER_SECRET": "1234567890123456",
+				"COOKIE_DOMAIN": "example.com",
+				"REDIS_ADDRESS": "invalid-port:99999",
+			},
+			expectedExit: 1,
+			expectOutput: "Redis initialization failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0], "-test.run=TestMainExecutionPaths")
+			cmd.Env = append(os.Environ(), "BE_MAIN=1")
+			for k, v := range tt.env {
+				cmd.Env = append(cmd.Env, k+"="+v)
+			}
+
+			output, err := cmd.CombinedOutput()
+
+			if tt.expectedExit != 0 {
+				if err == nil {
+					t.Fatalf("expected exit code %d, got 0", tt.expectedExit)
+				}
+				if exitError, ok := err.(*exec.ExitError); ok {
+					if exitError.ExitCode() != tt.expectedExit {
+						t.Errorf("expected exit code %d, got %d", tt.expectedExit, exitError.ExitCode())
+					}
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("expected exit code 0, got error: %v, output: %s", err, string(output))
+				}
+			}
+
+			if tt.expectOutput != "" && !strings.Contains(string(output), tt.expectOutput) {
+				t.Errorf("expected output to contain %q, got: %s", tt.expectOutput, string(output))
+			}
 		})
 	}
 }
