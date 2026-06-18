@@ -232,6 +232,133 @@ func TestAdminHandler_CreateUser_InvalidUsername(t *testing.T) {
 	}
 }
 
+func TestAdminHandler_ChangeUserPassword_Full(t *testing.T) {
+	setupHandlersTest(t)
+	cfg := &core.Config{
+		MinPasswordLength:      8,
+		RequirePasswordUpper:   true,
+		RequirePasswordLower:   true,
+		RequirePasswordNumber:  true,
+		RequirePasswordSpecial: true,
+	}
+	h := &AdminHandler{Cfg: cfg}
+	e := echo.New()
+
+	t.Run("Success", func(t *testing.T) {
+		// Seed user
+		core.UserDB.HSet(core.Ctx, "user:targetuser", "username", "targetuser", "password", "oldhash")
+		core.UserDB.SAdd(core.Ctx, "users", "targetuser")
+
+		// Create a dummy session for the user
+		sessionToken := "target_session_token"
+		core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken="+sessionToken, "username", "targetuser")
+		core.TokenDB.SAdd(core.Ctx, "user_sessions:targetuser", sessionToken)
+
+		f := make(url.Values)
+		f.Set("username", "targetuser")
+		f.Set("new_password", "NewStrongPass1!")
+
+		c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/user/op", f)
+		c.Set("username", "adminuser")
+
+		err := h.ChangeUserPassword(c)
+
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+		assert.Equal(t, "/rauthmgmt?success=password_changed", rec.Header().Get("Location"))
+
+		// Verify the password was updated
+		newHash, _ := core.UserDB.HGet(core.Ctx, "user:targetuser", "password").Result()
+		assert.NotEqual(t, "oldhash", newHash)
+		assert.True(t, core.CheckPasswordHash("NewStrongPass1!", newHash))
+
+		// Verify the session was invalidated
+		exists, _ := core.TokenDB.Exists(core.Ctx, "X-rauth-authtoken="+sessionToken).Result()
+		assert.Equal(t, int64(0), exists, "Session should be invalidated")
+	})
+
+	t.Run("Missing Username", func(t *testing.T) {
+		f := make(url.Values)
+		f.Set("username", "")
+		c, _ := createTestContext(e, http.MethodPost, "/rauthmgmt/user/op", f)
+		c.Set("username", "adminuser")
+
+		err := h.ChangeUserPassword(c)
+		he := err.(*echo.HTTPError)
+		assert.Equal(t, http.StatusBadRequest, he.Code)
+		assert.Contains(t, he.Message.(string), "Username is required")
+	})
+
+	t.Run("Invalid Username", func(t *testing.T) {
+		f := make(url.Values)
+		f.Set("username", "ab")
+		c, _ := createTestContext(e, http.MethodPost, "/rauthmgmt/user/op", f)
+		c.Set("username", "adminuser")
+
+		err := h.ChangeUserPassword(c)
+		he := err.(*echo.HTTPError)
+		assert.Equal(t, http.StatusBadRequest, he.Code)
+		assert.Contains(t, he.Message.(string), "username must be between 3 and 32 characters long")
+	})
+
+	t.Run("User Not Found", func(t *testing.T) {
+		f := make(url.Values)
+		f.Set("username", "notfound")
+		c, _ := createTestContext(e, http.MethodPost, "/rauthmgmt/user/op", f)
+		c.Set("username", "adminuser")
+
+		err := h.ChangeUserPassword(c)
+		he := err.(*echo.HTTPError)
+		assert.Equal(t, http.StatusNotFound, he.Code)
+		assert.Contains(t, he.Message.(string), "User not found")
+	})
+
+	t.Run("Missing Password", func(t *testing.T) {
+		core.UserDB.HSet(core.Ctx, "user:exists", "username", "exists")
+		core.UserDB.SAdd(core.Ctx, "users", "exists")
+
+		f := make(url.Values)
+		f.Set("username", "exists")
+		f.Set("new_password", "")
+		c, _ := createTestContext(e, http.MethodPost, "/rauthmgmt/user/op", f)
+		c.Set("username", "adminuser")
+
+		err := h.ChangeUserPassword(c)
+		he := err.(*echo.HTTPError)
+		assert.Equal(t, http.StatusBadRequest, he.Code)
+		assert.Contains(t, he.Message.(string), "Password is required")
+	})
+
+	t.Run("Change Own Password", func(t *testing.T) {
+		core.UserDB.HSet(core.Ctx, "user:adminuser", "username", "adminuser")
+		core.UserDB.SAdd(core.Ctx, "users", "adminuser")
+
+		f := make(url.Values)
+		f.Set("username", "adminuser")
+		f.Set("new_password", "Secure123!")
+		c, _ := createTestContext(e, http.MethodPost, "/rauthmgmt/user/op", f)
+		c.Set("username", "adminuser")
+
+		err := h.ChangeUserPassword(c)
+		he := err.(*echo.HTTPError)
+		assert.Equal(t, http.StatusBadRequest, he.Code)
+		assert.Contains(t, he.Message.(string), "Cannot change your own password")
+	})
+
+	t.Run("Weak Password", func(t *testing.T) {
+		f := make(url.Values)
+		f.Set("username", "exists")
+		f.Set("new_password", "weak")
+		c, _ := createTestContext(e, http.MethodPost, "/rauthmgmt/user/op", f)
+		c.Set("username", "adminuser")
+
+		err := h.ChangeUserPassword(c)
+		he := err.(*echo.HTTPError)
+		assert.Equal(t, http.StatusBadRequest, he.Code)
+		assert.Contains(t, he.Message.(string), "password must be at least")
+	})
+}
+
 func TestAdminHandler_UserOperations_Validation(t *testing.T) {
 	setupHandlersTest(t)
 	cfg := &core.Config{
