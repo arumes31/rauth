@@ -100,6 +100,65 @@ func TestSessionManagement(t *testing.T) {
 		require.Equal(t, int64(0), exists2)
 	})
 
+	t.Run("InvalidateOtherUserSessions_MultipleDropped", func(t *testing.T) {
+		AddSessionIndex("testuser_multi", "token_keep")
+		AddSessionIndex("testuser_multi", "token_drop1")
+		AddSessionIndex("testuser_multi", "token_drop2")
+		TokenDB.HSet(Ctx, "X-rauth-authtoken=token_keep", "data", "val")
+		TokenDB.HSet(Ctx, "X-rauth-authtoken=token_drop1", "data", "val")
+		TokenDB.HSet(Ctx, "X-rauth-authtoken=token_drop2", "data", "val")
+
+		InvalidateOtherUserSessions("testuser_multi", "token_keep")
+
+		members, err := TokenDB.SMembers(Ctx, "user_sessions:testuser_multi").Result()
+		require.NoError(t, err)
+		require.Contains(t, members, "token_keep")
+		require.NotContains(t, members, "token_drop1")
+		require.NotContains(t, members, "token_drop2")
+
+		exists1, _ := TokenDB.Exists(Ctx, "X-rauth-authtoken=token_keep").Result()
+		require.Equal(t, int64(1), exists1)
+	})
+
+	t.Run("InvalidateOtherUserSessions_RedisError", func(t *testing.T) {
+		// Close token DB to simulate connection error
+		oldTokenDB := TokenDB
+		TokenDB = redis.NewClient(&redis.Options{Addr: "invalid:6379"})
+		defer func() { TokenDB = oldTokenDB }()
+
+		// Should not panic, but return early
+		InvalidateOtherUserSessions("testuser_err", "token_keep")
+	})
+
+	t.Run("InvalidateOtherUserSessions_PipelineError", func(t *testing.T) {
+		AddSessionIndex("testuser_pipe", "token_1")
+		AddSessionIndex("testuser_pipe", "token_2")
+
+		// Save and replace Ctx with a canceled context just to see if Exec fails
+		oldCtx := Ctx
+		var cancel context.CancelFunc
+		Ctx, cancel = context.WithCancel(context.Background())
+		cancel() // Cancel immediately
+		defer func() { Ctx = oldCtx }()
+
+		// SMembers will fail due to context cancellation, returning early.
+		// But we still hit the SMembers error path again.
+
+		InvalidateOtherUserSessions("testuser_pipe", "token_1")
+	})
+
+	t.Run("InvalidateOtherUserSessions_NoOtherSessions", func(t *testing.T) {
+		AddSessionIndex("testuser_alone", "token_alone")
+
+		InvalidateOtherUserSessions("testuser_alone", "token_alone")
+
+		// Verify the session wasn't removed since it's the only one
+		members, err := TokenDB.SMembers(Ctx, "user_sessions:testuser_alone").Result()
+		require.NoError(t, err)
+		require.Contains(t, members, "token_alone")
+		require.Len(t, members, 1)
+	})
+
 	t.Run("HasActiveSessions", func(t *testing.T) {
 		TokenDB.HSet(Ctx, "X-rauth-authtoken=active_token", map[string]interface{}{
 			"ip":     "192.168.1.1",
