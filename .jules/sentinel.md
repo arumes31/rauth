@@ -64,3 +64,7 @@
 **Vulnerability:** The 2FA verification logic (`Verify2FA` and `CompleteSetup2FA`) used `ReserveRateLimitAttempt` before verifying the token, which unconditionally increments the failure count on every attempt. This allows an attacker to spam invalid 2FA attempts to trivially lock a legitimate user out of their account.
 **Learning:** Security checks that consume rate limits must only increment the failure count when the check actually fails, and only perform a read-only check (`IsRateLimitExceeded`) prior to execution.
 **Prevention:** Use non-mutating rate limit checks before executing sensitive operations, and conditionally apply the rate limit penalty strictly on the failure path.
+## 2026-06-12 - Rate Limiting Before DB Lookups
+**Vulnerability:** Rate limits on the invite redemption endpoint were checked *after* querying the Redis database for the invite token. This allowed attackers to bypass IP rate limits for invalid tokens and spam the database, causing a potential DoS.
+**Learning:** Always enforce rate limiting based on the request origin (IP, user) *before* performing any backend operations like database reads to protect infrastructure from exhaustion attacks.
+**Prevention:** Apply rate-limiting checks at the very beginning of the handler function, prior to any external calls or expensive computations.
