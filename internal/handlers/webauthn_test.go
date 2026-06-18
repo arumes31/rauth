@@ -1,8 +1,8 @@
 package handlers
 
 import (
-	"github.com/go-webauthn/webauthn/protocol"
 	"encoding/json"
+	"github.com/go-webauthn/webauthn/protocol"
 	"net/http"
 	"net/http/httptest"
 	"rauth/internal/core"
@@ -275,7 +275,6 @@ func TestWebAuthnHandlers(t *testing.T) {
 		}
 	})
 }
-
 
 func TestWebAuthnHandler_identifyWebAuthnUser(t *testing.T) {
 	setupHandlersTest(t)
