@@ -15,10 +15,11 @@ import (
 func TestMain_SubprocessCoverage(t *testing.T) {
 	if os.Getenv("BE_MAIN") == "1" {
 		scenario := os.Getenv("SCENARIO")
-		if scenario == "MainExit_PortBusy" {
+		switch scenario {
+		case "MainExit_PortBusy":
 			s := miniredis.RunT(t)
-			os.Setenv("REDIS_HOST", s.Host())
-			os.Setenv("REDIS_PORT", s.Port())
+			t.Setenv("REDIS_HOST", s.Host())
+			t.Setenv("REDIS_PORT", s.Port())
 
 			go func() {
 				main()
@@ -37,14 +38,14 @@ func TestMain_SubprocessCoverage(t *testing.T) {
 			}
 			time.Sleep(2 * time.Second)
 			os.Exit(0)
-		} else if scenario == "MainExit" {
+		case "MainExit":
             // we use this one to ensure main starts and exits fine when port is busy
             s := miniredis.RunT(t)
-			os.Setenv("REDIS_HOST", s.Host())
-			os.Setenv("REDIS_PORT", s.Port())
+			t.Setenv("REDIS_HOST", s.Host())
+			t.Setenv("REDIS_PORT", s.Port())
             main()
             return
-        } else {
+		default:
 			main()
 		}
 		return
