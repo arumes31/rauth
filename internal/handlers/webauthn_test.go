@@ -70,6 +70,23 @@ func TestWebAuthnHandlers(t *testing.T) {
 		}
 	})
 
+	t.Run("BeginLogin_RateLimitExceeded", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/webauthn/login/begin", nil)
+		req.RemoteAddr = "192.168.1.2:12345"
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		core.RateLimitDB.Set(core.Ctx, "rate_limit:login_access:192.168.1.2", cfg.RateLimitLoginAccessMax+1, 0)
+
+		err := h.BeginLogin(c)
+		if assert.Error(t, err) {
+			he, ok := err.(*echo.HTTPError)
+			assert.True(t, ok)
+			assert.Equal(t, http.StatusTooManyRequests, he.Code)
+		}
+		core.ResetRateLimit("login_access:192.168.1.2")
+	})
+
 	t.Run("BeginLogin_Nameless_Success", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/webauthn/login/begin", nil)
 		rec := httptest.NewRecorder()

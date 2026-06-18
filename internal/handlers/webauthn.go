@@ -87,6 +87,11 @@ func (h *WebAuthnHandler) FinishRegistration(c echo.Context) error {
 }
 
 func (h *WebAuthnHandler) BeginLogin(c echo.Context) error {
+	clientIP := c.RealIP()
+	if !core.CheckRateLimit("login_access:"+clientIP, h.Cfg.RateLimitLoginAccessMax, h.Cfg.RateLimitLoginAccessDecay) {
+		return echo.NewHTTPError(http.StatusTooManyRequests, fmt.Sprintf("Too many login attempts from this IP (%s)", clientIP))
+	}
+
 	username := c.QueryParam("username")
 	var options *protocol.CredentialAssertion
 	var sessionData *webauthn.SessionData
