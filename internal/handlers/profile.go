@@ -119,16 +119,17 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 func (h *ProfileHandler) GenerateRecoveryCodes(c echo.Context) error {
 	username := c.Get("username").(string)
 
-	userData, err := core.UserDB.HGetAll(core.Ctx, "user:"+username).Result()
-	if err != nil {
+	// ⚡ Bolt optimization: Use HGet instead of HGetAll to only fetch 2fa_secret.
+	secret, err := core.UserDB.HGet(core.Ctx, "user:"+username, "2fa_secret").Result()
+	if err != nil && err.Error() != "redis: nil" {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Internal error")
 	}
-	if userData["2fa_secret"] == "" {
+	if secret == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "Enable TOTP before generating recovery codes")
 	}
 
 	otpCode := c.FormValue("otp_code")
-	if herr := h.validateTOTP(username, otpCode, userData["2fa_secret"]); herr != nil {
+	if herr := h.validateTOTP(username, otpCode, secret); herr != nil {
 		return herr
 	}
 
@@ -195,13 +196,23 @@ func (h *ProfileHandler) DisableTOTP(c echo.Context) error {
 	username := c.Get("username").(string)
 	otpCode := c.FormValue("otp_code")
 
-	userData, err := core.UserDB.HGetAll(core.Ctx, "user:"+username).Result()
-	if err != nil {
+	// ⚡ Bolt optimization: Use HMGet instead of HGetAll to only fetch 2fa_secret and email.
+	vals, err := core.UserDB.HMGet(core.Ctx, "user:"+username, "2fa_secret", "email").Result()
+	if err != nil || len(vals) != 2 {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Internal error")
 	}
 
-	if userData["2fa_secret"] != "" {
-		if err := h.validateTOTP(username, otpCode, userData["2fa_secret"]); err != nil {
+	secret := ""
+	if vals[0] != nil {
+		secret = vals[0].(string)
+	}
+	email := ""
+	if vals[1] != nil {
+		email = vals[1].(string)
+	}
+
+	if secret != "" {
+		if err := h.validateTOTP(username, otpCode, secret); err != nil {
 			return c.JSON(err.Code, map[string]string{"error": err.Message.(string)})
 		}
 	}
@@ -213,12 +224,12 @@ func (h *ProfileHandler) DisableTOTP(c echo.Context) error {
 	core.ClearRecoveryCodes(username)
 
 	// Send notification email
-	if userData["email"] != "" {
+	if email != "" {
 		device := core.FormatDevice(c.Request().UserAgent(),
 			c.Request().Header.Get("Sec-CH-UA-Platform"),
 			c.Request().Header.Get("Sec-CH-UA-Mobile"),
 			c.Request().Header.Get("Sec-CH-UA-Model"))
-		go core.Send2FAModifiedNotification(core.TwoFactorNotificationOptions{Email: userData["email"], Username: username, Action: "Disabled (TOTP)", IP: c.RealIP(), Device: device})
+		go core.Send2FAModifiedNotification(core.TwoFactorNotificationOptions{Email: email, Username: username, Action: "Disabled (TOTP)", IP: c.RealIP(), Device: device})
 	}
 
 	core.LogAudit("USER_DISABLE_TOTP", username, c.RealIP(), nil)
