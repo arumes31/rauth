@@ -192,36 +192,66 @@ func reconcileIndexSets(pattern string) int64 {
 			break
 		}
 
-		for _, indexKey := range keys {
-			tokens, err := TokenDB.SMembers(Ctx, indexKey).Result()
-			if err != nil {
-				continue
+		if len(keys) == 0 {
+			cursor = nextCursor
+			if cursor == 0 {
+				break
 			}
-			if len(tokens) == 0 {
-				continue
-			}
+			continue
+		}
 
-			// ⚡ Bolt optimization: Batch HGet requests in a pipeline and remove stale tokens variadically.
-			pipe := TokenDB.Pipeline()
-			cmds := make(map[string]*redis.StringCmd, len(tokens))
+		// ⚡ Bolt optimization: 3-phase pipeline batching for reconciling index sets.
+		// Phase 1: Batch SMembers across all keys
+		pipe1 := TokenDB.Pipeline()
+		smembersCmds := make(map[string]*redis.StringSliceCmd, len(keys))
+		for _, key := range keys {
+			smembersCmds[key] = pipe1.SMembers(Ctx, key)
+		}
+		_, _ = pipe1.Exec(Ctx)
+
+		// Phase 2: Batch HGet across all valid tokens from all keys
+		pipe2 := TokenDB.Pipeline()
+		hgetCmds := make(map[string]*redis.StringCmd)
+		tokensByKey := make(map[string][]string)
+
+		for _, key := range keys {
+			tokens, err := smembersCmds[key].Result()
+			if err != nil || len(tokens) == 0 {
+				continue
+			}
+			tokensByKey[key] = tokens
 			for _, token := range tokens {
-				cmds[token] = pipe.HGet(Ctx, "X-rauth-authtoken="+token, "status")
+				if _, exists := hgetCmds[token]; !exists {
+					hgetCmds[token] = pipe2.HGet(Ctx, "X-rauth-authtoken="+token, "status")
+				}
 			}
-			_, _ = pipe.Exec(Ctx)
+		}
 
+		if len(hgetCmds) > 0 {
+			_, _ = pipe2.Exec(Ctx)
+		}
+
+		// Phase 3: Batch SRem for all stale tokens
+		pipe3 := TokenDB.Pipeline()
+		var sremCount int
+		for key, tokens := range tokensByKey {
 			var stale []interface{}
 			for _, token := range tokens {
-				status, err := cmds[token].Result()
+				status, err := hgetCmds[token].Result()
 				if err == nil && status == "valid" {
 					live++
 				} else {
 					stale = append(stale, token)
 				}
 			}
-
 			if len(stale) > 0 {
-				TokenDB.SRem(Ctx, indexKey, stale...)
+				pipe3.SRem(Ctx, key, stale...)
+				sremCount++
 			}
+		}
+
+		if sremCount > 0 {
+			_, _ = pipe3.Exec(Ctx)
 		}
 
 		cursor = nextCursor

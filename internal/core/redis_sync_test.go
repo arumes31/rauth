@@ -152,3 +152,48 @@ func TestReconcileIndexSets(t *testing.T) {
 		})
 	}
 }
+
+func TestAddIPSessionIndex(t *testing.T) {
+	mr := setupTestRedis(t)
+	defer mr.Close()
+
+	tests := []struct {
+		name      string
+		ip        string
+		token     string
+		setup     func()
+		checkFunc func(*testing.T)
+	}{
+		{
+			name:  "Add new IP session index",
+			ip:    "192.168.1.1",
+			token: "token1",
+			setup: func() {},
+			checkFunc: func(t *testing.T) {
+				res := TokenDB.SIsMember(Ctx, "ip_sessions:192.168.1.1", "token1").Val()
+				assert.True(t, res)
+			},
+		},
+		{
+			name:  "Add another token to existing IP session index",
+			ip:    "192.168.1.1",
+			token: "token2",
+			setup: func() {
+				TokenDB.SAdd(Ctx, "ip_sessions:192.168.1.1", "token1")
+			},
+			checkFunc: func(t *testing.T) {
+				res := TokenDB.SIsMember(Ctx, "ip_sessions:192.168.1.1", "token2").Val()
+				assert.True(t, res)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mr.FlushAll()
+			tt.setup()
+			AddIPSessionIndex(tt.ip, tt.token)
+			tt.checkFunc(t)
+		})
+	}
+}

@@ -425,99 +425,73 @@ func (h *AuthHandler) initiate2FASetupSession(c echo.Context, username string) e
 	return c.Redirect(http.StatusFound, redirectURL)
 }
 
-func (h *AuthHandler) Verify2FA(c echo.Context) error {
-	clientIP := c.RealIP()
+func (h *AuthHandler) checkLoginIPRateLimits(c echo.Context, clientIP, template string, extraContext map[string]interface{}) error {
 	if !core.CheckRateLimit("login_access:"+clientIP, h.Cfg.RateLimitLoginAccessMax, h.Cfg.RateLimitLoginAccessDecay) {
-		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many requests. Please wait a minute.", "csrf": c.Get("csrf"), "rd": getRD(c)})
+		ctx := map[string]interface{}{"error": "Too many requests. Please wait a minute.", "csrf": c.Get("csrf"), "rd": getRD(c)}
+		for k, v := range extraContext {
+			ctx[k] = v
+		}
+		return c.Render(http.StatusTooManyRequests, template, ctx)
 	}
 	if !core.CheckRateLimit("login_post_ip:"+clientIP, h.Cfg.RateLimitLoginMax, h.Cfg.RateLimitLoginDecay) {
-		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": fmt.Sprintf("Too many attempts from this IP (%s). Please try again later.", clientIP), "csrf": c.Get("csrf"), "display2fa": true, "rd": getRD(c)})
-	}
-
-	code := c.FormValue("totp_code")
-	pendingCookie, err := c.Cookie("rauth_2fa_pending")
-	if err != nil {
-		return c.Redirect(http.StatusFound, "/rauthlogin")
-	}
-
-	pendingToken, err := core.DecryptToken(pendingCookie.Value, h.Cfg.ServerSecret)
-	if err != nil {
-		return c.Redirect(http.StatusFound, "/rauthlogin")
-	}
-
-	username, err := core.TokenDB.Get(core.Ctx, "pending_2fa:"+pendingToken).Result()
-	if err != nil {
-		return c.Redirect(http.StatusFound, "/rauthlogin")
-	}
-
-	userRecord, _ := core.GetUser(username)
-	secret := core.Decrypt2FASecret(userRecord.TwoFactor, h.Cfg.ServerSecret)
-
-	// The user may have been deleted or had 2FA reset while this pending token
-	// was outstanding. Never validate against an empty secret: TOTP codes for
-	// an empty key are publicly computable.
-	if secret == "" {
-		core.TokenDB.Del(core.Ctx, "pending_2fa:"+pendingToken)
-		return c.Redirect(http.StatusFound, "/rauthlogin")
-	}
-
-	if core.IsRateLimitExceeded("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax) {
-		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many failed attempts. Please try again later.", "csrf": c.Get("csrf"), "display2fa": true, "rd": getRD(c)})
-	}
-
-	// A valid TOTP code authenticates, unless it is a replay within its window.
-	totpOK := totp.Validate(code, secret)
-	if totpOK && core.TOTPCodeReused(username, code) {
-		core.LogAudit("2FA_REPLAY_BLOCKED", username, clientIP, nil)
-		return c.Render(http.StatusUnauthorized, "login.html", map[string]interface{}{
-			"display2fa": true,
-			"error":      "Invalid 2FA code",
-			"csrf":       c.Get("csrf"),
-			"rd":         getRD(c),
-		})
-	}
-
-	// Fall back to a single-use recovery code if the TOTP code does not match.
-	usedRecovery := false
-	if !totpOK {
-		usedRecovery = core.ConsumeRecoveryCode(username, code)
-	}
-
-	if totpOK || usedRecovery {
-		core.TokenDB.Del(core.Ctx, "pending_2fa:"+pendingToken)
-		// Clear pending cookie
-		c.SetCookie(&http.Cookie{
-			Name:     "rauth_2fa_pending",
-			MaxAge:   -1,
-			Path:     "/",
-			HttpOnly: true,
-			Secure:   true,
-			SameSite: http.SameSiteLaxMode,
-		})
-
-		core.ResetRateLimit("login_post_ip:" + clientIP)
-		core.ResetRateLimit("login_fail_user:" + username)
-		core.ResetRateLimit("2fa_fail_user:" + username)
-
-		if usedRecovery {
-			core.RecoveryCodeUsedTotal.Inc()
-			remaining := core.CountRecoveryCodes(username)
-			core.LogAudit("2FA_RECOVERY_CODE_USED", username, clientIP, map[string]interface{}{"remaining": remaining})
-			if userRecord.Email != "" {
-				device := core.FormatDevice(c.Request().UserAgent(),
-					c.Request().Header.Get("Sec-CH-UA-Platform"),
-					c.Request().Header.Get("Sec-CH-UA-Mobile"),
-					c.Request().Header.Get("Sec-CH-UA-Model"))
-				go core.Send2FAModifiedNotification(core.TwoFactorNotificationOptions{Email: userRecord.Email, Username: username, Action: fmt.Sprintf("Recovery code used (%d remaining)", remaining), IP: clientIP, Device: device})
-			}
+		ctx := map[string]interface{}{"error": fmt.Sprintf("Too many attempts from this IP (%s). Please try again later.", clientIP), "csrf": c.Get("csrf"), "rd": getRD(c)}
+		for k, v := range extraContext {
+			ctx[k] = v
 		}
+		return c.Render(http.StatusTooManyRequests, template, ctx)
+	}
+	return nil
+}
 
-		return h.issueToken(c, username)
+func (h *AuthHandler) validatePendingToken(c echo.Context, cookieName, prefix string) (string, string, error) {
+	cookie, err := c.Cookie(cookieName)
+	if err != nil {
+		return "", "", err
+	}
+	token, err := core.DecryptToken(cookie.Value, h.Cfg.ServerSecret)
+	if err != nil {
+		return "", "", err
+	}
+	username, err := core.TokenDB.Get(core.Ctx, prefix+":"+token).Result()
+	if err != nil {
+		return "", "", err
+	}
+	return username, token, nil
+}
+
+func (h *AuthHandler) handle2FASuccess(c echo.Context, username, clientIP, pendingToken string, usedRecovery bool, userRecord *core.User) error {
+	core.TokenDB.Del(core.Ctx, "pending_2fa:"+pendingToken)
+	c.SetCookie(&http.Cookie{
+		Name:     "rauth_2fa_pending",
+		MaxAge:   -1,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	core.ResetRateLimit("login_post_ip:" + clientIP)
+	core.ResetRateLimit("login_fail_user:" + username)
+	core.ResetRateLimit("2fa_fail_user:" + username)
+
+	if usedRecovery {
+		core.RecoveryCodeUsedTotal.Inc()
+		remaining := core.CountRecoveryCodes(username)
+		core.LogAudit("2FA_RECOVERY_CODE_USED", username, clientIP, map[string]interface{}{"remaining": remaining})
+		if userRecord.Email != "" {
+			device := core.FormatDevice(c.Request().UserAgent(),
+				c.Request().Header.Get("Sec-CH-UA-Platform"),
+				c.Request().Header.Get("Sec-CH-UA-Mobile"),
+				c.Request().Header.Get("Sec-CH-UA-Model"))
+			go core.Send2FAModifiedNotification(core.TwoFactorNotificationOptions{Email: userRecord.Email, Username: username, Action: fmt.Sprintf("Recovery code used (%d remaining)", remaining), IP: clientIP, Device: device})
+		}
 	}
 
-	core.LogAudit("2FA_FAILED", username, clientIP, nil)
+	return h.issueToken(c, username)
+}
 
-	// Penalize failed 2FA attempts
+func (h *AuthHandler) handle2FAFailure(c echo.Context, username, clientIP string) error {
+	core.LogAudit("2FA_FAILED", username, clientIP, nil)
 	core.CheckRateLimit("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay)
 
 	if !core.HasActiveSessions(clientIP) {
@@ -534,18 +508,55 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 	})
 }
 
+func (h *AuthHandler) Verify2FA(c echo.Context) error {
+	clientIP := c.RealIP()
+	if err := h.checkLoginIPRateLimits(c, clientIP, "login.html", map[string]interface{}{"display2fa": true}); err != nil {
+		return err
+	}
+
+	code := c.FormValue("totp_code")
+	username, pendingToken, err := h.validatePendingToken(c, "rauth_2fa_pending", "pending_2fa")
+	if err != nil {
+		return c.Redirect(http.StatusFound, "/rauthlogin")
+	}
+
+	userRecord, _ := core.GetUser(username)
+	secret := core.Decrypt2FASecret(userRecord.TwoFactor, h.Cfg.ServerSecret)
+
+	if secret == "" {
+		core.TokenDB.Del(core.Ctx, "pending_2fa:"+pendingToken)
+		return c.Redirect(http.StatusFound, "/rauthlogin")
+	}
+
+	if core.IsRateLimitExceeded("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax) {
+		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many failed attempts. Please try again later.", "csrf": c.Get("csrf"), "display2fa": true, "rd": getRD(c)})
+	}
+
+	totpOK := totp.Validate(code, secret)
+	if totpOK && core.TOTPCodeReused(username, code) {
+		core.LogAudit("2FA_REPLAY_BLOCKED", username, clientIP, nil)
+		return c.Render(http.StatusUnauthorized, "login.html", map[string]interface{}{
+			"display2fa": true,
+			"error":      "Invalid 2FA code",
+			"csrf":       c.Get("csrf"),
+			"rd":         getRD(c),
+		})
+	}
+
+	usedRecovery := false
+	if !totpOK {
+		usedRecovery = core.ConsumeRecoveryCode(username, code)
+	}
+
+	if totpOK || usedRecovery {
+		return h.handle2FASuccess(c, username, clientIP, pendingToken, usedRecovery, &userRecord)
+	}
+
+	return h.handle2FAFailure(c, username, clientIP)
+}
+
 func (h *AuthHandler) Setup2FA(c echo.Context) error {
-	cookie, err := c.Cookie("rauth_setup_pending")
-	if err != nil {
-		return c.Redirect(http.StatusFound, "/rauthlogin")
-	}
-
-	setupToken, err := core.DecryptToken(cookie.Value, h.Cfg.ServerSecret)
-	if err != nil {
-		return c.Redirect(http.StatusFound, "/rauthlogin")
-	}
-
-	username, err := core.TokenDB.Get(core.Ctx, "pending_setup:"+setupToken).Result()
+	username, setupToken, err := h.validatePendingToken(c, "rauth_setup_pending", "pending_setup")
 	if err != nil {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
@@ -573,24 +584,11 @@ func (h *AuthHandler) Setup2FA(c echo.Context) error {
 
 func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 	clientIP := c.RealIP()
-	if !core.CheckRateLimit("login_access:"+clientIP, h.Cfg.RateLimitLoginAccessMax, h.Cfg.RateLimitLoginAccessDecay) {
-		return c.Render(http.StatusTooManyRequests, "setup_2fa.html", map[string]interface{}{"error": "Too many requests. Please wait a minute.", "csrf": c.Get("csrf"), "rd": getRD(c)})
-	}
-	if !core.CheckRateLimit("login_post_ip:"+clientIP, h.Cfg.RateLimitLoginMax, h.Cfg.RateLimitLoginDecay) {
-		return c.Render(http.StatusTooManyRequests, "setup_2fa.html", map[string]interface{}{"error": fmt.Sprintf("Too many attempts from this IP (%s). Please try again later.", clientIP), "csrf": c.Get("csrf"), "rd": getRD(c)})
+	if err := h.checkLoginIPRateLimits(c, clientIP, "setup_2fa.html", map[string]interface{}{}); err != nil {
+		return err
 	}
 
-	cookie, err := c.Cookie("rauth_setup_pending")
-	if err != nil {
-		return c.Redirect(http.StatusFound, "/rauthlogin")
-	}
-
-	setupToken, err := core.DecryptToken(cookie.Value, h.Cfg.ServerSecret)
-	if err != nil {
-		return c.Redirect(http.StatusFound, "/rauthlogin")
-	}
-
-	username, err := core.TokenDB.Get(core.Ctx, "pending_setup:"+setupToken).Result()
+	username, setupToken, err := h.validatePendingToken(c, "rauth_setup_pending", "pending_setup")
 	if err != nil {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}

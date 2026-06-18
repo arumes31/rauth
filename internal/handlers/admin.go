@@ -71,17 +71,7 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 
 			// Use Client Hints if available to enhance the friendly UA
 			ua := data["user_agent"]
-			friendlyUA := core.FormatUserAgent(ua)
-			if model := data["ua_ch_model"]; model != "" && model != "Unknown" {
-				friendlyUA += fmt.Sprintf(" [%s]", strings.Trim(model, "\""))
-			}
-			if mobile := data["ua_ch_mobile"]; mobile == "?1" {
-				if !strings.Contains(friendlyUA, "[Mobile]") {
-					friendlyUA += " [Mobile]"
-				}
-			}
-
-			data["friendly_ua"] = friendlyUA
+			data["friendly_ua"] = core.FormatDevice(ua, "", data["ua_ch_mobile"], data["ua_ch_model"])
 			data["device_icon"] = core.GetDeviceIcon(ua)
 			sessions = append(sessions, data)
 		}
@@ -94,12 +84,18 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 	}
 
 	var logs []core.AuditLog
-	for _, l := range rawLogs {
-		var log core.AuditLog
-		if err := json.Unmarshal([]byte(l), &log); err != nil {
-			continue
+	if len(rawLogs) > 0 {
+		// Fallback approach: The combined JSON unmarshaling fails entirely if
+		// even a single log entry is malformed, breaking fault tolerance.
+		// We revert to looping, but pre-allocate the slice to save memory overhead.
+		logs = make([]core.AuditLog, 0, len(rawLogs))
+		for _, l := range rawLogs {
+			var log core.AuditLog
+			if err := json.Unmarshal([]byte(l), &log); err != nil {
+				continue
+			}
+			logs = append(logs, log)
 		}
-		logs = append(logs, log)
 	}
 
 	return c.Render(http.StatusOK, "management.html", map[string]interface{}{
@@ -305,11 +301,10 @@ func (h *AdminHandler) InvalidateSession(c echo.Context) error {
 	admin := c.Get("username").(string)
 
 	redisKey := "X-rauth-authtoken=" + token
-	data, err := core.TokenDB.HGetAll(core.Ctx, redisKey).Result()
-	if err == nil && len(data) > 0 {
-		if username, ok := data["username"]; ok {
-			core.RemoveSessionIndex(username, token)
-		}
+	// ⚡ Bolt optimization: Use HGet instead of HGetAll since we only need the username
+	username, err := core.TokenDB.HGet(core.Ctx, redisKey, "username").Result()
+	if err == nil && username != "" {
+		core.RemoveSessionIndex(username, token)
 	}
 
 	if err := core.TokenDB.Del(core.Ctx, redisKey).Err(); err != nil {

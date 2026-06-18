@@ -1,8 +1,8 @@
 package handlers
 
 import (
-	"github.com/go-webauthn/webauthn/protocol"
 	"encoding/json"
+	"github.com/go-webauthn/webauthn/protocol"
 	"net/http"
 	"net/http/httptest"
 	"rauth/internal/core"
@@ -67,6 +67,44 @@ func TestWebAuthnHandlers(t *testing.T) {
 			err := json.Unmarshal(rec.Body.Bytes(), &options)
 			assert.NoError(t, err)
 			assert.NotNil(t, options["challenge"])
+		}
+	})
+
+	t.Run("BeginRegistration_UserNotFound", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/webauthn/register/begin", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		c.Set("username", "nonexistentuser")
+
+		err := h.BeginRegistration(c)
+		if assert.Error(t, err) {
+			he, ok := err.(*echo.HTTPError)
+			assert.True(t, ok)
+			assert.Equal(t, http.StatusInternalServerError, he.Code)
+			assert.Equal(t, "User not found", he.Message)
+		}
+	})
+
+	t.Run("BeginRegistration_WebAuthnError", func(t *testing.T) {
+		_ = core.CreateUser("testuser_weberr", "password123", "test2@example.com", false, "")
+
+		// Temporarily modify the WebAuthnInstance config to force an error
+		originalRPID := core.WebAuthnInstance.Config.RPID
+		core.WebAuthnInstance.Config.RPID = ""
+		defer func() {
+			core.WebAuthnInstance.Config.RPID = originalRPID
+		}()
+
+		req := httptest.NewRequest(http.MethodGet, "/webauthn/register/begin", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		c.Set("username", "testuser_weberr")
+
+		err := h.BeginRegistration(c)
+		if assert.Error(t, err) {
+			he, ok := err.(*echo.HTTPError)
+			assert.True(t, ok)
+			assert.Equal(t, http.StatusInternalServerError, he.Code)
 		}
 	})
 
@@ -237,7 +275,6 @@ func TestWebAuthnHandlers(t *testing.T) {
 		}
 	})
 }
-
 
 func TestWebAuthnHandler_identifyWebAuthnUser(t *testing.T) {
 	setupHandlersTest(t)

@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
@@ -187,13 +189,42 @@ func GetStoredCredentials(username string) []StoredCredential {
 	// 2. Fallback to List & Migrate
 	results, _ := UserDB.LRange(Ctx, listKey, 0, -1).Result()
 	if len(results) > 0 {
+		numWorkers := runtime.GOMAXPROCS(0)
+		if numWorkers > len(results) {
+			numWorkers = len(results)
+		}
+		if numWorkers < 1 {
+			numWorkers = 1
+		}
+		credsArray := make([]StoredCredential, len(results))
+		var wg sync.WaitGroup
+		wg.Add(numWorkers)
+		chunkSize := (len(results) + numWorkers - 1) / numWorkers
+
+		for w := 0; w < numWorkers; w++ {
+			start := w * chunkSize
+			end := start + chunkSize
+			if end > len(results) {
+				end = len(results)
+			}
+			go func(start, end int) {
+				defer wg.Done()
+				for j := start; j < end; j++ {
+					var c StoredCredential
+					if err := json.Unmarshal([]byte(results[j]), &c); err == nil {
+						credsArray[j] = c
+					}
+				}
+			}(start, end)
+		}
+		wg.Wait()
+
 		var creds []StoredCredential
 		pipe := UserDB.Pipeline()
-		for _, r := range results {
-			var c StoredCredential
-			if err := json.Unmarshal([]byte(r), &c); err == nil {
+		for i, c := range credsArray {
+			if len(c.ID) > 0 {
 				creds = append(creds, c)
-				pipe.HSet(Ctx, hashKey, fmt.Sprintf("%x", c.ID), r)
+				pipe.HSet(Ctx, hashKey, fmt.Sprintf("%x", c.ID), results[i])
 			}
 		}
 		pipe.Del(Ctx, listKey)

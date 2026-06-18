@@ -56,4 +56,20 @@ func TestRecoveryCodes(t *testing.T) {
 	// Clearing removes everything.
 	ClearRecoveryCodes("alice")
 	require.Equal(t, int64(0), CountRecoveryCodes("alice"))
+
+	// Empty or whitespace-only codes are rejected.
+	require.False(t, ConsumeRecoveryCode("alice", ""))
+	require.False(t, ConsumeRecoveryCode("alice", "   "))
+
+}
+
+func TestConsumeRecoveryCode_RedisError(t *testing.T) {
+	// Redis error returns false.
+	// Use a new client with a closed connection
+	oldUserDB := UserDB
+	UserDB = redis.NewClient(&redis.Options{Addr: "localhost:1"}) // wrong port to simulate error
+	_ = UserDB.Close() // Close immediately to simulate a broken connection
+	defer func() { UserDB = oldUserDB }()
+
+	require.False(t, ConsumeRecoveryCode("alice", "valid-code"))
 }
