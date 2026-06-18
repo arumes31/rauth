@@ -233,13 +233,17 @@ func (h *ProfileHandler) TerminateSession(c echo.Context) error {
 	}
 
 	redisKey := "X-rauth-authtoken=" + token
-	data, err := core.TokenDB.HGetAll(core.Ctx, redisKey).Result()
-	if err != nil || len(data) == 0 {
+	// ⚡ Bolt optimization: Use HGet instead of HGetAll to avoid fetching/parsing unnecessary fields.
+	sessionUsername, err := core.TokenDB.HGet(core.Ctx, redisKey, "username").Result()
+	if err != nil && err.Error() != "redis: nil" {
+		return c.Redirect(http.StatusFound, "/rauthprofile")
+	}
+	if sessionUsername == "" {
 		return c.Redirect(http.StatusFound, "/rauthprofile")
 	}
 
 	// Security: Ensure user owns this session
-	if data["username"] != username {
+	if sessionUsername != username {
 		slog.Warn("Unauthorized session termination attempt", "user", username, "target_token", token)
 		return echo.NewHTTPError(http.StatusForbidden, "You can only terminate your own sessions")
 	}

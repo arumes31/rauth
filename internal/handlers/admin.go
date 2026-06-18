@@ -305,11 +305,10 @@ func (h *AdminHandler) InvalidateSession(c echo.Context) error {
 	admin := c.Get("username").(string)
 
 	redisKey := "X-rauth-authtoken=" + token
-	data, err := core.TokenDB.HGetAll(core.Ctx, redisKey).Result()
-	if err == nil && len(data) > 0 {
-		if username, ok := data["username"]; ok {
-			core.RemoveSessionIndex(username, token)
-		}
+	// ⚡ Bolt optimization: Use HGet instead of HGetAll to avoid fetching/parsing unnecessary fields.
+	username, err := core.TokenDB.HGet(core.Ctx, redisKey, "username").Result()
+	if err == nil && username != "" {
+		core.RemoveSessionIndex(username, token)
 	}
 
 	if err := core.TokenDB.Del(core.Ctx, redisKey).Err(); err != nil {
