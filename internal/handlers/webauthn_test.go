@@ -32,6 +32,7 @@ func TestWebAuthnHandlers(t *testing.T) {
 		RateLimitRegistrationMax:   100,
 		RateLimitRegistrationDecay: 60,
 		RateLimitLoginAccessMax:    1000,
+		RateLimitLoginAccessDecay:  60,
 		RateLimitLoginFailUserMax:  1000,
 		RateLimitLoginFailIPMax:    1000,
 	}
