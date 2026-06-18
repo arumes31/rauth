@@ -71,17 +71,7 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 
 			// Use Client Hints if available to enhance the friendly UA
 			ua := data["user_agent"]
-			friendlyUA := core.FormatUserAgent(ua)
-			if model := data["ua_ch_model"]; model != "" && model != "Unknown" {
-				friendlyUA += fmt.Sprintf(" [%s]", strings.Trim(model, "\""))
-			}
-			if mobile := data["ua_ch_mobile"]; mobile == "?1" {
-				if !strings.Contains(friendlyUA, "[Mobile]") {
-					friendlyUA += " [Mobile]"
-				}
-			}
-
-			data["friendly_ua"] = friendlyUA
+			data["friendly_ua"] = core.FormatDevice(ua, "", data["ua_ch_mobile"], data["ua_ch_model"])
 			data["device_icon"] = core.GetDeviceIcon(ua)
 			sessions = append(sessions, data)
 		}
