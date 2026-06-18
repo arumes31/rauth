@@ -89,14 +89,14 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 		slog.Error("Failed to fetch audit logs", "error", err)
 	}
 
-	var logs []core.AuditLog
+	logs := make([]core.AuditLog, len(rawLogs))
+	validCount := 0
 	for _, l := range rawLogs {
-		var log core.AuditLog
-		if err := json.Unmarshal([]byte(l), &log); err != nil {
-			continue
+		if err := json.Unmarshal([]byte(l), &logs[validCount]); err == nil {
+			validCount++
 		}
-		logs = append(logs, log)
 	}
+	logs = logs[:validCount]
 
 	passkeys := core.GetStoredCredentials(username)
 
