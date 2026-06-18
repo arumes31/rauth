@@ -265,3 +265,15 @@ func TestGetGeoMetadataAndStatus(t *testing.T) {
 	// Note: Fully testing when loaded requires setting up a real maxminddb,
 	// which is complex for a unit test. We cover the not-loaded path.
 }
+
+func TestNewGeoLRUCache(t *testing.T) {
+	capacity := 100
+	cache := NewGeoLRUCache(capacity)
+
+	require.NotNil(t, cache)
+	assert.Equal(t, capacity, cache.capacity)
+	assert.NotNil(t, cache.cache)
+	assert.Empty(t, cache.cache)
+	assert.NotNil(t, cache.list)
+	assert.Equal(t, 0, cache.list.Len())
+}
