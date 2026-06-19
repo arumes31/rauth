@@ -42,11 +42,12 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 
 	if len(keys) > 0 {
 		pipe := core.TokenDB.Pipeline()
-		hGetAllCmds := make([]*redis.MapStringStringCmd, len(keys))
+		// ⚡ Bolt optimization: Use HMGet instead of HGetAll to reduce parsing and allocation overhead.
+		hmGetCmds := make([]*redis.SliceCmd, len(keys))
 		ttlCmds := make([]*redis.DurationCmd, len(keys))
 
 		for i, k := range keys {
-			hGetAllCmds[i] = pipe.HGetAll(core.Ctx, k)
+			hmGetCmds[i] = pipe.HMGet(core.Ctx, k, "username", "ip", "country", "user_agent", "ua_ch_mobile", "ua_ch_model")
 			ttlCmds[i] = pipe.TTL(core.Ctx, k)
 		}
 
@@ -56,13 +57,19 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 		}
 
 		for i, k := range keys {
-			data, err := hGetAllCmds[i].Result()
-			if err != nil {
+			vals, err := hmGetCmds[i].Result()
+			if err != nil || len(vals) == 0 || vals[0] == nil {
 				continue
 			}
-			if len(data) == 0 {
-				continue
-			}
+
+			data := make(map[string]string)
+			data["username"], _ = vals[0].(string)
+			data["ip"], _ = vals[1].(string)
+			data["country"], _ = vals[2].(string)
+			data["user_agent"], _ = vals[3].(string)
+			data["ua_ch_mobile"], _ = vals[4].(string)
+			data["ua_ch_model"], _ = vals[5].(string)
+
 			data["token"] = strings.TrimPrefix(k, "X-rauth-authtoken=")
 			if data["token"] == k {
 				slog.Warn("AdminDashboard: token key missing expected prefix", "key", k)
