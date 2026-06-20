@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"log/slog"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,9 +32,9 @@ func ListUsers() ([]User, error) {
 	}
 
 	pipe := UserDB.Pipeline()
-	cmds := make(map[string]*redis.MapStringStringCmd, len(usernames))
+	cmds := make(map[string]*redis.SliceCmd, len(usernames))
 	for _, username := range usernames {
-		cmds[username] = pipe.HGetAll(Ctx, "user:"+username)
+		cmds[username] = pipe.HMGet(Ctx, "user:"+username, "username", "password", "email", "groups", "is_admin", "2fa_secret", "uid", "created_at")
 	}
 
 	if _, err := pipe.Exec(Ctx); err != nil {
@@ -42,10 +43,37 @@ func ListUsers() ([]User, error) {
 
 	var users []User
 	for _, username := range usernames {
-		var user User
-		err := cmds[username].Scan(&user)
-		if err != nil || user.Username == "" {
+		vals, err := cmds[username].Result()
+		if err != nil || len(vals) < 8 || vals[0] == nil {
 			continue
+		}
+
+		createdAtStr, _ := vals[7].(string)
+		var createdAt int64
+		if parsed, err := strconv.ParseInt(createdAtStr, 10, 64); err == nil {
+			createdAt = parsed
+		}
+
+
+		getStr := func(val interface{}) string {
+			if val == nil {
+				return ""
+			}
+			if str, ok := val.(string); ok {
+				return str
+			}
+			return ""
+		}
+
+		user := User{
+			Username:  getStr(vals[0]),
+			Password:  getStr(vals[1]),
+			Email:     getStr(vals[2]),
+			Groups:    getStr(vals[3]),
+			IsAdmin:   getStr(vals[4]),
+			TwoFactor: getStr(vals[5]),
+			UID:       getStr(vals[6]),
+			CreatedAt: createdAt,
 		}
 		// UID backfill is handled at startup by EnsureUserUIDs, so no per-row
 		// mutation is needed here.
