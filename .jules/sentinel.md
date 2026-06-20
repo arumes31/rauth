@@ -68,3 +68,7 @@
 **Vulnerability:** Rate limits on the invite redemption endpoint were checked *after* querying the Redis database for the invite token. This allowed attackers to bypass IP rate limits for invalid tokens and spam the database, causing a potential DoS.
 **Learning:** Always enforce rate limiting based on the request origin (IP, user) *before* performing any backend operations like database reads to protect infrastructure from exhaustion attacks.
 **Prevention:** Apply rate-limiting checks at the very beginning of the handler function, prior to any external calls or expensive computations.
+## 2025-02-27 - [Sentinel] Fix XSS in rauthDialog innerHTML
+**Vulnerability:** DOM-based Cross-Site Scripting (XSS) vulnerability via unescaped string interpolation in `innerHTML` assignments for custom dialog modals (confirm, alert, prompt) in `templates/profile.html` and `templates/management.html`. Payload vectors could use quotes, brackets, and encoded javascript to achieve execution when a dialog is spawned.
+**Learning:** Modern dialog systems that build DOM elements using string template literals and inject them using `innerHTML` are highly susceptible to XSS. In a templated Go application using JavaScript, inputs controlled by attributes (e.g. `data-confirm`) pass unchanged into these scripts.
+**Prevention:** Always use safe DOM manipulation methods (e.g. `document.createElement`, `textContent`) or implement and consistently apply a comprehensive HTML encoding function (`escapeHtml`) before injecting variable data into `innerHTML` strings.
