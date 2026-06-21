@@ -284,23 +284,37 @@ func (h *ProfileHandler) ChangePassword(c echo.Context) error {
 	confirm := c.FormValue("confirm_password")
 	otpCode := c.FormValue("otp_code")
 
-	userData, err := core.UserDB.HGetAll(core.Ctx, "user:"+username).Result()
-	if err != nil {
+	// ⚡ Bolt optimization: Use HMGet instead of HGetAll since we only need specific fields.
+	vals, err := core.UserDB.HMGet(core.Ctx, "user:"+username, "password", "2fa_secret", "email").Result()
+	if err != nil || len(vals) != 3 {
 		slog.Error("Failed to fetch user data for password change", "user", username, "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Internal error")
+	}
+
+	passwordHash := ""
+	if str, ok := vals[0].(string); ok {
+		passwordHash = str
+	}
+	twoFASecret := ""
+	if str, ok := vals[1].(string); ok {
+		twoFASecret = str
+	}
+	email := ""
+	if str, ok := vals[2].(string); ok {
+		email = str
 	}
 
 	if core.IsRateLimitExceeded("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax) {
 		return c.JSON(http.StatusTooManyRequests, map[string]string{"error": "Too many failed attempts. Please try again later."})
 	}
-	if !core.CheckPasswordHash(current, userData["password"]) {
+	if !core.CheckPasswordHash(current, passwordHash) {
 		core.CheckRateLimit("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay)
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Current password incorrect"})
 	}
 
 	// 2FA Verification if enabled
-	if userData["2fa_secret"] != "" {
-		if err := h.validateTOTP(username, otpCode, userData["2fa_secret"]); err != nil {
+	if twoFASecret != "" {
+		if err := h.validateTOTP(username, otpCode, twoFASecret); err != nil {
 			return c.JSON(err.Code, map[string]string{"error": err.Message.(string)})
 		}
 	}
@@ -325,12 +339,12 @@ func (h *ProfileHandler) ChangePassword(c echo.Context) error {
 	}
 
 	// Send notification email
-	if userData["email"] != "" {
+	if email != "" {
 		device := core.FormatDevice(c.Request().UserAgent(),
 			c.Request().Header.Get("Sec-CH-UA-Platform"),
 			c.Request().Header.Get("Sec-CH-UA-Mobile"),
 			c.Request().Header.Get("Sec-CH-UA-Model"))
-		go core.SendPasswordChangeNotification(userData["email"], username, c.RealIP(), device)
+		go core.SendPasswordChangeNotification(email, username, c.RealIP(), device)
 	}
 
 	// Security Hardening: Invalidate all other sessions. The current session
