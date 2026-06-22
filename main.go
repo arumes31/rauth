@@ -96,7 +96,11 @@ func main() {
 	setupRoutes(e, cfg)
 
 	go func() {
-		if err := e.Start(":80"); err != nil && err != http.ErrServerClosed {
+		port := os.Getenv("RAUTH_PORT")
+		if port == "" {
+			port = ":80"
+		}
+		if err := e.Start(port); err != nil && err != http.ErrServerClosed {
 			e.Logger.Fatal("shutting down the server")
 		}
 	}()

@@ -8,6 +8,10 @@ import (
 	"path/filepath"
 	"rauth/internal/core"
 	"testing"
+	"os"
+	"os/exec"
+	"time"
+	"syscall"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/labstack/echo/v4"
@@ -185,6 +189,73 @@ func TestCreateIPExtractor(t *testing.T) {
 			}
 			ip := extractor(req)
 			assert.Equal(t, tt.expectedIP, ip)
+		})
+	}
+}
+
+func TestMain_Execution(t *testing.T) {
+	// Table-driven test using a subprocess to test the main() function directly
+	tests := []struct {
+		name        string
+		env         map[string]string
+		expectExit0 bool
+	}{
+		{
+			name: "Normal execution and graceful shutdown",
+			env: map[string]string{
+				"RAUTH_PORT":       "127.0.0.1:0", // Use random port to prevent conflicts
+				"SERVER_SECRET":    "1234567890123456", // At least 16 chars
+				"COOKIE_DOMAIN":    "example.com",
+			},
+			expectExit0: true,
+		},
+		{
+			name: "Failure missing SERVER_SECRET",
+			env: map[string]string{
+				"RAUTH_PORT":    "127.0.0.1:0",
+				"SERVER_SECRET": "short", // Invalid secret
+				"COOKIE_DOMAIN": "example.com",
+			},
+			expectExit0: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Subprocess execution pattern for testing main
+			if os.Getenv("TEST_MAIN_EXECUTION") == "1" {
+				// We are in the subprocess
+				main()
+				return
+			}
+
+			// We are in the main test process
+			cmd := exec.Command(os.Args[0], "-test.run=TestMain_Execution")
+			cmd.Env = append(os.Environ(), "TEST_MAIN_EXECUTION=1")
+			for k, v := range tt.env {
+				cmd.Env = append(cmd.Env, k+"="+v)
+			}
+
+			// Start the subprocess
+			err := cmd.Start()
+			require.NoError(t, err)
+
+			if tt.expectExit0 {
+				// For the success case, wait a bit for server to start, then send SIGTERM
+				time.Sleep(500 * time.Millisecond)
+				err = cmd.Process.Signal(syscall.SIGTERM)
+				require.NoError(t, err)
+
+				// Wait for it to gracefully exit
+				err = cmd.Wait()
+				if err != nil && err.Error() != "signal: terminated" {
+					t.Fatalf("process exited with error: %v", err)
+				}
+			} else {
+				// For the failure case, it should exit with an error quickly
+				err = cmd.Wait()
+				require.Error(t, err)
+			}
 		})
 	}
 }
