@@ -464,6 +464,7 @@ func (h *AuthHandler) handle2FASuccess(c echo.Context, username, clientIP, pendi
 	c.SetCookie(&http.Cookie{
 		Name:     "rauth_2fa_pending",
 		MaxAge:   -1,
+		Expires:  time.Unix(0, 0),
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   true,
@@ -619,6 +620,7 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 		c.SetCookie(&http.Cookie{
 			Name:     "rauth_setup_pending",
 			MaxAge:   -1,
+			Expires:  time.Unix(0, 0),
 			Path:     "/",
 			HttpOnly: true,
 			Secure:   true,
