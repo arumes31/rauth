@@ -21,10 +21,18 @@ type ProfileHandler struct {
 func (h *ProfileHandler) Show(c echo.Context) error {
 	username := c.Get("username").(string)
 	currentToken := c.Get("token").(string)
-	userData, err := core.UserDB.HGetAll(core.Ctx, "user:"+username).Result()
+	// ⚡ Bolt optimization: Use HMGet instead of HGetAll to avoid fetching/parsing unnecessary fields.
+	vals, err := core.UserDB.HMGet(core.Ctx, "user:"+username, "email", "groups", "is_admin", "2fa_secret").Result()
 	if err != nil {
 		slog.Error("Failed to fetch user data", "user", username, "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to load profile")
+	}
+	userData := make(map[string]string)
+	if len(vals) == 4 {
+		if val, ok := vals[0].(string); ok { userData["email"] = val }
+		if val, ok := vals[1].(string); ok { userData["groups"] = val }
+		if val, ok := vals[2].(string); ok { userData["is_admin"] = val }
+		if val, ok := vals[3].(string); ok { userData["2fa_secret"] = val }
 	}
 
 	// Fetch sessions for this user efficiently
@@ -284,10 +292,17 @@ func (h *ProfileHandler) ChangePassword(c echo.Context) error {
 	confirm := c.FormValue("confirm_password")
 	otpCode := c.FormValue("otp_code")
 
-	userData, err := core.UserDB.HGetAll(core.Ctx, "user:"+username).Result()
+	// ⚡ Bolt optimization: Use HMGet instead of HGetAll to avoid fetching/parsing unnecessary fields.
+	vals, err := core.UserDB.HMGet(core.Ctx, "user:"+username, "password", "2fa_secret", "email").Result()
 	if err != nil {
 		slog.Error("Failed to fetch user data for password change", "user", username, "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Internal error")
+	}
+	userData := make(map[string]string)
+	if len(vals) == 3 {
+		if val, ok := vals[0].(string); ok { userData["password"] = val }
+		if val, ok := vals[1].(string); ok { userData["2fa_secret"] = val }
+		if val, ok := vals[2].(string); ok { userData["email"] = val }
 	}
 
 	if core.IsRateLimitExceeded("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax) {
