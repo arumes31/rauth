@@ -5,9 +5,13 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"rauth/internal/core"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/labstack/echo/v4"
@@ -185,6 +189,48 @@ func TestCreateIPExtractor(t *testing.T) {
 			}
 			ip := extractor(req)
 			assert.Equal(t, tt.expectedIP, ip)
+		})
+	}
+}
+
+func TestMainGracefulShutdown(t *testing.T) {
+	tests := []struct {
+		name string
+	}{
+		{
+			name: "Graceful Shutdown",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if os.Getenv("BE_CRASHER") == "1" {
+				t.Setenv("SERVER_SECRET", "supersecret16characters")
+				t.Setenv("COOKIE_DOMAIN", "localhost")
+				t.Setenv("LOG_LEVEL", "debug")
+				t.Setenv("PORT", "127.0.0.1:0")
+				main()
+				return
+			}
+
+			cmd := exec.Command(os.Args[0], "-test.run=TestMainGracefulShutdown")
+			cmd.Env = append(os.Environ(), "BE_CRASHER=1")
+
+			if err := cmd.Start(); err != nil {
+				t.Fatalf("Failed to start command: %v", err)
+			}
+
+			time.Sleep(1 * time.Second)
+
+			if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+				t.Fatalf("Failed to send SIGTERM: %v", err)
+			}
+
+			err := cmd.Wait()
+
+			if err != nil && err.Error() != "signal: terminated" && err.Error() != "exit status 1" {
+				t.Fatalf("Process exited with unexpected error: %v", err)
+			}
 		})
 	}
 }
