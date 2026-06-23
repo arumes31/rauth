@@ -495,7 +495,7 @@
             filtered.forEach((c, idx) => {
                 const div = document.createElement('div');
                 div.className = 'command-option d-flex justify-content-between align-items-center';
-                div.innerHTML = `<span><i class="bi bi-chevron-right me-2 opacity-50"></i>${c.name}</span> <span class="command-shortcut">/${c.cmd}</span>`;
+                div.innerHTML = `<span><i class="bi bi-chevron-right me-2 opacity-50"></i>${escapeHtml(c.name)}</span> <span class="command-shortcut">/${escapeHtml(c.cmd)}</span>`;
                 div.onclick = () => {
                     c.action();
                     cpModal.hide();
@@ -574,6 +574,16 @@
     // =============================================
     // Modern Dialog System (replaces native dialogs)
     // =============================================
+    function escapeHtml(unsafe) {
+        if (!unsafe) return '';
+        return String(unsafe)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
     const rauthDialog = {
         _createOverlay() {
             const overlay = document.createElement('div');
@@ -603,12 +613,12 @@
                             </div>
                         </div>
                         <div class="rauth-dialog-body">
-                            <div class="rauth-dialog-title">${title}</div>
-                            <div class="rauth-dialog-message">${message}</div>
+                            <div class="rauth-dialog-title">${escapeHtml(title)}</div>
+                            <div class="rauth-dialog-message">${escapeHtml(message)}</div>
                         </div>
                         <div class="rauth-dialog-actions">
-                            <button class="rauth-dialog-btn rauth-dialog-btn-cancel" data-action="cancel">${cancelText}</button>
-                            <button class="rauth-dialog-btn rauth-dialog-btn-confirm ${variant}" data-action="confirm">${confirmText}</button>
+                            <button class="rauth-dialog-btn rauth-dialog-btn-cancel" data-action="cancel">${escapeHtml(cancelText)}</button>
+                            <button class="rauth-dialog-btn rauth-dialog-btn-confirm ${variant}" data-action="confirm">${escapeHtml(confirmText)}</button>
                         </div>
                         <div class="rauth-dialog-hint">
                             <span><kbd>Enter</kbd> confirm</span>
@@ -650,8 +660,8 @@
                             </div>
                         </div>
                         <div class="rauth-dialog-body">
-                            <div class="rauth-dialog-title">${title}</div>
-                            <div class="rauth-dialog-message">${message}</div>
+                            <div class="rauth-dialog-title">${escapeHtml(title)}</div>
+                            <div class="rauth-dialog-message">${escapeHtml(message)}</div>
                         </div>
                         <div class="rauth-dialog-actions alert-only">
                             <button class="rauth-dialog-btn rauth-dialog-btn-confirm ${variant}" data-action="ok">Acknowledged</button>
@@ -689,9 +699,9 @@
                             </div>
                         </div>
                         <div class="rauth-dialog-body">
-                            <div class="rauth-dialog-title">${title}</div>
-                            <div class="rauth-dialog-message">${message}</div>
-                            <input type="text" class="rauth-dialog-input" placeholder="${placeholder}" value="${defaultValue.replace(/"/g, '&quot;')}">
+                            <div class="rauth-dialog-title">${escapeHtml(title)}</div>
+                            <div class="rauth-dialog-message">${escapeHtml(message)}</div>
+                            <input type="text" class="rauth-dialog-input" placeholder="${escapeHtml(placeholder)}" value="${escapeHtml(defaultValue)}">
                         </div>
                         <div class="rauth-dialog-actions">
                             <button class="rauth-dialog-btn rauth-dialog-btn-cancel" data-action="cancel">Cancel</button>
