@@ -514,7 +514,6 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 		return err
 	}
 
-	code := c.FormValue("totp_code")
 	username, pendingToken, err := h.validatePendingToken(c, "rauth_2fa_pending", "pending_2fa")
 	if err != nil {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
@@ -532,6 +531,7 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many failed attempts. Please try again later.", "csrf": c.Get("csrf"), "display2fa": true, "rd": getRD(c)})
 	}
 
+	code := c.FormValue("totp_code")
 	totpOK := totp.Validate(code, secret)
 	if totpOK && core.TOTPCodeReused(username, code) {
 		core.LogAudit("2FA_REPLAY_BLOCKED", username, clientIP, nil)

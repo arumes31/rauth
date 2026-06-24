@@ -68,3 +68,7 @@
 **Vulnerability:** Rate limits on the invite redemption endpoint were checked *after* querying the Redis database for the invite token. This allowed attackers to bypass IP rate limits for invalid tokens and spam the database, causing a potential DoS.
 **Learning:** Always enforce rate limiting based on the request origin (IP, user) *before* performing any backend operations like database reads to protect infrastructure from exhaustion attacks.
 **Prevention:** Apply rate-limiting checks at the very beginning of the handler function, prior to any external calls or expensive computations.
+## 2026-06-24 - Rate Limit Bypass via Early Body Parsing
+**Vulnerability:** Rate limiting logic checked IP limits correctly, but handlers (e.g., Auth, Profile, Invite) parsed the request body (`c.FormValue`) before verifying the rate limit. This allowed an attacker to consume CPU/memory resources by sending large payloads, bypassing the intended DoS protection.
+**Learning:** Parsing request bodies triggers form parsing which consumes system resources. Rate limits designed to prevent DoS attacks are ineffective if the resource-intensive operation occurs before the limit check.
+**Prevention:** Always verify rate limit and throttling checks immediately at the start of a handler, before executing any operations that parse the request body or interact with external services.
