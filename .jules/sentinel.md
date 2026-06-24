@@ -68,3 +68,7 @@
 **Vulnerability:** Rate limits on the invite redemption endpoint were checked *after* querying the Redis database for the invite token. This allowed attackers to bypass IP rate limits for invalid tokens and spam the database, causing a potential DoS.
 **Learning:** Always enforce rate limiting based on the request origin (IP, user) *before* performing any backend operations like database reads to protect infrastructure from exhaustion attacks.
 **Prevention:** Apply rate-limiting checks at the very beginning of the handler function, prior to any external calls or expensive computations.
+## 2026-06-24 - DoS Risk via FormValue Resource Exhaustion
+**Vulnerability:** Several endpoints parsed form bodies (via `c.FormValue()`) *before* executing rate-limiting checks. In frameworks like Echo, calling `c.FormValue()` triggers the parsing of the incoming request body, which consumes CPU and memory. Attackers could send large payloads to exhaust resources without triggering the rate limit.
+**Learning:** In web frameworks like Echo, calling `c.FormValue()` triggers the parsing of the incoming request body. To prevent resource exhaustion (CPU/memory) from large payloads, always execute rate-limiting checks before parsing form values or executing database queries.
+**Prevention:** Always perform rate limiting checks *before* calling `c.FormValue()` or any operation that reads and parses the request body.
