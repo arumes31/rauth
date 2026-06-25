@@ -40,6 +40,7 @@ func getRD(c echo.Context) string {
 	if rd := c.QueryParam("rd"); rd != "" {
 		return rd
 	}
+	// Warning: calling c.FormValue may trigger parsing the request body. Ensure rate limits are checked before this.
 	return c.FormValue("rd")
 }
 
@@ -283,6 +284,12 @@ func (h *AuthHandler) sessionUAMatches(c echo.Context, token, redisKey string, d
 func (h *AuthHandler) Login(c echo.Context) error {
 	clientIP := c.RealIP()
 	slog.Debug("Login attempt", "ip", clientIP, "method", c.Request().Method)
+
+	// Fail-fast before parsing the potentially large request body
+	if core.IsRateLimitExceeded("login_access:"+clientIP, h.Cfg.RateLimitLoginAccessMax) {
+		slog.Warn("General login access rate limit exceeded", "ip", clientIP)
+		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many requests. Please wait a minute.", "csrf": c.Get("csrf"), "rd": c.QueryParam("rd")})
+	}
 
 	// 1. Basic IP Throttling for ALL requests (GET/POST)
 	// Delegate 2FA verification before consuming this handler's rate-limit
