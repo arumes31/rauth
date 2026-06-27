@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"rauth/internal/core"
 	"testing"
+	"os"
+	"os/exec"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/labstack/echo/v4"
@@ -185,6 +187,49 @@ func TestCreateIPExtractor(t *testing.T) {
 			}
 			ip := extractor(req)
 			assert.Equal(t, tt.expectedIP, ip)
+		})
+	}
+}
+
+func TestMainStartup(t *testing.T) {
+	if os.Getenv("BE_CRASHER") == "1" {
+		main()
+		return
+	}
+
+	tests := []struct {
+		name       string
+		env        []string
+		wantStatus int
+	}{
+		{
+			name:       "MissingServerSecret",
+			env:        []string{"BE_CRASHER=1"},
+			wantStatus: 1,
+		},
+		{
+			name:       "MissingCookieDomain",
+			env:        []string{"BE_CRASHER=1", "SERVER_SECRET=1234567890123456"},
+			wantStatus: 1,
+		},
+		{
+			name:       "PortPermissionDenied",
+			env:        []string{"BE_CRASHER=1", "SERVER_SECRET=1234567890123456", "COOKIE_DOMAIN=localhost"},
+			wantStatus: 1,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0], "-test.run=TestMainStartup")
+			cmd.Env = append(os.Environ(), tc.env...)
+			err := cmd.Run()
+			require.Error(t, err)
+			if err != nil && err.Error() != "signal: terminated" {
+				if exitError, ok := err.(*exec.ExitError); ok {
+					assert.Equal(t, tc.wantStatus, exitError.ExitCode())
+				}
+			}
 		})
 	}
 }
