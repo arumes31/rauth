@@ -118,6 +118,11 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 // after re-verifying the user's current TOTP code, and displays them once.
 func (h *ProfileHandler) GenerateRecoveryCodes(c echo.Context) error {
 	username := c.Get("username").(string)
+	// Fast-path read-only check to prevent resource exhaustion from body parsing
+	if core.IsRateLimitExceeded("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax) {
+		return echo.NewHTTPError(http.StatusTooManyRequests, "Too many failed attempts. Please try again later.")
+	}
+
 
 	// ⚡ Bolt optimization: Use HGet instead of HGetAll to only fetch 2fa_secret.
 	secret, err := core.UserDB.HGet(core.Ctx, "user:"+username, "2fa_secret").Result()
@@ -194,6 +199,11 @@ func (h *ProfileHandler) RevokePasskey(c echo.Context) error {
 
 func (h *ProfileHandler) DisableTOTP(c echo.Context) error {
 	username := c.Get("username").(string)
+	// Fast-path read-only check to prevent resource exhaustion from body parsing
+	if core.IsRateLimitExceeded("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax) {
+		return echo.NewHTTPError(http.StatusTooManyRequests, "Too many failed attempts. Please try again later.")
+	}
+
 	otpCode := c.FormValue("otp_code")
 
 	// ⚡ Bolt optimization: Use HMGet instead of HGetAll to only fetch 2fa_secret and email.
@@ -279,6 +289,16 @@ func (h *ProfileHandler) TerminateAllOtherSessions(c echo.Context) error {
 
 func (h *ProfileHandler) ChangePassword(c echo.Context) error {
 	username := c.Get("username").(string)
+	// Fast-path read-only check to prevent resource exhaustion from body parsing
+	if core.IsRateLimitExceeded("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax) {
+		return c.JSON(http.StatusTooManyRequests, map[string]string{"error": "Too many failed attempts. Please try again later."})
+	}
+
+	// Also check 2FA rate limit before parsing form if 2FA might be enabled
+	if core.IsRateLimitExceeded("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax) {
+		return c.JSON(http.StatusTooManyRequests, map[string]string{"error": "Too many failed attempts. Please try again later."})
+	}
+
 	current := c.FormValue("current_password")
 	newPass := c.FormValue("new_password")
 	confirm := c.FormValue("confirm_password")

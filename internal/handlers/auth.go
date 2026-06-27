@@ -288,6 +288,12 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	// Delegate 2FA verification before consuming this handler's rate-limit
 	// budget: Verify2FA applies the same IP throttles itself, so checking here
 	// too would double-count every 2FA attempt submitted via the login form.
+	// Fast-path read-only check to prevent resource exhaustion from body parsing
+	if core.IsRateLimitExceeded("login_access:"+clientIP, h.Cfg.RateLimitLoginAccessMax) {
+		slog.Warn("General login access rate limit exceeded (fast-path)", "ip", clientIP)
+		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many requests. Please wait a minute.", "csrf": c.Get("csrf"), "rd": getRD(c)})
+	}
+
 	if c.Request().Method == http.MethodPost && c.FormValue("action") == "verify_2fa" {
 		return h.Verify2FA(c)
 	}
