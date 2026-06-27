@@ -61,11 +61,16 @@ func (h *InviteHandler) RedeemPage(c echo.Context) error {
 }
 
 func (h *InviteHandler) Redeem(c echo.Context) error {
+	clientIP := c.RealIP()
+	// Fast-path read-only check before parsing the form to prevent payload parsing DoS
+	if core.IsRateLimitExceeded("reg_ip:"+clientIP, h.Cfg.RateLimitRegistrationMax) {
+		return echo.NewHTTPError(http.StatusTooManyRequests, fmt.Sprintf("Too many registration attempts from this IP (%s)", clientIP))
+	}
+
 	token := c.FormValue("token")
 	username := c.FormValue("username")
 	password := c.FormValue("password")
 
-	clientIP := c.RealIP()
 	if !core.CheckRateLimit("reg_ip:"+clientIP, h.Cfg.RateLimitRegistrationMax, h.Cfg.RateLimitRegistrationDecay) {
 		return echo.NewHTTPError(http.StatusTooManyRequests, fmt.Sprintf("Too many registration attempts from this IP (%s)", clientIP))
 	}
