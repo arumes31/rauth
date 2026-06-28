@@ -35,12 +35,13 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 
 	var sessions []map[string]string
 	pipe := core.TokenDB.Pipeline()
-	cmds := make(map[string]*redis.MapStringStringCmd)
+	cmds := make(map[string]*redis.SliceCmd)
 	ttlCmds := make(map[string]*redis.DurationCmd)
 
+	// ⚡ Bolt optimization: Use HMGet instead of HGetAll to avoid fetching and parsing unused token fields.
 	for _, token := range tokens {
 		redisKey := "X-rauth-authtoken=" + token
-		cmds[token] = pipe.HGetAll(core.Ctx, redisKey)
+		cmds[token] = pipe.HMGet(core.Ctx, redisKey, "user_agent", "ua_ch_model", "ua_ch_mobile", "created_at", "ip", "country")
 		ttlCmds[token] = pipe.TTL(core.Ctx, redisKey)
 	}
 	_, pipeErr := pipe.Exec(core.Ctx)
@@ -49,8 +50,8 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 	}
 
 	for _, token := range tokens {
-		data, err := cmds[token].Result()
-		if err != nil || len(data) == 0 {
+		vals, err := cmds[token].Result()
+		if err != nil || len(vals) == 0 {
 			// Only clean up stale index entries if the pipeline succeeded
 			// (individual key miss), not on a wholesale pipeline failure.
 			if pipeErr == nil {
@@ -58,6 +59,21 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 			}
 			continue
 		}
+		data := make(map[string]string)
+		if str, ok := vals[0].(string); ok { data["user_agent"] = str }
+		if str, ok := vals[1].(string); ok { data["ua_ch_model"] = str }
+		if str, ok := vals[2].(string); ok { data["ua_ch_mobile"] = str }
+		if str, ok := vals[3].(string); ok { data["created_at"] = str }
+		if str, ok := vals[4].(string); ok { data["ip"] = str }
+		if str, ok := vals[5].(string); ok { data["country"] = str }
+
+		if len(data) == 0 {
+			if pipeErr == nil {
+				core.RemoveSessionIndex(username, token)
+			}
+			continue
+		}
+
 		data["token"] = token
 		data["is_current"] = "0"
 		if token == currentToken {
