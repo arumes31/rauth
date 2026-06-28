@@ -2,9 +2,11 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"html/template"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"rauth/internal/core"
 	"testing"
@@ -47,6 +49,18 @@ func TestSetupRenderer(t *testing.T) {
 	e := echo.New()
 	setupRenderer(e)
 	assert.NotNil(t, e.Renderer)
+
+	// Test formatters
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := e.Renderer.Render(rec, "error.html", map[string]interface{}{
+		"Title": "Test",
+		"Message": "Test",
+		"Code": 500,
+	}, c)
+	require.NoError(t, err)
 }
 
 func TestSetupMiddleware(t *testing.T) {
@@ -185,6 +199,60 @@ func TestCreateIPExtractor(t *testing.T) {
 			}
 			ip := extractor(req)
 			assert.Equal(t, tt.expectedIP, ip)
+		})
+	}
+}
+
+func TestSetupSecurityMiddleware(t *testing.T) {
+	e := echo.New()
+	setupSecurityMiddleware(e)
+
+}
+
+func TestSetupCSRFMiddleware(t *testing.T) {
+	e := echo.New()
+	setupCSRFMiddleware(e)
+
+}
+
+func TestSetupLoggingMiddleware(t *testing.T) {
+	e := echo.New()
+	setupLoggingMiddleware(e)
+
+}
+
+func TestSetupClientHintsMiddleware(t *testing.T) {
+	e := echo.New()
+	setupClientHintsMiddleware(e)
+
+}
+
+func TestSetupErrorHandlers(t *testing.T) {
+	cases := []struct {
+		code  int
+		title string
+	}{
+		{http.StatusNotFound, "Page Not Found"},
+		{http.StatusForbidden, "Access Forbidden"},
+		{http.StatusInternalServerError, "System Error"},
+		{http.StatusBadRequest, http.StatusText(http.StatusBadRequest)},
+	}
+
+	for _, tc := range cases {
+		t.Run(fmt.Sprintf("Code%d", tc.code), func(t *testing.T) {
+			e := echo.New()
+			setupErrorHandlers(e)
+			setupRenderer(e)
+
+			req := httptest.NewRequest(http.MethodGet, "/test", nil)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			err := echo.NewHTTPError(tc.code)
+			e.HTTPErrorHandler(err, c)
+
+			assert.Equal(t, tc.code, rec.Code)
+			assert.Contains(t, rec.Body.String(), tc.title)
 		})
 	}
 }
