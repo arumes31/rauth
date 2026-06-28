@@ -285,6 +285,14 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	slog.Debug("Login attempt", "ip", clientIP, "method", c.Request().Method)
 
 	// 1. Basic IP Throttling for ALL requests (GET/POST)
+	// Fast-path read-only check to prevent resource exhaustion from large payloads
+	// before we trigger form parsing via c.FormValue.
+	// IsRateLimitExceeded does not consume a token, avoiding the double-counting issue.
+	if core.IsRateLimitExceeded("login_access:"+clientIP, h.Cfg.RateLimitLoginAccessMax) {
+		slog.Warn("General login access rate limit exceeded (fast-path)", "ip", clientIP)
+		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many requests. Please wait a minute.", "csrf": c.Get("csrf"), "rd": c.QueryParam("rd")})
+	}
+
 	// Delegate 2FA verification before consuming this handler's rate-limit
 	// budget: Verify2FA applies the same IP throttles itself, so checking here
 	// too would double-count every 2FA attempt submitted via the login form.
