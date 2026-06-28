@@ -68,3 +68,8 @@
 **Vulnerability:** Rate limits on the invite redemption endpoint were checked *after* querying the Redis database for the invite token. This allowed attackers to bypass IP rate limits for invalid tokens and spam the database, causing a potential DoS.
 **Learning:** Always enforce rate limiting based on the request origin (IP, user) *before* performing any backend operations like database reads to protect infrastructure from exhaustion attacks.
 **Prevention:** Apply rate-limiting checks at the very beginning of the handler function, prior to any external calls or expensive computations.
+
+## 2026-06-28 - Fast-Path Rate Limiting Parameter Avoidance
+**Vulnerability:** Fast-path rate limit mitigations intended to prevent DoS by rejecting requests before body parsing were inadvertently triggering body parsing by using helpers (like `getRD(c)`) that relied on `c.FormValue()`.
+**Learning:** When rejecting requests early to prevent resource exhaustion, you must ensure that no helper functions in the rejection response accidentally trigger the expensive operations you are trying to avoid (like request body parsing).
+**Prevention:** Strictly use `c.QueryParam()` instead of `c.FormValue()` or helpers relying on it when constructing early rejection responses, to guarantee the request body remains unparsed.
