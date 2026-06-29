@@ -68,3 +68,8 @@
 **Vulnerability:** Rate limits on the invite redemption endpoint were checked *after* querying the Redis database for the invite token. This allowed attackers to bypass IP rate limits for invalid tokens and spam the database, causing a potential DoS.
 **Learning:** Always enforce rate limiting based on the request origin (IP, user) *before* performing any backend operations like database reads to protect infrastructure from exhaustion attacks.
 **Prevention:** Apply rate-limiting checks at the very beginning of the handler function, prior to any external calls or expensive computations.
+
+## 2026-06-12 - Form Value Parsing Before Fast-Path Rate Limit Checks
+**Vulnerability:** In `internal/handlers/auth.go` and `internal/handlers/invite.go`, `c.FormValue()` was being called before checking the fast-path rate limit (which relies on `IsRateLimitExceeded`). This triggered Echo's request body parsing, exposing the application to resource exhaustion (CPU/Memory) from large payloads even if the IP was already blocked by the rate limit.
+**Learning:** In web frameworks like Echo, calling methods to retrieve form or post data (`c.FormValue`) implicitly parses the request body. If this is done before checking rate limits, the rate limit loses its effectiveness as a defense against volumetric or resource exhaustion attacks.
+**Prevention:** Always ensure fast-path read-only rate limits (`core.IsRateLimitExceeded`) are checked *before* retrieving form values or performing any request body parsing. Use query parameters (`c.QueryParam`) if parameters are needed before the rate limit check.
