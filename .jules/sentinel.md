@@ -68,3 +68,8 @@
 **Vulnerability:** Rate limits on the invite redemption endpoint were checked *after* querying the Redis database for the invite token. This allowed attackers to bypass IP rate limits for invalid tokens and spam the database, causing a potential DoS.
 **Learning:** Always enforce rate limiting based on the request origin (IP, user) *before* performing any backend operations like database reads to protect infrastructure from exhaustion attacks.
 **Prevention:** Apply rate-limiting checks at the very beginning of the handler function, prior to any external calls or expensive computations.
+
+## 2026-06-29 - Fast-Path Rate Limiting to Prevent Request Body Parsing DoS
+**Vulnerability:** The `Login` handler was using `c.FormValue()` to check routing conditions before enforcing rate limits. In frameworks like Echo, calling `c.FormValue()` triggers the parsing of the entire request body. This allowed an attacker to bypass rate limit protections by sending large payloads, forcing the server to consume CPU and memory to parse them, leading to a Denial of Service (DoS) vulnerability.
+**Learning:** Checking rate limits using functions that implicitly evaluate request payloads nullifies the defensive benefit of the rate limit. Rate limit checking must occur completely independent of and prior to payload evaluation.
+**Prevention:** Introduce "fast-path" read-only rate limit checks (e.g., `IsRateLimitExceeded`) using only request headers or metadata (like IP address), and ensure helper functions (like `getRDQueryOnly` instead of `getRD`) only fetch data from the query string during early failure paths.

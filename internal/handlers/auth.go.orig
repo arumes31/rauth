@@ -43,13 +43,6 @@ func getRD(c echo.Context) string {
 	return c.FormValue("rd")
 }
 
-// getRDQueryOnly returns the post-login redirect target from ONLY the query string.
-// This is used in fast-path rate limit checks to preserve the redirect URL without
-// triggering c.FormValue() which would parse the entire request body.
-func getRDQueryOnly(c echo.Context) string {
-	return c.QueryParam("rd")
-}
-
 func (h *AuthHandler) Root(c echo.Context) error {
 	cookie, err := c.Cookie("X-rauth-authtoken")
 	if err != nil {
@@ -291,13 +284,6 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	clientIP := c.RealIP()
 	slog.Debug("Login attempt", "ip", clientIP, "method", c.Request().Method)
 
-	// Fast-path read-only check before parsing the form body to prevent resource
-	// exhaustion from large payloads on already-throttled IPs.
-	if core.IsRateLimitExceeded("login_access:"+clientIP, h.Cfg.RateLimitLoginAccessMax) {
-		slog.Warn("General login access rate limit exceeded (fast-path)", "ip", clientIP)
-		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many requests. Please wait a minute.", "csrf": c.Get("csrf"), "rd": getRDQueryOnly(c)})
-	}
-
 	// 1. Basic IP Throttling for ALL requests (GET/POST)
 	// Delegate 2FA verification before consuming this handler's rate-limit
 	// budget: Verify2FA applies the same IP throttles itself, so checking here
@@ -441,14 +427,14 @@ func (h *AuthHandler) initiate2FASetupSession(c echo.Context, username string) e
 
 func (h *AuthHandler) checkLoginIPRateLimits(c echo.Context, clientIP, template string, extraContext map[string]interface{}) error {
 	if !core.CheckRateLimit("login_access:"+clientIP, h.Cfg.RateLimitLoginAccessMax, h.Cfg.RateLimitLoginAccessDecay) {
-		ctx := map[string]interface{}{"error": "Too many requests. Please wait a minute.", "csrf": c.Get("csrf"), "rd": getRDQueryOnly(c)}
+		ctx := map[string]interface{}{"error": "Too many requests. Please wait a minute.", "csrf": c.Get("csrf"), "rd": getRD(c)}
 		for k, v := range extraContext {
 			ctx[k] = v
 		}
 		return c.Render(http.StatusTooManyRequests, template, ctx)
 	}
 	if !core.CheckRateLimit("login_post_ip:"+clientIP, h.Cfg.RateLimitLoginMax, h.Cfg.RateLimitLoginDecay) {
-		ctx := map[string]interface{}{"error": fmt.Sprintf("Too many attempts from this IP (%s). Please try again later.", clientIP), "csrf": c.Get("csrf"), "rd": getRDQueryOnly(c)}
+		ctx := map[string]interface{}{"error": fmt.Sprintf("Too many attempts from this IP (%s). Please try again later.", clientIP), "csrf": c.Get("csrf"), "rd": getRD(c)}
 		for k, v := range extraContext {
 			ctx[k] = v
 		}
