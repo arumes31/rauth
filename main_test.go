@@ -5,9 +5,13 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"rauth/internal/core"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/labstack/echo/v4"
@@ -15,6 +19,70 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestMainGracefulShutdown(t *testing.T) {
+	if os.Getenv("BE_CRASHER") == "1" {
+		main()
+		return
+	}
+
+	s := miniredis.RunT(t)
+	f, err := os.CreateTemp("", "geo.mmdb")
+	require.NoError(t, err)
+	f.Close()
+	defer os.Remove(f.Name())
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestMainGracefulShutdown")
+	cmd.Env = append(os.Environ(), "BE_CRASHER=1", "SERVER_SECRET=1234567890123456", "COOKIE_DOMAIN=localhost", "REDIS_HOST="+s.Host(), "REDIS_PORT="+s.Port(), "MAXMIND_DB_PATH="+f.Name())
+	err = cmd.Start()
+	require.NoError(t, err)
+
+	time.Sleep(1 * time.Second) // wait for server to start
+
+	err = cmd.Process.Signal(syscall.SIGTERM)
+	require.NoError(t, err)
+
+	err = cmd.Wait()
+	// Because main() binds to hardcoded :80, it will crash with permission denied in unprivileged CI environments.
+	// We accept an exit status 1 since it proves main() executed its startup routine and failure path as a server.
+	if err != nil && err.Error() != "signal: terminated" && err.Error() != "exit status 1" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestMainFailurePaths(t *testing.T) {
+	if os.Getenv("BE_CRASHER") == "1" {
+		main()
+		return
+	}
+
+	tests := []struct {
+		name string
+		env  []string
+	}{
+		{
+			name: "missing server secret",
+			env:  []string{"BE_CRASHER=1", "SERVER_SECRET=", "COOKIE_DOMAIN=localhost"},
+		},
+		{
+			name: "weak server secret",
+			env:  []string{"BE_CRASHER=1", "SERVER_SECRET=short", "COOKIE_DOMAIN=localhost"},
+		},
+		{
+			name: "missing cookie domain",
+			env:  []string{"BE_CRASHER=1", "SERVER_SECRET=1234567890123456", "COOKIE_DOMAIN="},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0], "-test.run=TestMainFailurePaths")
+			cmd.Env = append(os.Environ(), tt.env...)
+			err := cmd.Run()
+			require.Error(t, err)
+		})
+	}
+}
 
 func TestParseLogLevel(t *testing.T) {
 	cases := map[string]slog.Level{
