@@ -29,8 +29,10 @@ func TestMainGracefulShutdown(t *testing.T) {
 	s := miniredis.RunT(t)
 	f, err := os.CreateTemp("", "geo.mmdb")
 	require.NoError(t, err)
-	f.Close()
-	defer os.Remove(f.Name())
+	_ = f.Close()
+	defer func() {
+		_ = os.Remove(f.Name())
+	}()
 
 	cmd := exec.Command(os.Args[0], "-test.run=TestMainGracefulShutdown")
 	cmd.Env = append(os.Environ(), "BE_CRASHER=1", "SERVER_SECRET=1234567890123456", "COOKIE_DOMAIN=localhost", "REDIS_HOST="+s.Host(), "REDIS_PORT="+s.Port(), "MAXMIND_DB_PATH="+f.Name())
