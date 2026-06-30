@@ -61,14 +61,17 @@ func (h *InviteHandler) RedeemPage(c echo.Context) error {
 }
 
 func (h *InviteHandler) Redeem(c echo.Context) error {
-	token := c.FormValue("token")
-	username := c.FormValue("username")
-	password := c.FormValue("password")
-
 	clientIP := c.RealIP()
+	// Sentinel: Moved rate limiting before c.FormValue parsing to prevent
+	// resource exhaustion (DoS) from large request bodies or excessive parsing
+	// prior to checking limits.
 	if !core.CheckRateLimit("reg_ip:"+clientIP, h.Cfg.RateLimitRegistrationMax, h.Cfg.RateLimitRegistrationDecay) {
 		return echo.NewHTTPError(http.StatusTooManyRequests, fmt.Sprintf("Too many registration attempts from this IP (%s)", clientIP))
 	}
+
+	token := c.FormValue("token")
+	username := c.FormValue("username")
+	password := c.FormValue("password")
 
 	email, err := core.InviteDB.Get(core.Ctx, "invite:"+token).Result()
 	if err != nil {
