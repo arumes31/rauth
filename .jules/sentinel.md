@@ -68,3 +68,8 @@
 **Vulnerability:** Rate limits on the invite redemption endpoint were checked *after* querying the Redis database for the invite token. This allowed attackers to bypass IP rate limits for invalid tokens and spam the database, causing a potential DoS.
 **Learning:** Always enforce rate limiting based on the request origin (IP, user) *before* performing any backend operations like database reads to protect infrastructure from exhaustion attacks.
 **Prevention:** Apply rate-limiting checks at the very beginning of the handler function, prior to any external calls or expensive computations.
+
+## 2024-06-30 - Form Parsing Resource Exhaustion and TOCTOU Race Conditions
+**Vulnerability:** The `Redeem` handler parsed form data using `c.FormValue` before executing the IP rate limit check, exposing the server to resource exhaustion (DoS) from large payloads. Furthermore, attempting to separate checking from decrementing (e.g., `IsRateLimitExceeded` then `CheckRateLimit`) introduces a critical Time-of-Check to Time-of-Use (TOCTOU) race condition in concurrent environments.
+**Learning:** Calling `c.FormValue()` triggers request body parsing, so any fast-fail security checks (like rate limiting) must precede it. Concurrently, rate limiting mechanisms must be atomic (check and increment together); splitting them breaks the integrity of the limit.
+**Prevention:** Apply unconditional atomic rate limits (using `core.CheckRateLimit` directly and evaluating its return value) at the very start of handlers, before any payload parsing or expensive operations occur. Reserve non-incrementing checks (`IsRateLimitExceeded`) strictly for deferred conditional limits.
