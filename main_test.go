@@ -226,7 +226,7 @@ func TestMainGracefulShutdown(t *testing.T) {
 			},
 			wait: func(cmd *exec.Cmd) {
 				time.Sleep(200 * time.Millisecond)
-				cmd.Process.Signal(syscall.SIGTERM)
+				_ = cmd.Process.Signal(syscall.SIGTERM)
 			},
 		},
 	}
