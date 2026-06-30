@@ -68,3 +68,8 @@
 **Vulnerability:** Rate limits on the invite redemption endpoint were checked *after* querying the Redis database for the invite token. This allowed attackers to bypass IP rate limits for invalid tokens and spam the database, causing a potential DoS.
 **Learning:** Always enforce rate limiting based on the request origin (IP, user) *before* performing any backend operations like database reads to protect infrastructure from exhaustion attacks.
 **Prevention:** Apply rate-limiting checks at the very beginning of the handler function, prior to any external calls or expensive computations.
+
+## 2026-06-30 - Resource Exhaustion via Early Form Parsing
+**Vulnerability:** General rate limiting for the login endpoint was checked after (or via) `c.FormValue()`, which triggers full request body parsing, making it vulnerable to resource exhaustion DoS from large payloads.
+**Learning:** When implementing fast-path rate limit checks to prevent resource exhaustion, they must be executed strictly before any parsing of the incoming request body.
+**Prevention:** Use fast-path checks like `core.IsRateLimitExceeded` at the very beginning of the handler and avoid calling functions (like `getRD(c)`) that internally call `c.FormValue()` before the limit is checked. Instead use `c.QueryParam` for query parameters.
