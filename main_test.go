@@ -2,12 +2,17 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"html/template"
 	"log/slog"
 	"net/http"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"rauth/internal/core"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/labstack/echo/v4"
@@ -185,6 +190,69 @@ func TestCreateIPExtractor(t *testing.T) {
 			}
 			ip := extractor(req)
 			assert.Equal(t, tt.expectedIP, ip)
+		})
+	}
+}
+
+func TestMainGracefulShutdown(t *testing.T) {
+	if os.Getenv("BE_CRASHER") == "1" {
+		main()
+		return
+	}
+
+	tests := []struct {
+		name string
+		env  map[string]string
+		wait func(*exec.Cmd)
+	}{
+		{
+			name: "MissingServerSecret",
+			env: map[string]string{
+				"SERVER_SECRET": "",
+			},
+		},
+		{
+			name: "MissingCookieDomain",
+			env: map[string]string{
+				"SERVER_SECRET": "1234567890123456",
+				"COOKIE_DOMAIN": "",
+			},
+		},
+		{
+			name: "GracefulShutdown",
+			env: map[string]string{
+				"SERVER_SECRET": "1234567890123456",
+				"COOKIE_DOMAIN": "example.com",
+			},
+			wait: func(cmd *exec.Cmd) {
+				time.Sleep(200 * time.Millisecond)
+				cmd.Process.Signal(syscall.SIGTERM)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0], "-test.run=TestMainGracefulShutdown")
+			cmd.Env = append(os.Environ(), "BE_CRASHER=1")
+			for k, v := range tc.env {
+				cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+			}
+
+			err := cmd.Start()
+			require.NoError(t, err)
+
+			if tc.wait != nil {
+				tc.wait(cmd)
+			}
+
+			err = cmd.Wait()
+			require.Error(t, err)
+			if tc.name == "GracefulShutdown" {
+				require.Equal(t, "signal: terminated", err.Error())
+			} else {
+				require.Equal(t, "exit status 1", err.Error())
+			}
 		})
 	}
 }
