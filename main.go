@@ -412,7 +412,7 @@ func setupRoutes(e *echo.Echo, cfg *core.Config) {
 			Value:    "",
 			Path:     "/",
 			Domain:   cfg.CookieDomains[0],
-			Expires:  time.Now().Add(-1 * time.Hour),
+			Expires:  time.Unix(0, 0),
 			MaxAge:   -1,
 			HttpOnly: true,
 			Secure:   true,

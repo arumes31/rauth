@@ -279,6 +279,11 @@ func (h *ProfileHandler) TerminateAllOtherSessions(c echo.Context) error {
 
 func (h *ProfileHandler) ChangePassword(c echo.Context) error {
 	username := c.Get("username").(string)
+
+	if core.IsRateLimitExceeded("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax) {
+		return c.JSON(http.StatusTooManyRequests, map[string]string{"error": "Too many failed attempts. Please try again later."})
+	}
+
 	current := c.FormValue("current_password")
 	newPass := c.FormValue("new_password")
 	confirm := c.FormValue("confirm_password")
@@ -288,10 +293,6 @@ func (h *ProfileHandler) ChangePassword(c echo.Context) error {
 	if err != nil {
 		slog.Error("Failed to fetch user data for password change", "user", username, "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Internal error")
-	}
-
-	if core.IsRateLimitExceeded("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax) {
-		return c.JSON(http.StatusTooManyRequests, map[string]string{"error": "Too many failed attempts. Please try again later."})
 	}
 	if !core.CheckPasswordHash(current, userData["password"]) {
 		core.CheckRateLimit("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay)
