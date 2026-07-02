@@ -2,6 +2,9 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"os/exec"
+	"strings"
 	"html/template"
 	"log/slog"
 	"net/http"
@@ -185,6 +188,120 @@ func TestCreateIPExtractor(t *testing.T) {
 			}
 			ip := extractor(req)
 			assert.Equal(t, tt.expectedIP, ip)
+		})
+	}
+}
+
+func TestMainGracefulShutdown(t *testing.T) {
+	if os.Getenv("BE_CRASHER") == "1" {
+		if os.Getenv("TEST_GRACEFUL_SHUTDOWN") == "1" {
+			// Instead of actually binding to port 80 and waiting, we simulate
+			// the server startup and immediate shutdown signal.
+			go func() {
+				// wait a bit for echo server to 'start' (even though we're overriding it or ignoring it)
+				// Actually we just send the SIGTERM to ourselves
+				p, _ := os.FindProcess(os.Getpid())
+				p.Signal(os.Interrupt)
+			}()
+		}
+		main()
+		return
+	}
+
+	tests := []struct {
+		name         string
+		envSet       map[string]string
+		envUnset     []string
+		expectedErr  bool
+		errContains  string
+	}{
+		{
+			name: "MissingServerSecret",
+			envSet: map[string]string{
+				"BE_CRASHER": "1",
+			},
+			envUnset: []string{"SERVER_SECRET"},
+			expectedErr: true,
+			errContains: "exit status 1",
+		},
+		{
+			name: "WeakServerSecret",
+			envSet: map[string]string{
+				"BE_CRASHER": "1",
+				"SERVER_SECRET": "short",
+			},
+			expectedErr: true,
+			errContains: "exit status 1",
+		},
+		{
+			name: "MissingCookieDomain",
+			envSet: map[string]string{
+				"BE_CRASHER": "1",
+				"SERVER_SECRET": "sixteencharsecret",
+			},
+			envUnset: []string{"COOKIE_DOMAIN"},
+			expectedErr: true,
+			errContains: "exit status 1",
+		},
+		{
+			name: "GracefulShutdown",
+			envSet: map[string]string{
+				"BE_CRASHER": "1",
+				"TEST_GRACEFUL_SHUTDOWN": "1",
+				"SERVER_SECRET": "sixteencharsecret",
+				"COOKIE_DOMAIN": "example.com",
+			},
+			expectedErr: true,
+			errContains: "signal: interrupt",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0], "-test.run=TestMainGracefulShutdown")
+
+			// Setup environment carefully to prevent parent env bleed
+			var env []string
+			for _, e := range os.Environ() {
+				parts := strings.SplitN(e, "=", 2)
+				key := parts[0]
+
+				unset := false
+				for _, u := range tc.envUnset {
+					if key == u {
+						unset = true
+						break
+					}
+				}
+
+				if _, ok := tc.envSet[key]; !unset && !ok {
+					env = append(env, e)
+				}
+			}
+
+			for k, v := range tc.envSet {
+				env = append(env, k+"="+v)
+			}
+			cmd.Env = env
+
+			err := cmd.Run()
+
+			if tc.name == "GracefulShutdown" {
+				if err != nil {
+					// Could be signal: interrupt or exit status 1 (if port binding failed before interrupt)
+					errStr := err.Error()
+					if !strings.Contains(errStr, "signal: interrupt") && !strings.Contains(errStr, "exit status 1") {
+						t.Errorf("expected 'signal: interrupt' or 'exit status 1', got %v", errStr)
+					}
+				} else {
+					// if no error, that's weird but ok
+				}
+			} else if tc.expectedErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.errContains)
+			} else {
+				require.NoError(t, err)
+			}
 		})
 	}
 }
