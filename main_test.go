@@ -201,7 +201,7 @@ func TestMainGracefulShutdown(t *testing.T) {
 				// wait a bit for echo server to 'start' (even though we're overriding it or ignoring it)
 				// Actually we just send the SIGTERM to ourselves
 				p, _ := os.FindProcess(os.Getpid())
-				p.Signal(os.Interrupt)
+				_ = p.Signal(os.Interrupt)
 			}()
 		}
 		main()
@@ -293,8 +293,6 @@ func TestMainGracefulShutdown(t *testing.T) {
 					if !strings.Contains(errStr, "signal: interrupt") && !strings.Contains(errStr, "exit status 1") {
 						t.Errorf("expected 'signal: interrupt' or 'exit status 1', got %v", errStr)
 					}
-				} else {
-					// if no error, that's weird but ok
 				}
 			} else if tc.expectedErr {
 				require.Error(t, err)
