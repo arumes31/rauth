@@ -68,3 +68,7 @@
 **Vulnerability:** Rate limits on the invite redemption endpoint were checked *after* querying the Redis database for the invite token. This allowed attackers to bypass IP rate limits for invalid tokens and spam the database, causing a potential DoS.
 **Learning:** Always enforce rate limiting based on the request origin (IP, user) *before* performing any backend operations like database reads to protect infrastructure from exhaustion attacks.
 **Prevention:** Apply rate-limiting checks at the very beginning of the handler function, prior to any external calls or expensive computations.
+## 2026-06-23 - Missing escapeHtml in innerHTML string interpolation
+**Vulnerability:** DOM-based XSS vulnerability due to unescaped interpolations in custom vanilla JS modal `rauthDialog`. Both user-facing dialog messages and template variables were vulnerable to injection via `innerHTML`.
+**Learning:** Developers building custom UI components (like dialog overlays) in vanilla JS sometimes use template literals + `innerHTML` directly without properly escaping inputs first, treating them like React props which inherently escape.
+**Prevention:** Establish a global or reusable `escapeHtml` utility and mandate its usage for all dynamic values being interpolated into HTML template literals prior to assignment to `innerHTML`.
