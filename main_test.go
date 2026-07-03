@@ -27,7 +27,7 @@ func TestMainGracefulShutdown(t *testing.T) {
 			go func() {
 				time.Sleep(1 * time.Millisecond)
 				p, _ := os.FindProcess(os.Getpid())
-				p.Signal(os.Interrupt)
+				_ = p.Signal(os.Interrupt)
 			}()
 		}
 		main()
