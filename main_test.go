@@ -8,6 +8,10 @@ import (
 	"path/filepath"
 	"rauth/internal/core"
 	"testing"
+	"time"
+	"os"
+	"os/exec"
+	"net"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/labstack/echo/v4"
@@ -15,6 +19,92 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+
+func TestMainGracefulShutdown(t *testing.T) {
+	if os.Getenv("BE_CRASHER") == "1" {
+		if os.Getenv("TEST_SIGNAL") == "1" {
+			go func() {
+				time.Sleep(1 * time.Millisecond)
+				p, _ := os.FindProcess(os.Getpid())
+				p.Signal(os.Interrupt)
+			}()
+		}
+		main()
+		return
+	}
+
+	s := miniredis.RunT(t)
+	host, port, _ := net.SplitHostPort(s.Addr())
+
+	testCases := []struct {
+		name         string
+		env          []string
+		expectErr    bool
+		expectErrMsg string
+	}{
+		{
+			name: "missing server secret",
+			env: []string{
+				"SERVER_SECRET=",
+			},
+			expectErr:    true,
+			expectErrMsg: "exit status 1",
+		},
+		{
+			name: "missing cookie domain",
+			env: []string{
+				"SERVER_SECRET=1234567890123456",
+				"COOKIE_DOMAIN=",
+			},
+			expectErr:    true,
+			expectErrMsg: "exit status 1",
+		},
+		{
+			name: "redis failure",
+			env: []string{
+				"SERVER_SECRET=1234567890123456",
+				"COOKIE_DOMAIN=example.com",
+				"REDIS_HOST=invalid-host",
+			},
+			expectErr:    true,
+			expectErrMsg: "exit status 1",
+		},
+		{
+			name: "happy path",
+			env: []string{
+				"SERVER_SECRET=1234567890123456",
+				"COOKIE_DOMAIN=example.com",
+				"REDIS_HOST=" + host,
+				"REDIS_PORT=" + port,
+				"TEST_SIGNAL=1",
+			},
+			expectErr:    true,
+			expectErrMsg: "signal: interrupt",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0], "-test.run=TestMainGracefulShutdown")
+			cmd.Env = append(os.Environ(), "BE_CRASHER=1")
+			cmd.Env = append(cmd.Env, tc.env...)
+			if coverDir := os.Getenv("GOCOVERDIR"); coverDir != "" {
+				cmd.Env = append(cmd.Env, "GOCOVERDIR=" + coverDir)
+			}
+
+			err := cmd.Run()
+			if tc.expectErr {
+				require.Error(t, err)
+				if tc.expectErrMsg != "" {
+					assert.Contains(t, err.Error(), tc.expectErrMsg)
+				}
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
 
 func TestParseLogLevel(t *testing.T) {
 	cases := map[string]slog.Level{
