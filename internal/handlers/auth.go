@@ -288,7 +288,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	// Fast-path read-only check to prevent large payload parsing if already throttled.
 	if core.IsRateLimitExceeded("login_access:"+clientIP, h.Cfg.RateLimitLoginAccessMax) {
 		slog.Warn("General login access rate limit exceeded (fast-path)", "ip", clientIP)
-		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many requests. Please wait a minute.", "csrf": c.Get("csrf"), "rd": getRD(c)})
+		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many requests. Please wait a minute.", "csrf": c.Get("csrf"), "rd": c.QueryParam("rd")})
 	}
 
 	// Delegate 2FA verification before consuming this handler's rate-limit
@@ -433,7 +433,7 @@ func (h *AuthHandler) initiate2FASetupSession(c echo.Context, username string) e
 
 func (h *AuthHandler) checkLoginIPRateLimits(c echo.Context, clientIP, template string, extraContext map[string]interface{}) error {
 	if core.IsRateLimitExceeded("login_access:"+clientIP, h.Cfg.RateLimitLoginAccessMax) {
-		ctx := map[string]interface{}{"error": "Too many requests. Please wait a minute.", "csrf": c.Get("csrf"), "rd": getRD(c)}
+		ctx := map[string]interface{}{"error": "Too many requests. Please wait a minute.", "csrf": c.Get("csrf"), "rd": c.QueryParam("rd")}
 		for k, v := range extraContext {
 			ctx[k] = v
 		}
@@ -543,7 +543,7 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 	}
 
 	if core.IsRateLimitExceeded("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax) {
-		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many failed attempts. Please try again later.", "csrf": c.Get("csrf"), "display2fa": true, "rd": getRD(c)})
+		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many failed attempts. Please try again later.", "csrf": c.Get("csrf"), "display2fa": true, "rd": c.QueryParam("rd")})
 	}
 
 	totpOK := totp.Validate(code, secret)
@@ -613,7 +613,7 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 	}
 
 	if core.IsRateLimitExceeded("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax) {
-		return c.Render(http.StatusTooManyRequests, "setup_2fa.html", map[string]interface{}{"error": "Too many failed attempts. Please try again later.", "csrf": c.Get("csrf"), "rd": getRD(c)})
+		return c.Render(http.StatusTooManyRequests, "setup_2fa.html", map[string]interface{}{"error": "Too many failed attempts. Please try again later.", "csrf": c.Get("csrf"), "rd": c.QueryParam("rd")})
 	}
 
 	code := c.FormValue("totp_code")
