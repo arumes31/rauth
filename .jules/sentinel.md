@@ -72,3 +72,7 @@
 **Vulnerability:** DOM-based XSS vulnerability due to unescaped interpolations in custom vanilla JS modal `rauthDialog`. Both user-facing dialog messages and template variables were vulnerable to injection via `innerHTML`.
 **Learning:** Developers building custom UI components (like dialog overlays) in vanilla JS sometimes use template literals + `innerHTML` directly without properly escaping inputs first, treating them like React props which inherently escape.
 **Prevention:** Establish a global or reusable `escapeHtml` utility and mandate its usage for all dynamic values being interpolated into HTML template literals prior to assignment to `innerHTML`.
+## 2024-10-24 - Fast-Path Rate Limiting Form Parse DoS
+**Vulnerability:** Fast-path rate limiting blocks (e.g., `IsRateLimitExceeded`) intended to prevent resource exhaustion from large payloads were returning error responses using helper functions like `getRD(c)`. However, `getRD(c)` called `c.FormValue("rd")`, which implicitly parsed the entire request body, defeating the purpose of the fast-path check and allowing a DoS via large payloads.
+**Learning:** Calling any framework function that accesses form or multipart data (such as `c.FormValue`) within an early-exit rate limiting block forces the request body to be parsed.
+**Prevention:** Strictly use `c.QueryParam()` inside fast-path rate limit blocks to handle necessary parameters without triggering body parsing, ensuring the early rejection remains lightweight.
