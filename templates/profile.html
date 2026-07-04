@@ -575,7 +575,7 @@
     // Modern Dialog System (replaces native dialogs)
     // =============================================
     function escapeHtml(unsafe) {
-        if (!unsafe) return '';
+        if (unsafe == null) return '';
         return String(unsafe)
             .replace(/&/g, "&amp;")
             .replace(/</g, "&lt;")
@@ -608,8 +608,8 @@
                 overlay.innerHTML = `
                     <div class="rauth-dialog">
                         <div class="rauth-dialog-icon">
-                            <div class="rauth-dialog-icon-circle ${variant}">
-                                <i class="bi ${icon}"></i>
+                            <div class="rauth-dialog-icon-circle ${escapeHtml(variant)}">
+                                <i class="bi ${escapeHtml(icon)}"></i>
                             </div>
                         </div>
                         <div class="rauth-dialog-body">
@@ -618,7 +618,7 @@
                         </div>
                         <div class="rauth-dialog-actions">
                             <button class="rauth-dialog-btn rauth-dialog-btn-cancel" data-action="cancel">${escapeHtml(cancelText)}</button>
-                            <button class="rauth-dialog-btn rauth-dialog-btn-confirm ${variant}" data-action="confirm">${escapeHtml(confirmText)}</button>
+                            <button class="rauth-dialog-btn rauth-dialog-btn-confirm ${escapeHtml(variant)}" data-action="confirm">${escapeHtml(confirmText)}</button>
                         </div>
                         <div class="rauth-dialog-hint">
                             <span><kbd>Enter</kbd> confirm</span>
@@ -655,8 +655,8 @@
                 overlay.innerHTML = `
                     <div class="rauth-dialog">
                         <div class="rauth-dialog-icon">
-                            <div class="rauth-dialog-icon-circle ${variant}">
-                                <i class="bi ${icon}"></i>
+                            <div class="rauth-dialog-icon-circle ${escapeHtml(variant)}">
+                                <i class="bi ${escapeHtml(icon)}"></i>
                             </div>
                         </div>
                         <div class="rauth-dialog-body">
@@ -664,7 +664,7 @@
                             <div class="rauth-dialog-message">${escapeHtml(message)}</div>
                         </div>
                         <div class="rauth-dialog-actions alert-only">
-                            <button class="rauth-dialog-btn rauth-dialog-btn-confirm ${variant}" data-action="ok">Acknowledged</button>
+                            <button class="rauth-dialog-btn rauth-dialog-btn-confirm ${escapeHtml(variant)}" data-action="ok">Acknowledged</button>
                         </div>
                     </div>
                 `;
@@ -694,8 +694,8 @@
                 overlay.innerHTML = `
                     <div class="rauth-dialog">
                         <div class="rauth-dialog-icon">
-                            <div class="rauth-dialog-icon-circle ${variant}">
-                                <i class="bi ${icon}"></i>
+                            <div class="rauth-dialog-icon-circle ${escapeHtml(variant)}">
+                                <i class="bi ${escapeHtml(icon)}"></i>
                             </div>
                         </div>
                         <div class="rauth-dialog-body">
