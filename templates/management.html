@@ -664,7 +664,7 @@
     // Modern Dialog System (replaces native dialogs)
     // =============================================
     function escapeHtml(unsafe) {
-        if (!unsafe) return '';
+        if (unsafe == null) return '';
         return String(unsafe)
             .replace(/&/g, "&amp;")
             .replace(/</g, "&lt;")
