@@ -5,9 +5,13 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"rauth/internal/core"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/labstack/echo/v4"
@@ -15,6 +19,74 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestMainGracefulShutdown(t *testing.T) {
+	if os.Getenv("BE_CRASHER") == "1" {
+		// Start a goroutine to send the interrupt signal to itself
+		// to test the graceful shutdown path without blocking forever.
+		go func() {
+			time.Sleep(500 * time.Millisecond)
+			p, _ := os.FindProcess(os.Getpid())
+			p.Signal(os.Interrupt)
+		}()
+		main()
+		return
+	}
+
+	tests := []struct {
+		name        string
+		env         map[string]string
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name: "Missing server secret",
+			env: map[string]string{
+				"SERVER_SECRET": "",
+			},
+			wantErr:     true,
+			errContains: "exit status 1",
+		},
+		{
+			name: "Missing cookie domain",
+			env: map[string]string{
+				"SERVER_SECRET": "0123456789abcdef",
+				"COOKIE_DOMAIN": "",
+			},
+			wantErr:     true,
+			errContains: "exit status 1",
+		},
+		{
+			name: "Happy path graceful shutdown",
+			env: map[string]string{
+				"SERVER_SECRET": "0123456789abcdef",
+				"COOKIE_DOMAIN": "example.com",
+			},
+			wantErr:     true,
+			errContains: "signal: interrupt",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0], "-test.run=TestMainGracefulShutdown")
+			cmd.Env = append(os.Environ(), "BE_CRASHER=1")
+			for k, v := range tt.env {
+				cmd.Env = append(cmd.Env, k+"="+v)
+			}
+
+			err := cmd.Run()
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errContains != "" {
+					require.True(t, strings.Contains(err.Error(), tt.errContains), "expected error containing %q, got %q", tt.errContains, err.Error())
+				}
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
 
 func TestParseLogLevel(t *testing.T) {
 	cases := map[string]slog.Level{
