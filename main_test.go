@@ -8,6 +8,9 @@ import (
 	"path/filepath"
 	"rauth/internal/core"
 	"testing"
+	"os"
+	"os/exec"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/labstack/echo/v4"
@@ -185,6 +188,65 @@ func TestCreateIPExtractor(t *testing.T) {
 			}
 			ip := extractor(req)
 			assert.Equal(t, tt.expectedIP, ip)
+		})
+	}
+}
+
+func TestMainGracefulShutdown(t *testing.T) {
+	if os.Getenv("BE_CRASHER") == "1" {
+		scenario := os.Getenv("CRASHER_SCENARIO")
+		switch scenario {
+		case "happy_path":
+			go func() {
+				time.Sleep(100 * time.Millisecond)
+				p, _ := os.FindProcess(os.Getpid())
+				p.Signal(os.Interrupt)
+			}()
+		}
+		main()
+		return
+	}
+
+	tests := []struct {
+		name       string
+		scenario   string
+		env        []string
+		wantErrMsg string
+	}{
+		{
+			name:       "Missing SERVER_SECRET",
+			scenario:   "missing_secret",
+			env:        []string{},
+			wantErrMsg: "exit status 1",
+		},
+		{
+			name:       "Missing COOKIE_DOMAIN",
+			scenario:   "missing_domain",
+			env:        []string{"SERVER_SECRET=1234567890123456"},
+			wantErrMsg: "exit status 1",
+		},
+		{
+			name:       "Redis Failure",
+			scenario:   "redis_fail",
+			env:        []string{"SERVER_SECRET=1234567890123456", "COOKIE_DOMAIN=example.com", "RAUTH_REDIS_URL=redis://invalid:6379"},
+			wantErrMsg: "exit status 1",
+		},
+		{
+			name:       "Happy Path Graceful Shutdown",
+			scenario:   "happy_path",
+			env:        []string{"SERVER_SECRET=1234567890123456", "COOKIE_DOMAIN=example.com", "RAUTH_REDIS_URL=redis://localhost:6379"},
+			wantErrMsg: "signal: interrupt",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0], "-test.run=TestMainGracefulShutdown")
+			cmd.Env = append(os.Environ(), "BE_CRASHER=1", "CRASHER_SCENARIO="+tc.scenario)
+			cmd.Env = append(cmd.Env, tc.env...)
+			err := cmd.Run()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErrMsg)
 		})
 	}
 }
