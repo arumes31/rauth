@@ -198,7 +198,7 @@ func TestMainGracefulShutdown(t *testing.T) {
 		go func() {
 			time.Sleep(500 * time.Millisecond)
 			p, _ := os.FindProcess(os.Getpid())
-			p.Signal(os.Interrupt)
+			_ = p.Signal(os.Interrupt)
 		}()
 		main()
 		return
@@ -223,6 +223,8 @@ func TestMainGracefulShutdown(t *testing.T) {
 				"REDIS_HOST":    mr.Host(),
 				"REDIS_PORT":    mr.Port(),
 				"MAXMIND_DB_PATH": "geoip/GeoLite2-Country.mmdb",
+				"MAXMIND_ACCOUNT_ID": "mock",
+				"MAXMIND_LICENSE_KEY": "mock",
 			},
 			expectError: true,
 			errorMsg:    "exit status 1",
@@ -236,6 +238,8 @@ func TestMainGracefulShutdown(t *testing.T) {
 				"REDIS_HOST":    mr.Host(),
 				"REDIS_PORT":    mr.Port(),
 				"MAXMIND_DB_PATH": "geoip/GeoLite2-Country.mmdb",
+				"MAXMIND_ACCOUNT_ID": "mock",
+				"MAXMIND_LICENSE_KEY": "mock",
 			},
 			expectError: true,
 			errorMsg:    "exit status 1",
@@ -249,6 +253,8 @@ func TestMainGracefulShutdown(t *testing.T) {
 				"REDIS_HOST":    mr.Host(),
 				"REDIS_PORT":    mr.Port(),
 				"MAXMIND_DB_PATH": "geoip/GeoLite2-Country.mmdb",
+				"MAXMIND_ACCOUNT_ID": "mock",
+				"MAXMIND_LICENSE_KEY": "mock",
 			},
 			expectError: true,
 			errorMsg:    "exit status 1",
