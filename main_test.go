@@ -5,9 +5,13 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"rauth/internal/core"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/labstack/echo/v4"
@@ -185,6 +189,90 @@ func TestCreateIPExtractor(t *testing.T) {
 			}
 			ip := extractor(req)
 			assert.Equal(t, tt.expectedIP, ip)
+		})
+	}
+}
+
+func TestMainGracefulShutdown(t *testing.T) {
+	if os.Getenv("BE_CRASHER") == "1" {
+		go func() {
+			time.Sleep(500 * time.Millisecond)
+			p, _ := os.FindProcess(os.Getpid())
+			p.Signal(os.Interrupt)
+		}()
+		main()
+		return
+	}
+
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	tests := []struct {
+		name        string
+		env         map[string]string
+		expectError bool
+		errorMsg    string
+		outputMsg   string
+	}{
+		{
+			name: "Graceful Shutdown",
+			env: map[string]string{
+				"SERVER_SECRET": "1234567890123456",
+				"COOKIE_DOMAIN": "example.com",
+				"REDIS_HOST":    mr.Host(),
+				"REDIS_PORT":    mr.Port(),
+				"MAXMIND_DB_PATH": "geoip/GeoLite2-Country.mmdb",
+			},
+			expectError: true,
+			errorMsg:    "exit status 1",
+			outputMsg:   "shutting down the server",
+		},
+		{
+			name: "Missing Server Secret",
+			env: map[string]string{
+				"SERVER_SECRET": "short",
+				"COOKIE_DOMAIN": "example.com",
+				"REDIS_HOST":    mr.Host(),
+				"REDIS_PORT":    mr.Port(),
+				"MAXMIND_DB_PATH": "geoip/GeoLite2-Country.mmdb",
+			},
+			expectError: true,
+			errorMsg:    "exit status 1",
+			outputMsg:   "SERVER_SECRET must be set to at least 16 characters",
+		},
+		{
+			name: "Missing Cookie Domain",
+			env: map[string]string{
+				"SERVER_SECRET": "1234567890123456",
+				"COOKIE_DOMAIN": "",
+				"REDIS_HOST":    mr.Host(),
+				"REDIS_PORT":    mr.Port(),
+				"MAXMIND_DB_PATH": "geoip/GeoLite2-Country.mmdb",
+			},
+			expectError: true,
+			errorMsg:    "exit status 1",
+			outputMsg:   "COOKIE_DOMAIN must contain at least one domain",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0], "-test.run=TestMainGracefulShutdown")
+			cmd.Env = append(os.Environ(), "BE_CRASHER=1")
+			for k, v := range tc.env {
+				cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+			}
+			out, err := cmd.CombinedOutput()
+			if tc.expectError {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.errorMsg)
+				if tc.outputMsg != "" {
+					require.Contains(t, string(out), tc.outputMsg)
+				}
+			} else {
+				require.NoError(t, err, string(out))
+			}
 		})
 	}
 }
