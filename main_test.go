@@ -5,9 +5,12 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"rauth/internal/core"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/labstack/echo/v4"
@@ -185,6 +188,101 @@ func TestCreateIPExtractor(t *testing.T) {
 			}
 			ip := extractor(req)
 			assert.Equal(t, tt.expectedIP, ip)
+		})
+	}
+}
+
+func TestMainGracefulShutdown(t *testing.T) {
+	if os.Getenv("BE_CRASHER") == "1" {
+		if os.Getenv("SEND_INTERRUPT") == "1" {
+			go func() {
+				time.Sleep(100 * time.Millisecond)
+				p, _ := os.FindProcess(os.Getpid())
+				p.Signal(os.Interrupt)
+			}()
+		}
+		main()
+		return
+	}
+
+	s := miniredis.RunT(t)
+	defer s.Close()
+
+	tests := []struct {
+		name          string
+		env           []string
+		expectedError []string
+	}{
+		{
+			name: "MissingServerSecret",
+			env: []string{
+				"SERVER_SECRET=short",
+				"COOKIE_DOMAIN=example.com",
+				"REDIS_HOST=" + s.Host(),
+				"REDIS_PORT=" + s.Port(),
+				"MAXMIND_DB_PATH=geoip/GeoLite2-Country.mmdb",
+			},
+			expectedError: []string{"exit status 1"},
+		},
+		{
+			name: "MissingCookieDomain",
+			env: []string{
+				"SERVER_SECRET=thisisasecretthatorlonger",
+				"COOKIE_DOMAIN=",
+				"REDIS_HOST=" + s.Host(),
+				"REDIS_PORT=" + s.Port(),
+				"MAXMIND_DB_PATH=geoip/GeoLite2-Country.mmdb",
+			},
+			expectedError: []string{"exit status 1"},
+		},
+		{
+			name: "RedisInitFailure",
+			env: []string{
+				"SERVER_SECRET=thisisasecretthatorlonger",
+				"COOKIE_DOMAIN=example.com",
+				"REDIS_HOST=invalid",
+				"REDIS_PORT=0",
+				"MAXMIND_DB_PATH=geoip/GeoLite2-Country.mmdb",
+			},
+			expectedError: []string{"exit status 1"},
+		},
+		{
+			name: "GracefulShutdown",
+			env: []string{
+				"SERVER_SECRET=thisisasecretthatorlonger",
+				"COOKIE_DOMAIN=example.com",
+				"REDIS_HOST=" + s.Host(),
+				"REDIS_PORT=" + s.Port(),
+				"MAXMIND_DB_PATH=geoip/GeoLite2-Country.mmdb",
+				"SEND_INTERRUPT=1",
+			},
+			expectedError: []string{"signal: interrupt", "exit status 1"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0], "-test.run=TestMainGracefulShutdown")
+			cmd.Env = append(os.Environ(), "BE_CRASHER=1")
+			cmd.Env = append(cmd.Env, tc.env...)
+
+			err := cmd.Run()
+			if err != nil {
+				found := false
+				for _, expected := range tc.expectedError {
+					if err.Error() == expected || (len(err.Error()) >= len(expected) && err.Error()[:len(expected)] == expected) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Fatalf("unexpected error: %v", err)
+				}
+			} else {
+				if len(tc.expectedError) > 0 {
+					t.Fatalf("expected error, got nil")
+				}
+			}
 		})
 	}
 }
