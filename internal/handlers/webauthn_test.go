@@ -2,12 +2,13 @@ package handlers
 
 import (
 	"encoding/json"
-	"github.com/go-webauthn/webauthn/protocol"
 	"net/http"
 	"net/http/httptest"
 	"rauth/internal/core"
 	"testing"
 	"time"
+
+	"github.com/go-webauthn/webauthn/protocol"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/labstack/echo/v4"

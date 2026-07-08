@@ -31,9 +31,9 @@ func ListUsers() ([]User, error) {
 	}
 
 	pipe := UserDB.Pipeline()
-	cmds := make(map[string]*redis.MapStringStringCmd, len(usernames))
-	for _, username := range usernames {
-		cmds[username] = pipe.HGetAll(Ctx, "user:"+username)
+	cmds := make([]*redis.MapStringStringCmd, len(usernames)) // ⚡ Bolt optimization: Use slice instead of map to avoid map allocation and hash lookup overhead
+	for i, username := range usernames {
+		cmds[i] = pipe.HGetAll(Ctx, "user:"+username)
 	}
 
 	if _, err := pipe.Exec(Ctx); err != nil {
@@ -41,9 +41,9 @@ func ListUsers() ([]User, error) {
 	}
 
 	var users []User
-	for _, username := range usernames {
+	for i := range usernames {
 		var user User
-		err := cmds[username].Scan(&user)
+		err := cmds[i].Scan(&user)
 		if err != nil || user.Username == "" {
 			continue
 		}
@@ -98,9 +98,9 @@ func EnsureUserUIDs() {
 	}
 
 	pipe := UserDB.Pipeline()
-	cmds := make(map[string]*redis.StringCmd, len(usernames))
-	for _, username := range usernames {
-		cmds[username] = pipe.HGet(Ctx, "user:"+username, "uid")
+	cmds := make([]*redis.StringCmd, len(usernames))
+	for i, username := range usernames {
+		cmds[i] = pipe.HGet(Ctx, "user:"+username, "uid")
 	}
 
 	// pipe.Exec returns the first error encountered by any command in the pipeline.
@@ -111,8 +111,8 @@ func EnsureUserUIDs() {
 		return
 	}
 
-	for _, username := range usernames {
-		uid, err := cmds[username].Result()
+	for i, username := range usernames {
+		uid, err := cmds[i].Result()
 		if err == nil && uid != "" {
 			continue
 		}
