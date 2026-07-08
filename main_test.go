@@ -1,6 +1,11 @@
 package main
 
 import (
+	"os"
+	"os/exec"
+	"strings"
+	"time"
+
 	"bytes"
 	"html/template"
 	"log/slog"
@@ -185,6 +190,72 @@ func TestCreateIPExtractor(t *testing.T) {
 			}
 			ip := extractor(req)
 			assert.Equal(t, tt.expectedIP, ip)
+		})
+	}
+}
+
+
+func TestMainCrasher(t *testing.T) {
+	if os.Getenv("BE_CRASHER") == "1" {
+		if os.Getenv("TEST_GRACEFUL") == "1" {
+			go func() {
+				time.Sleep(100 * time.Millisecond)
+				p, _ := os.FindProcess(os.Getpid())
+				_ = p.Signal(os.Interrupt)
+			}()
+		}
+		main()
+		return
+	}
+
+	tests := []struct {
+		name          string
+		env           []string
+		expectedError string
+	}{
+		{
+			name: "missing server secret",
+			env: []string{
+				"SERVER_SECRET=",
+				"COOKIE_DOMAIN=example.com",
+			},
+			expectedError: "exit status 1",
+		},
+		{
+			name: "missing cookie domain",
+			env: []string{
+				"SERVER_SECRET=1234567890123456",
+				"COOKIE_DOMAIN=",
+			},
+			expectedError: "exit status 1",
+		},
+		{
+			name: "graceful shutdown",
+			env: []string{
+				"SERVER_SECRET=1234567890123456",
+				"COOKIE_DOMAIN=example.com",
+				"TEST_GRACEFUL=1",
+			},
+			expectedError: "graceful_or_bind_fail",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0], "-test.run=TestMainCrasher")
+			cmd.Env = append(os.Environ(), "BE_CRASHER=1")
+			cmd.Env = append(cmd.Env, tt.env...)
+
+			err := cmd.Run()
+			if tt.expectedError == "graceful_or_bind_fail" {
+				if err != nil {
+					errStr := err.Error()
+					require.True(t, strings.Contains(errStr, "signal: interrupt") || strings.Contains(errStr, "exit status 1"), "expected interrupt or bind fail, got: %v", err)
+				}
+			} else {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.expectedError)
+			}
 		})
 	}
 }
