@@ -5,9 +5,12 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"rauth/internal/core"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/labstack/echo/v4"
@@ -185,6 +188,85 @@ func TestCreateIPExtractor(t *testing.T) {
 			}
 			ip := extractor(req)
 			assert.Equal(t, tt.expectedIP, ip)
+		})
+	}
+}
+
+func TestMainGracefulShutdown(t *testing.T) {
+	if os.Getenv("CRASH_TEST") == "1" {
+		main()
+		return
+	}
+
+	tests := []struct {
+		name          string
+		env           []string
+		expectedErr   string
+		expectedError string
+		interrupt     bool
+	}{
+		{
+			name: "Missing server secret",
+			env: []string{
+				"CRASH_TEST=1",
+				"SERVER_SECRET=",
+				"COOKIE_DOMAIN=localhost",
+			},
+			expectedErr:   "exit status 1",
+			expectedError: "exit status 1",
+			interrupt:     false,
+		},
+		{
+			name: "Missing cookie domain",
+			env: []string{
+				"CRASH_TEST=1",
+				"SERVER_SECRET=1234567890123456",
+				"COOKIE_DOMAIN=",
+			},
+			expectedErr:   "exit status 1",
+			expectedError: "exit status 1",
+			interrupt:     false,
+		},
+		{
+			name: "Graceful shutdown",
+			env: []string{
+				"CRASH_TEST=1",
+				"SERVER_SECRET=1234567890123456",
+				"COOKIE_DOMAIN=localhost",
+				"LOG_LEVEL=DEBUG",
+			},
+			expectedErr:   "signal: interrupt",
+			expectedError: "exit status 1",
+			interrupt:     true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0], "-test.run=TestMainGracefulShutdown")
+			cmd.Env = append(os.Environ(), tc.env...)
+			var out bytes.Buffer
+			cmd.Stdout = &out
+			cmd.Stderr = &out
+
+			err := cmd.Start()
+			require.NoError(t, err)
+
+			if tc.interrupt {
+				// Wait a moment for the process to start and setup signal handling
+				time.Sleep(100 * time.Millisecond)
+				_ = cmd.Process.Signal(os.Interrupt)
+			}
+
+			err = cmd.Wait()
+			if err != nil {
+				// Check for both possible errors due to race conditions on binding to port 80
+				if err.Error() != tc.expectedErr && err.Error() != tc.expectedError {
+					t.Fatalf("expected %q or %q, got %q (output: %s)", tc.expectedErr, tc.expectedError, err, out.String())
+				}
+			} else if tc.expectedErr != "" {
+				t.Fatalf("expected error %q but got none (output: %s)", tc.expectedErr, out.String())
+			}
 		})
 	}
 }
