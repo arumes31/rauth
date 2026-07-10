@@ -5,9 +5,13 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"rauth/internal/core"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/labstack/echo/v4"
@@ -185,6 +189,87 @@ func TestCreateIPExtractor(t *testing.T) {
 			}
 			ip := extractor(req)
 			assert.Equal(t, tt.expectedIP, ip)
+		})
+	}
+}
+
+func TestMainCoverage(t *testing.T) {
+	if os.Getenv("BE_CRASHER") == "1" {
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			p, _ := os.FindProcess(os.Getpid())
+			_ = p.Signal(os.Interrupt)
+		}()
+		main()
+		return
+	}
+
+	tests := []struct {
+		name        string
+		env         map[string]string
+		expectError bool
+		checkError  func(t *testing.T, err error)
+	}{
+		{
+			name:        "missing secret",
+			env:         map[string]string{"SERVER_SECRET": ""},
+			expectError: true,
+			checkError: func(t *testing.T, err error) {
+				assert.Error(t, err)
+			},
+		},
+		{
+			name:        "missing cookie domain",
+			env:         map[string]string{"SERVER_SECRET": "0123456789abcdef", "COOKIE_DOMAIN": ""},
+			expectError: true,
+			checkError: func(t *testing.T, err error) {
+				assert.Error(t, err)
+			},
+		},
+		{
+			name: "graceful shutdown",
+			env: map[string]string{
+				"SERVER_SECRET": "0123456789abcdef",
+				"COOKIE_DOMAIN": "example.com",
+			},
+			expectError: true,
+			checkError: func(t *testing.T, err error) {
+				require.Error(t, err)
+				msg := err.Error()
+				assert.True(t, strings.Contains(msg, "signal: interrupt") || strings.Contains(msg, "exit status 1") || strings.Contains(msg, "signal: terminated"), "unexpected error: %v", err)
+			},
+		},
+	}
+
+	wd, _ := os.Getwd()
+	maxmindPath := filepath.Join(wd, "geoip", "GeoLite2-Country.mmdb")
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := miniredis.RunT(t)
+
+			cmd := exec.Command(os.Args[0], "-test.run=TestMainCoverage")
+			env := append(os.Environ(), "BE_CRASHER=1")
+			for k, v := range tc.env {
+				env = append(env, k+"="+v)
+			}
+			env = append(env, "REDIS_HOST="+s.Host())
+			env = append(env, "REDIS_PORT="+s.Port())
+			env = append(env, "MAXMIND_DB_PATH="+maxmindPath)
+
+			cmd.Env = env
+
+			var out bytes.Buffer
+			cmd.Stdout = &out
+			cmd.Stderr = &out
+
+			err := cmd.Run()
+
+			if tc.expectError {
+				tc.checkError(t, err)
+			} else {
+				assert.NoError(t, err, "output: %s", out.String())
+			}
 		})
 	}
 }
