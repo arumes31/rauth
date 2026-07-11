@@ -5,9 +5,12 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"rauth/internal/core"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/labstack/echo/v4"
@@ -15,6 +18,82 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestMainGracefulShutdown(t *testing.T) {
+	if os.Getenv("BE_CRASHER") == "1" {
+		if os.Getenv("TEST_HAPPY_PATH") == "1" {
+			go func() {
+				time.Sleep(200 * time.Millisecond)
+				p, _ := os.FindProcess(os.Getpid())
+				_ = p.Signal(os.Interrupt)
+			}()
+		}
+		main()
+		return
+	}
+
+	tests := []struct {
+		name      string
+		env       map[string]string
+		wantErr   string
+		expectInt bool
+	}{
+		{
+			name: "Missing server secret",
+			env: map[string]string{
+				"SERVER_SECRET": "short",
+			},
+			wantErr: "exit status 1",
+		},
+		{
+			name: "Missing cookie domain",
+			env: map[string]string{
+				"SERVER_SECRET": "1234567890123456",
+				"COOKIE_DOMAIN": "",
+			},
+			wantErr: "exit status 1",
+		},
+		{
+			name: "Happy path graceful shutdown",
+			env: map[string]string{
+				"SERVER_SECRET":   "1234567890123456",
+				"COOKIE_DOMAIN":   "example.com",
+				"TEST_HAPPY_PATH": "1",
+			},
+			expectInt: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0], "-test.run=TestMainGracefulShutdown")
+			cmd.Env = append(os.Environ(), "BE_CRASHER=1")
+			for k, v := range tt.env {
+				cmd.Env = append(cmd.Env, k+"="+v)
+			}
+			err := cmd.Run()
+			if tt.expectInt {
+				if err != nil {
+					errMsg := err.Error()
+					if errMsg != "signal: interrupt" && errMsg != "exit status 1" && errMsg != "signal: terminated" {
+						t.Errorf("expected interrupt or exit status 1, got %v", err)
+					}
+				}
+			} else if tt.wantErr != "" {
+				if err == nil {
+					t.Fatalf("expected error containing %q, got nil", tt.wantErr)
+				}
+				if err.Error() != tt.wantErr {
+					t.Fatalf("expected error %q, got %v", tt.wantErr, err)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+			}
+		})
+	}
+}
 
 func TestParseLogLevel(t *testing.T) {
 	cases := map[string]slog.Level{
