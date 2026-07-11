@@ -132,8 +132,8 @@ func HasActiveSessions(ip string) bool {
 
 	var stale []interface{}
 	hasActive := false
-	for i, token := range tokens {
-		status, err := cmds[i].Result()
+	for _, token := range tokens {
+		status, err := cmds[token].Result()
 		if err == nil && status == "valid" {
 			hasActive = true
 		} else {

@@ -41,3 +41,6 @@
 ## 2026-06-11 - HGetAll vs HMGet Overhead
 **Learning:** `HGetAll` reads and decodes the entire Redis hash map into memory, which incurs unnecessary overhead for authentication and routing middleware that only requires checking specific fields (like `status`, `username`, `groups`, `is_admin`). `HMGet` is significantly faster because it only fetches and transfers the requested fields over the network, returning a slice rather than a map.
 **Action:** When validating sessions in middleware or routing handlers that only need partial hash data, prefer `HMGet(ctx, key, fields...)` over `HGetAll(ctx, key)` to minimize redis parsing and network serialization overhead.
+## 2026-07-11 - Use Slices Instead of Maps for Pipeline Commands
+**Learning:** When executing multiple Redis commands in a pipeline and needing to retrieve their results later, using a map to store the command objects (e.g., `make(map[string]*redis.StringCmd)`) adds unnecessary allocation overhead and hashing cost. Since the commands are pushed to the pipeline in a deterministic order by iterating over a slice of keys, we can just use a slice to store the command objects.
+**Action:** Use `make([]*redis.CmdType, len(keys))` and iterate over the keys using the index (`for i, key := range keys`) to store and retrieve the command results.

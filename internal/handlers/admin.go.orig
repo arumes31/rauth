@@ -42,7 +42,6 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 
 	if len(keys) > 0 {
 		pipe := core.TokenDB.Pipeline()
-		// ⚡ Bolt optimization: Use slice instead of map for pipeline commands to reduce allocation overhead
 		hGetAllCmds := make([]*redis.MapStringStringCmd, len(keys))
 		ttlCmds := make([]*redis.DurationCmd, len(keys))
 
