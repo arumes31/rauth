@@ -35,21 +35,22 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 
 	var sessions []map[string]string
 	pipe := core.TokenDB.Pipeline()
-	cmds := make(map[string]*redis.MapStringStringCmd)
-	ttlCmds := make(map[string]*redis.DurationCmd)
+	// ⚡ Bolt optimization: Use slice instead of map for pipeline commands to avoid string hashing overhead in loops
+	cmds := make([]*redis.MapStringStringCmd, len(tokens))
+	ttlCmds := make([]*redis.DurationCmd, len(tokens))
 
-	for _, token := range tokens {
+	for i, token := range tokens {
 		redisKey := "X-rauth-authtoken=" + token
-		cmds[token] = pipe.HGetAll(core.Ctx, redisKey)
-		ttlCmds[token] = pipe.TTL(core.Ctx, redisKey)
+		cmds[i] = pipe.HGetAll(core.Ctx, redisKey)
+		ttlCmds[i] = pipe.TTL(core.Ctx, redisKey)
 	}
 	_, pipeErr := pipe.Exec(core.Ctx)
 	if pipeErr != nil {
 		slog.Error("Failed to execute session details pipeline", "error", pipeErr)
 	}
 
-	for _, token := range tokens {
-		data, err := cmds[token].Result()
+	for i, token := range tokens {
+		data, err := cmds[i].Result()
 		if err != nil || len(data) == 0 {
 			// Only clean up stale index entries if the pipeline succeeded
 			// (individual key miss), not on a wholesale pipeline failure.
@@ -63,7 +64,7 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 		if token == currentToken {
 			data["is_current"] = "1"
 		}
-		ttl := ttlCmds[token].Val()
+		ttl := ttlCmds[i].Val()
 		data["ttl"] = fmt.Sprintf("%d", int(ttl.Seconds()))
 
 		// Use Client Hints if available to enhance the friendly UA

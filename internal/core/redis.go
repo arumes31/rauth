@@ -120,9 +120,10 @@ func HasActiveSessions(ip string) bool {
 
 	// ⚡ Bolt optimization: Batch HGet requests to avoid N+1 queries and HGetAll parsing overhead.
 	pipe := TokenDB.Pipeline()
-	cmds := make(map[string]*redis.StringCmd, len(tokens))
-	for _, token := range tokens {
-		cmds[token] = pipe.HGet(Ctx, "X-rauth-authtoken="+token, "status")
+	// ⚡ Bolt optimization: Use slice instead of map for pipeline commands to avoid string hashing overhead in loops.
+	cmds := make([]*redis.StringCmd, len(tokens))
+	for i, token := range tokens {
+		cmds[i] = pipe.HGet(Ctx, "X-rauth-authtoken="+token, "status")
 	}
 	_, err = pipe.Exec(Ctx)
 	if err != nil && err != redis.Nil {
@@ -131,8 +132,8 @@ func HasActiveSessions(ip string) bool {
 
 	var stale []interface{}
 	hasActive := false
-	for _, token := range tokens {
-		status, err := cmds[token].Result()
+	for i, token := range tokens {
+		status, err := cmds[i].Result()
 		if err == nil && status == "valid" {
 			hasActive = true
 		} else {
@@ -203,9 +204,10 @@ func reconcileIndexSets(pattern string) int64 {
 		// ⚡ Bolt optimization: 3-phase pipeline batching for reconciling index sets.
 		// Phase 1: Batch SMembers across all keys
 		pipe1 := TokenDB.Pipeline()
-		smembersCmds := make(map[string]*redis.StringSliceCmd, len(keys))
-		for _, key := range keys {
-			smembersCmds[key] = pipe1.SMembers(Ctx, key)
+		// ⚡ Bolt optimization: Use slice instead of map for pipeline commands to avoid string hashing overhead in loops.
+		smembersCmds := make([]*redis.StringSliceCmd, len(keys))
+		for i, key := range keys {
+			smembersCmds[i] = pipe1.SMembers(Ctx, key)
 		}
 		_, _ = pipe1.Exec(Ctx)
 
@@ -214,8 +216,8 @@ func reconcileIndexSets(pattern string) int64 {
 		hgetCmds := make(map[string]*redis.StringCmd)
 		tokensByKey := make(map[string][]string)
 
-		for _, key := range keys {
-			tokens, err := smembersCmds[key].Result()
+		for i, key := range keys {
+			tokens, err := smembersCmds[i].Result()
 			if err != nil || len(tokens) == 0 {
 				continue
 			}

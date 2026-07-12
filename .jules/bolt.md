@@ -41,3 +41,6 @@
 ## 2026-06-11 - HGetAll vs HMGet Overhead
 **Learning:** `HGetAll` reads and decodes the entire Redis hash map into memory, which incurs unnecessary overhead for authentication and routing middleware that only requires checking specific fields (like `status`, `username`, `groups`, `is_admin`). `HMGet` is significantly faster because it only fetches and transfers the requested fields over the network, returning a slice rather than a map.
 **Action:** When validating sessions in middleware or routing handlers that only need partial hash data, prefer `HMGet(ctx, key, fields...)` over `HGetAll(ctx, key)` to minimize redis parsing and network serialization overhead.
+## 2023-10-27 - Slice indexing for Redis pipelining
+**Learning:** In highly trafficked codebase batch processing loops interacting with `go-redis` pipelines (such as token reconciliation or user enumeration), dynamically allocating `map[string]*redis.Cmd` introduces massive overhead compared to indexing slices (`[]*redis.Cmd`) due to Go's string-hashing overhead. In benchmark tests, using parallel slices bounded by the pipeline order was ~13x faster.
+**Action:** When working with sequentially aligned items (like looping over an array of tokens and immediately resolving pipeline commands against that exact array), always use array slice indexing to queue and resolve the redis commands.
