@@ -1,12 +1,13 @@
 package main
 
 import (
+	"os"
+	"os/exec"
+
 	"bytes"
 	"html/template"
 	"log/slog"
 	"net/http"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"rauth/internal/core"
 	"testing"
