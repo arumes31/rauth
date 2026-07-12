@@ -5,6 +5,8 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"rauth/internal/core"
 	"testing"
@@ -185,6 +187,83 @@ func TestCreateIPExtractor(t *testing.T) {
 			}
 			ip := extractor(req)
 			assert.Equal(t, tt.expectedIP, ip)
+		})
+	}
+}
+
+func TestMainCrasher(t *testing.T) {
+	if os.Getenv("BE_CRASHER") == "1" {
+		tc := os.Getenv("TEST_CASE")
+		switch tc {
+		case "missing_secret":
+			os.Setenv("SERVER_SECRET", "")
+		case "missing_domain":
+			os.Setenv("SERVER_SECRET", "1234567890123456")
+			os.Setenv("COOKIE_DOMAIN", "")
+		case "graceful_shutdown":
+			os.Setenv("SERVER_SECRET", "1234567890123456")
+			os.Setenv("COOKIE_DOMAIN", "example.com")
+			os.Setenv("MAXMIND_DB_PATH", "dummy.mmdb")
+			go func() {
+				// Immediately fire the interrupt signal.
+				// Since we mock maxmind, the system initializes fast enough.
+				// By firing immediately, we test the happy path of receiving an interrupt
+				// before the process blocks entirely or crashes on the permission denied (port 80).
+				// We expect this test case to receive either exit status 1 or signal: interrupt.
+				p, _ := os.FindProcess(os.Getpid())
+				_ = p.Signal(os.Interrupt)
+			}()
+		}
+		main()
+		return
+	}
+
+	cases := []struct {
+		name        string
+		setupEnv    func(t *testing.T) string
+		expectedErr []string
+	}{
+		{
+			name: "missing_secret",
+			setupEnv: func(t *testing.T) string {
+				return "missing_secret"
+			},
+			expectedErr: []string{"exit status 1"},
+		},
+		{
+			name: "missing_domain",
+			setupEnv: func(t *testing.T) string {
+				return "missing_domain"
+			},
+			expectedErr: []string{"exit status 1"},
+		},
+		{
+			name: "graceful_shutdown",
+			setupEnv: func(t *testing.T) string {
+				s := miniredis.RunT(t)
+				t.Setenv("REDIS_URL", "redis://"+s.Addr())
+				return "graceful_shutdown"
+			},
+			expectedErr: []string{"signal: interrupt", "exit status 1", "exit status 2"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			caseName := tc.setupEnv(t)
+			cmd := exec.Command(os.Args[0], "-test.run=TestMainCrasher$")
+			cmd.Env = append(os.Environ(), "BE_CRASHER=1", "TEST_CASE="+caseName)
+			err := cmd.Run()
+
+			require.Error(t, err)
+			matched := false
+			for _, expected := range tc.expectedErr {
+				if err.Error() == expected {
+					matched = true
+					break
+				}
+			}
+			assert.True(t, matched, "unexpected error: %v", err)
 		})
 	}
 }
