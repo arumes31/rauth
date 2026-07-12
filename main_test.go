@@ -196,14 +196,14 @@ func TestMainCrasher(t *testing.T) {
 		tc := os.Getenv("TEST_CASE")
 		switch tc {
 		case "missing_secret":
-			os.Setenv("SERVER_SECRET", "")
+			_ = os.Setenv("SERVER_SECRET", "")
 		case "missing_domain":
-			os.Setenv("SERVER_SECRET", "1234567890123456")
-			os.Setenv("COOKIE_DOMAIN", "")
+			_ = os.Setenv("SERVER_SECRET", "1234567890123456")
+			_ = os.Setenv("COOKIE_DOMAIN", "")
 		case "graceful_shutdown":
-			os.Setenv("SERVER_SECRET", "1234567890123456")
-			os.Setenv("COOKIE_DOMAIN", "example.com")
-			os.Setenv("MAXMIND_DB_PATH", "dummy.mmdb")
+			_ = os.Setenv("SERVER_SECRET", "1234567890123456")
+			_ = os.Setenv("COOKIE_DOMAIN", "example.com")
+			_ = os.Setenv("MAXMIND_DB_PATH", "dummy.mmdb")
 			go func() {
 				// Immediately fire the interrupt signal.
 				// Since we mock maxmind, the system initializes fast enough.
