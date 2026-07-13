@@ -26,11 +26,6 @@ var cryptoRandReader = rand.Reader
 var (
 	emailRegex    = regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$`)
 	usernameRegex = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
-
-	passwordUpperRegex   = regexp.MustCompile(`[A-Z]`)
-	passwordLowerRegex   = regexp.MustCompile(`[a-z]`)
-	passwordNumberRegex  = regexp.MustCompile(`[0-9]`)
-	passwordSpecialRegex = regexp.MustCompile(`[!@#\$%\^&\*]`)
 )
 
 func ValidateEmail(email string) error {
