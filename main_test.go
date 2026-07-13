@@ -5,9 +5,12 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"rauth/internal/core"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/labstack/echo/v4"
@@ -185,6 +188,84 @@ func TestCreateIPExtractor(t *testing.T) {
 			}
 			ip := extractor(req)
 			assert.Equal(t, tt.expectedIP, ip)
+		})
+	}
+}
+
+func TestMainPaths(t *testing.T) {
+	if os.Getenv("CRASH_MAIN") != "" {
+		main()
+		return
+	}
+
+	tests := []struct {
+		name        string
+		envMode     string
+		sendSignal  bool
+		expectedErr func(err error) bool
+		waitDelay   time.Duration
+	}{
+		{
+			name:       "Fatal Initialization Error",
+			envMode:    "1", // No valid server secret or cookie domains
+			sendSignal: false,
+			expectedErr: func(err error) bool {
+				if err == nil {
+					return false
+				}
+				if e, ok := err.(*exec.ExitError); ok && !e.Success() {
+					return true
+				}
+				return false
+			},
+		},
+		{
+			name:       "Graceful Shutdown",
+			envMode:    "2",
+			sendSignal: true,
+			waitDelay:  1 * time.Second,
+			expectedErr: func(err error) bool {
+				if err == nil {
+					return true
+				}
+				if err.Error() == "signal: interrupt" || err.Error() == "exit status 1" {
+					return true
+				}
+				return false
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0], "-test.run=TestMainPaths")
+			env := append(os.Environ(), "CRASH_MAIN="+tc.envMode)
+
+			if tc.envMode == "2" {
+				env = append(env, "SERVER_SECRET=0123456789abcdef", "COOKIE_DOMAIN=example.com", "REDIS_ADDR=localhost:6379", "REDIS_DB=0")
+			}
+			cmd.Env = env
+
+			if !tc.sendSignal {
+				err := cmd.Run()
+				if !tc.expectedErr(err) {
+					t.Fatalf("unexpected err %v", err)
+				}
+				return
+			}
+
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+
+			time.Sleep(tc.waitDelay)
+
+			_ = cmd.Process.Signal(os.Interrupt)
+
+			err := cmd.Wait()
+			if !tc.expectedErr(err) {
+				t.Fatalf("unexpected err %v", err)
+			}
 		})
 	}
 }
