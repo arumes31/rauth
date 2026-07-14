@@ -2,12 +2,18 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"fmt"
 	"html/template"
 	"log/slog"
 	"net/http"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"rauth/internal/core"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/labstack/echo/v4"
@@ -15,6 +21,138 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestMainExecution(t *testing.T) {
+	crasherEnv := os.Getenv("CRASHER")
+	if crasherEnv != "" {
+		if crasherEnv == "graceful" {
+			go func() {
+				time.Sleep(500 * time.Millisecond)
+				p, _ := os.FindProcess(os.Getpid())
+				_ = p.Signal(os.Interrupt)
+			}()
+		}
+		main()
+		return
+	}
+
+	s := miniredis.RunT(t)
+
+	tests := []struct {
+		name          string
+		env           map[string]string
+		crasherType   string
+		expectExitErr bool
+		expectOut     string
+		checkGraceful bool
+	}{
+		{
+			name:          "Missing server secret",
+			env:           map[string]string{},
+			crasherType:   "secret",
+			expectExitErr: true,
+			expectOut:     "SERVER_SECRET must be set to at least 16 characters",
+		},
+		{
+			name: "Missing cookie domain",
+			env: map[string]string{
+				"SERVER_SECRET": "1234567890123456",
+				"COOKIE_DOMAIN": "",
+			},
+			crasherType:   "cookie",
+			expectExitErr: true,
+			expectOut:     "COOKIE_DOMAIN must contain at least one domain",
+		},
+		{
+			name: "Redis init failed",
+			env: map[string]string{
+				"SERVER_SECRET": "1234567890123456",
+				"COOKIE_DOMAIN": "example.com",
+				"REDIS_HOST":    "localhost",
+				"REDIS_PORT":    "9999",
+			},
+			crasherType:   "redis",
+			expectExitErr: true,
+			expectOut:     "Redis initialization failed",
+		},
+		{
+			name: "Graceful shutdown",
+			env: map[string]string{
+				"SERVER_SECRET": "1234567890123456",
+				"COOKIE_DOMAIN": "example.com",
+				"REDIS_HOST":    s.Host(),
+				"REDIS_PORT":    s.Port(),
+			},
+			crasherType:   "graceful",
+			expectExitErr: false,
+			expectOut:     "",
+			checkGraceful: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0], "-test.run=TestMainExecution")
+
+			filteredEnv := []string{}
+			for _, e := range os.Environ() {
+				if !strings.HasPrefix(e, "SERVER_SECRET=") &&
+					!strings.HasPrefix(e, "COOKIE_DOMAIN=") &&
+					!strings.HasPrefix(e, "REDIS_HOST=") &&
+					!strings.HasPrefix(e, "REDIS_PORT=") {
+					filteredEnv = append(filteredEnv, e)
+				}
+			}
+			cmd.Env = filteredEnv
+
+			for k, v := range tc.env {
+				cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+			}
+			cmd.Env = append(cmd.Env, fmt.Sprintf("CRASHER=%s", tc.crasherType))
+
+			if !tc.checkGraceful {
+				out, err := cmd.CombinedOutput()
+				if tc.expectExitErr {
+					require.Error(t, err, "expected command to fail")
+				} else {
+					require.NoError(t, err, "expected command to succeed")
+				}
+				if tc.expectOut != "" {
+					require.Contains(t, string(out), tc.expectOut)
+				}
+			} else {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+
+				errCh := make(chan error, 1)
+				outCh := make(chan []byte, 1)
+
+				go func() {
+					out, err := cmd.CombinedOutput()
+					if err != nil {
+						errCh <- err
+					} else {
+						errCh <- nil
+					}
+					outCh <- out
+				}()
+
+				select {
+				case <-ctx.Done():
+					t.Fatal("test timed out")
+				case err := <-errCh:
+					out := <-outCh
+					if err != nil {
+						errStr := err.Error()
+						if !strings.Contains(errStr, "signal: interrupt") && !strings.Contains(errStr, "exit status 1") {
+							t.Fatalf("unexpected error: %v, output: %s", err, string(out))
+						}
+					}
+				}
+			}
+		})
+	}
+}
 
 func TestParseLogLevel(t *testing.T) {
 	cases := map[string]slog.Level{
