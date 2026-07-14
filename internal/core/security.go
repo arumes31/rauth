@@ -24,13 +24,7 @@ import (
 var cryptoRandReader = rand.Reader
 
 var (
-	emailRegex    = regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$`)
-	usernameRegex = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
-
-	passwordUpperRegex   = regexp.MustCompile(`[A-Z]`)
-	passwordLowerRegex   = regexp.MustCompile(`[a-z]`)
-	passwordNumberRegex  = regexp.MustCompile(`[0-9]`)
-	passwordSpecialRegex = regexp.MustCompile(`[!@#\$%\^&\*]`)
+	emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$`)
 )
 
 func ValidateEmail(email string) error {
@@ -55,16 +49,34 @@ func ValidatePassword(password string, cfg *Config) error {
 	if cfg.CheckCommonPasswords && isCommonPassword(password) {
 		return fmt.Errorf("password is too common; please choose a less predictable one")
 	}
-	if cfg.RequirePasswordUpper && !passwordUpperRegex.MatchString(password) {
+
+	hasUpper, hasLower, hasNumber, hasSpecial := false, false, false, false
+	for i := 0; i < len(password); i++ {
+		char := password[i]
+		if char >= 'A' && char <= 'Z' {
+			hasUpper = true
+		} else if char >= 'a' && char <= 'z' {
+			hasLower = true
+		} else if char >= '0' && char <= '9' {
+			hasNumber = true
+		} else {
+			switch char {
+			case '!', '@', '#', '$', '%', '^', '&', '*':
+				hasSpecial = true
+			}
+		}
+	}
+
+	if cfg.RequirePasswordUpper && !hasUpper {
 		return fmt.Errorf("password must contain at least one uppercase letter")
 	}
-	if cfg.RequirePasswordLower && !passwordLowerRegex.MatchString(password) {
+	if cfg.RequirePasswordLower && !hasLower {
 		return fmt.Errorf("password must contain at least one lowercase letter")
 	}
-	if cfg.RequirePasswordNumber && !passwordNumberRegex.MatchString(password) {
+	if cfg.RequirePasswordNumber && !hasNumber {
 		return fmt.Errorf("password must contain at least one number")
 	}
-	if cfg.RequirePasswordSpecial && !passwordSpecialRegex.MatchString(password) {
+	if cfg.RequirePasswordSpecial && !hasSpecial {
 		return fmt.Errorf("password must contain at least one special character")
 	}
 	return nil
@@ -365,8 +377,11 @@ func ValidateUsername(username string) error {
 		return fmt.Errorf("username must be between 3 and 32 characters long")
 	}
 	// Alphanumeric, underscores, hyphens, and dots
-	if !usernameRegex.MatchString(username) {
-		return fmt.Errorf("username can only contain alphanumeric characters, dots, underscores, and hyphens")
+	for i := 0; i < len(username); i++ {
+		char := username[i]
+		if !((char >= 'A' && char <= 'Z') || (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9') || char == '.' || char == '_' || char == '-') {
+			return fmt.Errorf("username can only contain alphanumeric characters, dots, underscores, and hyphens")
+		}
 	}
 	return nil
 }
