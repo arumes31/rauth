@@ -41,3 +41,7 @@
 ## 2026-06-11 - HGetAll vs HMGet Overhead
 **Learning:** `HGetAll` reads and decodes the entire Redis hash map into memory, which incurs unnecessary overhead for authentication and routing middleware that only requires checking specific fields (like `status`, `username`, `groups`, `is_admin`). `HMGet` is significantly faster because it only fetches and transfers the requested fields over the network, returning a slice rather than a map.
 **Action:** When validating sessions in middleware or routing handlers that only need partial hash data, prefer `HMGet(ctx, key, fields...)` over `HGetAll(ctx, key)` to minimize redis parsing and network serialization overhead.
+
+## 2026-07-15 - Password Validation Optimization
+**Learning:** In Go codebase performance optimizations, replacing multiple `regexp.MatchString` evaluations for simple character classes (like `[A-Z]` or `[0-9]`) with a single manual string iteration and `switch` statement can provide significant speedup by eliminating regex engine overhead.
+**Action:** Replace `regexp.MatchString` with manual iteration and `switch` statement for simple character class validations.
