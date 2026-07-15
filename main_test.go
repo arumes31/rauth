@@ -217,21 +217,21 @@ func TestMainCrasher(t *testing.T) {
 		scenario := os.Getenv("CRASHER_SCENARIO")
 		switch scenario {
 		case "missing_secret":
-			os.Setenv("SERVER_SECRET", "short")
+			_ = os.Setenv("SERVER_SECRET", "short")
 		case "missing_domain":
-			os.Setenv("SERVER_SECRET", "1234567890123456")
-			os.Setenv("COOKIE_DOMAIN", "")
+			_ = os.Setenv("SERVER_SECRET", "1234567890123456")
+			_ = os.Setenv("COOKIE_DOMAIN", "")
 		case "graceful_shutdown":
-			os.Setenv("SERVER_SECRET", "1234567890123456")
-			os.Setenv("COOKIE_DOMAIN", "localhost")
+			_ = os.Setenv("SERVER_SECRET", "1234567890123456")
+			_ = os.Setenv("COOKIE_DOMAIN", "localhost")
 
 			// Setup miniredis for the crasher process
 			mr, err := miniredis.Run()
 			if err != nil {
 				panic(err)
 			}
-			os.Setenv("REDIS_HOST", mr.Host())
-			os.Setenv("REDIS_PORT", mr.Port())
+			_ = os.Setenv("REDIS_HOST", mr.Host())
+			_ = os.Setenv("REDIS_PORT", mr.Port())
 		}
 		main()
 		return
