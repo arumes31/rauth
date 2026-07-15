@@ -282,7 +282,7 @@ func TestProfileHandler_TerminateAllOtherSessions(t *testing.T) {
 		c.Set("username", "profileuser")
 		c.Set("token", "currenttoken")
 
-		core.UserDB.HSet(core.Ctx, "user:profileuser", "password", string(hashedPwd))
+		core.UserDB.HSet(core.Ctx, "user:profileuser", "password", hashedPwd)
 		core.TokenDB.SAdd(core.Ctx, "user_sessions:profileuser", "currenttoken", "othertoken")
 		core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken=othertoken", "status", "valid")
 
