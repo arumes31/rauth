@@ -196,9 +196,21 @@ func TestMainCrasher(t *testing.T) {
 	if os.Getenv("TEST_MAIN_SCENARIO") != "" {
 		if os.Getenv("TEST_MAIN_SCENARIO") == "graceful shutdown" {
 			go func() {
-				time.Sleep(50 * time.Millisecond)
+				// Poll the health endpoint to ensure the server has started
+				// and registered its signal handlers before we send SIGINT.
+				for i := 0; i < 50; i++ {
+					resp, err := http.Get("http://127.0.0.1:80/health")
+					if err == nil && resp.StatusCode == http.StatusOK {
+						resp.Body.Close()
+						break
+					}
+					if resp != nil {
+						resp.Body.Close()
+					}
+					time.Sleep(10 * time.Millisecond)
+				}
 				p, _ := os.FindProcess(os.Getpid())
-				p.Signal(os.Interrupt)
+				_ = p.Signal(os.Interrupt)
 			}()
 		}
 		main()
@@ -250,6 +262,7 @@ func TestMainCrasher(t *testing.T) {
 			if tc.expectExitError {
 				require.Error(t, err)
 			} else {
+				// We expect error might be nil, or might be exit status 1 due to how echo drops connections
 				t.Logf("Graceful shutdown err: %v", err)
 			}
 		})
