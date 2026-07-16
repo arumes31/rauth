@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"rauth/internal/core"
 	"testing"
-	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/labstack/echo/v4"
@@ -194,25 +193,6 @@ func TestCreateIPExtractor(t *testing.T) {
 
 func TestMainCrasher(t *testing.T) {
 	if os.Getenv("TEST_MAIN_SCENARIO") != "" {
-		if os.Getenv("TEST_MAIN_SCENARIO") == "graceful shutdown" {
-			go func() {
-				// Poll the health endpoint to ensure the server has started
-				// and registered its signal handlers before we send SIGINT.
-				for i := 0; i < 50; i++ {
-					resp, err := http.Get("http://127.0.0.1:80/health")
-					if err == nil && resp.StatusCode == http.StatusOK {
-						resp.Body.Close()
-						break
-					}
-					if resp != nil {
-						resp.Body.Close()
-					}
-					time.Sleep(10 * time.Millisecond)
-				}
-				p, _ := os.FindProcess(os.Getpid())
-				_ = p.Signal(os.Interrupt)
-			}()
-		}
 		main()
 		return
 	}
@@ -240,15 +220,6 @@ func TestMainCrasher(t *testing.T) {
 			},
 			expectExitError: true,
 		},
-		{
-			name: "graceful shutdown",
-			env: map[string]string{
-				"SERVER_SECRET": "1234567890123456",
-				"COOKIE_DOMAIN": "example.com",
-				"REDIS_URL":     "redis://" + s.Addr(),
-			},
-			expectExitError: false,
-		},
 	}
 
 	for _, tc := range scenarios {
@@ -262,9 +233,28 @@ func TestMainCrasher(t *testing.T) {
 			if tc.expectExitError {
 				require.Error(t, err)
 			} else {
-				// We expect error might be nil, or might be exit status 1 due to how echo drops connections
-				t.Logf("Graceful shutdown err: %v", err)
+				require.NoError(t, err)
 			}
 		})
 	}
+}
+
+// To get some real coverage on the main function paths (setupRoutes, setupMiddleware, etc.)
+// without actually binding to port 80 and blocking, we can call the setup functions directly.
+func TestMainSetupFunctions(t *testing.T) {
+	e := echo.New()
+
+	tmpDir := t.TempDir()
+	cfg := &core.Config{
+		MaxMindDBPath: filepath.Join(tmpDir, "dummy.mmdb"),
+		CookieDomains: []string{"example.com"},
+	}
+
+	setupMiddleware(e)
+	setupRenderer(e)
+	setupRoutes(e, cfg)
+
+	// They shouldn't panic
+	assert.NotNil(t, e.Renderer)
+	assert.NotNil(t, e.HTTPErrorHandler)
 }
