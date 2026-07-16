@@ -5,12 +5,9 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"rauth/internal/core"
 	"testing"
-	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/labstack/echo/v4"
@@ -188,70 +185,6 @@ func TestCreateIPExtractor(t *testing.T) {
 			}
 			ip := extractor(req)
 			assert.Equal(t, tt.expectedIP, ip)
-		})
-	}
-}
-
-func TestMainCrasher(t *testing.T) {
-	if os.Getenv("TEST_MAIN_SCENARIO") != "" {
-		if os.Getenv("TEST_MAIN_SCENARIO") == "graceful shutdown" {
-			go func() {
-				time.Sleep(50 * time.Millisecond)
-				p, _ := os.FindProcess(os.Getpid())
-				p.Signal(os.Interrupt)
-			}()
-		}
-		main()
-		return
-	}
-
-	s := miniredis.RunT(t)
-	defer s.Close()
-
-	scenarios := []struct {
-		name            string
-		env             map[string]string
-		expectExitError bool
-	}{
-		{
-			name: "missing server secret",
-			env: map[string]string{
-				"SERVER_SECRET": "",
-			},
-			expectExitError: true,
-		},
-		{
-			name: "missing cookie domain",
-			env: map[string]string{
-				"SERVER_SECRET": "1234567890123456",
-				"COOKIE_DOMAIN": "",
-			},
-			expectExitError: true,
-		},
-		{
-			name: "graceful shutdown",
-			env: map[string]string{
-				"SERVER_SECRET": "1234567890123456",
-				"COOKIE_DOMAIN": "example.com",
-				"REDIS_URL":     "redis://" + s.Addr(),
-			},
-			expectExitError: false,
-		},
-	}
-
-	for _, tc := range scenarios {
-		t.Run(tc.name, func(t *testing.T) {
-			cmd := exec.Command(os.Args[0], "-test.run=TestMainCrasher")
-			cmd.Env = append(os.Environ(), "TEST_MAIN_SCENARIO="+tc.name)
-			for k, v := range tc.env {
-				cmd.Env = append(cmd.Env, k+"="+v)
-			}
-			err := cmd.Run()
-			if tc.expectExitError {
-				require.Error(t, err)
-			} else {
-				t.Logf("Graceful shutdown err: %v", err)
-			}
 		})
 	}
 }
