@@ -26,11 +26,6 @@ var cryptoRandReader = rand.Reader
 var (
 	emailRegex    = regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$`)
 	usernameRegex = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
-
-	passwordUpperRegex   = regexp.MustCompile(`[A-Z]`)
-	passwordLowerRegex   = regexp.MustCompile(`[a-z]`)
-	passwordNumberRegex  = regexp.MustCompile(`[0-9]`)
-	passwordSpecialRegex = regexp.MustCompile(`[!@#\$%\^&\*]`)
 )
 
 func ValidateEmail(email string) error {
@@ -55,16 +50,35 @@ func ValidatePassword(password string, cfg *Config) error {
 	if cfg.CheckCommonPasswords && isCommonPassword(password) {
 		return fmt.Errorf("password is too common; please choose a less predictable one")
 	}
-	if cfg.RequirePasswordUpper && !passwordUpperRegex.MatchString(password) {
+	hasUpper := false
+	hasLower := false
+	hasNumber := false
+	hasSpecial := false
+
+	for i := 0; i < len(password); i++ {
+		c := password[i]
+		switch {
+		case c >= 'A' && c <= 'Z':
+			hasUpper = true
+		case c >= 'a' && c <= 'z':
+			hasLower = true
+		case c >= '0' && c <= '9':
+			hasNumber = true
+		case c == '!' || c == '@' || c == '#' || c == '$' || c == '%' || c == '^' || c == '&' || c == '*':
+			hasSpecial = true
+		}
+	}
+
+	if cfg.RequirePasswordUpper && !hasUpper {
 		return fmt.Errorf("password must contain at least one uppercase letter")
 	}
-	if cfg.RequirePasswordLower && !passwordLowerRegex.MatchString(password) {
+	if cfg.RequirePasswordLower && !hasLower {
 		return fmt.Errorf("password must contain at least one lowercase letter")
 	}
-	if cfg.RequirePasswordNumber && !passwordNumberRegex.MatchString(password) {
+	if cfg.RequirePasswordNumber && !hasNumber {
 		return fmt.Errorf("password must contain at least one number")
 	}
-	if cfg.RequirePasswordSpecial && !passwordSpecialRegex.MatchString(password) {
+	if cfg.RequirePasswordSpecial && !hasSpecial {
 		return fmt.Errorf("password must contain at least one special character")
 	}
 	return nil
