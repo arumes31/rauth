@@ -5,6 +5,8 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"rauth/internal/core"
 	"testing"
@@ -185,6 +187,75 @@ func TestCreateIPExtractor(t *testing.T) {
 			}
 			ip := extractor(req)
 			assert.Equal(t, tt.expectedIP, ip)
+		})
+	}
+}
+
+type mainTestScenario struct {
+	name             string
+	envVars          map[string]string
+	expectExitStatus int
+}
+
+func TestMainExecutionDetailed(t *testing.T) {
+	if os.Getenv("BE_CRASHER") == "1" {
+		main()
+		return
+	}
+
+	s := miniredis.RunT(t)
+
+	scenarios := []mainTestScenario{
+		{
+			name: "Bind Port Failure",
+			envVars: map[string]string{
+				"LOG_LEVEL":       "debug",
+				"SERVER_SECRET":   "12345678901234567890",
+				"MAXMIND_DB_PATH": "/dev/null",
+				"REDIS_HOST":      s.Host(),
+				"REDIS_PORT":      s.Port(),
+			},
+			expectExitStatus: 1, // log.Fatal exit status is 1 because of port bind failure or mmdb failure
+		},
+		{
+			name: "Fatal Error Config",
+			envVars: map[string]string{
+				"SERVER_SECRET": "short", // this should cause log.Fatal inside main or LoadConfig
+				"REDIS_HOST":    s.Host(),
+				"REDIS_PORT":    s.Port(),
+			},
+			expectExitStatus: 1, // log.Fatal exit status is 1
+		},
+	}
+
+	for _, tc := range scenarios {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0], "-test.run=TestMainExecutionDetailed")
+			env := os.Environ()
+			env = append(env, "BE_CRASHER=1")
+			for k, v := range tc.envVars {
+				env = append(env, k+"="+v)
+			}
+			cmd.Env = env
+
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+
+			err := cmd.Wait()
+
+			if err != nil {
+				if exitErr, ok := err.(*exec.ExitError); ok {
+					exitCode := exitErr.ExitCode()
+					if exitCode != tc.expectExitStatus {
+						t.Fatalf("expected exit status %d, got %d", tc.expectExitStatus, exitCode)
+					}
+				} else {
+					t.Fatalf("process wait error: %v", err)
+				}
+			} else if tc.expectExitStatus != 0 {
+				t.Fatalf("expected process to fail with status %d, but it succeeded", tc.expectExitStatus)
+			}
 		})
 	}
 }
