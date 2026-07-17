@@ -26,12 +26,44 @@ var cryptoRandReader = rand.Reader
 var (
 	emailRegex    = regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$`)
 	usernameRegex = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
-
-	passwordUpperRegex   = regexp.MustCompile(`[A-Z]`)
-	passwordLowerRegex   = regexp.MustCompile(`[a-z]`)
-	passwordNumberRegex  = regexp.MustCompile(`[0-9]`)
-	passwordSpecialRegex = regexp.MustCompile(`[!@#\$%\^&\*]`)
 )
+
+func hasUpper(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 'A' && s[i] <= 'Z' {
+			return true
+		}
+	}
+	return false
+}
+
+func hasLower(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 'a' && s[i] <= 'z' {
+			return true
+		}
+	}
+	return false
+}
+
+func hasNumber(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= '0' && s[i] <= '9' {
+			return true
+		}
+	}
+	return false
+}
+
+func hasSpecial(s string) bool {
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '!', '@', '#', '$', '%', '^', '&', '*':
+			return true
+		}
+	}
+	return false
+}
 
 func ValidateEmail(email string) error {
 	if email == "" {
@@ -55,16 +87,16 @@ func ValidatePassword(password string, cfg *Config) error {
 	if cfg.CheckCommonPasswords && isCommonPassword(password) {
 		return fmt.Errorf("password is too common; please choose a less predictable one")
 	}
-	if cfg.RequirePasswordUpper && !passwordUpperRegex.MatchString(password) {
+	if cfg.RequirePasswordUpper && !hasUpper(password) {
 		return fmt.Errorf("password must contain at least one uppercase letter")
 	}
-	if cfg.RequirePasswordLower && !passwordLowerRegex.MatchString(password) {
+	if cfg.RequirePasswordLower && !hasLower(password) {
 		return fmt.Errorf("password must contain at least one lowercase letter")
 	}
-	if cfg.RequirePasswordNumber && !passwordNumberRegex.MatchString(password) {
+	if cfg.RequirePasswordNumber && !hasNumber(password) {
 		return fmt.Errorf("password must contain at least one number")
 	}
-	if cfg.RequirePasswordSpecial && !passwordSpecialRegex.MatchString(password) {
+	if cfg.RequirePasswordSpecial && !hasSpecial(password) {
 		return fmt.Errorf("password must contain at least one special character")
 	}
 	return nil
