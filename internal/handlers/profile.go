@@ -21,10 +21,27 @@ type ProfileHandler struct {
 func (h *ProfileHandler) Show(c echo.Context) error {
 	username := c.Get("username").(string)
 	currentToken := c.Get("token").(string)
-	userData, err := core.UserDB.HGetAll(core.Ctx, "user:"+username).Result()
+	// ⚡ Bolt optimization: Use HMGet instead of HGetAll to avoid fetching/parsing unnecessary fields (like password, uid, created_at).
+	vals, err := core.UserDB.HMGet(core.Ctx, "user:"+username, "email", "groups", "is_admin", "2fa_secret").Result()
 	if err != nil {
 		slog.Error("Failed to fetch user data", "user", username, "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to load profile")
+	}
+
+	userData := make(map[string]string)
+	if len(vals) == 4 {
+		if vals[0] != nil {
+			userData["email"] = vals[0].(string)
+		}
+		if vals[1] != nil {
+			userData["groups"] = vals[1].(string)
+		}
+		if vals[2] != nil {
+			userData["is_admin"] = vals[2].(string)
+		}
+		if vals[3] != nil {
+			userData["2fa_secret"] = vals[3].(string)
+		}
 	}
 
 	// Fetch sessions for this user efficiently
@@ -289,10 +306,24 @@ func (h *ProfileHandler) ChangePassword(c echo.Context) error {
 	confirm := c.FormValue("confirm_password")
 	otpCode := c.FormValue("otp_code")
 
-	userData, err := core.UserDB.HGetAll(core.Ctx, "user:"+username).Result()
+	// ⚡ Bolt optimization: Use HMGet instead of HGetAll to avoid fetching/parsing unnecessary fields (like groups, is_admin, uid).
+	vals, err := core.UserDB.HMGet(core.Ctx, "user:"+username, "password", "2fa_secret", "email").Result()
 	if err != nil {
 		slog.Error("Failed to fetch user data for password change", "user", username, "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Internal error")
+	}
+
+	userData := make(map[string]string)
+	if len(vals) == 3 {
+		if vals[0] != nil {
+			userData["password"] = vals[0].(string)
+		}
+		if vals[1] != nil {
+			userData["2fa_secret"] = vals[1].(string)
+		}
+		if vals[2] != nil {
+			userData["email"] = vals[2].(string)
+		}
 	}
 	if !core.CheckPasswordHash(current, userData["password"]) {
 		core.CheckRateLimit("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay)

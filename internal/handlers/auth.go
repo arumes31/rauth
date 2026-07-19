@@ -78,9 +78,42 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 	}
 
 	redisKey := "X-rauth-authtoken=" + token
-	data, err := core.TokenDB.HGetAll(core.Ctx, redisKey).Result()
-	if err != nil || len(data) == 0 || data["status"] != "valid" {
+	// ⚡ Bolt optimization: Use HMGet instead of HGetAll to avoid fetching/parsing unnecessary fields.
+	vals, err := core.TokenDB.HMGet(core.Ctx, redisKey, "status", "ip", "username", "country", "groups", "is_admin", "created_at", "ua_ch_platform", "ua_ch_mobile", "ua_ch_model", "user_agent").Result()
+	if err != nil || len(vals) < 11 || vals[0] == nil || vals[0].(string) != "valid" {
 		return h.rateLimitedUnauthorized(c, rateLimitKey)
+	}
+
+	data := make(map[string]string)
+	if vals[1] != nil {
+		data["ip"] = vals[1].(string)
+	}
+	if vals[2] != nil {
+		data["username"] = vals[2].(string)
+	}
+	if vals[3] != nil {
+		data["country"] = vals[3].(string)
+	}
+	if vals[4] != nil {
+		data["groups"] = vals[4].(string)
+	}
+	if vals[5] != nil {
+		data["is_admin"] = vals[5].(string)
+	}
+	if vals[6] != nil {
+		data["created_at"] = vals[6].(string)
+	}
+	if vals[7] != nil {
+		data["ua_ch_platform"] = vals[7].(string)
+	}
+	if vals[8] != nil {
+		data["ua_ch_mobile"] = vals[8].(string)
+	}
+	if vals[9] != nil {
+		data["ua_ch_model"] = vals[9].(string)
+	}
+	if vals[10] != nil {
+		data["user_agent"] = vals[10].(string)
 	}
 
 	// Session is present: reset the per-IP validate throttle.
