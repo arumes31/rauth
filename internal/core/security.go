@@ -376,7 +376,7 @@ func ValidateUsername(username string) error {
 	// Alphanumeric, underscores, hyphens, and dots
 	for i := 0; i < len(username); i++ {
 		c := username[i]
-		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-') {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '.' && c != '_' && c != '-' {
 			return fmt.Errorf("username can only contain alphanumeric characters, dots, underscores, and hyphens")
 		}
 	}
