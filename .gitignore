@@ -27,3 +27,6 @@ coverage.html
 # Agent scratch artifacts
 .jules/
 plan.md
+graphify-out/
+
+.claudeignore
