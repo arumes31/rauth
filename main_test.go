@@ -5,9 +5,12 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"rauth/internal/core"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/labstack/echo/v4"
@@ -185,6 +188,89 @@ func TestCreateIPExtractor(t *testing.T) {
 			}
 			ip := extractor(req)
 			assert.Equal(t, tt.expectedIP, ip)
+		})
+	}
+}
+
+func TestMainFunction(t *testing.T) {
+	if os.Getenv("GO_TEST_MAIN_SCENARIO") != "" {
+		scenario := os.Getenv("GO_TEST_MAIN_SCENARIO")
+		switch scenario {
+		case "bad_secret":
+			os.Setenv("SERVER_SECRET", "123") // < 16 chars
+			main()
+		case "bad_cookie":
+			os.Setenv("SERVER_SECRET", "1234567890123456")
+			os.Setenv("COOKIE_DOMAIN", "")
+			main()
+		case "graceful":
+			os.Setenv("SERVER_SECRET", "1234567890123456")
+			os.Setenv("COOKIE_DOMAIN", "example.com")
+
+			// We need a redis instance for it to not exit
+			s := miniredis.RunT(t)
+			os.Setenv("REDIS_HOST", s.Host())
+			os.Setenv("REDIS_PORT", s.Port())
+
+			go main()
+
+			// Poll /health to wait for server start
+			client := &http.Client{Timeout: 1 * time.Second}
+			for i := 0; i < 50; i++ {
+				resp, err := client.Get("http://localhost:80/health")
+				if err == nil {
+					_ = resp.Body.Close()
+					if resp.StatusCode == http.StatusOK {
+						break
+					}
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+
+			// Send interrupt to self
+			p, _ := os.FindProcess(os.Getpid())
+			_ = p.Signal(os.Interrupt)
+
+			// Wait a bit to ensure it stops
+			time.Sleep(1 * time.Second)
+		}
+		return
+	}
+
+	tests := []struct {
+		name     string
+		scenario string
+		exitCode int
+	}{
+		{
+			name:     "Invalid SERVER_SECRET",
+			scenario: "bad_secret",
+			exitCode: 1,
+		},
+		{
+			name:     "Invalid COOKIE_DOMAIN",
+			scenario: "bad_cookie",
+			exitCode: 1,
+		},
+		{
+			name:     "Graceful Shutdown",
+			scenario: "graceful",
+			exitCode: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0], "-test.run=TestMainFunction")
+			cmd.Env = append(os.Environ(), "GO_TEST_MAIN_SCENARIO="+tt.scenario)
+
+			err := cmd.Run()
+
+			if e, ok := err.(*exec.ExitError); ok {
+				assert.Equal(t, tt.exitCode, e.ExitCode())
+			} else {
+				assert.Equal(t, tt.exitCode, 0)
+			}
 		})
 	}
 }
