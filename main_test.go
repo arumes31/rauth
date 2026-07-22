@@ -197,20 +197,20 @@ func TestMainFunction(t *testing.T) {
 		scenario := os.Getenv("GO_TEST_MAIN_SCENARIO")
 		switch scenario {
 		case "bad_secret":
-			os.Setenv("SERVER_SECRET", "123") // < 16 chars
+			_ = os.Setenv("SERVER_SECRET", "123") // < 16 chars
 			main()
 		case "bad_cookie":
-			os.Setenv("SERVER_SECRET", "1234567890123456")
-			os.Setenv("COOKIE_DOMAIN", "")
+			_ = os.Setenv("SERVER_SECRET", "1234567890123456")
+			_ = os.Setenv("COOKIE_DOMAIN", "")
 			main()
 		case "graceful":
-			os.Setenv("SERVER_SECRET", "1234567890123456")
-			os.Setenv("COOKIE_DOMAIN", "example.com")
+			_ = os.Setenv("SERVER_SECRET", "1234567890123456")
+			_ = os.Setenv("COOKIE_DOMAIN", "example.com")
 
 			// We need a redis instance for it to not exit
 			s := miniredis.RunT(t)
-			os.Setenv("REDIS_HOST", s.Host())
-			os.Setenv("REDIS_PORT", s.Port())
+			_ = os.Setenv("REDIS_HOST", s.Host())
+			_ = os.Setenv("REDIS_PORT", s.Port())
 
 			go main()
 
