@@ -24,8 +24,7 @@ import (
 var cryptoRandReader = rand.Reader
 
 var (
-	emailRegex    = regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$`)
-	usernameRegex = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
+	emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$`)
 )
 
 func ValidateEmail(email string) error {
@@ -380,8 +379,13 @@ func ValidateUsername(username string) error {
 		return fmt.Errorf("username must be between 3 and 32 characters long")
 	}
 	// Alphanumeric, underscores, hyphens, and dots
-	if !usernameRegex.MatchString(username) {
-		return fmt.Errorf("username can only contain alphanumeric characters, dots, underscores, and hyphens")
+	// Optimization: Manual byte iteration is significantly faster than regexp.MatchString
+	// for simple ASCII character class validation.
+	for i := 0; i < len(username); i++ {
+		c := username[i]
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-') {
+			return fmt.Errorf("username can only contain alphanumeric characters, dots, underscores, and hyphens")
+		}
 	}
 	return nil
 }
