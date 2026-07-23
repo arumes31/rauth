@@ -37,10 +37,7 @@ const (
 // getRD returns the post-login redirect target, accepting it from either the
 // query string or a form field so it survives the multi-step 2FA flow.
 func getRD(c echo.Context) string {
-	if rd := c.QueryParam("rd"); rd != "" {
-		return rd
-	}
-	return c.FormValue("rd")
+	return c.QueryParam("rd")
 }
 
 func (h *AuthHandler) Root(c echo.Context) error {
