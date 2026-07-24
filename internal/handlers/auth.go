@@ -40,7 +40,7 @@ func getRD(c echo.Context) string {
 	if rd := c.QueryParam("rd"); rd != "" {
 		return rd
 	}
-	return c.FormValue("rd")
+	return ""
 }
 
 func (h *AuthHandler) Root(c echo.Context) error {
