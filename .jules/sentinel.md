@@ -76,3 +76,7 @@
 **Vulnerability:** A fast-path rate limit implementation attempting to avoid parsing `c.FormValue()` (which reads the request body and can cause exhaustion DoS with large payloads) was still indirectly parsing the form by using a global `getRD()` helper that called `c.FormValue()`.
 **Learning:** When attempting to implement early fast-paths to bypass body parsing on limited connections, all helper functions utilized in the error response must be audited. Functions that conditionally fall back to form parsing (`getRD` via `c.FormValue`) will silently defeat the fast-path check, rendering the protection ineffective against resource exhaustion.
 **Prevention:** In fast-path error handlers that aim to avoid parsing large bodies (like early rate limits), strictly use `c.QueryParam()` instead of shared helper functions that may fall back to parsing `c.FormValue()`.
+## 2026-06-25 - [Rate Limit Fast Path Bypass]
+**Vulnerability:** Fast-path rate limit implementations calling `getRD(c)` implicitly parsed the form body using `c.FormValue("rd")`, bypassing exhaustion DoS protection.
+**Learning:** All helper functions in early fast-path error handlers must be carefully audited to ensure they do not perform body parsing.
+**Prevention:** Use `c.QueryParam("rd")` instead of `getRD(c)` to only parse query parameters for redirects.
