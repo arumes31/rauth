@@ -77,7 +77,7 @@ func TestMainFunctionDirect(t *testing.T) {
 				var exitCode int
 				select {
 				case <-time.After(2 * time.Second):
-					cmd.Process.Signal(os.Interrupt)
+					_ = cmd.Process.Signal(os.Interrupt)
 					err := <-done
 					if exitErr, ok := err.(*exec.ExitError); ok {
 						exitCode = exitErr.ExitCode()
@@ -146,14 +146,14 @@ func TestMainInitialUser(t *testing.T) {
 
 	select {
 	case <-time.After(2 * time.Second):
-		cmd.Process.Signal(os.Interrupt)
+		_ = cmd.Process.Signal(os.Interrupt)
 		<-done
 	case err := <-done:
 		if err != nil {
 			if exitErr, ok := err.(*exec.ExitError); ok {
 				// Ignore exit code 1 if not root
 				if exitErr.ExitCode() != 1 || os.Getuid() == 0 {
-					// but it should only exit 1 because of port 80 bind
+					t.Logf("Command exited with code: %d", exitErr.ExitCode())
 				}
 			}
 		}
