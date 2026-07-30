@@ -207,7 +207,7 @@ func GetStoredCredentials(username string) []StoredCredential {
 			if end > len(results) {
 				end = len(results)
 			}
-			go func(start, end int) {
+			go func() {
 				defer wg.Done()
 				for j := start; j < end; j++ {
 					var c StoredCredential
@@ -215,7 +215,7 @@ func GetStoredCredentials(username string) []StoredCredential {
 						credsArray[j] = c
 					}
 				}
-			}(start, end)
+			}()
 		}
 		wg.Wait()
 

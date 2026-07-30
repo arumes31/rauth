@@ -41,22 +41,20 @@ func (h *HealthHandler) Check(c echo.Context) error {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	for _, check := range redisChecks {
-		name := check.name
-		client := check.client
 		wg.Add(1)
-		go func(name string, client *redis.Client) {
+		go func() {
 			defer wg.Done()
-			err := client.Ping(core.Ctx).Err()
+			err := check.client.Ping(core.Ctx).Err()
 
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
-				checks[name] = "FAIL: " + err.Error()
+				checks[check.name] = "FAIL: " + err.Error()
 				status = "FAIL"
 			} else {
-				checks[name] = "OK"
+				checks[check.name] = "OK"
 			}
-		}(name, client)
+		}()
 	}
 	wg.Wait()
 
