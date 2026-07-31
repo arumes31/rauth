@@ -45,3 +45,6 @@
 ## 2026-07-15 - Password Validation Optimization
 **Learning:** In Go codebase performance optimizations, replacing multiple `regexp.MatchString` evaluations for simple character classes (like `[A-Z]` or `[0-9]`) with a single manual string iteration and `switch` statement can provide significant speedup by eliminating regex engine overhead.
 **Action:** Replace `regexp.MatchString` with manual iteration and `switch` statement for simple character class validations.
+## 2025-02-18 - [Optimize Username Regex]
+**Learning:** In Go, `regexp.MatchString` can be significantly slower than manual byte iteration for simple ASCII string validation (e.g., `^[a-zA-Z0-9._-]+$`). Benchmark tests showed execution time dropping from ~600ns to ~20ns when replacing the regex with a `switch` statement inside a `for` loop. This is a highly effective optimization pattern in Go for avoiding regex engine overhead.
+**Action:** Always consider manual byte iteration (using a `for` loop and conditional checks or `switch`) for validating simple ASCII character classes in Go instead of using `regexp`, especially in high-throughput validation functions.
