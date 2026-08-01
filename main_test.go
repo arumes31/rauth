@@ -9,6 +9,10 @@ import (
 	"rauth/internal/core"
 	"testing"
 
+	"fmt"
+	"os"
+	"os/exec"
+
 	"github.com/alicebob/miniredis/v2"
 	"github.com/labstack/echo/v4"
 	"github.com/redis/go-redis/v9"
@@ -185,6 +189,70 @@ func TestCreateIPExtractor(t *testing.T) {
 			}
 			ip := extractor(req)
 			assert.Equal(t, tt.expectedIP, ip)
+		})
+	}
+}
+
+func TestAppMain(t *testing.T) {
+	if os.Getenv("RUN_MAIN_FOR_TESTING") == "1" {
+		main()
+		return
+	}
+
+	tests := []struct {
+		name           string
+		env            map[string]string
+		expectedExit   int
+		expectContains string
+	}{
+		{
+			name: "Missing server secret",
+			env: map[string]string{
+				"SERVER_SECRET": "",
+			},
+			expectedExit:   1,
+			expectContains: "SERVER_SECRET must be set to at least 16 characters",
+		},
+		{
+			name: "Missing cookie domain",
+			env: map[string]string{
+				"SERVER_SECRET": "0123456789abcdef",
+				"COOKIE_DOMAIN": "",
+			},
+			expectedExit:   1,
+			expectContains: "COOKIE_DOMAIN must contain at least one domain",
+		},
+		{
+			name: "Redis init failure",
+			env: map[string]string{
+				"SERVER_SECRET": "0123456789abcdef",
+				"COOKIE_DOMAIN": "example.com",
+				// Using bad host to force failure
+				"REDIS_HOST": "invalid-redis-host-that-does-not-exist",
+			},
+			expectedExit:   1,
+			expectContains: "Redis initialization failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0], "-test.run=TestAppMain")
+			cmd.Env = append(os.Environ(), "RUN_MAIN_FOR_TESTING=1")
+			for k, v := range tt.env {
+				cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+			}
+			out, err := cmd.CombinedOutput()
+
+			if tt.expectedExit == 0 {
+				assert.NoError(t, err)
+			} else {
+				assert.Error(t, err)
+				if exitError, ok := err.(*exec.ExitError); ok {
+					assert.Equal(t, tt.expectedExit, exitError.ExitCode())
+				}
+			}
+			assert.Contains(t, string(out), tt.expectContains)
 		})
 	}
 }
