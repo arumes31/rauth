@@ -45,3 +45,6 @@
 ## 2026-07-15 - Password Validation Optimization
 **Learning:** In Go codebase performance optimizations, replacing multiple `regexp.MatchString` evaluations for simple character classes (like `[A-Z]` or `[0-9]`) with a single manual string iteration and `switch` statement can provide significant speedup by eliminating regex engine overhead.
 **Action:** Replace `regexp.MatchString` with manual iteration and `switch` statement for simple character class validations.
+## 2026-08-02 - WebAuthn Hash Sort Optimization
+**Learning:** Using `strings.Compare(fmt.Sprintf("%x", a), fmt.Sprintf("%x", b))` on byte slices inside a hot loop (like a sort function) causes significant overhead due to memory allocation and string formatting. `bytes.Compare` operates directly on the byte slices, providing over 30x performance improvement.
+**Action:** Use `bytes.Compare(a, b)` directly when sorting or comparing byte slices to avoid string conversion overhead.

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -181,7 +182,7 @@ func GetStoredCredentials(username string) []StoredCredential {
 			if a.CreatedAt != b.CreatedAt {
 				return int(a.CreatedAt - b.CreatedAt)
 			}
-			return strings.Compare(fmt.Sprintf("%x", a.ID), fmt.Sprintf("%x", b.ID))
+			return bytes.Compare(a.ID, b.ID)
 		})
 		return creds
 	}
@@ -236,7 +237,7 @@ func GetStoredCredentials(username string) []StoredCredential {
 			if a.CreatedAt != b.CreatedAt {
 				return int(a.CreatedAt - b.CreatedAt)
 			}
-			return strings.Compare(fmt.Sprintf("%x", a.ID), fmt.Sprintf("%x", b.ID))
+			return bytes.Compare(a.ID, b.ID)
 		})
 		return creds
 	}
