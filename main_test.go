@@ -197,34 +197,34 @@ func TestAppMain(t *testing.T) {
 	if runCase := os.Getenv("RUN_MAIN_FOR_TESTING"); runCase != "" {
 		switch runCase {
 		case "missing_secret":
-			os.Setenv("SERVER_SECRET", "short")
+			_ = os.Setenv("SERVER_SECRET", "short")
 			main()
 		case "missing_domain":
-			os.Setenv("SERVER_SECRET", "1234567890123456")
-			os.Setenv("COOKIE_DOMAIN", "")
+			_ = os.Setenv("SERVER_SECRET", "1234567890123456")
+			_ = os.Setenv("COOKIE_DOMAIN", "")
 			main()
 		case "bad_redis":
-			os.Setenv("SERVER_SECRET", "1234567890123456")
-			os.Setenv("COOKIE_DOMAIN", "localhost")
-			os.Setenv("REDIS_HOST", "invalid_host")
-			os.Setenv("REDIS_PORT", "9999")
+			_ = os.Setenv("SERVER_SECRET", "1234567890123456")
+			_ = os.Setenv("COOKIE_DOMAIN", "localhost")
+			_ = os.Setenv("REDIS_HOST", "invalid_host")
+			_ = os.Setenv("REDIS_PORT", "9999")
 			main()
 		case "success":
-			os.Setenv("SERVER_SECRET", "1234567890123456")
-			os.Setenv("COOKIE_DOMAIN", "localhost")
+			_ = os.Setenv("SERVER_SECRET", "1234567890123456")
+			_ = os.Setenv("COOKIE_DOMAIN", "localhost")
 
 			s, err := miniredis.Run()
 			if err != nil {
 				os.Exit(1)
 			}
 			defer s.Close()
-			os.Setenv("REDIS_HOST", s.Host())
-			os.Setenv("REDIS_PORT", s.Port())
+			_ = os.Setenv("REDIS_HOST", s.Host())
+			_ = os.Setenv("REDIS_PORT", s.Port())
 
 			go func() {
 				time.Sleep(500 * time.Millisecond)
 				p, _ := os.FindProcess(os.Getpid())
-				p.Signal(syscall.SIGTERM)
+				_ = p.Signal(syscall.SIGTERM)
 			}()
 
 			main()
