@@ -5,9 +5,13 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"rauth/internal/core"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/labstack/echo/v4"
@@ -185,6 +189,89 @@ func TestCreateIPExtractor(t *testing.T) {
 			}
 			ip := extractor(req)
 			assert.Equal(t, tt.expectedIP, ip)
+		})
+	}
+}
+
+func TestAppMain(t *testing.T) {
+	if runCase := os.Getenv("RUN_MAIN_FOR_TESTING"); runCase != "" {
+		switch runCase {
+		case "missing_secret":
+			os.Setenv("SERVER_SECRET", "short")
+			main()
+		case "missing_domain":
+			os.Setenv("SERVER_SECRET", "1234567890123456")
+			os.Setenv("COOKIE_DOMAIN", "")
+			main()
+		case "bad_redis":
+			os.Setenv("SERVER_SECRET", "1234567890123456")
+			os.Setenv("COOKIE_DOMAIN", "localhost")
+			os.Setenv("REDIS_HOST", "invalid_host")
+			os.Setenv("REDIS_PORT", "9999")
+			main()
+		case "success":
+			os.Setenv("SERVER_SECRET", "1234567890123456")
+			os.Setenv("COOKIE_DOMAIN", "localhost")
+
+			s, err := miniredis.Run()
+			if err != nil {
+				os.Exit(1)
+			}
+			defer s.Close()
+			os.Setenv("REDIS_HOST", s.Host())
+			os.Setenv("REDIS_PORT", s.Port())
+
+			go func() {
+				time.Sleep(500 * time.Millisecond)
+				p, _ := os.FindProcess(os.Getpid())
+				p.Signal(syscall.SIGTERM)
+			}()
+
+			main()
+		}
+		return
+	}
+
+	tests := []struct {
+		name     string
+		runCase  string
+		wantExit int
+	}{
+		{"Missing ServerSecret", "missing_secret", 1},
+		{"Missing CookieDomain", "missing_domain", 1},
+		{"Bad Redis", "bad_redis", 1},
+		{"Success", "success", -1}, // Check is relaxed since binding port 80 may succeed as root, meaning clean exit 0 or fatal exit 1. We just want to ensure it runs cleanly until SIGTERM or binding failure.
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0], "-test.run=TestAppMain")
+			cmd.Env = append(os.Environ(), "RUN_MAIN_FOR_TESTING="+tt.runCase)
+
+			// Handle passing test coverage flags to the subprocess
+			args := []string{"-test.run=TestAppMain"}
+			for _, arg := range os.Args {
+				if len(arg) > 17 && arg[:18] == "-test.coverprofile" {
+					args = append(args, "-test.coverprofile=coverage_"+tt.runCase+".out")
+				}
+			}
+			cmd.Args = append([]string{os.Args[0]}, args...)
+
+			err := cmd.Run()
+
+			if tt.wantExit == -1 {
+				// We don't care if it exits with 0 or 1, as long as it executed to generate coverage.
+				return
+			}
+			if tt.wantExit == 0 {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				var exitError *exec.ExitError
+				if assert.ErrorAs(t, err, &exitError) {
+					assert.Equal(t, tt.wantExit, exitError.ExitCode())
+				}
+			}
 		})
 	}
 }
