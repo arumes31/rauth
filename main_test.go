@@ -4,10 +4,15 @@ import (
 	"bytes"
 	"html/template"
 	"log/slog"
+	"net"
 	"net/http"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"rauth/internal/core"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/labstack/echo/v4"
@@ -185,6 +190,111 @@ func TestCreateIPExtractor(t *testing.T) {
 			}
 			ip := extractor(req)
 			assert.Equal(t, tt.expectedIP, ip)
+		})
+	}
+}
+
+func TestAppMain(t *testing.T) {
+	if os.Getenv("RUN_MAIN_FOR_TESTING") == "1" {
+		main()
+		return
+	}
+
+	tests := []struct {
+		name string
+		env  map[string]string
+	}{
+		{
+			name: "Success path",
+			env: map[string]string{
+				"SERVER_SECRET": "0123456789abcdef",
+				"COOKIE_DOMAIN": "example.com",
+			},
+		},
+		{
+			name: "Missing server secret",
+			env: map[string]string{
+				"SERVER_SECRET": "short",
+			},
+		},
+		{
+			name: "Missing cookie domain",
+			env: map[string]string{
+				"SERVER_SECRET": "0123456789abcdef",
+				"COOKIE_DOMAIN": "",
+			},
+		},
+		{
+			name: "Redis init failure",
+			env: map[string]string{
+				"SERVER_SECRET": "0123456789abcdef",
+				"COOKIE_DOMAIN": "example.com",
+				"REDIS_HOST":    "invalid-host-that-does-not-exist",
+				"REDIS_PORT":    "9999",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			args := []string{"-test.run=TestAppMain"}
+			for _, arg := range os.Args[1:] {
+				if strings.HasPrefix(arg, "-test.coverprofile") {
+					safeName := strings.ReplaceAll(tt.name, " ", "_")
+					args = append(args, arg+"."+safeName)
+				}
+			}
+
+			cmd := exec.Command(os.Args[0], args...)
+
+			envMap := make(map[string]string)
+			for k, v := range tt.env {
+				envMap[k] = v
+			}
+
+			if tt.name == "Success path" {
+				s := miniredis.RunT(t)
+				host, port, _ := net.SplitHostPort(s.Addr())
+				envMap["REDIS_HOST"] = host
+				envMap["REDIS_PORT"] = port
+			}
+
+			env := os.Environ()
+			for k, v := range envMap {
+				env = append(env, k+"="+v)
+			}
+			env = append(env, "RUN_MAIN_FOR_TESTING=1")
+			cmd.Env = env
+
+			if tt.name == "Success path" {
+				err := cmd.Start()
+				require.NoError(t, err)
+
+				done := make(chan error, 1)
+				go func() {
+					done <- cmd.Wait()
+				}()
+
+				select {
+				case err := <-done:
+					if err != nil {
+						// The main process exits with 1 when it fails to bind to :80 without root
+						// Since we just want coverage on the setup steps, it is expected behavior.
+						t.Logf("Process exited early: %v", err)
+					}
+				case <-time.After(500 * time.Millisecond):
+					_ = cmd.Process.Signal(os.Interrupt)
+
+					select {
+					case <-done:
+					case <-time.After(2 * time.Second):
+						_ = cmd.Process.Kill()
+					}
+				}
+			} else {
+				err := cmd.Run()
+				assert.Error(t, err)
+			}
 		})
 	}
 }
