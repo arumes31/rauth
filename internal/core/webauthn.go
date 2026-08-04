@@ -163,10 +163,14 @@ func SaveWebAuthnCredential(username string, cred *webauthn.Credential) error {
 }
 
 func GetWebAuthnCredentials(username string) []webauthn.Credential {
-	var creds []webauthn.Credential
 	stored := GetStoredCredentials(username)
-	for _, s := range stored {
-		creds = append(creds, s.Credential)
+	if len(stored) == 0 {
+		return nil
+	}
+
+	creds := make([]webauthn.Credential, len(stored))
+	for i := range stored {
+		creds[i] = stored[i].Credential
 	}
 	return creds
 }
