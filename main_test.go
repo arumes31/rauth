@@ -5,8 +5,11 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"rauth/internal/core"
+	"strings"
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
@@ -187,4 +190,82 @@ func TestCreateIPExtractor(t *testing.T) {
 			assert.Equal(t, tt.expectedIP, ip)
 		})
 	}
+}
+
+func TestMainFailFast(t *testing.T) {
+	if os.Getenv("RAUTH_RUN_MAIN_TEST") == "1" {
+		main()
+		return
+	}
+
+	tests := []struct {
+		name        string
+		environment map[string]string
+		wantLog     string
+	}{
+		{
+			name: "server secret is too short",
+			environment: map[string]string{
+				"SERVER_SECRET": "short",
+				"COOKIE_DOMAIN": "example.com",
+			},
+			wantLog: "SERVER_SECRET must be set to at least 16 characters",
+		},
+		{
+			name: "cookie domain is empty",
+			environment: map[string]string{
+				"SERVER_SECRET": "0123456789abcdef",
+				"COOKIE_DOMAIN": "",
+			},
+			wantLog: "COOKIE_DOMAIN must contain at least one domain",
+		},
+		{
+			name: "redis is unavailable",
+			environment: map[string]string{
+				"SERVER_SECRET": "0123456789abcdef",
+				"COOKIE_DOMAIN": "example.com",
+				"REDIS_HOST":    "127.0.0.1",
+				"REDIS_PORT":    "0",
+			},
+			wantLog: "Redis initialization failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.environment["RAUTH_RUN_MAIN_TEST"] = "1"
+			cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestMainFailFast$")
+			cmd.Env = environmentWithOverrides(tt.environment)
+
+			output, err := cmd.CombinedOutput()
+			require.Error(t, err)
+
+			var exitError *exec.ExitError
+			require.ErrorAs(t, err, &exitError)
+			assert.Equal(t, 1, exitError.ExitCode())
+			assert.Contains(t, string(output), tt.wantLog)
+		})
+	}
+}
+
+func environmentWithOverrides(overrides map[string]string) []string {
+	overriddenNames := make(map[string]struct{}, len(overrides))
+	for name := range overrides {
+		overriddenNames[strings.ToUpper(name)] = struct{}{}
+	}
+
+	environment := make([]string, 0, len(os.Environ())+len(overrides))
+	for _, entry := range os.Environ() {
+		name, _, found := strings.Cut(entry, "=")
+		if found {
+			if _, overridden := overriddenNames[strings.ToUpper(name)]; overridden {
+				continue
+			}
+		}
+		environment = append(environment, entry)
+	}
+	for name, value := range overrides {
+		environment = append(environment, name+"="+value)
+	}
+	return environment
 }
