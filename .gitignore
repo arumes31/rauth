@@ -26,6 +26,7 @@ coverage.html
 
 # Agent scratch artifacts
 .jules/
+.kimi-code/
 plan.md
 graphify-out/
 
