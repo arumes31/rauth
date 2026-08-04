@@ -2,8 +2,10 @@ package handlers
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"rauth/internal/core"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,6 +13,45 @@ import (
 	"github.com/pquerna/otp/totp"
 	"github.com/stretchr/testify/assert"
 )
+
+func TestGetRD(t *testing.T) {
+	tests := []struct {
+		name     string
+		target   string
+		formRD   string
+		expected string
+	}{
+		{
+			name:     "query redirect",
+			target:   "/rauthlogin?rd=%2Fdashboard",
+			expected: "/dashboard",
+		},
+		{
+			name:     "form redirect is ignored",
+			target:   "/rauthlogin",
+			formRD:   "/from-form",
+			expected: "",
+		},
+		{
+			name:     "query redirect takes precedence",
+			target:   "/rauthlogin?rd=%2Ffrom-query",
+			formRD:   "/from-form",
+			expected: "/from-query",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			form := url.Values{"rd": []string{tt.formRD}}
+			req := httptest.NewRequest(http.MethodPost, tt.target, strings.NewReader(form.Encode()))
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
+			c := echo.New().NewContext(req, httptest.NewRecorder())
+
+			assert.Equal(t, tt.expected, getRD(c))
+			assert.Nil(t, req.PostForm, "getRD must not parse the request body")
+		})
+	}
+}
 
 func TestAuthHandler_Root(t *testing.T) {
 	setupHandlersTest(t)
