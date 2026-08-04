@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 concurrency:
@@ -44,6 +47,48 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+
+      - name: Set up Go for asset minification
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.5'
+          cache: false
+
+      - name: Minify JavaScript assets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mapfile -d '' js_files < <(
+            find static/js -type f -name '*.js' ! -name '*.min.js' -print0
+          )
+          if (( ${#js_files[@]} == 0 )); then
+            echo '::error::No non-minified JavaScript assets were found.'
+            exit 1
+          fi
+
+          before_bytes=0
+          for file in "${js_files[@]}"; do
+            before_bytes=$((before_bytes + $(wc -c < "$file")))
+          done
+
+          go run github.com/tdewolff/minify/v2/cmd/minify@v2.24.14 \
+            --inplace "${js_files[@]}"
+
+          after_bytes=0
+          for file in "${js_files[@]}"; do
+            if [[ ! -s "$file" ]]; then
+              echo "::error file=$file::Minification produced an empty asset."
+              exit 1
+            fi
+            after_bytes=$((after_bytes + $(wc -c < "$file")))
+          done
+
+          if (( after_bytes > before_bytes )); then
+            echo "::error::Minified assets grew from $before_bytes to $after_bytes bytes."
+            exit 1
+          fi
+          echo "Minified ${#js_files[@]} JavaScript asset(s): $before_bytes -> $after_bytes bytes."
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
