@@ -1,6 +1,8 @@
 package core
 
 import (
+	"bytes"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -66,6 +68,13 @@ type StoredCredential struct {
 	Nickname  string `json:"nickname"`
 	CreatedAt int64  `json:"created_at"`
 	LastUsed  int64  `json:"last_used"`
+}
+
+func compareStoredCredentials(a, b StoredCredential) int {
+	if createdAtOrder := cmp.Compare(a.CreatedAt, b.CreatedAt); createdAtOrder != 0 {
+		return createdAtOrder
+	}
+	return bytes.Compare(a.ID, b.ID)
 }
 
 func (s *StoredCredential) UnmarshalJSON(data []byte) error {
@@ -177,12 +186,7 @@ func GetStoredCredentials(username string) []StoredCredential {
 			}
 		}
 		// Sort by CreatedAt to maintain consistent order
-		slices.SortFunc(creds, func(a, b StoredCredential) int {
-			if a.CreatedAt != b.CreatedAt {
-				return int(a.CreatedAt - b.CreatedAt)
-			}
-			return strings.Compare(fmt.Sprintf("%x", a.ID), fmt.Sprintf("%x", b.ID))
-		})
+		slices.SortFunc(creds, compareStoredCredentials)
 		return creds
 	}
 
@@ -232,12 +236,7 @@ func GetStoredCredentials(username string) []StoredCredential {
 		// the list for this request, and a later call will retry the migration.
 		_, _ = pipe.Exec(Ctx)
 
-		slices.SortFunc(creds, func(a, b StoredCredential) int {
-			if a.CreatedAt != b.CreatedAt {
-				return int(a.CreatedAt - b.CreatedAt)
-			}
-			return strings.Compare(fmt.Sprintf("%x", a.ID), fmt.Sprintf("%x", b.ID))
-		})
+		slices.SortFunc(creds, compareStoredCredentials)
 		return creds
 	}
 
