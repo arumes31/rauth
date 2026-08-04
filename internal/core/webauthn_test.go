@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
@@ -12,6 +13,52 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestCompareStoredCredentials(t *testing.T) {
+	tests := []struct {
+		name string
+		a    StoredCredential
+		b    StoredCredential
+		want int
+	}{
+		{
+			name: "older credential first",
+			a:    StoredCredential{CreatedAt: 10},
+			b:    StoredCredential{CreatedAt: 20},
+			want: -1,
+		},
+		{
+			name: "timestamp comparison does not overflow",
+			a:    StoredCredential{CreatedAt: math.MinInt64},
+			b:    StoredCredential{CreatedAt: math.MaxInt64},
+			want: -1,
+		},
+		{
+			name: "newer credential last",
+			a:    StoredCredential{CreatedAt: 20},
+			b:    StoredCredential{CreatedAt: 10},
+			want: 1,
+		},
+		{
+			name: "identifier breaks timestamp tie",
+			a:    StoredCredential{Credential: webauthn.Credential{ID: []byte{0x01, 0xff}}, CreatedAt: 10},
+			b:    StoredCredential{Credential: webauthn.Credential{ID: []byte{0x02, 0x00}}, CreatedAt: 10},
+			want: -1,
+		},
+		{
+			name: "equal credentials",
+			a:    StoredCredential{Credential: webauthn.Credential{ID: []byte("same")}, CreatedAt: 10},
+			b:    StoredCredential{Credential: webauthn.Credential{ID: []byte("same")}, CreatedAt: 10},
+			want: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, compareStoredCredentials(tt.a, tt.b))
+		})
+	}
+}
 
 func TestInitWebAuthn(t *testing.T) {
 	tests := []struct {
