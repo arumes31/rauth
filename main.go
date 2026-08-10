@@ -91,7 +91,7 @@ func main() {
 	e.IPExtractor = CreateIPExtractor(cfg)
 
 	// Setup everything
-	setupMiddleware(e)
+	setupMiddleware(e, cfg)
 	setupRenderer(e)
 	setupRoutes(e, cfg)
 
@@ -126,12 +126,12 @@ func parseLogLevel(level string) slog.Level {
 	}
 }
 
-func setupMiddleware(e *echo.Echo) {
+func setupMiddleware(e *echo.Echo, cfg *core.Config) {
 	// Order matters: Secure headers and BodyLimit run first, then Client Hints
 	// and the request logger, then Recover and CSRF last. Keeping the logger
 	// ahead of Recover/CSRF ensures every request — including CSRF rejections —
 	// is logged.
-	setupSecurityMiddleware(e)
+	setupSecurityMiddleware(e, cfg)
 	setupClientHintsMiddleware(e)
 	setupLoggingMiddleware(e)
 	e.Use(echoMiddleware.Recover())
@@ -139,11 +139,12 @@ func setupMiddleware(e *echo.Echo) {
 	setupCSRFMiddleware(e)
 }
 
-func setupSecurityMiddleware(e *echo.Echo) {
+func setupSecurityMiddleware(e *echo.Echo, cfg *core.Config) {
 	// Security headers and hardening. Secure()'s defaults leave HSTS disabled
 	// and set no CSP, so configure both explicitly. The CSP allows inline
 	// scripts/styles because the templates rely on inline <script> blocks and
 	// style="" attributes (matrix/glassmorphism UI).
+	formActionSources := strings.Join(cfg.CSPFormActionSources(), " ")
 	e.Use(echoMiddleware.SecureWithConfig(echoMiddleware.SecureConfig{
 		XSSProtection:      "1; mode=block",
 		ContentTypeNosniff: "nosniff",
@@ -155,7 +156,7 @@ func setupSecurityMiddleware(e *echo.Echo) {
 		// needs plain HTTP, set HSTSPreloadEnabled:false and/or lower HSTSMaxAge.
 		HSTSMaxAge:            31536000,
 		HSTSPreloadEnabled:    true,
-		ContentSecurityPolicy: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'",
+		ContentSecurityPolicy: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'self'; form-action " + formActionSources + "; frame-ancestors 'self'",
 	}))
 	e.Use(echoMiddleware.BodyLimit("1M"))
 }

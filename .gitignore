@@ -29,5 +29,6 @@ coverage.html
 .kimi-code/
 plan.md
 graphify-out/
+docs/
 
 .claudeignore

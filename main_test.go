@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -55,8 +56,26 @@ func TestSetupRenderer(t *testing.T) {
 func TestSetupMiddleware(t *testing.T) {
 	e := echo.New()
 	// Should register middleware and error/not-found handlers without panicking.
-	setupMiddleware(e)
+	setupMiddleware(e, &core.Config{})
 	assert.NotNil(t, e.HTTPErrorHandler)
+}
+
+func TestSetupSecurityMiddlewareIncludesTrustedFormActions(t *testing.T) {
+	e := echo.New()
+	cfg := &core.Config{
+		AllowedHosts:  []string{"service.example.net"},
+		CookieDomains: []string{"example.com"},
+	}
+	setupSecurityMiddleware(e, cfg)
+	e.GET("/", func(c echo.Context) error {
+		return c.NoContent(http.StatusNoContent)
+	})
+
+	recorder := httptest.NewRecorder()
+	e.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	policy := recorder.Header().Get("Content-Security-Policy")
+	assert.Contains(t, policy, "form-action 'self' https://service.example.net https://example.com https://*.example.com;")
 }
 
 func TestSetupRoutes(t *testing.T) {

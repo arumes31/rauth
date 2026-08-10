@@ -2,6 +2,7 @@ package core
 
 import (
 	"os"
+	"slices"
 	"testing"
 )
 
@@ -96,6 +97,55 @@ func TestIsAllowedHost(t *testing.T) {
 		if got := cfg.IsAllowedHost(tt.host); got != tt.expected {
 			t.Errorf("IsAllowedHost(%q) = %v; want %v", tt.host, got, tt.expected)
 		}
+	}
+}
+
+func TestCSPFormActionSources(t *testing.T) {
+	cfg := &Config{
+		AllowedHosts: []string{
+			"home.example.com",
+			"HOME.example.com:443",
+			"localhost",
+			"[::1]",
+			"bücher.example",
+			"evil.example; form-action *",
+			"https://url.example",
+		},
+		CookieDomains: []string{
+			".example.com",
+			"other.org",
+			"example.com",
+			"com",
+			"*.wild.example",
+			"other.org/path",
+		},
+	}
+
+	want := []string{
+		"'self'",
+		"https://home.example.com",
+		"https://localhost",
+		"https://[::1]",
+		"https://xn--bcher-kva.example",
+		"https://example.com",
+		"https://*.example.com",
+		"https://other.org",
+		"https://*.other.org",
+	}
+	if got := cfg.CSPFormActionSources(); !slices.Equal(got, want) {
+		t.Fatalf("CSPFormActionSources() = %q; want %q", got, want)
+	}
+}
+
+func TestCSPFormActionSourcesDefaultsToSelf(t *testing.T) {
+	cfg := &Config{
+		AllowedHosts:  []string{"bad host", "example.com/path"},
+		CookieDomains: []string{"com", "co.uk", ""},
+	}
+
+	want := []string{"'self'"}
+	if got := cfg.CSPFormActionSources(); !slices.Equal(got, want) {
+		t.Fatalf("CSPFormActionSources() = %q; want %q", got, want)
 	}
 }
 

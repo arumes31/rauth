@@ -567,6 +567,10 @@ A: There are two common causes:
 1. **Cookie domain mismatch** — the `COOKIE_DOMAIN` in RAuth doesn't match the domain of the application you are protecting. Ensure the cookie domain is set to a common root domain (e.g. `example.com`) to allow cookie sharing across subdomains (e.g. `app1.example.com` and `auth.example.com`).
 2. **The login page itself is behind auth** — the RAuth host (e.g. `auth.yourdomain.com`) and its `/rauthlogin`, `/rauthmgmt`, and static asset routes **must be served directly and reachable WITHOUT an `auth_request`**. If you place the auth domain behind RAuth's own `auth_request`, every visit to the login page returns 401 and redirects back to the login page — an infinite loop, since the user can never reach the form to authenticate. Expose `auth.yourdomain.com` as a plain reverse-proxy `proxy_pass` to RAuth (no `auth_request`), and only protect your *other* applications with the subrequest.
 
+**Q: Why does Chrome stay on the login page after a successful login?**
+
+A: Check the browser console for a `form-action 'self'` CSP violation. RAuth derives the login redirect policy from `ALLOWED_HOSTS` and `COOKIE_DOMAIN`: exact HTTPS hosts in `ALLOWED_HOSTS` are accepted, while each registrable `COOKIE_DOMAIN` accepts its HTTPS apex and subdomains. For example, `COOKIE_DOMAIN=example.com` permits redirects to `https://app.example.com`. Restart RAuth after changing these environment variables.
+
 **Q: Why is my session immediately invalidated when using a tablet or rotating my device?**  
 A: Large tablets (like the Samsung Galaxy Tab series) default to requesting the "Desktop site" (spoofing a desktop Linux UA) but dynamically switch back to a mobile UA when rotated, resized in split-screen/pop-up views, or during background/Service-Worker requests. Using **User-Agent Client Hints (UA-CH)** under secure contexts (HTTPS) and the lenient browser-engine fallback for other browsers (like Safari/Firefox) and non-secure contexts reduce false invalidations but cannot eliminate them across all device mode, rotation, split-screen, or background/request context changes.
 

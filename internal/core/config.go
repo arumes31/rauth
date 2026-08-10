@@ -8,6 +8,10 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
+
+	"golang.org/x/net/idna"
+	"golang.org/x/net/publicsuffix"
 )
 
 type Config struct {
@@ -191,6 +195,103 @@ func (c *Config) IsAllowedHost(host string) bool {
 	}
 
 	return false
+}
+
+// CSPFormActionSources returns validated CSP sources for login form redirects.
+func (c *Config) CSPFormActionSources() []string {
+	sources := []string{"'self'"}
+	seen := map[string]struct{}{"'self'": {}}
+
+	add := func(source string) {
+		if _, exists := seen[source]; exists {
+			return
+		}
+		seen[source] = struct{}{}
+		sources = append(sources, source)
+	}
+	addExactHost := func(raw string) {
+		host, ok := normalizeCSPHostname(raw)
+		if ok {
+			add("https://" + formatCSPHostname(host))
+		}
+	}
+
+	for _, host := range c.AllowedHosts {
+		addExactHost(host)
+	}
+
+	for _, domain := range c.CookieDomains {
+		host, ok := normalizeCSPHostname(domain)
+		if !ok {
+			continue
+		}
+
+		if net.ParseIP(host) != nil || host == "localhost" {
+			add("https://" + formatCSPHostname(host))
+			continue
+		}
+
+		if _, err := publicsuffix.EffectiveTLDPlusOne(host); err != nil {
+			continue
+		}
+
+		add("https://" + host)
+		add("https://*." + host)
+	}
+
+	return sources
+}
+
+func normalizeCSPHostname(raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || strings.ContainsAny(raw, "/\\;?#@%\"'") || strings.Contains(raw, "://") {
+		return "", false
+	}
+	if strings.ContainsFunc(raw, func(r rune) bool {
+		return unicode.IsSpace(r) || unicode.IsControl(r)
+	}) {
+		return "", false
+	}
+
+	host := normalizeHostname(raw)
+	if host == "" {
+		return "", false
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.String(), true
+	}
+
+	host, err := idna.Lookup.ToASCII(host)
+	if err != nil || len(host) > 253 || strings.Contains(host, ":") {
+		return "", false
+	}
+	host = strings.ToLower(host)
+	for _, label := range strings.Split(host, ".") {
+		if !validDNSLabel(label) {
+			return "", false
+		}
+	}
+
+	return host, true
+}
+
+func validDNSLabel(label string) bool {
+	if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+		return false
+	}
+	for _, char := range label {
+		if (char < 'a' || char > 'z') && (char < '0' || char > '9') && char != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+func formatCSPHostname(host string) string {
+	if strings.Contains(host, ":") {
+		return "[" + host + "]"
+	}
+	return host
 }
 
 func (c *Config) IsCountryAllowed(country string) bool {
