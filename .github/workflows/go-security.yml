@@ -29,7 +29,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.26.5'
+          go-version: '1.26.6'
           cache: true
 
       - name: Tidy dependencies
@@ -47,12 +47,13 @@ jobs:
           govulncheck ./...
 
       - name: Run Gosec Security Scanner
+        if: ${{ always() }}
         uses: securego/gosec@master
         with:
           args: '-no-fail -fmt sarif -out results.sarif ./...'
 
       - name: Upload Gosec SARIF file
         uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
-        if: always()
+        if: ${{ always() && hashFiles('results.sarif') != '' }}
         with:
           sarif_file: results.sarif
