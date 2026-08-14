@@ -1,3 +1,5 @@
+
+
 <p align="center">
   <img src="static/favicon.png" alt="RAuth Logo" width="128" height="128">
 </p>
@@ -154,7 +156,7 @@ RAuth is built with a "Security-First" mindset, implementing advanced system-wid
 
 *   **Runtime**: [Go 1.26+](https://golang.org/) (High-concurrency, memory-safe)
 *   **Web Framework**: [Echo v4](https://echo.labstack.com/)
-*   **Identity Store**: [Redis 8.0+](https://redis.io/)
+*   **Identity Store**: [Redis 7.4+](https://redis.io/)
 *   **MFA Core**: [go-webauthn](https://github.com/go-webauthn/webauthn) & [pquerna/otp](https://github.com/pquerna/otp)
 *   **Geo-IP**: Native Go MMDB integration via [geoip2-golang](https://github.com/oschwald/geoip2-golang)
 *   **Monitoring**: [Prometheus Client](https://github.com/prometheus/client_golang)
