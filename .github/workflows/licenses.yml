@@ -1,4 +1,7 @@
 name: license-audit
+
+permissions:
+  contents: read
 on:
   push:
     branches: [ main, test ]
@@ -7,14 +10,16 @@ on:
 
 jobs:
   audit:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.26.6'
+          go-version-file: go.mod
       - name: Install go-licenses
-        run: go install github.com/google/go-licenses@latest
+        run: go install github.com/google/go-licenses/v2@v2.0.1
       - name: Check Licenses
         run: |
           # Fails if any forbidden licenses (GPL, etc) are found
@@ -22,7 +27,7 @@ jobs:
       - name: Report Licenses
         run: go-licenses report ./... > licenses_report.csv
       - name: Upload Report
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: license-report
           path: licenses_report.csv

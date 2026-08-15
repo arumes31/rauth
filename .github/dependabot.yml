@@ -16,12 +16,6 @@ updates:
     schedule:
       interval: "weekly"
 
-  # Maintain Docker dependencies for Geo Service
-  - package-ecosystem: "docker"
-    directory: "/geo-service"
-    schedule:
-      interval: "weekly"
-
   # Maintain GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"

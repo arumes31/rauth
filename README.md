@@ -508,7 +508,7 @@ services:
       - auth-network
 
   rauth-auth-redis:
-    image: redis:7.4-alpine
+    image: redis:7.4.10-alpine
     container_name: rauth-auth-redis
     hostname: rauth-auth-redis
     command: redis-server --requirepass ${REDIS_PASSWORD:-rauthsecurepassword}
