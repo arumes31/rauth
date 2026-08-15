@@ -1,2 +1,12 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Keep build and toolchain inputs stable across platforms.
+.gitattributes text eol=lf
+*.go text eol=lf
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+Dockerfile text eol=lf
+go.mod text eol=lf
+go.sum text eol=lf

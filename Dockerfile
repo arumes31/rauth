@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.26.5-alpine AS builder
+FROM golang:1.26.6-alpine3.24@sha256:af8d6740070b8906d12eae1c3e3ea0957fb63f492051ea05e354c38ef9fe88df AS builder
 
 # Add dependencies for build
 RUN apk add --no-cache ca-certificates tzdata git
@@ -8,8 +8,9 @@ RUN apk add --no-cache ca-certificates tzdata git
 # dependencies (upstream's prebuilt image ships a stale Go 1.24.5 stdlib:
 # CVE-2026-42504, CVE-2026-27145, CVE-2026-42507, CVE-2026-39824)
 RUN git clone --depth 1 --branch v7.1.1 https://github.com/maxmind/geoipupdate /tmp/geoipupdate \
+    && test "$(git -C /tmp/geoipupdate rev-parse HEAD)" = "6664d8b979d8ee43be2cfd2f92b8bdeed93c0ad7" \
     && cd /tmp/geoipupdate \
-    && go get golang.org/x/sys@latest \
+    && go get golang.org/x/net@v0.58.0 golang.org/x/sys@v0.47.0 \
     && go mod tidy \
     && CGO_ENABLED=0 GOOS=linux go build -o /usr/bin/geoipupdate ./cmd/geoipupdate
 
@@ -22,7 +23,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -v -o rauth main.go
 
 # Runtime stage
-FROM alpine:latest
+FROM alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
 
 # Install runtime dependencies
 RUN apk --no-cache add ca-certificates tzdata

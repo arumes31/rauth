@@ -2,7 +2,7 @@
 version: 2
 before:
   hooks:
-    - go mod tidy
+    - go mod tidy -diff
 builds:
   - env:
       - CGO_ENABLED=0
@@ -17,11 +17,11 @@ builds:
     binary: rauth
 
 archives:
-  - format: tar.gz
+  - formats: [tar.gz]
     # use zip for windows
     format_overrides:
       - goos: windows
-        format: zip
+        formats: [zip]
     name_template: >-
       {{ .ProjectName }}_
       {{- title .Os }}_
@@ -41,13 +41,3 @@ changelog:
     exclude:
       - '^docs:'
       - '^test:'
-
-dockers:
-  - image_templates:
-      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/rauth:{{ .Tag }}"
-      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/rauth:latest"
-    dockerfile: Dockerfile
-    build_flag_templates:
-      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
-      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
-      - "--label=org.opencontainers.image.version={{ .Version }}"
