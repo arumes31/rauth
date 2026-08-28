@@ -347,6 +347,7 @@ RAuth is configured via Environment Variables.
 | **URL**    | `PUBLIC_URL` | Base URL for email links (e.g., `https://auth.example.com`) | `http://localhost:5980` |
 | **Session**| `TOKEN_ROTATION_MINUTES` | Frequency of automatic session token rotation (0 = disabled) | `0` |
 | **Network**| `AUTH_PORT` | Port to expose the auth service | `5980` |
+| **Network**| `LISTEN_ADDR` | Address used by the application binary; the image sets this to `:8080` | `:80` |
 | **Proxy**  | `TRUST_X_FORWARDED_FOR` | Trust leftmost IP in `X-Forwarded-For` | `false` |
 | **Proxy**  | `TRUST_X_REAL_IP` | Trust IP in `X-Real-IP` | `false` |
 | **Proxy**  | `TRUST_CLOUDFLARE_IP` | Trust IP in `CF-Connecting-IP` | `false` |
@@ -455,7 +456,14 @@ services:
     image: ghcr.io/arumes31/rauth-auth:latest
     container_name: rauth-auth-service
     ports:
-      - "${AUTH_PORT:-5980}:80"
+      - "${AUTH_PORT:-5980}:8080"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
     environment:
       - REDIS_HOST=rauth-auth-redis
       - REDIS_PORT=6379
@@ -512,6 +520,8 @@ services:
     container_name: rauth-auth-redis
     hostname: rauth-auth-redis
     command: redis-server --requirepass ${REDIS_PASSWORD:-rauthsecurepassword}
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - ./redis-data:/data
     networks:
@@ -521,6 +531,10 @@ networks:
   auth-network:
     driver: bridge
 ```
+
+The application image runs as UID/GID `10001`. On Linux hosts, make sure the
+`geoip-data` directory is writable by that identity before starting the stack
+(for example, `sudo chown -R 10001:10001 geoip-data`).
 
 #### Option B: Local Development / Build from Source
 If you are modifying the codebase or prefer to compile the application locally, use `docker-compose.yml` (which includes a local build context):

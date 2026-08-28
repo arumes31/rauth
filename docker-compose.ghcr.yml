@@ -3,7 +3,14 @@ services:
     image: ghcr.io/arumes31/rauth-auth:latest
     container_name: rauth-auth-service
     ports:
-      - "${AUTH_PORT:-5980}:80"
+      - "${AUTH_PORT:-5980}:8080"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
     environment:
       - REDIS_HOST=rauth-auth-redis
       - REDIS_PORT=6379
@@ -61,6 +68,8 @@ services:
     container_name: rauth-auth-redis
     hostname: rauth-auth-redis
     command: redis-server --requirepass ${REDIS_PASSWORD:-rauthsecurepassword}
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - ./redis-data:/data
     networks:

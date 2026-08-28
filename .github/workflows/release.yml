@@ -10,6 +10,7 @@ permissions: {}
 jobs:
   goreleaser:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     permissions:
       contents: write
     steps:
@@ -36,6 +37,7 @@ jobs:
     name: Build and Push Release Image
     needs: goreleaser
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     permissions:
       contents: read
       packages: write
@@ -78,3 +80,5 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          provenance: mode=max
+          sbom: true

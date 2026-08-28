@@ -7,6 +7,7 @@ import (
 )
 
 func TestLoadConfig(t *testing.T) {
+	t.Setenv("LISTEN_ADDR", "127.0.0.1:9090")
 	_ = os.Setenv("SERVER_SECRET", "testsecret1234567890123456789012")
 	_ = os.Setenv("INITIAL_USER", "tester")
 	_ = os.Setenv("INITIAL_PASS", "TestPass123!")
@@ -14,6 +15,9 @@ func TestLoadConfig(t *testing.T) {
 	_ = os.Setenv("REDIS_HOST", "localhost")
 
 	cfg := LoadConfig()
+	if cfg.ListenAddr != "127.0.0.1:9090" {
+		t.Errorf("Expected LISTEN_ADDR 127.0.0.1:9090, got %s", cfg.ListenAddr)
+	}
 
 	if cfg.ServerSecret != "testsecret1234567890123456789012" {
 		t.Errorf("Expected SERVER_SECRET to be testsecret1234567890123456789012, got %s", cfg.ServerSecret)

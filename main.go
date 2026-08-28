@@ -96,7 +96,7 @@ func main() {
 	setupRoutes(e, cfg)
 
 	go func() {
-		if err := e.Start(":80"); err != nil && err != http.ErrServerClosed {
+		if err := e.Start(cfg.ListenAddr); err != nil && err != http.ErrServerClosed {
 			e.Logger.Fatal("shutting down the server")
 		}
 	}()

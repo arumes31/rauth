@@ -15,6 +15,7 @@ import (
 )
 
 type Config struct {
+	ListenAddr           string
 	ServerSecret         string
 	RedisHost            string
 	RedisPort            string
@@ -83,6 +84,7 @@ type Config struct {
 
 func LoadConfig() *Config {
 	return &Config{
+		ListenAddr:           getEnv("LISTEN_ADDR", ":80"),
 		ServerSecret:         getEnv("SERVER_SECRET", ""),
 		RedisHost:            getEnv("REDIS_HOST", "rauth-auth-redis"),
 		RedisPort:            getEnv("REDIS_PORT", "6379"),
