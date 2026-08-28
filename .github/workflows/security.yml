@@ -17,6 +17,7 @@ jobs:
   trivy:
     name: Trivy Scan
     runs-on: ubuntu-24.04
+    timeout-minutes: 35
     permissions:
       contents: read
       security-events: write

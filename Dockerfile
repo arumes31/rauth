@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.26.6-alpine3.24@sha256:af8d6740070b8906d12eae1c3e3ea0957fb63f492051ea05e354c38ef9fe88df AS builder
+FROM golang:1.27-alpine3.24@sha256:4c9fe60190a2a3350ddc51de80d0224b8a6698d12bdfc999fee45ea9d6c46dbc AS builder
 
 # Add dependencies for build
 RUN apk add --no-cache ca-certificates tzdata git
@@ -26,22 +26,29 @@ RUN CGO_ENABLED=0 GOOS=linux go build -v -o rauth main.go
 FROM alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
 
 # Install runtime dependencies
-RUN apk --no-cache add ca-certificates tzdata
+RUN apk --no-cache upgrade \
+    && apk --no-cache add ca-certificates tzdata \
+    && addgroup -S -g 10001 rauth \
+    && adduser -S -D -H -u 10001 -G rauth rauth
 
 # Copy geoipupdate binary built from source in the builder stage
 COPY --from=builder /usr/bin/geoipupdate /usr/bin/geoipupdate
 
-WORKDIR /root/
+WORKDIR /app
 
-COPY --from=builder /app/rauth .
-COPY --from=builder /app/templates ./templates
-COPY --from=builder /app/static ./static
-COPY entrypoint.sh .
-RUN chmod +x entrypoint.sh
+COPY --from=builder --chown=10001:10001 /app/rauth ./rauth
+COPY --from=builder --chown=10001:10001 /app/templates ./templates
+COPY --from=builder --chown=10001:10001 /app/static ./static
+COPY --chown=10001:10001 entrypoint.sh ./entrypoint.sh
+RUN chmod 0555 entrypoint.sh
 
 # Create directory for GeoIP database
-RUN mkdir -p /app/geoip
+RUN install -d -o 10001 -g 10001 -m 0750 /app/geoip
 
-EXPOSE 80
+ENV LISTEN_ADDR=:8080
 
-ENTRYPOINT ["./entrypoint.sh"]
+USER 10001:10001
+
+EXPOSE 8080
+
+ENTRYPOINT ["/app/entrypoint.sh"]
