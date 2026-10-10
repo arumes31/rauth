@@ -41,7 +41,7 @@ jobs:
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
-          version: v2.13.2
+          version: v2.14.0
           args: --timeout=5m
 
       - name: Run govulncheck
@@ -52,7 +52,7 @@ jobs:
       - name: Run Gosec Security Scanner
         if: ${{ always() }}
         run: |
-          go run github.com/securego/gosec/v2/cmd/gosec@v2.28.0 \
+          go run github.com/securego/gosec/v2/cmd/gosec@7b1b5cebe007d62fb58eacb90fc571112939ec30 \
             -no-fail -fmt sarif -out results.sarif ./...
 
       - name: Upload Gosec SARIF file
