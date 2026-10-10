@@ -1,6 +1,6 @@
 module rauth
 
-go 1.27.0
+go 1.27.2
 
 require (
 	github.com/alicebob/miniredis/v2 v2.39.0
@@ -14,7 +14,7 @@ require (
 	github.com/redis/go-redis/v9 v9.22.0
 	github.com/stretchr/testify v1.12.1
 	golang.org/x/crypto v0.57.0
-	golang.org/x/net v0.59.0
+	golang.org/x/net v0.60.0
 )
 
 require (
