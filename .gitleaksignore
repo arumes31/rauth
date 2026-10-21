@@ -1,0 +1,22 @@
+
+# Exact historical deterministic unit-test keys; live credentials are never ignored.
+4ccf9bb6585064e9decea053339c2d4bcf3c4a7f:main_test.go:generic-api-key:217
+4ccf9bb6585064e9decea053339c2d4bcf3c4a7f:main_test.go:generic-api-key:225
+6e20f65d576114ea310eb92d9866da11fac8f641:main_subprocess_test.go:generic-api-key:69
+6e20f65d576114ea310eb92d9866da11fac8f641:main_subprocess_test.go:generic-api-key:78
+6e20f65d576114ea310eb92d9866da11fac8f641:main_subprocess_test.go:generic-api-key:88
+416a5ddef6304badf8b61e5404f4358db55dda41:internal/handlers/pentest_test.go:generic-api-key:69
+416a5ddef6304badf8b61e5404f4358db55dda41:internal/handlers/webauthn_test.go:generic-api-key:25
+18d10f8a1bc05ee1636f60aa181eca4701b340c5:internal/handlers/pentest_test.go:generic-api-key:69
+8bde10ffd31b68bf25f45fe65afd716d57c2e64b:internal/handlers/webauthn_test.go:generic-api-key:26
+be69a905b59a7636246f1babebef49536fcbabc2:internal/core/config_test.go:generic-api-key:9
+daae2aa76099227cc00c48ab0be04d59577cfc46:internal/core/config_test.go:generic-api-key:9
+
+# User confirmed these historical credentials were revoked/replaced on 2026-10-21.
+# Current configuration already reads environment variables; no new values exempted.
+ac8f3e99dcee866ef6c6ecc69c77a05268a738f0:example.env:maxmind-license-key:29
+37bf2099879c3c39b70e67a66d82025df869e635:example.env:generic-api-key:3
+37bf2099879c3c39b70e67a66d82025df869e635:example.env:generic-api-key:10
+25710f31549dbe6c6d1e2a0d9f2cefd7cdb3a9b5:docker-compose.yml:maxmind-license-key:39
+25710f31549dbe6c6d1e2a0d9f2cefd7cdb3a9b5:docker-compose.yml:generic-api-key:14
+25710f31549dbe6c6d1e2a0d9f2cefd7cdb3a9b5:docker-compose.yml:generic-api-key:20
