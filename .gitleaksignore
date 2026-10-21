@@ -11,3 +11,12 @@
 8bde10ffd31b68bf25f45fe65afd716d57c2e64b:internal/handlers/webauthn_test.go:generic-api-key:26
 be69a905b59a7636246f1babebef49536fcbabc2:internal/core/config_test.go:generic-api-key:9
 daae2aa76099227cc00c48ab0be04d59577cfc46:internal/core/config_test.go:generic-api-key:9
+
+# User confirmed these historical credentials were revoked/replaced on 2026-10-21.
+# Current configuration already reads environment variables; no new values exempted.
+ac8f3e99dcee866ef6c6ecc69c77a05268a738f0:example.env:maxmind-license-key:29
+37bf2099879c3c39b70e67a66d82025df869e635:example.env:generic-api-key:3
+37bf2099879c3c39b70e67a66d82025df869e635:example.env:generic-api-key:10
+25710f31549dbe6c6d1e2a0d9f2cefd7cdb3a9b5:docker-compose.yml:maxmind-license-key:39
+25710f31549dbe6c6d1e2a0d9f2cefd7cdb3a9b5:docker-compose.yml:generic-api-key:14
+25710f31549dbe6c6d1e2a0d9f2cefd7cdb3a9b5:docker-compose.yml:generic-api-key:20
