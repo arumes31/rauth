@@ -16,6 +16,7 @@ func TestAuthMiddleware(t *testing.T) {
 	s := miniredis.RunT(t)
 	core.TokenDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
 	core.UserDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
+	core.AuditDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
 
 	e := echo.New()
 	cfg := &core.Config{ServerSecret: "32byte-secret-key-for-testing-!!"}
@@ -56,6 +57,30 @@ func TestAuthMiddleware(t *testing.T) {
 		assert.Equal(t, "testuser", c.Get("username"))
 		assert.Equal(t, "testuser", rec.Header().Get("X-RAuth-User"))
 	})
+
+	t.Run("Redirect and invalidate on device mismatch", func(t *testing.T) {
+		token := "bound-test-token"
+		encrypted, _ := core.EncryptToken(token, cfg.ServerSecret)
+
+		core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken="+token, map[string]interface{}{
+			"status":     "valid",
+			"username":   "testuser",
+			"user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+		})
+
+		req := httptest.NewRequest(http.MethodGet, "/rauthprofile", nil)
+		req.Header.Set("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1")
+		req.AddCookie(&http.Cookie{Name: "X-rauth-authtoken", Value: encrypted})
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := handler(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, rec.Code)
+		assert.Equal(t, "/rauthlogin", rec.Header().Get("Location"))
+		exists, _ := core.TokenDB.Exists(core.Ctx, "X-rauth-authtoken="+token).Result()
+		assert.Equal(t, int64(0), exists, "a session failing device binding must be invalidated")
+	})
 }
 
 func TestAdminMiddleware(t *testing.T) {
@@ -74,6 +99,21 @@ func TestAdminMiddleware(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
 		c.Set("username", "normal")
+
+		err := handler(c)
+		he, ok := err.(*echo.HTTPError)
+		assert.True(t, ok)
+		assert.Equal(t, http.StatusForbidden, he.Code)
+	})
+
+	t.Run("Demotion applies despite admin flag stamped in session", func(t *testing.T) {
+		core.UserDB.HSet(core.Ctx, "user:demoted", map[string]interface{}{"is_admin": "0"})
+
+		req := httptest.NewRequest(http.MethodGet, "/rauthmgmt", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		c.Set("username", "demoted")
+		c.Set("is_admin", "1")
 
 		err := handler(c)
 		he, ok := err.(*echo.HTTPError)

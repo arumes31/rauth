@@ -43,7 +43,8 @@ func TestAuthHandler_Verify2FA(t *testing.T) {
 		AccountName: "testuser",
 	})
 	secret := key.Secret()
-	encryptedSecret := core.Encrypt2FASecret(secret, cfg.ServerSecret)
+	encryptedSecret, err := core.Encrypt2FASecret(secret, cfg.ServerSecret)
+	assert.NoError(t, err)
 
 	core.UserDB.HSet(core.Ctx, "user:testuser", map[string]interface{}{
 		"username":   "testuser",

@@ -174,6 +174,10 @@ func (h *ProfileHandler) RevokePasskey(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "ID is required")
 	}
 
+	if herr := verifyStepUp(h.Cfg, username, c.FormValue("otp_code"), c.FormValue("current_password")); herr != nil {
+		return herr
+	}
+
 	if err := core.DeleteWebAuthnCredential(username, credID); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to revoke passkey")
 	}
@@ -354,6 +358,11 @@ func (h *ProfileHandler) validateTOTP(username, otpCode, encryptedSecret string)
 		return echo.NewHTTPError(http.StatusTooManyRequests, "Too many failed attempts. Please try again later.")
 	}
 	secret := core.Decrypt2FASecret(encryptedSecret, h.Cfg.ServerSecret)
+	// An undecryptable secret must never validate: an empty TOTP key would
+	// make codes trivially computable.
+	if secret == "" {
+		return echo.NewHTTPError(http.StatusInternalServerError, "2FA configuration error")
+	}
 	if !totp.Validate(otpCode, secret) {
 		core.CheckRateLimit("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay)
 		return echo.NewHTTPError(http.StatusBadRequest, "Invalid 2FA code")

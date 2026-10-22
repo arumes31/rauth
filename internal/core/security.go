@@ -186,17 +186,23 @@ func GenerateRandomString(n int) string {
 	return base64.URLEncoding.EncodeToString(b)
 }
 
-func Encrypt2FASecret(secret string, key string) string {
+// Encrypt2FASecret encrypts a TOTP secret for storage. It fails closed: on an
+// encryption error it returns an error instead of storing the plaintext.
+func Encrypt2FASecret(secret string, key string) (string, error) {
 	if secret == "" {
-		return ""
+		return "", nil
 	}
 	encrypted, err := EncryptToken(secret, key)
 	if err != nil {
-		return secret
-	} // Fallback to plain if encryption fails (should not happen)
-	return "enc:" + encrypted
+		return "", fmt.Errorf("encrypt 2FA secret: %w", err)
+	}
+	return "enc:" + encrypted, nil
 }
 
+// Decrypt2FASecret returns the plaintext TOTP secret. Legacy unprefixed values
+// are returned as-is. An "enc:" value that fails to decrypt yields "", which
+// callers must treat as "no usable secret" (fail closed) rather than falling
+// back to the stored ciphertext.
 func Decrypt2FASecret(secret string, key string) string {
 	if secret == "" {
 		return ""
@@ -206,7 +212,8 @@ func Decrypt2FASecret(secret string, key string) string {
 	}
 	decrypted, err := DecryptToken(secret[4:], key)
 	if err != nil {
-		return secret // Fallback to plain/as-is if decryption fails
+		slog.Error("Failed to decrypt stored 2FA secret", "error", err)
+		return ""
 	}
 	return decrypted
 }
