@@ -88,6 +88,9 @@ func main() {
 	e.HideBanner = true
 
 	// Configure real IP extraction from headers behind reverse proxies
+	if len(cfg.TrustedProxies) == 0 {
+		slog.Warn("TRUSTED_PROXIES is not set; using legacy smart mode: forwarding headers are trusted from any private-network peer, and enabled TRUST_* flags apply to every peer. Set TRUSTED_PROXIES to your reverse proxy's IP.")
+	}
 	e.IPExtractor = CreateIPExtractor(cfg)
 
 	// Setup everything
@@ -396,7 +399,7 @@ func setupRoutes(e *echo.Echo, cfg *core.Config) {
 	protected.Use(middleware.AuthMiddleware(cfg))
 
 	// WebAuthn Protected Registration
-	protected.GET("/webauthn/register/begin", webauthnHandler.BeginRegistration)
+	protected.POST("/webauthn/register/begin", webauthnHandler.BeginRegistration)
 	protected.POST("/webauthn/register/finish", webauthnHandler.FinishRegistration)
 
 	protected.POST("/logout", func(c echo.Context) error {
@@ -492,76 +495,88 @@ func initializeSystem(cfg *core.Config) func() {
 }
 
 // CreateIPExtractor returns a function that extracts the real client IP from request headers.
-// It prioritizes explicit trust configuration but falls back to a "smart" detection mode
-// where it trusts headers if the immediate connection originates from a private IP (e.g. Docker proxy).
+//
+// Forwarding headers are only honoured when the immediate peer (RemoteAddr) is a
+// trusted proxy. Trusted proxies are configured explicitly via TRUSTED_PROXIES
+// (IPs/CIDRs). When it is unset, a legacy "smart" mode treats any private or
+// loopback peer (e.g. a Docker-network proxy) as trusted; that mode relies on the
+// proxy overwriting X-Real-IP and should be replaced by an explicit list.
 func CreateIPExtractor(cfg *core.Config) echo.IPExtractor {
+	explicit := len(cfg.TrustedProxies) > 0
+	isTrustedProxy := func(ip string) bool {
+		if explicit {
+			return cfg.IsIPAllowed(ip, cfg.TrustedProxies)
+		}
+		return core.IsPrivateIP(ip)
+	}
+
 	return func(req *http.Request) string {
 		remoteHost, _, _ := net.SplitHostPort(req.RemoteAddr)
 		if remoteHost == "" {
 			remoteHost = req.RemoteAddr
 		}
+		peerTrusted := isTrustedProxy(remoteHost)
+
+		// With an explicit proxy allowlist, a peer outside it can never choose
+		// its own IP through headers, whatever the TRUST_* flags say.
+		if explicit && !peerTrusted {
+			return remoteHost
+		}
 
 		// 1. Check Cloudflare (if explicitly trusted)
 		if cfg.TrustCloudflareIP {
-			if cfIP := req.Header.Get("CF-Connecting-IP"); cfIP != "" {
-				if ip := net.ParseIP(cfIP); ip != nil {
-					return ip.String()
-				}
+			if ip := net.ParseIP(strings.TrimSpace(req.Header.Get("CF-Connecting-IP"))); ip != nil {
+				return ip.String()
 			}
 		}
 
 		// 2. Check X-Real-IP
-		realIPHeader := req.Header.Get("X-Real-IP")
-		if realIPHeader != "" {
+		if ip := net.ParseIP(strings.TrimSpace(req.Header.Get("X-Real-IP"))); ip != nil {
+			realIP := ip.String()
 			// If explicitly trusted, return it regardless
 			if cfg.TrustXRealIP {
-				if ip := net.ParseIP(realIPHeader); ip != nil {
-					return ip.String()
-				}
+				return realIP
 			}
-			// In Smart Mode, only return it if the source is private AND the header IP is public.
-			// If the header IP is ALSO private, we continue to check X-Forwarded-For which might have the real IP.
-			if core.IsPrivateIP(remoteHost) && !core.IsPrivateIP(realIPHeader) {
-				if ip := net.ParseIP(realIPHeader); ip != nil {
-					return ip.String()
-				}
+			// Legacy smart mode: accept a public header IP from a private peer; a
+			// private one falls through to X-Forwarded-For, which might carry the
+			// real client further down the chain. With TRUSTED_PROXIES set,
+			// X-Real-IP is only used when TRUST_X_REAL_IP is enabled, since not
+			// every proxy overwrites it.
+			if !explicit && peerTrusted && !core.IsPrivateIP(realIP) {
+				return realIP
 			}
 		}
 
 		// 3. Check X-Forwarded-For
-		xff := req.Header.Get("X-Forwarded-For")
-		if xff != "" {
-			ips := strings.Split(xff, ",")
-			// If explicitly trusted, return the leftmost (original client) IP
-			if cfg.TrustXForwardedFor {
-				for i := 0; i < len(ips); i++ {
-					cleaned := strings.TrimSpace(ips[i])
-					if ip := net.ParseIP(cleaned); ip != nil {
-						return ip.String()
-					}
-				}
-			}
-
-			// In Smart Mode, only look at XFF if the remote host is private.
-			// We walk the chain from right-to-left and return the first non-private IP.
-			if core.IsPrivateIP(remoteHost) {
-				for i := len(ips) - 1; i >= 0; i-- {
-					cleaned := strings.TrimSpace(ips[i])
-					if ip := net.ParseIP(cleaned); ip != nil {
-						ipStr := ip.String()
-						if !core.IsPrivateIP(ipStr) {
-							return ipStr
-						}
-					}
-				}
-				// Fallback: If everyone in the chain is private (local traffic), take the leftmost
-				cleaned := strings.TrimSpace(ips[0])
-				if ip := net.ParseIP(cleaned); ip != nil {
-					return ip.String()
-				}
+		if xff := req.Header.Get("X-Forwarded-For"); xff != "" && (cfg.TrustXForwardedFor || peerTrusted) {
+			if ip := clientIPFromXFF(strings.Split(xff, ","), isTrustedProxy); ip != "" {
+				return ip
 			}
 		}
 
 		return remoteHost
 	}
+}
+
+// clientIPFromXFF walks an X-Forwarded-For chain right-to-left and returns the
+// first hop that is not a trusted proxy. Proxies append to the header, so the
+// leftmost entries are entirely client-controlled and are never preferred. If
+// every hop is trusted (purely internal traffic), the rightmost valid entry is
+// returned since it was written by the closest proxy.
+func clientIPFromXFF(hops []string, isTrustedProxy func(string) bool) string {
+	rightmost := ""
+	for i := len(hops) - 1; i >= 0; i-- {
+		ip := net.ParseIP(strings.TrimSpace(hops[i]))
+		if ip == nil {
+			continue
+		}
+		ipStr := ip.String()
+		if rightmost == "" {
+			rightmost = ipStr
+		}
+		if !isTrustedProxy(ipStr) {
+			return ipStr
+		}
+	}
+	return rightmost
 }

@@ -398,7 +398,7 @@ func TestDecrypt2FASecret(t *testing.T) {
 		{"Empty Secret", "", key, ""},
 		{"Plain Secret", "plain_secret", key, "plain_secret"},
 		{"Valid Encrypted Secret", encSecret, key, plainSecret},
-		{"Invalid Encrypted Secret", "enc:invalid_data", key, "enc:invalid_data"},
+		{"Invalid Encrypted Secret fails closed", "enc:invalid_data", key, ""},
 	}
 
 	for _, tt := range tests {
@@ -621,7 +621,8 @@ func TestEncrypt2FASecret(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := Encrypt2FASecret(tt.secret, tt.key)
+			got, err := Encrypt2FASecret(tt.secret, tt.key)
+			require.NoError(t, err)
 
 			if tt.wantExact != "" {
 				require.Equal(t, tt.wantExact, got)

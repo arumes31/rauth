@@ -10,6 +10,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBruteForceProtection(t *testing.T) {
@@ -189,4 +190,52 @@ func TestBruteForceProtection(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestSuccessfulLoginDoesNotResetIPCounters(t *testing.T) {
+	setupHandlersTest(t)
+
+	cfg := &core.Config{
+		ServerSecret:                "32byte-secret-key-for-testing-!!",
+		CookieDomains:               []string{"example.com"},
+		RateLimitLoginMax:           100,
+		RateLimitLoginDecay:         300,
+		RateLimitLoginAccessMax:     1000,
+		RateLimitLoginAccessDecay:   60,
+		RateLimitLoginFailUserMax:   5,
+		RateLimitLoginFailUserDecay: 300,
+		RateLimitLoginFailIPMax:     20,
+		RateLimitLoginFailIPDecay:   600,
+	}
+	h := &AuthHandler{Cfg: cfg}
+	e := echo.New()
+	e.Renderer = &mockRenderer{}
+
+	require.NoError(t, core.CreateUser("sprayer", "Correct-Horse-1", "", false, ""))
+	clientIP := "203.0.113.10"
+
+	// One failed attempt against another (unknown) account from this IP.
+	f := url.Values{"username": {"victim"}, "password": {"guess"}}
+	c, _ := createTestContext(e, http.MethodPost, "/rauthlogin", f)
+	c.Request().Header.Set(echo.HeaderXRealIP, clientIP)
+	require.NoError(t, h.Login(c))
+
+	// A successful login with the attacker's own account must not wipe the
+	// IP-scoped counters.
+	f = url.Values{"username": {"sprayer"}, "password": {"Correct-Horse-1"}}
+	c, _ = createTestContext(e, http.MethodPost, "/rauthlogin", f)
+	c.Request().Header.Set(echo.HeaderXRealIP, clientIP)
+	require.NoError(t, h.Login(c))
+
+	failIP, err := core.RateLimitDB.Get(core.Ctx, "rate_limit:login_fail_ip:"+clientIP).Int()
+	require.NoError(t, err)
+	assert.Equal(t, 1, failIP)
+	postIP, err := core.RateLimitDB.Get(core.Ctx, "rate_limit:login_post_ip:"+clientIP).Int()
+	require.NoError(t, err)
+	assert.Equal(t, 2, postIP)
+
+	// The failed attempt for an unknown account must not create a per-user
+	// audit list for the attacker-chosen name.
+	exists, _ := core.AuditDB.Exists(core.Ctx, "user_audit_logs:victim").Result()
+	assert.Equal(t, int64(0), exists)
 }

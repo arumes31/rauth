@@ -26,23 +26,26 @@ func AuthMiddleware(cfg *core.Config) echo.MiddlewareFunc {
 				return c.Redirect(http.StatusFound, "/rauthlogin")
 			}
 
-			// ⚡ Bolt optimization: Use HMGet instead of HGetAll to avoid fetching/parsing unnecessary fields.
-			vals, err := core.TokenDB.HMGet(core.Ctx, "X-rauth-authtoken="+token, "status", "username", "is_admin", "groups").Result()
+			// Fetch the full session so the same geo/device binding enforced on
+			// /rauthvalidate can be applied to rauth's own pages.
+			redisKey := "X-rauth-authtoken=" + token
+			data, err := core.TokenDB.HGetAll(core.Ctx, redisKey).Result()
 			if err != nil {
 				slog.Error("Redis error in auth middleware", "error", err)
 				return c.Redirect(http.StatusFound, "/rauthlogin")
 			}
 
-			if len(vals) < 4 || vals[0] == nil || vals[0].(string) != "valid" {
+			if data["status"] != "valid" {
 				return c.Redirect(http.StatusFound, "/rauthlogin")
 			}
 
-			username := ""
-			if vals[1] != nil {
-				username = vals[1].(string)
-			}
+			username := data["username"]
 			if username == "" {
 				slog.Warn("Session missing username field", "ip", c.RealIP())
+				return c.Redirect(http.StatusFound, "/rauthlogin")
+			}
+
+			if !core.SessionBindingValid(cfg, c.Request(), token, redisKey, data, c.RealIP()) {
 				return c.Redirect(http.StatusFound, "/rauthlogin")
 			}
 
@@ -51,10 +54,7 @@ func AuthMiddleware(cfg *core.Config) echo.MiddlewareFunc {
 
 			// is_admin is stamped into the token at issue time. Fall back to a
 			// single-field user lookup only for legacy sessions that predate it.
-			isAdmin := ""
-			if vals[2] != nil {
-				isAdmin = vals[2].(string)
-			}
+			isAdmin := data["is_admin"]
 			if isAdmin == "" {
 				if v, err := core.UserDB.HGet(core.Ctx, "user:"+username, "is_admin").Result(); err == nil {
 					isAdmin = v
@@ -65,10 +65,7 @@ func AuthMiddleware(cfg *core.Config) echo.MiddlewareFunc {
 			}
 			c.Set("is_admin", isAdmin)
 
-			groups := ""
-			if vals[3] != nil {
-				groups = vals[3].(string)
-			}
+			groups := data["groups"]
 
 			// Set headers for Nginx auth_request to forward to upstream
 			c.Response().Header().Set("X-RAuth-User", username)
@@ -87,20 +84,16 @@ func AdminMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 			return c.Redirect(http.StatusFound, "/rauthlogin")
 		}
 
-		// AuthMiddleware already resolved admin status into the context; reuse it
-		// rather than re-fetching the whole user hash.
-		isAdmin, _ := c.Get("is_admin").(string)
-		if isAdmin == "" {
-			v, err := core.UserDB.HGet(core.Ctx, "user:"+username, "is_admin").Result()
-			if err == redis.Nil {
-				// Missing field => not an admin; fall through to the 403 below.
-				isAdmin = "0"
-			} else if err != nil {
-				slog.Error("Failed to fetch admin status in admin middleware", "user", username, "error", err)
-				return echo.NewHTTPError(http.StatusInternalServerError, "Internal Server Error")
-			} else {
-				isAdmin = v
-			}
+		// Check admin status against the live user record rather than the value
+		// stamped into the session at login, so a demotion takes effect on the
+		// admin UI immediately instead of after the session expires.
+		isAdmin, err := core.UserDB.HGet(core.Ctx, "user:"+username, "is_admin").Result()
+		if err == redis.Nil {
+			// Missing field => not an admin; fall through to the 403 below.
+			isAdmin = "0"
+		} else if err != nil {
+			slog.Error("Failed to fetch admin status in admin middleware", "user", username, "error", err)
+			return echo.NewHTTPError(http.StatusInternalServerError, "Internal Server Error")
 		}
 
 		if isAdmin != "1" {

@@ -56,6 +56,9 @@ type Config struct {
 	TrustCloudflareIP  bool
 	TrustXRealIP       bool
 	TrustXForwardedFor bool
+	// TrustedProxies lists the reverse proxy IPs/CIDRs whose forwarding headers
+	// are honoured. Empty means legacy "smart" mode (any private peer).
+	TrustedProxies []string
 	// Rate Limiting
 	RateLimitLoginMax           int
 	RateLimitLoginDecay         int
@@ -125,6 +128,7 @@ func LoadConfig() *Config {
 		TrustCloudflareIP:  getEnvBool("TRUST_CLOUDFLARE_IP", false),
 		TrustXRealIP:       getEnvBool("TRUST_X_REAL_IP", false),
 		TrustXForwardedFor: getEnvBool("TRUST_X_FORWARDED_FOR", false),
+		TrustedProxies:     getEnvSlice("TRUSTED_PROXIES", []string{}),
 		// Rate Limiting Defaults
 		RateLimitLoginMax:           getEnvInt("RATE_LIMIT_LOGIN_MAX", 30),
 		RateLimitLoginDecay:         getEnvInt("RATE_LIMIT_LOGIN_DECAY", 300),

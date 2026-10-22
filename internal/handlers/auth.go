@@ -83,11 +83,7 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 	// Session is present: reset the per-IP validate throttle.
 	core.ResetRateLimit(rateLimitKey)
 
-	if !h.sessionGeoAllowed(token, redisKey, data, clientIP) {
-		return c.NoContent(http.StatusUnauthorized)
-	}
-
-	if !h.sessionUAMatches(c, token, redisKey, data, clientIP) {
+	if !core.SessionBindingValid(h.Cfg, c.Request(), token, redisKey, data, clientIP) {
 		return c.NoContent(http.StatusUnauthorized)
 	}
 
@@ -163,120 +159,6 @@ func (h *AuthHandler) rateLimitedUnauthorized(c echo.Context, rateLimitKey strin
 	return c.NoContent(http.StatusUnauthorized)
 }
 
-// invalidateSession removes a session token and both its user and per-IP index
-// entries, so HasActiveSessions does not keep seeing a stale ip_sessions entry.
-func (h *AuthHandler) invalidateSession(token, redisKey, username, clientIP string) {
-	core.RemoveSessionIndex(username, token)
-	core.RemoveIPSessionIndex(clientIP, token)
-	core.TokenDB.Del(core.Ctx, redisKey)
-}
-
-// sessionGeoAllowed enforces the geo-fence: it blocks access from disallowed
-// countries and invalidates a session whose origin country has changed.
-// On any violation it invalidates the session and returns false.
-func (h *AuthHandler) sessionGeoAllowed(token, redisKey string, data map[string]string, clientIP string) bool {
-	currentCountry := core.GetCountryCode(clientIP)
-
-	if !h.Cfg.IsCountryAllowed(currentCountry) {
-		slog.Warn("Access from blocked country", "country", currentCountry, "ip", clientIP)
-		core.LogAudit("BLOCKED_COUNTRY_ACCESS", data["username"], clientIP, map[string]interface{}{"country": currentCountry})
-		h.invalidateSession(token, redisKey, data["username"], clientIP)
-		return false
-	}
-
-	if data["country"] != "unknown" && currentCountry != "unknown" && data["country"] != currentCountry {
-		details := map[string]interface{}{"old": data["country"], "new": currentCountry, "current_ip": clientIP}
-
-		// In lenient mode, tolerate the change (still inside the allowlist) and
-		// update the stored country so it is not repeatedly flagged. This avoids
-		// spurious logouts for roaming/VPN/CGNAT users.
-		if h.Cfg.GeoChangeMode == "lenient" {
-			core.LogAudit("COUNTRY_CHANGE_TOLERATED", data["username"], clientIP, details)
-			core.TokenDB.HSet(core.Ctx, redisKey, "country", currentCountry)
-			return true
-		}
-
-		core.LogAudit("COUNTRY_CHANGE_DETECTED", data["username"], clientIP, details)
-		h.invalidateSession(token, redisKey, data["username"], clientIP)
-		return false
-	}
-
-	return true
-}
-
-// sessionUAMatches runs the dual-layer device check (User-Agent Client Hints
-// with a lenient User-Agent parser fallback). On a mismatch it invalidates the
-// session and returns false.
-func (h *AuthHandler) sessionUAMatches(c echo.Context, token, redisKey string, data map[string]string, clientIP string) bool {
-	chPlatform := c.Request().Header.Get("Sec-CH-UA-Platform")
-	chMobile := c.Request().Header.Get("Sec-CH-UA-Mobile")
-	chModel := c.Request().Header.Get("Sec-CH-UA-Model")
-
-	storedPlatform := data["ua_ch_platform"]
-	storedMobile := data["ua_ch_mobile"]
-	storedModel := data["ua_ch_model"]
-
-	normalizeCH := func(val string) string { return strings.Trim(val, `"`) }
-
-	uaIsValid := true
-	useClientHints := false
-
-	// If session HAS Hints, we enforce binding if the current request also HAS Hints.
-	// If the current request has NO hints but the session DOES, we fall back to UA matching
-	// unless we want to be extremely strict (which might break on proxy header stripping).
-	//
-	// A hint is only compared when it is present on BOTH the stored session and the
-	// current request. A hint that is absent on the current request is NOT a mismatch:
-	// high-entropy hints (notably Sec-CH-UA-Model) are delivered inconsistently. They are
-	// sent to rauth's own origin at login (it advertises Accept-CH/Critical-CH), but the
-	// /rauthvalidate auth_request subrequest carries the headers the client sent to the
-	// protected app, which usually does not request Client Hints. Treating the missing
-	// model hint as a mismatch invalidated every mobile session on the next validation
-	// (e.g. stored model "SM-S921B" vs an empty current model), causing a login loop.
-	if storedPlatform != "" || storedMobile != "" || storedModel != "" {
-		if chPlatform != "" || chMobile != "" || chModel != "" {
-			useClientHints = true
-			if storedPlatform != "" && chPlatform != "" && normalizeCH(storedPlatform) != normalizeCH(chPlatform) {
-				uaIsValid = false
-			}
-			if uaIsValid && storedMobile != "" && chMobile != "" && normalizeCH(storedMobile) != normalizeCH(chMobile) {
-				uaIsValid = false
-			}
-			if uaIsValid && storedModel != "" && chModel != "" && normalizeCH(storedModel) != normalizeCH(chModel) {
-				uaIsValid = false
-			}
-		}
-	}
-
-	if !useClientHints {
-		// Fallback to lenient User-Agent parser matching.
-		uaIsValid = core.IsUserAgentCompatible(data["user_agent"], c.Request().UserAgent())
-	}
-
-	if uaIsValid {
-		return true
-	}
-
-	details := map[string]interface{}{
-		"use_ch":              useClientHints,
-		"stored_ua":           data["user_agent"],
-		"current_ua":          c.Request().UserAgent(),
-		"stored_ch_platform":  storedPlatform,
-		"current_ch_platform": chPlatform,
-		"stored_ch_model":     storedModel,
-		"current_ch_model":    chModel,
-	}
-	slog.Warn("Session validation failed due to User-Agent/Client-Hint mismatch, invalidating session",
-		"username", data["username"], "use_ch", useClientHints,
-		"stored_ua", data["user_agent"], "current_ua", c.Request().UserAgent(),
-		"stored_ch_platform", storedPlatform, "current_ch_platform", chPlatform,
-		"stored_ch_model", storedModel, "current_ch_model", chModel,
-	)
-	core.LogAudit("USER_AGENT_MISMATCH_INVALIDATED", data["username"], clientIP, details)
-	h.invalidateSession(token, redisKey, data["username"], clientIP)
-	return false
-}
-
 func (h *AuthHandler) Login(c echo.Context) error {
 	clientIP := c.RealIP()
 	slog.Debug("Login attempt", "ip", clientIP, "method", c.Request().Method)
@@ -324,9 +206,10 @@ func (h *AuthHandler) Login(c echo.Context) error {
 		return h.handleAuthFailure(c, username)
 	}
 
-	// Success! Reset per-user penalties
+	// Success! Reset the per-user penalty for this account only. IP-scoped
+	// counters are deliberately left alone: resetting them on success would let
+	// an attacker holding any valid account clear their own throttle.
 	core.ResetRateLimit("login_fail_user:" + username)
-	core.ResetRateLimit("login_post_ip:" + clientIP)
 
 	// Check if 2FA is enabled
 	if userRecord.TwoFactor != "" {
@@ -346,6 +229,21 @@ func (h *AuthHandler) checkUserThrottling(c echo.Context, username string) (bool
 		return true, c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "This account is temporarily locked due to too many failed attempts.", "csrf": c.Get("csrf"), "rd": getRD(c)})
 	}
 	return false, nil
+}
+
+// natFailureToleranceFactor raises the cross-user IP failure limit for IPs
+// that already hold a valid session (e.g. an office behind one NAT address),
+// instead of exempting them entirely.
+const natFailureToleranceFactor = 4
+
+// checkIPFailureLimit records a failed authentication attempt against the
+// client IP and reports whether the IP is still within its failure budget.
+func (h *AuthHandler) checkIPFailureLimit(clientIP string) bool {
+	limit := h.Cfg.RateLimitLoginFailIPMax
+	if core.HasActiveSessions(clientIP) {
+		limit *= natFailureToleranceFactor
+	}
+	return core.CheckRateLimit("login_fail_ip:"+clientIP, limit, h.Cfg.RateLimitLoginFailIPDecay)
 }
 
 func (h *AuthHandler) verifyCredentials(username, password string) (*core.User, bool) {
@@ -369,7 +267,7 @@ func (h *AuthHandler) verifyCredentials(username, password string) (*core.User, 
 
 func (h *AuthHandler) handleAuthFailure(c echo.Context, username string) error {
 	clientIP := c.RealIP()
-	core.LogAudit("LOGIN_FAILED", username, clientIP, nil)
+	h.logLoginFailed(username, clientIP)
 	core.LoginFailedTotal.Inc()
 
 	if username != "" {
@@ -377,14 +275,28 @@ func (h *AuthHandler) handleAuthFailure(c echo.Context, username string) error {
 	}
 
 	// 4. Track FAILED attempts from IP across different users
-	if !core.HasActiveSessions(clientIP) {
-		if !core.CheckRateLimit("login_fail_ip:"+clientIP, h.Cfg.RateLimitLoginFailIPMax, h.Cfg.RateLimitLoginFailIPDecay) {
-			slog.Warn("Global IP failure rate limit exceeded", "ip", clientIP)
-			return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many failed attempts from your network. Please try again later.", "csrf": c.Get("csrf"), "rd": getRD(c)})
-		}
+	if !h.checkIPFailureLimit(clientIP) {
+		slog.Warn("Global IP failure rate limit exceeded", "ip", clientIP)
+		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many failed attempts from your network. Please try again later.", "csrf": c.Get("csrf"), "rd": getRD(c)})
 	}
 
 	return c.Render(http.StatusOK, "login.html", map[string]interface{}{"error": "Invalid credentials", "csrf": c.Get("csrf"), "rd": getRD(c)})
+}
+
+// logLoginFailed audits a failed password login. The submitted username is
+// attacker-controlled, so it is only used as the audit owner (which creates a
+// per-user audit list) when it names an existing account; otherwise the entry
+// goes to the global log only, with the name included solely if well-formed.
+func (h *AuthHandler) logLoginFailed(username, clientIP string) {
+	if core.ValidateUsername(username) != nil {
+		core.LogAudit("LOGIN_FAILED", "", clientIP, map[string]interface{}{"attempted_username": "(invalid)"})
+		return
+	}
+	if exists, err := core.UserDB.Exists(core.Ctx, "user:"+username).Result(); err != nil || exists == 0 {
+		core.LogAudit("LOGIN_FAILED", "", clientIP, map[string]interface{}{"attempted_username": username})
+		return
+	}
+	core.LogAudit("LOGIN_FAILED", username, clientIP, nil)
 }
 
 func (h *AuthHandler) initiate2FASession(c echo.Context, username string) error {
@@ -481,7 +393,6 @@ func (h *AuthHandler) handle2FASuccess(c echo.Context, username, clientIP, pendi
 		SameSite: http.SameSiteLaxMode,
 	})
 
-	core.ResetRateLimit("login_post_ip:" + clientIP)
 	core.ResetRateLimit("login_fail_user:" + username)
 	core.ResetRateLimit("2fa_fail_user:" + username)
 
@@ -505,10 +416,8 @@ func (h *AuthHandler) handle2FAFailure(c echo.Context, username, clientIP string
 	core.LogAudit("2FA_FAILED", username, clientIP, nil)
 	core.CheckRateLimit("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay)
 
-	if !core.HasActiveSessions(clientIP) {
-		if !core.CheckRateLimit("login_fail_ip:"+clientIP, h.Cfg.RateLimitLoginFailIPMax, h.Cfg.RateLimitLoginFailIPDecay) {
-			return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many failed attempts. Please try again later.", "csrf": c.Get("csrf"), "display2fa": true, "rd": getRD(c)})
-		}
+	if !h.checkIPFailureLimit(clientIP) {
+		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many failed attempts. Please try again later.", "csrf": c.Get("csrf"), "display2fa": true, "rd": getRD(c)})
 	}
 
 	return c.Render(http.StatusOK, "login.html", map[string]interface{}{
@@ -532,9 +441,7 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 	}
 
 	userRecord, _ := core.GetUser(username)
-	secret := core.Decrypt2FASecret(userRecord.TwoFactor, h.Cfg.ServerSecret)
-
-	if secret == "" {
+	if userRecord.TwoFactor == "" {
 		core.TokenDB.Del(core.Ctx, "pending_2fa:"+pendingToken)
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
@@ -543,7 +450,10 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many failed attempts. Please try again later.", "csrf": c.Get("csrf"), "display2fa": true, "rd": c.QueryParam("rd")})
 	}
 
-	totpOK := totp.Validate(code, secret)
+	// An unreadable stored secret disables TOTP validation (fail closed) but
+	// still lets the independent recovery-code check below run.
+	secret := core.Decrypt2FASecret(userRecord.TwoFactor, h.Cfg.ServerSecret)
+	totpOK := secret != "" && totp.Validate(code, secret)
 	if totpOK && core.TOTPCodeReused(username, code) {
 		core.LogAudit("2FA_REPLAY_BLOCKED", username, clientIP, nil)
 		return c.Render(http.StatusUnauthorized, "login.html", map[string]interface{}{
@@ -617,7 +527,11 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 	// Verify the code against the temporary secret
 	if totp.Validate(code, secret) {
 		// Save to user profile (encrypted)
-		encryptedSecret := core.Encrypt2FASecret(secret, h.Cfg.ServerSecret)
+		encryptedSecret, err := core.Encrypt2FASecret(secret, h.Cfg.ServerSecret)
+		if err != nil {
+			slog.Error("Failed to encrypt 2FA secret", "error", err)
+			return echo.NewHTTPError(http.StatusInternalServerError, "Internal Server Error")
+		}
 		err = core.UserDB.HSet(core.Ctx, "user:"+username, "2fa_secret", encryptedSecret).Err()
 		if err != nil {
 			slog.Error("Failed to save 2FA secret", "error", err)
@@ -647,7 +561,6 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 			go core.Send2FAModifiedNotification(core.TwoFactorNotificationOptions{Email: userRecord.Email, Username: username, Action: "Enabled", IP: clientIP, Device: device})
 		}
 
-		core.ResetRateLimit("login_post_ip:" + clientIP)
 		core.ResetRateLimit("login_fail_user:" + username)
 		core.ResetRateLimit("2fa_fail_user:" + username)
 		core.LogAudit("2FA_SETUP_SUCCESS", username, clientIP, nil)
@@ -657,10 +570,8 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 	// Penalize failed setup attempts
 	core.CheckRateLimit("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay)
 
-	if !core.HasActiveSessions(clientIP) {
-		if !core.CheckRateLimit("login_fail_ip:"+clientIP, h.Cfg.RateLimitLoginFailIPMax, h.Cfg.RateLimitLoginFailIPDecay) {
-			return c.Render(http.StatusTooManyRequests, "setup_2fa.html", map[string]interface{}{"error": "Too many failed attempts. Please try again later.", "csrf": c.Get("csrf"), "rd": getRD(c)})
-		}
+	if !h.checkIPFailureLimit(clientIP) {
+		return c.Render(http.StatusTooManyRequests, "setup_2fa.html", map[string]interface{}{"error": "Too many failed attempts. Please try again later.", "csrf": c.Get("csrf"), "rd": getRD(c)})
 	}
 
 	return c.Render(http.StatusOK, "setup_2fa.html", map[string]interface{}{
@@ -777,10 +688,9 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 	core.LogAudit("LOGIN_SUCCESS", username, clientIP, map[string]interface{}{"country": country})
 	core.LoginSuccessTotal.Inc()
 
-	// Reset all relevant rate limits on success
-	core.ResetRateLimit("login_post_ip:" + clientIP)
+	// Reset the per-user penalty on success. IP-scoped counters are not reset
+	// so a successful login cannot be used to clear an IP's failure budget.
 	core.ResetRateLimit("login_fail_user:" + username)
-	core.ResetRateLimit("login_fail_ip:" + clientIP)
 
 	redirect := core.ValidateRedirectURL(getRD(c), "/rauthprofile", username, h.Cfg)
 	return c.Redirect(http.StatusFound, redirect)

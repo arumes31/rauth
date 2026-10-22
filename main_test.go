@@ -193,7 +193,87 @@ func TestCreateIPExtractor(t *testing.T) {
 				"X-Forwarded-For": "203.0.113.5, 198.51.100.2",
 			},
 			remoteAddr: "192.168.1.10:12345",
-			expectedIP: "203.0.113.5",
+			// Proxies append to XFF, so the rightmost untrusted hop is the
+			// client; the leftmost entry is client-controlled.
+			expectedIP: "198.51.100.2",
+		},
+		{
+			name: "X-Forwarded-For ignores spoofed leftmost entry",
+			cfg: &core.Config{
+				TrustXForwardedFor: true,
+			},
+			headers: map[string]string{
+				"X-Forwarded-For": "1.2.3.4, 203.0.113.7",
+			},
+			remoteAddr: "203.0.113.200:12345",
+			expectedIP: "203.0.113.7",
+		},
+		{
+			name: "X-Forwarded-For skips trusted proxies right-to-left",
+			cfg: &core.Config{
+				TrustedProxies: []string{"10.0.0.0/8"},
+			},
+			headers: map[string]string{
+				"X-Forwarded-For": "1.2.3.4, 203.0.113.9, 10.1.1.1",
+			},
+			remoteAddr: "10.0.0.5:12345",
+			expectedIP: "203.0.113.9",
+		},
+		{
+			name: "X-Forwarded-For all-private chain returns rightmost hop",
+			cfg:  &core.Config{},
+			headers: map[string]string{
+				"X-Forwarded-For": "10.9.9.9, 192.168.1.50",
+			},
+			remoteAddr: "172.18.0.2:12345",
+			expectedIP: "192.168.1.50",
+		},
+		{
+			name: "TrustedProxies: headers from untrusted private peer are ignored",
+			cfg: &core.Config{
+				TrustedProxies: []string{"172.18.0.2"},
+				TrustXRealIP:   true,
+			},
+			headers: map[string]string{
+				"X-Real-IP":       "198.51.100.1",
+				"X-Forwarded-For": "198.51.100.1",
+			},
+			remoteAddr: "172.18.0.3:12345",
+			expectedIP: "172.18.0.3",
+		},
+		{
+			name: "TrustedProxies: X-Real-IP from trusted proxy is honoured with TRUST_X_REAL_IP",
+			cfg: &core.Config{
+				TrustedProxies: []string{"172.18.0.2"},
+				TrustXRealIP:   true,
+			},
+			headers: map[string]string{
+				"X-Real-IP": "192.168.1.77",
+			},
+			remoteAddr: "172.18.0.2:12345",
+			expectedIP: "192.168.1.77",
+		},
+		{
+			name: "TrustedProxies: X-Real-IP ignored without TRUST_X_REAL_IP, XFF used",
+			cfg: &core.Config{
+				TrustedProxies: []string{"172.18.0.2"},
+			},
+			headers: map[string]string{
+				"X-Real-IP":       "1.2.3.4",
+				"X-Forwarded-For": "1.2.3.4, 198.51.100.8",
+			},
+			remoteAddr: "172.18.0.2:12345",
+			expectedIP: "198.51.100.8",
+		},
+		{
+			name: "Smart mode: headers from public peer are ignored",
+			cfg:  &core.Config{},
+			headers: map[string]string{
+				"X-Real-IP":       "198.51.100.1",
+				"X-Forwarded-For": "198.51.100.1",
+			},
+			remoteAddr: "203.0.113.50:12345",
+			expectedIP: "203.0.113.50",
 		},
 	}
 

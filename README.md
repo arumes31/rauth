@@ -233,7 +233,10 @@ real_ip_recursive on;
 #   proxy_set_header X-Real-IP $remote_addr;
 ```
 
-Then set **`TRUST_X_REAL_IP=true`** on the RAuth container. This is safe because nginx overwrites `X-Real-IP` with `$remote_addr`, which a client cannot spoof through the proxy. The full annotated config is in [`nginx-proxy-example.conf`](nginx-proxy-example.conf).
+Then set **`TRUSTED_PROXIES`** to nginx's exact address (e.g. `TRUSTED_PROXIES=172.18.0.10`; a whole Docker network CIDR would trust every container on it) and **`TRUST_X_REAL_IP=true`** on the RAuth container. This is safe because nginx overwrites `X-Real-IP` with `$remote_addr`, which a client cannot spoof through the proxy, and with `TRUSTED_PROXIES` set RAuth ignores forwarding headers from any other peer. The full annotated config is in [`nginx-proxy-example.conf`](nginx-proxy-example.conf).
+
+> [!WARNING]
+> Your proxy **must overwrite** `X-Real-IP` (nginx: `proxy_set_header X-Real-IP $remote_addr;`). Caddy and many Traefik/HAProxy setups pass a client-supplied `X-Real-IP` through unchanged; with those, leave `TRUST_X_REAL_IP` off and set `TRUSTED_PROXIES`: RAuth then ignores `X-Real-IP` and uses `X-Forwarded-For`, walked right-to-left and skipping `TRUSTED_PROXIES`. Without `TRUSTED_PROXIES` (legacy mode), an enabled `TRUST_*` flag is honoured from **every** peer.
 
 ---
 
@@ -338,7 +341,7 @@ RAuth is configured via Environment Variables.
 | **Admin**  | `INITIAL_2FA_SECRET` | Optional: Pre-set Base32 2FA secret | (None) |
 | **Redis**  | `REDIS_HOST` | Hostname of the Redis instance | `rauth-auth-redis` |
 | **Redis**  | `REDIS_PORT` | Port of the Redis instance | `6379` |
-| **Redis**  | `REDIS_PASSWORD` | Password for Redis auth | (None) |
+| **Redis**  | `REDIS_PASSWORD` | Password for Redis auth (required by the compose files) | (None) |
 | **Auth**   | `COOKIE_DOMAIN` | Domain for the auth cookie | `example.com` |
 | **Auth**   | `ALLOWED_HOSTS` | Redirect whitelist (Comma-separated) | `localhost,127.0.0.1` |
 | **Auth**   | `TOKEN_VALIDITY_MINUTES`| Session duration in minutes | `2880` (2 days) |
@@ -348,7 +351,8 @@ RAuth is configured via Environment Variables.
 | **Session**| `TOKEN_ROTATION_MINUTES` | Frequency of automatic session token rotation (0 = disabled) | `0` |
 | **Network**| `AUTH_PORT` | Port to expose the auth service | `5980` |
 | **Network**| `LISTEN_ADDR` | Address used by the application binary; the image sets this to `:8080` | `:80` |
-| **Proxy**  | `TRUST_X_FORWARDED_FOR` | Trust leftmost IP in `X-Forwarded-For` | `false` |
+| **Proxy**  | `TRUSTED_PROXIES` | IPs/CIDRs of your reverse proxies. Forwarding headers are only honoured from these peers (`X-Real-IP`/`CF-Connecting-IP` additionally need their `TRUST_*` flag). Empty = legacy smart mode (any private peer is trusted; `TRUST_*` flags apply to every peer) | (Empty) |
+| **Proxy**  | `TRUST_X_FORWARDED_FOR` | Trust `X-Forwarded-For` (walked right-to-left; the first hop that is not a trusted proxy is the client) | `false` |
 | **Proxy**  | `TRUST_X_REAL_IP` | Trust IP in `X-Real-IP` | `false` |
 | **Proxy**  | `TRUST_CLOUDFLARE_IP` | Trust IP in `CF-Connecting-IP` | `false` |
 | **Policy** | `PWD_MIN_LENGTH` | Minimum required password length | `8` |
@@ -431,7 +435,7 @@ RAuth requires MaxMind GeoLite2 databases for advanced session geo-fencing and s
    ```
 
 ### 🛡️ Step 4: Configure Reverse Proxy Trust (Recommended)
-By default, RAuth uses **Smart IP Detection** to find the real client IP if the connection comes from a private network (like Docker). If your reverse proxy is on a public IP or you want explicit control, set these in `.env`:
+Set `TRUSTED_PROXIES` to the exact IP of your reverse proxy (e.g. `TRUSTED_PROXIES=172.18.0.10`; a network CIDR would trust every host in it). RAuth then only honours forwarding headers from those peers (`X-Forwarded-For` always, `X-Real-IP`/`CF-Connecting-IP` only with their flag below), so another container or a LAN client cannot pick its own IP to dodge rate limits or the country allowlist. Without it, RAuth falls back to legacy **Smart IP Detection** (any private-network peer is trusted) and logs a warning at startup. Then choose which header to trust:
 - `TRUST_X_FORWARDED_FOR=true`: If your proxy sends the standard `X-Forwarded-For` header.
 - `TRUST_X_REAL_IP=true`: If your proxy sends a single IP in `X-Real-IP`.
 - `TRUST_CLOUDFLARE_IP=true`: If you are using Cloudflare.
@@ -467,7 +471,7 @@ services:
     environment:
       - REDIS_HOST=rauth-auth-redis
       - REDIS_PORT=6379
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-rauthsecurepassword}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
       - INITIAL_USER=${INITIAL_USER:-admin}
       - INITIAL_PASSWORD=${INITIAL_PASSWORD}
       - INITIAL_EMAIL=${INITIAL_EMAIL:-admin@example.com}
@@ -519,7 +523,7 @@ services:
     image: redis:7.4.10-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
     container_name: rauth-auth-redis
     hostname: rauth-auth-redis
-    command: redis-server --requirepass ${REDIS_PASSWORD:-rauthsecurepassword}
+    command: redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
     security_opt:
       - no-new-privileges:true
     volumes:
@@ -606,7 +610,7 @@ A: This can happen if the hardware key was cloned or the local state fell out of
 A: This happens if the user's IP address maps to an unlisted country, or the local MaxMind database is stale or missing. Verify that `MAXMIND_ACCOUNT_ID` and `MAXMIND_LICENSE_KEY` are correct, check container logs for geo-download status, or adjust the `ALLOWED_COUNTRIES` environment variable.
 
 **Q: Why are active sessions not displaying the correct client IP addresses in the admin audits?**  
-A: Ensure your Nginx configuration passes `proxy_set_header X-Real-IP $remote_addr;` and `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;` to RAuth. RAuth includes **Smart IP Detection** which automatically trusts these headers if the immediate connection originates from a private IP range (like a Docker network). For complex multi-hop setups or if your proxy is on a public IP, you must explicitly enable `TRUST_X_FORWARDED_FOR=true` in your `.env`.
+A: Ensure your Nginx configuration passes `proxy_set_header X-Real-IP $remote_addr;` and `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;` to RAuth. Set `TRUSTED_PROXIES` to your proxy's IP/CIDR so RAuth honours these headers only from it. Without `TRUSTED_PROXIES`, RAuth falls back to legacy **Smart IP Detection**, which trusts these headers from any private IP range (like a Docker network). For complex multi-hop setups or if your proxy is on a public IP, also enable `TRUST_X_FORWARDED_FOR=true` in your `.env`.
 
 ---
 

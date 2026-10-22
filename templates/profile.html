@@ -178,6 +178,16 @@
                         
                         <div class="mb-3">
                             <h6 class="small fw-bold text-muted text-uppercase mb-3">Passwordless Access</h6>
+                            <div class="input-group input-group-sm mb-1">
+                                {{if .has2FA}}
+                                <span class="input-group-text">2FA Code</span>
+                                <input type="text" id="passkey_stepup_input" data-stepup-name="otp_code" class="form-control" placeholder="000000" maxlength="6" inputmode="numeric" autocomplete="one-time-code">
+                                {{else}}
+                                <span class="input-group-text">Password</span>
+                                <input type="password" id="passkey_stepup_input" data-stepup-name="current_password" class="form-control" autocomplete="current-password">
+                                {{end}}
+                            </div>
+                            <div class="extra-small text-muted mb-2">Required to add or revoke a passkey</div>
                             <button id="register-webauthn" class="btn btn-outline-danger btn-sm w-100 py-2">
                                 <i class="bi bi-key me-2"></i>Add Security Key (Passkey)
                             </button>
@@ -209,8 +219,21 @@
                                 msg.textContent = "Requesting challenge from server...";
                                 
                                 try {
-                                    const response = await fetch('/webauthn/register/begin');
+                                    const stepup = document.getElementById('passkey_stepup_input');
+                                    const response = await fetch('/webauthn/register/begin', {
+                                        method: 'POST',
+                                        headers: {
+                                            'Content-Type': 'application/x-www-form-urlencoded',
+                                            'X-CSRF-Token': '{{.csrf}}'
+                                        },
+                                        body: new URLSearchParams({ [stepup.dataset.stepupName]: stepup.value })
+                                    });
                                     const optionsJSON = await response.json();
+                                    if (!response.ok) {
+                                        msg.className = "extra-small mt-2 text-danger";
+                                        msg.textContent = "Error: " + (optionsJSON.message || optionsJSON.error || "Verification required");
+                                        return;
+                                    }
                                     console.log("WebAuthn Registration Options:", optionsJSON);
                                     
                                     msg.textContent = "Please touch your security key...";
@@ -270,6 +293,7 @@
                                         <form method="POST" action="/rauthprofile/passkey/revoke" onsubmit="return false" data-confirm="This passkey will be permanently revoked. You will no longer be able to use it to sign in." data-confirm-title="Revoke Passkey" data-confirm-icon="bi-key-fill" data-confirm-variant="danger" data-confirm-btn="Revoke">
                                             <input type="hidden" name="csrf" value="{{$.csrf}}">
                                             <input type="hidden" name="id" value="{{printf "%x" .ID}}">
+                                            <input type="hidden" name="{{if $.has2FA}}otp_code{{else}}current_password{{end}}" data-passkey-stepup>
                                             <button type="submit" class="btn btn-sm btn-link text-danger p-0">
                                                 <i class="bi bi-trash"></i>
                                             </button>
@@ -764,6 +788,14 @@
                 document.body.appendChild(form);
                 form.submit();
             }
+        });
+    }
+
+    // Mirror the passkey step-up input into each revoke form
+    const passkeyStepup = document.getElementById('passkey_stepup_input');
+    if (passkeyStepup) {
+        passkeyStepup.addEventListener('input', () => {
+            document.querySelectorAll('[data-passkey-stepup]').forEach(f => { f.value = passkeyStepup.value; });
         });
     }
 

@@ -28,6 +28,12 @@ func (h *WebAuthnHandler) BeginRegistration(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusUnauthorized)
 	}
 
+	// Step-up: a session cookie alone must not be able to enrol a passkey,
+	// since a passkey logs in without password or TOTP.
+	if herr := verifyStepUp(h.Cfg, username, c.FormValue("otp_code"), c.FormValue("current_password")); herr != nil {
+		return herr
+	}
+
 	userRecord, err := core.GetUser(username)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "User not found")
@@ -88,6 +94,16 @@ func (h *WebAuthnHandler) FinishRegistration(c echo.Context) error {
 	}
 
 	core.TokenDB.Del(core.Ctx, "webauthn_reg:"+username)
+
+	core.LogAudit("PASSKEY_REGISTER", username, clientIP, nil)
+	if userRecord.Email != "" {
+		device := core.FormatDevice(c.Request().UserAgent(),
+			c.Request().Header.Get("Sec-CH-UA-Platform"),
+			c.Request().Header.Get("Sec-CH-UA-Mobile"),
+			c.Request().Header.Get("Sec-CH-UA-Model"))
+		go core.Send2FAModifiedNotification(core.TwoFactorNotificationOptions{Email: userRecord.Email, Username: username, Action: "Added (Passkey)", IP: clientIP, Device: device})
+	}
+
 	return c.JSON(http.StatusOK, "Registration Success")
 }
 
@@ -184,6 +200,14 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 	if err != nil {
 		slog.Error("WebAuthn validation failed", "error", err, "username", username)
 		return echo.NewHTTPError(http.StatusUnauthorized, "Passkey validation failed: "+err.Error())
+	}
+
+	// A non-increasing signature counter means the authenticator may have been
+	// cloned. Refuse the login and record it rather than silently accepting.
+	if credential.Authenticator.CloneWarning {
+		slog.Warn("WebAuthn clone warning, rejecting login", "username", username)
+		core.LogAudit("PASSKEY_CLONE_WARNING", username, clientIP, map[string]interface{}{"sign_count": credential.Authenticator.SignCount})
+		return echo.NewHTTPError(http.StatusUnauthorized, "Passkey validation failed: possible cloned authenticator")
 	}
 
 	// Update credential sign count
