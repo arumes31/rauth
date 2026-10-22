@@ -89,7 +89,7 @@ func main() {
 
 	// Configure real IP extraction from headers behind reverse proxies
 	if len(cfg.TrustedProxies) == 0 {
-		slog.Warn("TRUSTED_PROXIES is not set; trusting forwarding headers from any private-network peer (legacy smart mode). Set TRUSTED_PROXIES to your reverse proxy's IP/CIDR.")
+		slog.Warn("TRUSTED_PROXIES is not set; using legacy smart mode: forwarding headers are trusted from any private-network peer, and enabled TRUST_* flags apply to every peer. Set TRUSTED_PROXIES to your reverse proxy's IP.")
 	}
 	e.IPExtractor = CreateIPExtractor(cfg)
 
@@ -537,10 +537,12 @@ func CreateIPExtractor(cfg *core.Config) echo.IPExtractor {
 			if cfg.TrustXRealIP {
 				return realIP
 			}
-			// From a trusted proxy, accept it. In smart mode only accept a public
-			// header IP; a private one falls through to X-Forwarded-For, which
-			// might carry the real client further down the chain.
-			if peerTrusted && (explicit || !core.IsPrivateIP(realIP)) {
+			// Legacy smart mode: accept a public header IP from a private peer; a
+			// private one falls through to X-Forwarded-For, which might carry the
+			// real client further down the chain. With TRUSTED_PROXIES set,
+			// X-Real-IP is only used when TRUST_X_REAL_IP is enabled, since not
+			// every proxy overwrites it.
+			if !explicit && peerTrusted && !core.IsPrivateIP(realIP) {
 				return realIP
 			}
 		}

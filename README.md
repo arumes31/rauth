@@ -233,10 +233,10 @@ real_ip_recursive on;
 #   proxy_set_header X-Real-IP $remote_addr;
 ```
 
-Then set **`TRUSTED_PROXIES`** to nginx's address (e.g. `TRUSTED_PROXIES=172.18.0.10` or the Docker network CIDR) and **`TRUST_X_REAL_IP=true`** on the RAuth container. This is safe because nginx overwrites `X-Real-IP` with `$remote_addr`, which a client cannot spoof through the proxy, and with `TRUSTED_PROXIES` set RAuth ignores forwarding headers from any other peer. The full annotated config is in [`nginx-proxy-example.conf`](nginx-proxy-example.conf).
+Then set **`TRUSTED_PROXIES`** to nginx's exact address (e.g. `TRUSTED_PROXIES=172.18.0.10`; a whole Docker network CIDR would trust every container on it) and **`TRUST_X_REAL_IP=true`** on the RAuth container. This is safe because nginx overwrites `X-Real-IP` with `$remote_addr`, which a client cannot spoof through the proxy, and with `TRUSTED_PROXIES` set RAuth ignores forwarding headers from any other peer. The full annotated config is in [`nginx-proxy-example.conf`](nginx-proxy-example.conf).
 
 > [!WARNING]
-> Your proxy **must overwrite** `X-Real-IP` (nginx: `proxy_set_header X-Real-IP $remote_addr;`). Caddy and many Traefik/HAProxy setups pass a client-supplied `X-Real-IP` through unchanged; with those, use `X-Forwarded-For` (which RAuth walks right-to-left, skipping `TRUSTED_PROXIES`) and leave `TRUST_X_REAL_IP` off.
+> Your proxy **must overwrite** `X-Real-IP` (nginx: `proxy_set_header X-Real-IP $remote_addr;`). Caddy and many Traefik/HAProxy setups pass a client-supplied `X-Real-IP` through unchanged; with those, leave `TRUST_X_REAL_IP` off and set `TRUSTED_PROXIES`: RAuth then ignores `X-Real-IP` and uses `X-Forwarded-For`, walked right-to-left and skipping `TRUSTED_PROXIES`. Without `TRUSTED_PROXIES` (legacy mode), an enabled `TRUST_*` flag is honoured from **every** peer.
 
 ---
 
@@ -351,7 +351,7 @@ RAuth is configured via Environment Variables.
 | **Session**| `TOKEN_ROTATION_MINUTES` | Frequency of automatic session token rotation (0 = disabled) | `0` |
 | **Network**| `AUTH_PORT` | Port to expose the auth service | `5980` |
 | **Network**| `LISTEN_ADDR` | Address used by the application binary; the image sets this to `:8080` | `:80` |
-| **Proxy**  | `TRUSTED_PROXIES` | IPs/CIDRs of your reverse proxies. Forwarding headers are only honoured from these peers. Empty = legacy smart mode (any private peer is trusted) | (Empty) |
+| **Proxy**  | `TRUSTED_PROXIES` | IPs/CIDRs of your reverse proxies. Forwarding headers are only honoured from these peers (`X-Real-IP`/`CF-Connecting-IP` additionally need their `TRUST_*` flag). Empty = legacy smart mode (any private peer is trusted; `TRUST_*` flags apply to every peer) | (Empty) |
 | **Proxy**  | `TRUST_X_FORWARDED_FOR` | Trust `X-Forwarded-For` (walked right-to-left; the first hop that is not a trusted proxy is the client) | `false` |
 | **Proxy**  | `TRUST_X_REAL_IP` | Trust IP in `X-Real-IP` | `false` |
 | **Proxy**  | `TRUST_CLOUDFLARE_IP` | Trust IP in `CF-Connecting-IP` | `false` |
@@ -435,7 +435,7 @@ RAuth requires MaxMind GeoLite2 databases for advanced session geo-fencing and s
    ```
 
 ### 🛡️ Step 4: Configure Reverse Proxy Trust (Recommended)
-Set `TRUSTED_PROXIES` to the IP/CIDR of your reverse proxy (e.g. `TRUSTED_PROXIES=172.18.0.0/16` for its Docker network). RAuth then only honours forwarding headers from those peers, so another container or a LAN client cannot pick its own IP to dodge rate limits or the country allowlist. Without it, RAuth falls back to legacy **Smart IP Detection** (any private-network peer is trusted) and logs a warning at startup. Then choose which header to trust:
+Set `TRUSTED_PROXIES` to the exact IP of your reverse proxy (e.g. `TRUSTED_PROXIES=172.18.0.10`; a network CIDR would trust every host in it). RAuth then only honours forwarding headers from those peers (`X-Forwarded-For` always, `X-Real-IP`/`CF-Connecting-IP` only with their flag below), so another container or a LAN client cannot pick its own IP to dodge rate limits or the country allowlist. Without it, RAuth falls back to legacy **Smart IP Detection** (any private-network peer is trusted) and logs a warning at startup. Then choose which header to trust:
 - `TRUST_X_FORWARDED_FOR=true`: If your proxy sends the standard `X-Forwarded-For` header.
 - `TRUST_X_REAL_IP=true`: If your proxy sends a single IP in `X-Real-IP`.
 - `TRUST_CLOUDFLARE_IP=true`: If you are using Cloudflare.

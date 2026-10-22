@@ -242,15 +242,28 @@ func TestCreateIPExtractor(t *testing.T) {
 			expectedIP: "172.18.0.3",
 		},
 		{
-			name: "TrustedProxies: X-Real-IP from trusted proxy is honoured",
+			name: "TrustedProxies: X-Real-IP from trusted proxy is honoured with TRUST_X_REAL_IP",
 			cfg: &core.Config{
 				TrustedProxies: []string{"172.18.0.2"},
+				TrustXRealIP:   true,
 			},
 			headers: map[string]string{
 				"X-Real-IP": "192.168.1.77",
 			},
 			remoteAddr: "172.18.0.2:12345",
 			expectedIP: "192.168.1.77",
+		},
+		{
+			name: "TrustedProxies: X-Real-IP ignored without TRUST_X_REAL_IP, XFF used",
+			cfg: &core.Config{
+				TrustedProxies: []string{"172.18.0.2"},
+			},
+			headers: map[string]string{
+				"X-Real-IP":       "1.2.3.4",
+				"X-Forwarded-For": "1.2.3.4, 198.51.100.8",
+			},
+			remoteAddr: "172.18.0.2:12345",
+			expectedIP: "198.51.100.8",
 		},
 		{
 			name: "Smart mode: headers from public peer are ignored",

@@ -20,9 +20,14 @@ func SessionBindingValid(cfg *Config, req *http.Request, token, redisKey string,
 
 // invalidateSession removes a session token and both its user and per-IP index
 // entries, so HasActiveSessions does not keep seeing a stale ip_sessions entry.
-func invalidateSession(token, redisKey, username, clientIP string) {
-	RemoveSessionIndex(username, token)
+// The session's origin IP entry is removed as well when it differs from the
+// current request IP.
+func invalidateSession(token, redisKey string, data map[string]string, clientIP string) {
+	RemoveSessionIndex(data["username"], token)
 	RemoveIPSessionIndex(clientIP, token)
+	if data["ip"] != "" && data["ip"] != clientIP {
+		RemoveIPSessionIndex(data["ip"], token)
+	}
 	TokenDB.Del(Ctx, redisKey)
 }
 
@@ -35,7 +40,7 @@ func sessionGeoAllowed(cfg *Config, token, redisKey string, data map[string]stri
 	if !cfg.IsCountryAllowed(currentCountry) {
 		slog.Warn("Access from blocked country", "country", currentCountry, "ip", clientIP)
 		LogAudit("BLOCKED_COUNTRY_ACCESS", data["username"], clientIP, map[string]interface{}{"country": currentCountry})
-		invalidateSession(token, redisKey, data["username"], clientIP)
+		invalidateSession(token, redisKey, data, clientIP)
 		return false
 	}
 
@@ -52,7 +57,7 @@ func sessionGeoAllowed(cfg *Config, token, redisKey string, data map[string]stri
 		}
 
 		LogAudit("COUNTRY_CHANGE_DETECTED", data["username"], clientIP, details)
-		invalidateSession(token, redisKey, data["username"], clientIP)
+		invalidateSession(token, redisKey, data, clientIP)
 		return false
 	}
 
@@ -128,6 +133,6 @@ func sessionUAMatches(req *http.Request, token, redisKey string, data map[string
 		"stored_ch_model", storedModel, "current_ch_model", chModel,
 	)
 	LogAudit("USER_AGENT_MISMATCH_INVALIDATED", data["username"], clientIP, details)
-	invalidateSession(token, redisKey, data["username"], clientIP)
+	invalidateSession(token, redisKey, data, clientIP)
 	return false
 }

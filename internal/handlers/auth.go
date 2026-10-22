@@ -441,9 +441,7 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 	}
 
 	userRecord, _ := core.GetUser(username)
-	secret := core.Decrypt2FASecret(userRecord.TwoFactor, h.Cfg.ServerSecret)
-
-	if secret == "" {
+	if userRecord.TwoFactor == "" {
 		core.TokenDB.Del(core.Ctx, "pending_2fa:"+pendingToken)
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
@@ -452,7 +450,10 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 		return c.Render(http.StatusTooManyRequests, "login.html", map[string]interface{}{"error": "Too many failed attempts. Please try again later.", "csrf": c.Get("csrf"), "display2fa": true, "rd": c.QueryParam("rd")})
 	}
 
-	totpOK := totp.Validate(code, secret)
+	// An unreadable stored secret disables TOTP validation (fail closed) but
+	// still lets the independent recovery-code check below run.
+	secret := core.Decrypt2FASecret(userRecord.TwoFactor, h.Cfg.ServerSecret)
+	totpOK := secret != "" && totp.Validate(code, secret)
 	if totpOK && core.TOTPCodeReused(username, code) {
 		core.LogAudit("2FA_REPLAY_BLOCKED", username, clientIP, nil)
 		return c.Render(http.StatusUnauthorized, "login.html", map[string]interface{}{
