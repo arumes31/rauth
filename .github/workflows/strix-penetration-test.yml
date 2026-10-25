@@ -1,0 +1,86 @@
+name: strix-penetration-test
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: strix-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  security-scan:
+    name: Strix (advisory)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 90
+    env:
+      LLM_TIMEOUT: "3600"
+      LITELLM_REQUEST_TIMEOUT: "3600"
+      STRIX_MEMORY_COMPRESSOR_TIMEOUT: "3600"
+      STRIX_SANDBOX_EXECUTION_TIMEOUT: "3600"
+      STRIX_SANDBOX_CONNECT_TIMEOUT: "3600"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        timeout-minutes: 5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install Strix
+        id: install
+        continue-on-error: true
+        timeout-minutes: 10
+        shell: bash
+        run: >-
+          timeout --signal=TERM --kill-after=30s 8m bash -o pipefail -c
+          'curl --fail --silent --show-error --location --retry 2 --max-time 120 https://strix.ai/install | bash'
+
+      - name: Run Strix
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 62
+        env:
+          STRIX_LLM: ${{ secrets.STRIX_LLM }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_API_BASE: https://nimbusroute.wowcraft.pw/v1
+        shell: bash
+        run: |
+          if [[ -z "$STRIX_LLM" || -z "$LLM_API_KEY" ]]; then
+            echo "::warning::Strix skipped: STRIX_LLM or LLM_API_KEY is unavailable."
+            echo "Strix skipped because its credentials are unavailable." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          set +e
+          timeout --signal=TERM --kill-after=30s 60m strix -n -t ./ --scan-mode quick
+          result=$?
+          set -e
+
+          case "$result" in
+            0) message="Strix finished successfully; review the scan report for coverage." ;;
+            2) message="Strix reported vulnerabilities; review the scan report." ;;
+            124|137) message="Strix reached its one-hour scan limit." ;;
+            *) message="Strix failed with exit code $result; review the scan logs." ;;
+          esac
+          if [[ "$result" -ne 0 ]]; then
+            echo "::warning::$message This advisory scan does not fail CI."
+          fi
+          printf '### Strix advisory scan\n\n%s\n\nExit code: %s. CI is not blocked.\n' "$message" "$result" >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+
+      - name: Upload Strix reports
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: strix-reports
+          path: strix_runs/
+          if-no-files-found: ignore
+          retention-days: 7
