@@ -32,14 +32,40 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Check scan configuration
+        id: configuration
+        env:
+          STRIX_LLM: ${{ secrets.STRIX_LLM }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+        shell: bash
+        run: |
+          if [[ -n "$STRIX_LLM" && -n "$LLM_API_KEY" ]]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Strix skipped: STRIX_LLM or LLM_API_KEY is unavailable."
+            echo "Strix skipped because its credentials are unavailable." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Install Strix
         id: install
+        if: steps.configuration.outputs.ready == 'true'
         continue-on-error: true
         timeout-minutes: 10
+        env:
+          STRIX_VERSION: "1.7.0"
+          STRIX_SHA256: b8cd7e84d63cbeff6726301a9e08fddedf40fc6a4edcdb4edda8a853b3312de6
         shell: bash
-        run: >-
-          timeout --signal=TERM --kill-after=30s 8m bash -o pipefail -c
-          'curl --fail --silent --show-error --location --retry 2 --max-time 120 https://strix.ai/install | bash'
+        run: |
+          install_dir="$RUNNER_TEMP/strix-$STRIX_VERSION"
+          mkdir -p "$install_dir"
+          archive="$install_dir/strix.tar.gz"
+          curl --fail --silent --show-error --location --retry 2 --max-time 120 \
+            --output "$archive" \
+            "https://github.com/usestrix/strix/releases/download/v$STRIX_VERSION/strix-$STRIX_VERSION-linux-x86_64.tar.gz"
+          printf '%s  %s\n' "$STRIX_SHA256" "$archive" | sha256sum --check --status
+          tar -xzf "$archive" -C "$install_dir"
+          install -m 755 "$install_dir/strix-$STRIX_VERSION-linux-x86_64" "$install_dir/strix"
+          echo "$install_dir" >> "$GITHUB_PATH"
 
       - name: Run Strix
         if: steps.install.outcome == 'success'
@@ -49,16 +75,16 @@ jobs:
           STRIX_LLM: ${{ secrets.STRIX_LLM }}
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           LLM_API_BASE: https://nimbusroute.wowcraft.pw/v1
+          STRIX_DIFF_BASE: ${{ github.base_ref }}
         shell: bash
         run: |
-          if [[ -z "$STRIX_LLM" || -z "$LLM_API_KEY" ]]; then
-            echo "::warning::Strix skipped: STRIX_LLM or LLM_API_KEY is unavailable."
-            echo "Strix skipped because its credentials are unavailable." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
+          scope=()
+          if [[ -n "$STRIX_DIFF_BASE" ]]; then
+            scope=(--scope-mode diff --diff-base "origin/$STRIX_DIFF_BASE")
           fi
 
           set +e
-          timeout --signal=TERM --kill-after=30s 60m strix -n -t ./ --scan-mode quick
+          timeout --signal=TERM --kill-after=30s 60m strix -n -t ./ --scan-mode quick --max-budget 10 "${scope[@]}"
           result=$?
           set -e
 
@@ -73,14 +99,3 @@ jobs:
           fi
           printf '### Strix advisory scan\n\n%s\n\nExit code: %s. CI is not blocked.\n' "$message" "$result" >> "$GITHUB_STEP_SUMMARY"
           exit 0
-
-      - name: Upload Strix reports
-        if: always()
-        continue-on-error: true
-        timeout-minutes: 2
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: strix-reports
-          path: strix_runs/
-          if-no-files-found: ignore
-          retention-days: 7
