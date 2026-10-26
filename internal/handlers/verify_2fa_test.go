@@ -43,7 +43,8 @@ func TestAuthHandler_Verify2FA(t *testing.T) {
 		AccountName: "testuser",
 	})
 	secret := key.Secret()
-	encryptedSecret := core.Encrypt2FASecret(secret, cfg.ServerSecret)
+	encryptedSecret, err := core.Encrypt2FASecret(secret, cfg.ServerSecret)
+	assert.NoError(t, err)
 
 	core.UserDB.HSet(core.Ctx, "user:testuser", map[string]interface{}{
 		"username":   "testuser",
@@ -384,6 +385,44 @@ func TestAuthHandler_Verify2FA(t *testing.T) {
 
 		assert.Equal(t, http.StatusFound, rec.Code)
 		assert.True(t, strings.HasPrefix(rec.Header().Get("Location"), "/rauthdashboard") || strings.HasPrefix(rec.Header().Get("Location"), "/rauthsetup2fa") || strings.HasPrefix(rec.Header().Get("Location"), "/"))
+	})
+
+	t.Run("Unreadable secret disables TOTP but keeps recovery codes usable", func(t *testing.T) {
+		brokenUser := "brokenuser"
+		core.UserDB.HSet(core.Ctx, "user:"+brokenUser, map[string]interface{}{
+			"username":   brokenUser,
+			"2fa_secret": "enc:not-decryptable",
+			"password":   "dummy",
+		})
+		brokenPending := "pending-broken-secret"
+		encryptedBrokenPending, _ := core.EncryptToken(brokenPending, cfg.ServerSecret)
+
+		verify := func(code string) *httptest.ResponseRecorder {
+			core.TokenDB.Set(core.Ctx, "pending_2fa:"+brokenPending, brokenUser, 5*time.Minute)
+			f := make(url.Values)
+			f.Set("totp_code", code)
+			req := httptest.NewRequest(http.MethodPost, "/rauthlogin", strings.NewReader(f.Encode()))
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
+			req.AddCookie(&http.Cookie{Name: "rauth_2fa_pending", Value: encryptedBrokenPending})
+			req.RemoteAddr = "192.0.2.1:1234"
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+			c.Set("csrf", "test_csrf")
+			assert.NoError(t, h.Verify2FA(c))
+			return rec
+		}
+
+		// A code derived from an empty key must not validate.
+		emptyKeyCode, _ := totp.GenerateCode("", time.Now())
+		rec := verify(emptyKeyCode)
+		assert.Equal(t, http.StatusOK, rec.Code, "TOTP must fail for an unreadable secret")
+
+		// A valid recovery code still signs the user in.
+		sum := sha256.Sum256([]byte("brokenrecovery"))
+		core.UserDB.SAdd(core.Ctx, "user:"+brokenUser+":recovery_codes", hex.EncodeToString(sum[:]))
+		rec = verify("brokenrecovery")
+		assert.Equal(t, http.StatusFound, rec.Code)
+		assert.NotEqual(t, "/rauthlogin", rec.Header().Get("Location"))
 	})
 
 	t.Run("Failed 2FA Penalty", func(t *testing.T) {

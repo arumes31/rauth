@@ -5,6 +5,7 @@ import (
 	"github.com/go-webauthn/webauthn/protocol"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"rauth/internal/core"
 	"testing"
 	"time"
@@ -54,11 +55,26 @@ func TestWebAuthnHandlers(t *testing.T) {
 		}
 	})
 
+	t.Run("BeginRegistration_RequiresStepUp", func(t *testing.T) {
+		_ = core.CreateUser("testuser", "password123", "test@example.com", false, "")
+		for _, pw := range []string{"", "wrongpassword"} {
+			c, _ := createTestContext(e, http.MethodPost, "/webauthn/register/begin", url.Values{"current_password": {pw}})
+			c.Set("username", "testuser")
+
+			err := h.BeginRegistration(c)
+			if assert.Error(t, err) {
+				he, ok := err.(*echo.HTTPError)
+				assert.True(t, ok)
+				assert.Equal(t, http.StatusBadRequest, he.Code)
+			}
+		}
+		_, err := core.TokenDB.Get(core.Ctx, "webauthn_reg:testuser").Result()
+		assert.Error(t, err, "no registration challenge may be issued without step-up")
+	})
+
 	t.Run("BeginRegistration_Success", func(t *testing.T) {
 		_ = core.CreateUser("testuser", "password123", "test@example.com", false, "")
-		req := httptest.NewRequest(http.MethodGet, "/webauthn/register/begin", nil)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
+		c, rec := createTestContext(e, http.MethodPost, "/webauthn/register/begin", url.Values{"current_password": {"password123"}})
 		c.Set("username", "testuser")
 
 		if assert.NoError(t, h.BeginRegistration(c)) {
@@ -95,9 +111,7 @@ func TestWebAuthnHandlers(t *testing.T) {
 			core.WebAuthnInstance.Config.RPID = originalRPID
 		}()
 
-		req := httptest.NewRequest(http.MethodGet, "/webauthn/register/begin", nil)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
+		c, _ := createTestContext(e, http.MethodPost, "/webauthn/register/begin", url.Values{"current_password": {"password123"}})
 		c.Set("username", "testuser_weberr")
 
 		err := h.BeginRegistration(c)

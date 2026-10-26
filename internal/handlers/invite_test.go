@@ -131,6 +131,16 @@ func TestInviteHandler_Redeem(t *testing.T) {
 		// Verify token deleted
 		exists, _ = core.InviteDB.Exists(core.Ctx, "invite:"+token).Result()
 		assert.Equal(t, int64(0), exists)
+
+		// A second redemption of the same token must not create another account
+		f.Set("username", "seconduser")
+		c, _ = createTestContext(e, http.MethodPost, "/rauthredeem", f)
+		err = h.Redeem(c)
+		if assert.Error(t, err) {
+			assert.Equal(t, http.StatusNotFound, err.(*echo.HTTPError).Code)
+		}
+		exists, _ = core.UserDB.Exists(core.Ctx, "user:seconduser").Result()
+		assert.Equal(t, int64(0), exists)
 	})
 
 	t.Run("Invalid token", func(t *testing.T) {

@@ -147,6 +147,11 @@ func CreateUser(username, password, email string, isAdmin bool, twoFactor string
 		adminVal = "1"
 	}
 
+	encryptedSecret, err := Encrypt2FASecret(twoFactor, ServerSecret)
+	if err != nil {
+		return err
+	}
+
 	newUUID := uuid.New()
 	uidStr := newUUID.String()
 	user := map[string]interface{}{
@@ -157,7 +162,7 @@ func CreateUser(username, password, email string, isAdmin bool, twoFactor string
 		"groups":     "default",
 		"uid":        uidStr,
 		"created_at": time.Now().Unix(),
-		"2fa_secret": Encrypt2FASecret(twoFactor, ServerSecret),
+		"2fa_secret": encryptedSecret,
 	}
 
 	err = UserDB.HSet(Ctx, "user:"+username, user).Err()

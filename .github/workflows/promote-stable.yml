@@ -3,6 +3,13 @@ name: Promote Latest to Stable
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   promote:
     name: Tag Latest as Stable

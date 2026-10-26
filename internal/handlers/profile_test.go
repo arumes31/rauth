@@ -233,9 +233,29 @@ func TestProfileHandler_RevokePasskey(t *testing.T) {
 	h := &ProfileHandler{Cfg: &core.Config{}}
 	e := echo.New()
 
-	t.Run("Revoke passkey successfully", func(t *testing.T) {
+	t.Run("Revoke passkey requires step-up", func(t *testing.T) {
+		_ = core.CreateUser("profileuser", "password123", "", false, "")
+		core.UserDB.HSet(core.Ctx, "user:profileuser:webauthn_creds_v2", "dGVzdGlk", `{"id":"dGVzdGlk","publicKey":"","attestationType":"","authenticator":{"aaguid":"","signCount":0,"cloneWarning":false}}`)
+
 		f := make(url.Values)
 		f.Set("id", "dGVzdGlk")
+		f.Set("current_password", "wrongpassword")
+		c, _ := createTestContext(e, http.MethodPost, "/rauthprofile/passkeys/revoke", f)
+		c.Set("username", "profileuser")
+
+		err := h.RevokePasskey(c)
+		if assert.Error(t, err) {
+			assert.Equal(t, http.StatusBadRequest, err.(*echo.HTTPError).Code)
+		}
+		exists, _ := core.UserDB.HExists(core.Ctx, "user:profileuser:webauthn_creds_v2", "dGVzdGlk").Result()
+		assert.True(t, exists, "passkey must survive a revoke without step-up")
+	})
+
+	t.Run("Revoke passkey successfully", func(t *testing.T) {
+		_ = core.CreateUser("profileuser", "password123", "", false, "")
+		f := make(url.Values)
+		f.Set("id", "dGVzdGlk")
+		f.Set("current_password", "password123")
 
 		c, _ := createTestContext(e, http.MethodPost, "/rauthprofile/passkeys/revoke", f)
 		c.Set("username", "profileuser")
