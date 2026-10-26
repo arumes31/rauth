@@ -4,15 +4,19 @@ import (
 	"net/http"
 	"net/url"
 	"rauth/internal/core"
+	"rauth/internal/middleware"
+	"strings"
 	"testing"
 
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAdminHandler_Dashboard(t *testing.T) {
 	setupHandlersTest(t)
 	cfg := &core.Config{
+		InitialUser:               "owner",
 		RateLimitLoginMax:         1000,
 		RateLimitLoginDecay:       60,
 		RateLimitLoginAccessMax:   1000,
@@ -21,7 +25,8 @@ func TestAdminHandler_Dashboard(t *testing.T) {
 	}
 	h := &AdminHandler{Cfg: cfg}
 	e := echo.New()
-	e.Renderer = &mockRenderer{}
+	renderer := &mockRenderer{}
+	e.Renderer = renderer
 
 	t.Run("Access Dashboard", func(t *testing.T) {
 		c, rec := createTestContext(e, http.MethodGet, "/rauthmgmt", nil)
@@ -30,6 +35,9 @@ func TestAdminHandler_Dashboard(t *testing.T) {
 		err := h.Dashboard(c)
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusOK, rec.Code)
+		data, ok := renderer.LastData.(map[string]interface{})
+		require.True(t, ok)
+		assert.Equal(t, "owner", data["root_user"])
 	})
 }
 
@@ -185,6 +193,57 @@ func TestAdminHandler_DeleteUser(t *testing.T) {
 		exists := core.UserDB.Exists(core.Ctx, "user:admin").Val()
 		assert.Equal(t, int64(1), exists)
 	})
+}
+
+func TestAdminHandler_DeleteUserPermissions(t *testing.T) {
+	cases := []struct {
+		name        string
+		root        string
+		actor       string
+		actorAdmin  string
+		target      string
+		targetAdmin string
+		wantStatus  int
+	}{
+		{"delete user", "admin", "operator", "1", "member", "0", http.StatusFound},
+		{"delete another admin", "admin", "operator", "1", "peeradmin", "1", http.StatusFound},
+		{"root deletes another admin", "admin", "admin", "1", "peeradmin", "1", http.StatusFound},
+		{"protect default root", "admin", "operator", "1", "admin", "1", http.StatusForbidden},
+		{"protect configured root", "owner", "operator", "1", "owner", "1", http.StatusForbidden},
+		{"protect root with surrounding whitespace", "owner", "operator", "1", " owner ", "1", http.StatusForbidden},
+		{"root cannot delete itself", "owner", "owner", "1", "owner", "1", http.StatusForbidden},
+		{"non-root admin cannot delete itself", "owner", "operator", "1", "operator", "1", http.StatusBadRequest},
+		{"default name is deletable with custom root", "owner", "operator", "1", "admin", "1", http.StatusFound},
+		{"non-admin cannot delete users", "admin", "member", "0", "victim", "0", http.StatusForbidden},
+		{"non-admin cannot delete admins", "admin", "member", "0", "peeradmin", "1", http.StatusForbidden},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setupHandlersTest(t)
+			target := strings.TrimSpace(tc.target)
+			require.NoError(t, core.UserDB.HSet(core.Ctx, "user:"+tc.actor, "username", tc.actor, "is_admin", tc.actorAdmin).Err())
+			require.NoError(t, core.UserDB.HSet(core.Ctx, "user:"+target, "username", target, "is_admin", tc.targetAdmin).Err())
+			require.NoError(t, core.UserDB.SAdd(core.Ctx, "users", tc.actor, target).Err())
+			require.NoError(t, core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken=target-session", "username", target, "status", "valid").Err())
+			core.AddSessionIndex(target, "target-session")
+			h := &AdminHandler{Cfg: &core.Config{InitialUser: tc.root}}
+			e := echo.New()
+			c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/user/delete", url.Values{"username": {tc.target}})
+			c.Set("username", tc.actor)
+			if err := middleware.AdminMiddleware(h.DeleteUser)(c); err != nil {
+				e.HTTPErrorHandler(err, c)
+			}
+			require.Equal(t, tc.wantStatus, rec.Code)
+			wantExists := int64(1)
+			if tc.wantStatus == http.StatusFound {
+				wantExists = 0
+				assert.Equal(t, "/rauthmgmt?success=user_deleted", rec.Header().Get(echo.HeaderLocation))
+			}
+			assert.Equal(t, wantExists, core.UserDB.Exists(core.Ctx, "user:"+target).Val())
+			assert.Equal(t, wantExists == 1, core.UserDB.SIsMember(core.Ctx, "users", target).Val())
+			assert.Equal(t, wantExists, core.TokenDB.Exists(core.Ctx, "X-rauth-authtoken=target-session").Val())
+		})
+	}
 }
 func TestAdminHandler_CreateUser_InvalidUsername(t *testing.T) {
 	setupHandlersTest(t)

@@ -99,11 +99,12 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 	}
 
 	return c.Render(http.StatusOK, "management.html", map[string]interface{}{
-		"username": c.Get("username"),
-		"users":    users,
-		"sessions": sessions,
-		"logs":     logs,
-		"csrf":     c.Get("csrf"),
+		"username":  c.Get("username"),
+		"root_user": h.Cfg.InitialUser,
+		"users":     users,
+		"sessions":  sessions,
+		"logs":      logs,
+		"csrf":      c.Get("csrf"),
 	})
 }
 
@@ -158,6 +159,12 @@ func (h *AdminHandler) DeleteUser(c echo.Context) error {
 
 	if err := core.ValidateUsername(target); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	// INITIAL_USER identifies the bootstrap administrator, even when renamed
+	// from the default "admin" in the deployment configuration.
+	if target == h.Cfg.InitialUser {
+		return echo.NewHTTPError(http.StatusForbidden, "Cannot delete the root administrator")
 	}
 
 	if _, err := core.GetUser(target); err != nil {

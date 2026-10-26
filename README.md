@@ -335,7 +335,7 @@ RAuth is configured via Environment Variables.
 | Category | Variable | Description | Default |
 |:---|:---|:---|:---|
 | **Secret** | `SERVER_SECRET` | 32+ char key for AES encryption | **REQUIRED** |
-| **Admin**  | `INITIAL_USER` | Initial admin username | `admin` |
+| **Admin**  | `INITIAL_USER` | Initial (root) admin username; protected from deletion | `admin` |
 | **Admin**  | `INITIAL_PASSWORD` | Initial admin password | (None) |
 | **Admin**  | `INITIAL_EMAIL` | Initial admin email address | `admin@example.com` |
 | **Admin**  | `INITIAL_2FA_SECRET` | Optional: Pre-set Base32 2FA secret | (None) |
