@@ -53,6 +53,34 @@ func TestSetupRenderer(t *testing.T) {
 	assert.NotNil(t, e.Renderer)
 }
 
+func TestManagementDeletionControls(t *testing.T) {
+	for _, actor := range []string{"operator", "owner"} {
+		t.Run(actor, func(t *testing.T) {
+			e := echo.New()
+			setupRenderer(e)
+			var page bytes.Buffer
+			err := e.Renderer.Render(&page, "management.html", map[string]interface{}{
+				"username":  actor,
+				"root_user": "owner",
+				"csrf":      "test-csrf",
+				"users": []core.User{
+					{Username: "owner", IsAdmin: "1"},
+					{Username: "operator", IsAdmin: "1"},
+					{Username: "peeradmin", IsAdmin: "1"},
+					{Username: "member", IsAdmin: "0"},
+				},
+			}, nil)
+			require.NoError(t, err)
+			body := page.String()
+			assert.Contains(t, body, "Root Administrator")
+			assert.NotContains(t, body, `name="username" value="owner"`)
+			assert.NotContains(t, body, `name="username" value="`+actor+`"`)
+			assert.Contains(t, body, `name="username" value="peeradmin"`)
+			assert.Contains(t, body, `name="username" value="member"`)
+		})
+	}
+}
+
 func TestSetupMiddleware(t *testing.T) {
 	e := echo.New()
 	// Should register middleware and error/not-found handlers without panicking.

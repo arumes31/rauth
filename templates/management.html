@@ -221,7 +221,9 @@
                                         </td>
                                         <td>{{.Email}}</td>
                                         <td>
-                                            {{if eq .IsAdmin "1"}}
+                                            {{if eq .Username $.root_user}}
+                                            <span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25" title="This account is protected from deletion">Root Administrator</span>
+                                            {{else if eq .IsAdmin "1"}}
                                             <span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25">Administrator</span>
                                             {{else}}
                                             <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25">User</span>
@@ -234,11 +236,13 @@
                                                         title="Edit User">
                                                     <i class="bi bi-pencil"></i>
                                                 </button>
-                                                <form method="POST" action="/rauthmgmt/user/delete" onsubmit="return false" data-confirm="This will permanently delete the user account and all associated data. This action cannot be undone." data-confirm-title="Delete User" data-confirm-icon="bi-person-x-fill" data-confirm-variant="danger" data-confirm-btn="Delete">
+                                                {{if and (ne .Username $.root_user) (ne .Username $.username)}}
+                                                <form method="POST" action="/rauthmgmt/user/delete" onsubmit="return false" data-confirm="This will permanently delete the account for {{.Username}} and all associated data. This action cannot be undone." data-confirm-title="Delete User" data-confirm-icon="bi-person-x-fill" data-confirm-variant="danger" data-confirm-btn="Delete">
                                                     <input type="hidden" name="csrf" value="{{$.csrf}}">
                                                     <input type="hidden" name="username" value="{{.Username}}">
-                                                    <button type="submit" class="btn btn-sm btn-outline-danger border-0" title="Delete User"><i class="bi bi-person-x"></i></button>
+                                                    <button type="submit" class="btn btn-sm btn-outline-danger border-0" title="Delete User" aria-label="Delete {{.Username}}"><i class="bi bi-person-x"></i></button>
                                                 </form>
+                                                {{end}}
                                             </div>
                                         </td>
                                     </tr>
