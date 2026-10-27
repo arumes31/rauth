@@ -45,6 +45,13 @@ func AuthMiddleware(cfg *core.Config) echo.MiddlewareFunc {
 				return c.Redirect(http.StatusFound, "/rauthlogin")
 			}
 
+			// Reject sessions of deleted accounts or ones issued before the
+			// user's last credential change (see core.BumpAuthGeneration).
+			if !core.SessionAuthorized(data) {
+				core.TokenDB.Del(core.Ctx, redisKey)
+				return c.Redirect(http.StatusFound, "/rauthlogin")
+			}
+
 			if !core.SessionBindingValid(cfg, c.Request(), token, redisKey, data, c.RealIP()) {
 				return c.Redirect(http.StatusFound, "/rauthlogin")
 			}

@@ -32,3 +32,5 @@ graphify-out/
 docs/
 
 .claudeignore
+.env.*
+!example.env

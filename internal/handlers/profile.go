@@ -227,6 +227,11 @@ func (h *ProfileHandler) DisableTOTP(c echo.Context) error {
 	// Recovery codes are tied to TOTP; clear them so stale codes can't be used.
 	core.ClearRecoveryCodes(username)
 
+	// Removing a factor is a security-relevant change: end every other session
+	// and pending login, keeping only the one that made the change.
+	currentToken, _ := c.Get("token").(string)
+	revokeOtherAccess(username, currentToken)
+
 	// Send notification email
 	if email != "" {
 		device := core.FormatDevice(c.Request().UserAgent(),
@@ -275,7 +280,7 @@ func (h *ProfileHandler) TerminateAllOtherSessions(c echo.Context) error {
 	username := c.Get("username").(string)
 	currentToken := c.Get("token").(string)
 
-	core.InvalidateOtherUserSessions(username, currentToken)
+	revokeOtherAccess(username, currentToken)
 	core.LogAudit("USER_TERMINATE_ALL_OTHER_SESSIONS", username, c.RealIP(), nil)
 
 	return c.Redirect(http.StatusFound, "/rauthprofile?success=sessions_terminated")
@@ -341,8 +346,9 @@ func (h *ProfileHandler) ChangePassword(c echo.Context) error {
 	// Security Hardening: Invalidate all other sessions. The current session
 	// stays alive so the success redirect to the profile page does not bounce
 	// the user straight back to the login form.
+	// A half-finished 2FA setup started with the old password is revoked too.
 	currentToken, _ := c.Get("token").(string)
-	core.InvalidateOtherUserSessions(username, currentToken)
+	revokeOtherAccess(username, currentToken)
 
 	slog.Info("Password changed by user", "user", username)
 	core.LogAudit("USER_CHANGE_PASSWORD", username, c.RealIP(), nil)
@@ -354,7 +360,9 @@ func (h *ProfileHandler) validateTOTP(username, otpCode, encryptedSecret string)
 	if otpCode == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "2FA code required")
 	}
-	if core.IsRateLimitExceeded("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax) {
+	// Count the attempt atomically before checking it so concurrent guesses
+	// cannot overshoot the budget; a valid code refunds it below.
+	if exceeded, _, _ := core.ReserveRateLimitAttempt("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay); exceeded {
 		return echo.NewHTTPError(http.StatusTooManyRequests, "Too many failed attempts. Please try again later.")
 	}
 	secret := core.Decrypt2FASecret(encryptedSecret, h.Cfg.ServerSecret)
@@ -364,7 +372,6 @@ func (h *ProfileHandler) validateTOTP(username, otpCode, encryptedSecret string)
 		return echo.NewHTTPError(http.StatusInternalServerError, "2FA configuration error")
 	}
 	if !totp.Validate(otpCode, secret) {
-		core.CheckRateLimit("2fa_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay)
 		return echo.NewHTTPError(http.StatusBadRequest, "Invalid 2FA code")
 	}
 	// Enforce single-use of the TOTP code (same replay protection as the login
@@ -373,5 +380,15 @@ func (h *ProfileHandler) validateTOTP(username, otpCode, encryptedSecret string)
 	if core.TOTPCodeReused(username, otpCode) {
 		return echo.NewHTTPError(http.StatusBadRequest, "This code was already used. Please wait for a new code.")
 	}
+	core.ResetRateLimit("2fa_fail_user:" + username)
 	return nil
+}
+
+// revokeOtherAccess ends every session and pending login of the user except
+// the caller's current session, which is re-stamped to the new generation.
+func revokeOtherAccess(username, currentToken string) {
+	if _, err := core.BumpAuthGeneration(username); err == nil && currentToken != "" {
+		core.RestampSession(currentToken, username)
+	}
+	core.InvalidateOtherUserSessions(username, currentToken)
 }

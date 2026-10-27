@@ -336,7 +336,7 @@ func TestMainFailFast(t *testing.T) {
 				"SERVER_SECRET": "short",
 				"COOKIE_DOMAIN": "example.com",
 			},
-			wantLog: "SERVER_SECRET must be set to at least 16 characters",
+			wantLog: "must be at least 16 characters",
 		},
 		{
 			name: "cookie domain is empty",

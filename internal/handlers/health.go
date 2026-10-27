@@ -20,10 +20,14 @@ type HealthStatus struct {
 	Timestamp string                 `json:"timestamp"`
 	Checks    map[string]string      `json:"checks"`
 	GeoIP     map[string]interface{} `json:"geoip"`
-	System    map[string]interface{} `json:"system"`
+	System    map[string]interface{} `json:"system,omitempty"`
 }
 
 func (h *HealthHandler) Check(c echo.Context) error {
+	// /health is public. Error strings, file paths and runtime details are
+	// only returned to clients inside METRICS_ALLOWED_IPS; everyone else gets
+	// the status and per-check verdicts.
+	detailed := h.Cfg.IsIPAllowed(c.RealIP(), h.Cfg.MetricsAllowedIPs)
 	status := "OK"
 	checks := make(map[string]string, 4)
 
@@ -51,7 +55,10 @@ func (h *HealthHandler) Check(c echo.Context) error {
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
-				checks[name] = "FAIL: " + err.Error()
+				checks[name] = "FAIL"
+				if detailed {
+					checks[name] = "FAIL: " + err.Error()
+				}
 				status = "FAIL"
 			} else {
 				checks[name] = "OK"
@@ -71,15 +78,19 @@ func (h *HealthHandler) Check(c echo.Context) error {
 		}
 	}
 
-	// System Info
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-
-	systemInfo := map[string]interface{}{
-		"goroutines":     runtime.NumGoroutine(),
-		"memory_alloc":   m.Alloc / 1024 / 1024, // MB
-		"go_version":     runtime.Version(),
-		"uptime_seconds": int(time.Since(core.StartTime).Seconds()),
+	// System Info (trusted clients only)
+	var systemInfo map[string]interface{}
+	if detailed {
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		systemInfo = map[string]interface{}{
+			"goroutines":     runtime.NumGoroutine(),
+			"memory_alloc":   m.Alloc / 1024 / 1024, // MB
+			"go_version":     runtime.Version(),
+			"uptime_seconds": int(time.Since(core.StartTime).Seconds()),
+		}
+	} else {
+		geoMetadata = map[string]interface{}{"loaded": geoMetadata["loaded"]}
 	}
 
 	response := HealthStatus{

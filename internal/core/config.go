@@ -83,6 +83,14 @@ type Config struct {
 	//               country (helps roaming/VPN/CGNAT users avoid spurious logouts)
 	// The ALLOWED_COUNTRIES allowlist is always enforced regardless of this mode.
 	GeoChangeMode string
+	// WebAuthnRequireUserVerification makes passkey logins prove user
+	// verification (PIN/biometric). Off by default so passkey providers that do
+	// not always report UV (e.g. Bitwarden) keep working;
+	// WEBAUTHN_USER_VERIFICATION=required turns it on.
+	WebAuthnRequireUserVerification bool
+	// CSRFTrustedOrigins lists extra origins (scheme://host[:port]) allowed to
+	// send state-changing requests besides rauth's own origin.
+	CSRFTrustedOrigins []string
 }
 
 func LoadConfig() *Config {
@@ -148,6 +156,9 @@ func LoadConfig() *Config {
 		BcryptCost:           getEnvInt("BCRYPT_COST", 12),
 		CheckCommonPasswords: getEnvBool("PWD_CHECK_COMMON", true),
 		GeoChangeMode:        strings.ToLower(getEnv("GEO_CHANGE_MODE", "strict")),
+		// Passkeys / CSRF
+		WebAuthnRequireUserVerification: strings.ToLower(strings.TrimSpace(getEnv("WEBAUTHN_USER_VERIFICATION", "preferred"))) == "required",
+		CSRFTrustedOrigins:              getEnvSlice("CSRF_TRUSTED_ORIGINS", []string{}),
 	}
 }
 

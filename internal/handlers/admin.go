@@ -205,16 +205,28 @@ func (h *AdminHandler) ResetUser2FA(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "Cannot reset your own 2FA via management. Use profile settings.")
 	}
 
+	if herr := h.guardRootAdmin(target, admin); herr != nil {
+		return herr
+	}
+
 	err := core.UpdateUser(target, map[string]interface{}{"2fa_secret": ""})
 	if err != nil {
 		slog.Error("Failed to reset 2FA for user", "user", target, "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to reset 2FA")
 	}
-	// Recovery codes are tied to TOTP; clear them alongside the reset.
+	// Reset every second factor: recovery codes are tied to TOTP, and a passkey
+	// logs in without password or TOTP, so leaving one in place would let
+	// whoever enrolled it (e.g. an attacker being evicted) straight back in.
 	core.ClearRecoveryCodes(target)
+	if err := core.DeleteAllWebAuthnCredentials(target); err != nil {
+		slog.Error("Failed to clear passkeys during 2FA reset", "user", target, "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to reset 2FA")
+	}
 
-	// Security Hardening: Invalidate all sessions for this user
-	core.InvalidateUserSessions(target)
+	// Security Hardening: revoke every session and pending login of this user.
+	if herr := revokeUserAccess(target); herr != nil {
+		return herr
+	}
 
 	slog.Info("2FA reset by admin", "admin", admin, "user", target)
 	core.LogAudit("ADMIN_RESET_2FA", admin, c.RealIP(), map[string]interface{}{"target": target})
@@ -243,6 +255,9 @@ func (h *AdminHandler) ChangeUserPassword(c echo.Context) error {
 	if target == admin {
 		return echo.NewHTTPError(http.StatusBadRequest, "Cannot change your own password via management. Use profile settings.")
 	}
+	if herr := h.guardRootAdmin(target, admin); herr != nil {
+		return herr
+	}
 
 	if err := core.ValidatePassword(newPass, h.Cfg); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
@@ -259,8 +274,11 @@ func (h *AdminHandler) ChangeUserPassword(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to update password")
 	}
 
-	// Security Hardening: Invalidate all sessions for this user
-	core.InvalidateUserSessions(target)
+	// Security Hardening: revoke every session and pending login of this user,
+	// including a half-finished 2FA setup started with the old password.
+	if herr := revokeUserAccess(target); herr != nil {
+		return herr
+	}
 
 	slog.Info("Password changed by admin", "admin", admin, "user", target)
 	core.LogAudit("ADMIN_CHANGE_PASSWORD", admin, c.RealIP(), map[string]interface{}{"target": target})
@@ -290,6 +308,9 @@ func (h *AdminHandler) UpdateUserEmail(c echo.Context) error {
 	}
 
 	admin := c.Get("username").(string)
+	if herr := h.guardRootAdmin(target, admin); herr != nil {
+		return herr
+	}
 	if err := core.UpdateUser(target, map[string]interface{}{"email": newEmail}); err != nil {
 		slog.Error("Failed to update user email in Redis", "user", target, "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to update email")
@@ -326,4 +347,28 @@ func (h *AdminHandler) InvalidateSession(c echo.Context) error {
 	}
 	core.LogAudit("ADMIN_INVALIDATE_SESSION", admin, c.RealIP(), map[string]interface{}{"token": logToken})
 	return c.Redirect(http.StatusFound, "/rauthmgmt?success=session_terminated")
+}
+
+// guardRootAdmin stops other administrators from taking over the bootstrap
+// (INITIAL_USER) account by resetting its credentials or its notification
+// e-mail. The root administrator manages its own account from the profile page.
+func (h *AdminHandler) guardRootAdmin(target, admin string) error {
+	if target == h.Cfg.InitialUser && admin != h.Cfg.InitialUser {
+		return echo.NewHTTPError(http.StatusForbidden, "Only the root administrator can change the root administrator account")
+	}
+	return nil
+}
+
+// revokeUserAccess invalidates every session and pending login of a user. The
+// generation bump catches sessions the index misses (concurrently minted,
+// dropped from the index) and pending 2FA/setup tokens; the index sweep
+// removes the indexed sessions immediately.
+func revokeUserAccess(username string) error {
+	if _, err := core.BumpAuthGeneration(username); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to revoke sessions")
+	}
+	if err := core.InvalidateUserSessions(username); err != nil {
+		slog.Warn("Session index sweep failed; generation bump still revokes access", "user", username, "error", err)
+	}
+	return nil
 }

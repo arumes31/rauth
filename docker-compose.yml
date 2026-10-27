@@ -4,7 +4,7 @@ services:
     build: .
     image: ghcr.io/arumes31/rauth-auth:latest
     ports:
-      - "${AUTH_PORT:-5980}:8080"
+      - "${AUTH_BIND:-0.0.0.0}:${AUTH_PORT:-5980}:8080"
     read_only: true
     cap_drop:
       - ALL
@@ -37,6 +37,8 @@ services:
       - GEOIP_EDITION_IDS=${GEOIP_EDITION_IDS:-GeoLite2-Country}
       - GEOIP_DATABASE_DIRECTORY=/app/geoip
       - WEBAUTHN_ORIGINS=${WEBAUTHN_ORIGINS}
+      - WEBAUTHN_USER_VERIFICATION=${WEBAUTHN_USER_VERIFICATION:-preferred}
+      - CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS:-}
       - PUBLIC_URL=${PUBLIC_URL:-http://localhost:5980}
       - PWD_MIN_LENGTH=${PWD_MIN_LENGTH:-8}
       - PWD_REQUIRE_UPPER=${PWD_REQUIRE_UPPER:-true}
