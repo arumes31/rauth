@@ -20,6 +20,8 @@ jobs:
     outputs:
       report: ${{ steps.scan.outputs.report }}
       findings: ${{ steps.scan.outputs.findings }}
+      summary: ${{ steps.scan.outputs.summary }}
+      exit_code: ${{ steps.scan.outputs.exit_code }}
     env:
       LLM_TIMEOUT: "3600"
       LITELLM_REQUEST_TIMEOUT: "3600"
@@ -91,14 +93,25 @@ jobs:
           result=${PIPESTATUS[0]}
           set -e
 
-          # Build a comment-safe report: strip ANSI colours and redact the model
-          # name, key and endpoint (GitHub masks secrets in logs only, not in
-          # artifacts or comments).
-          mkdir -p strix-report
-          sed -r 's/\x1b\[[0-9;?]*[A-Za-z]//g' "$log" \
+          # Publish only a summary (finding titles and severities) for the PR
+          # comment. The full report can contain secrets or exploit details the
+          # scanner discovered, so it is never copied into a comment or
+          # artifact. ANSI colours are stripped and the model name, key and
+          # endpoint redacted (GitHub masks secrets in logs, not in outputs).
+          summary=$(sed -r 's/\x1b\[[0-9;?]*[A-Za-z]//g' "$log" \
             | perl -pe 'for my $k (qw(STRIX_LLM LLM_API_KEY LLM_API_BASE)) { my $v = $ENV{$k}; s/\Q$v\E/***/g if defined $v && length $v }' \
-            > strix-report/report.txt
-          echo "$result" > strix-report/exit-code
+            | awk '
+                /Title:/    { t = $0; sub(/^.*Title:[[:space:]]*/, "", t); sub(/[[:space:]]*│?[[:space:]]*$/, "", t) }
+                /Severity:/ { s = $0; sub(/^.*Severity:[[:space:]]*/, "", s); sub(/[[:space:]]*│?[[:space:]]*$/, "", s)
+                              if (t != "" && n < 50) { printf "- **%s**: %s\n", substr(s, 1, 20), substr(t, 1, 200); n++ }
+                              t = "" }')
+          delim="EOF_$(openssl rand -hex 8)"
+          {
+            echo "summary<<$delim"
+            echo "$summary"
+            echo "$delim"
+          } >> "$GITHUB_OUTPUT"
+          echo "exit_code=$result" >> "$GITHUB_OUTPUT"
           echo "report=true" >> "$GITHUB_OUTPUT"
 
           case "$result" in
@@ -120,14 +133,6 @@ jobs:
             echo "::warning::$message"
           fi
 
-      - name: Upload Strix report
-        if: always() && steps.scan.outputs.report == 'true'
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: strix-report
-          path: strix-report/
-          retention-days: 14
-
   comment:
     name: Strix PR comment
     needs: security-scan
@@ -137,23 +142,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
-      actions: read
       pull-requests: write
     steps:
-      - name: Post or update the Strix report comment
+      - name: Post or update the Strix summary comment
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
-          RUN_ID: ${{ github.run_id }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           FINDINGS: ${{ needs.security-scan.outputs.findings }}
+          SUMMARY: ${{ needs.security-scan.outputs.summary }}
+          EXIT_CODE: ${{ needs.security-scan.outputs.exit_code }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         shell: bash
         run: |
-          gh run download "$RUN_ID" --repo "$REPO" --name strix-report --dir strix-report
           marker='<!-- strix-report -->'
-          fence='```'
           if [[ "$FINDINGS" == "true" ]]; then
             status="vulnerabilities reported"
           else
@@ -163,17 +166,15 @@ jobs:
             echo "$marker"
             echo "### Strix security scan: $status"
             echo
-            echo "Commit ${HEAD_SHA:0:7} · exit code $(cat strix-report/exit-code) · [workflow run]($RUN_URL)"
+            echo "Commit ${HEAD_SHA:0:7} · exit code ${EXIT_CODE:-?} · [workflow run]($RUN_URL)"
+            if [[ -n "$SUMMARY" ]]; then
+              echo
+              # Titles are scanner output: neutralise markdown/HTML that could
+              # break the comment layout.
+              printf '%s\n' "$SUMMARY" | sed 's/[<>`]//g'
+            fi
             echo
-            echo "<details><summary>Full report</summary>"
-            echo
-            echo "${fence}text"
-            # Keep well under GitHub's 65k comment limit, and neutralise any
-            # code fence inside the report so it cannot break out of the block.
-            tail -c 60000 strix-report/report.txt | sed "s/${fence}/'''/g"
-            echo "$fence"
-            echo
-            echo "</details>"
+            echo "Details are in the workflow run log."
           } > comment.md
           existing=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
             --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\"))) | .id" | head -n1)
