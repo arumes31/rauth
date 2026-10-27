@@ -4,6 +4,7 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Read-only by default; only the comment job below gets a write scope.
 permissions:
   contents: read
 
@@ -18,8 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     outputs:
-      report: ${{ steps.scan.outputs.report }}
-      findings: ${{ steps.scan.outputs.findings }}
+      outcome: ${{ steps.scan.outputs.outcome }}
       summary: ${{ steps.scan.outputs.summary }}
       exit_code: ${{ steps.scan.outputs.exit_code }}
     env:
@@ -93,18 +93,28 @@ jobs:
           result=${PIPESTATUS[0]}
           set -e
 
+          case "$result" in
+            0) outcome=clean; message="Strix finished successfully; review the scan report for coverage." ;;
+            2) outcome=findings; message="Strix reported vulnerabilities; review the scan report." ;;
+            124|137) outcome=timeout; message="Strix reached its one-hour scan limit; the result is incomplete." ;;
+            *) outcome=error; message="Strix failed with exit code $result; the result is inconclusive." ;;
+          esac
+
           # Publish only a summary (finding titles and severities) for the PR
           # comment. The full report can contain secrets or exploit details the
           # scanner discovered, so it is never copied into a comment or
-          # artifact. ANSI colours are stripped and the model name, key and
-          # endpoint redacted (GitHub masks secrets in logs, not in outputs).
+          # artifact. Only the first Title/Severity line of each VULN panel is
+          # used, so text quoted inside a PoC or analysis is never picked up.
+          # ANSI colours are stripped and the model name, key and endpoint
+          # redacted (GitHub masks secrets in logs, not in outputs).
           summary=$(sed -r 's/\x1b\[[0-9;?]*[A-Za-z]//g' "$log" \
             | perl -pe 'for my $k (qw(STRIX_LLM LLM_API_KEY LLM_API_BASE)) { my $v = $ENV{$k}; s/\Q$v\E/***/g if defined $v && length $v }' \
             | awk '
-                /Title:/    { t = $0; sub(/^.*Title:[[:space:]]*/, "", t); sub(/[[:space:]]*│?[[:space:]]*$/, "", t) }
-                /Severity:/ { s = $0; sub(/^.*Severity:[[:space:]]*/, "", s); sub(/[[:space:]]*│?[[:space:]]*$/, "", s)
-                              if (t != "" && n < 50) { printf "- **%s**: %s\n", substr(s, 1, 20), substr(t, 1, 200); n++ }
-                              t = "" }')
+                function field(line, name) { sub("^│  " name ": *", "", line); sub(/ *│ *$/, "", line); return line }
+                /^╭─ VULN-/                  { inv = 1; t = ""; s = ""; next }
+                /^╰/                         { if (inv && t != "" && n < 50) { printf "%s\t%s\n", substr(s, 1, 20), substr(t, 1, 200); n++ }; inv = 0; next }
+                inv && t == "" && /^│  Title: /    { t = field($0, "Title") }
+                inv && s == "" && /^│  Severity: / { s = field($0, "Severity") }')
           delim="EOF_$(openssl rand -hex 8)"
           {
             echo "summary<<$delim"
@@ -112,24 +122,17 @@ jobs:
             echo "$delim"
           } >> "$GITHUB_OUTPUT"
           echo "exit_code=$result" >> "$GITHUB_OUTPUT"
-          echo "report=true" >> "$GITHUB_OUTPUT"
+          echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
 
-          case "$result" in
-            0) message="Strix finished successfully; review the scan report for coverage." ;;
-            2) message="Strix reported vulnerabilities; review the scan report." ;;
-            124|137) message="Strix reached its one-hour scan limit." ;;
-            *) message="Strix failed with exit code $result; review the scan logs." ;;
-          esac
           printf '### Strix scan\n\n%s\n\nExit code: %s.\n' "$message" "$result" >> "$GITHUB_STEP_SUMMARY"
 
           # Reported vulnerabilities turn this check red so they cannot be
           # missed; scanner errors and timeouts stay warnings.
-          if [[ "$result" -eq 2 ]]; then
-            echo "findings=true" >> "$GITHUB_OUTPUT"
+          if [[ "$outcome" == findings ]]; then
             echo "::error::$message"
             exit 1
           fi
-          if [[ "$result" -ne 0 ]]; then
+          if [[ "$outcome" != clean ]]; then
             echo "::warning::$message"
           fi
 
@@ -137,12 +140,14 @@ jobs:
     name: Strix PR comment
     needs: security-scan
     # A separate job so the one that executes PR code and the LLM never holds a
-    # write-capable token. Only same-repo PRs reach this point (see above).
-    if: always() && github.event_name == 'pull_request' && needs.security-scan.outputs.report == 'true'
+    # write-capable token. Runs for every same-repo PR scan (the scan job is
+    # skipped for forks), including ones that produced no result, so an older
+    # comment is never left looking current.
+    if: always() && github.event_name == 'pull_request' && needs.security-scan.result != 'skipped'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
-      pull-requests: write
+      pull-requests: write # create/update the single Strix summary comment
     steps:
       - name: Post or update the Strix summary comment
         env:
@@ -150,28 +155,38 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          FINDINGS: ${{ needs.security-scan.outputs.findings }}
+          OUTCOME: ${{ needs.security-scan.outputs.outcome }}
           SUMMARY: ${{ needs.security-scan.outputs.summary }}
           EXIT_CODE: ${{ needs.security-scan.outputs.exit_code }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         shell: bash
         run: |
           marker='<!-- strix-report -->'
-          if [[ "$FINDINGS" == "true" ]]; then
-            status="vulnerabilities reported"
-          else
-            status="no vulnerabilities reported"
-          fi
+          case "$OUTCOME" in
+            clean) status="no vulnerabilities reported" ;;
+            findings) status="vulnerabilities reported" ;;
+            timeout) status="scan timed out, result incomplete" ;;
+            error) status="scan failed, result inconclusive" ;;
+            *) status="scan did not run (missing credentials, install failure or cancellation)" ;;
+          esac
+
+          # Scanner output is untrusted: escape Markdown and neutralise HTML and
+          # @mentions before it goes into a comment posted by the bot.
+          escape_md() {
+            sed -e 's/[][\\`*_{}()#+!|~>-]/\\&/g' -e 's/</\&lt;/g' -e 's/@/@\&#8203;/g'
+          }
+
           {
             echo "$marker"
             echo "### Strix security scan: $status"
             echo
-            echo "Commit ${HEAD_SHA:0:7} · exit code ${EXIT_CODE:-?} · [workflow run]($RUN_URL)"
+            echo "Commit ${HEAD_SHA:0:7} · exit code ${EXIT_CODE:-n/a} · [workflow run]($RUN_URL)"
             if [[ -n "$SUMMARY" ]]; then
               echo
-              # Titles are scanner output: neutralise markdown/HTML that could
-              # break the comment layout.
-              printf '%s\n' "$SUMMARY" | sed 's/[<>`]//g'
+              while IFS=$'\t' read -r severity title; do
+                [[ -z "$title" ]] && continue
+                printf -- '- **%s**: %s\n' "$(printf '%s' "$severity" | escape_md)" "$(printf '%s' "$title" | escape_md)"
+              done <<< "$SUMMARY"
             fi
             echo
             echo "Details are in the workflow run log."
