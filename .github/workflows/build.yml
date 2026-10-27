@@ -121,6 +121,10 @@ jobs:
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ghcr.io/${{ github.repository_owner }}/rauth-auth
+          # No implicit :latest (metadata-action adds one for semver tags by
+          # default, e.g. a manual dispatch on a v* tag); only the rule below.
+          flavor: |
+            latest=false
           tags: |
             # Only the default branch may move :latest, which deployments pull;
             # a manual dispatch on another branch gets just its branch/sha tags.

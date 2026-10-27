@@ -82,9 +82,10 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 	}
 
 	// Reject sessions of deleted accounts or ones issued before the user's last
-	// credential change (see core.BumpAuthGeneration).
+	// credential change (see core.BumpAuthGeneration). The session is left to
+	// expire rather than deleted: SessionAuthorized also fails closed on a
+	// transient Redis error, which must not destroy a valid session.
 	if !core.SessionAuthorized(data) {
-		core.TokenDB.Del(core.Ctx, redisKey)
 		return h.rateLimitedUnauthorized(c, rateLimitKey)
 	}
 

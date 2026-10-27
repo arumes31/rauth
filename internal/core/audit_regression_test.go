@@ -120,3 +120,15 @@ func TestRegression_SetSecondFactorIfUnset(t *testing.T) {
 	ok, _ = SetSecondFactorIfUnset("judy", "enc:second")
 	assert.False(t, ok)
 }
+
+// Restamping a session that no longer exists must not create a TTL-less hash.
+func TestRegression_RestampOnlyExistingSession(t *testing.T) {
+	newRegressionRedis(t)
+	RestampSession("gone", "5")
+	exists, _ := TokenDB.Exists(Ctx, "X-rauth-authtoken=gone").Result()
+	assert.Equal(t, int64(0), exists)
+
+	TokenDB.HSet(Ctx, "X-rauth-authtoken=live", "status", "valid")
+	RestampSession("live", "5")
+	assert.Equal(t, "5", TokenDB.HGet(Ctx, "X-rauth-authtoken=live", "auth_gen").Val())
+}

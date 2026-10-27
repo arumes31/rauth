@@ -83,15 +83,22 @@ func SessionAuthorized(data map[string]string) bool {
 	return current == sessionGen(data)
 }
 
-// RestampSession updates a surviving session to the user's current generation,
-// used after a self-service credential change keeps the caller signed in.
-func RestampSession(token, username string) {
-	gen, err := AuthGeneration(username)
-	if err != nil {
-		return
-	}
-	if err := TokenDB.HSet(Ctx, "X-rauth-authtoken="+token, "auth_gen", gen).Err(); err != nil {
-		slog.Error("Failed to restamp session generation", "user", username, "error", err)
+// restampScript sets auth_gen only on an existing session hash, so a session
+// deleted in the meantime is never re-created as a hash without a TTL.
+var restampScript = redis.NewScript(`
+if redis.call("EXISTS", KEYS[1]) == 1 then
+	redis.call("HSET", KEYS[1], "auth_gen", ARGV[1])
+	return 1
+end
+return 0
+`)
+
+// RestampSession moves a surviving session to generation gen (the value
+// returned by BumpAuthGeneration), used after a self-service credential change
+// keeps the caller signed in.
+func RestampSession(token, gen string) {
+	if err := restampScript.Run(Ctx, TokenDB, []string{"X-rauth-authtoken=" + token}, gen).Err(); err != nil {
+		slog.Error("Failed to restamp session generation", "error", err)
 	}
 }
 

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log/slog"
 	"net/http"
 	"rauth/internal/core"
 	"runtime"
@@ -24,9 +25,9 @@ type HealthStatus struct {
 }
 
 func (h *HealthHandler) Check(c echo.Context) error {
-	// /health is public. Error strings, file paths and runtime details are
-	// only returned to clients inside METRICS_ALLOWED_IPS; everyone else gets
-	// the status and per-check verdicts.
+	// /health is public. File paths and runtime details are only returned to
+	// clients inside METRICS_ALLOWED_IPS; everyone gets the status and
+	// per-check verdicts. Raw errors are logged, never returned.
 	detailed := h.Cfg.IsIPAllowed(c.RealIP(), h.Cfg.MetricsAllowedIPs)
 	status := "OK"
 	checks := make(map[string]string, 4)
@@ -55,10 +56,9 @@ func (h *HealthHandler) Check(c echo.Context) error {
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
+				// The raw error can contain dial addresses; keep it in the logs.
+				slog.Error("Health check failed", "check", name, "error", err)
 				checks[name] = "FAIL"
-				if detailed {
-					checks[name] = "FAIL: " + err.Error()
-				}
 				status = "FAIL"
 			} else {
 				checks[name] = "OK"

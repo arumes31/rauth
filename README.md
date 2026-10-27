@@ -639,11 +639,12 @@ A: Ensure RAuth's container can reach the SMTP host (check DNS and outbound fire
 
 ### 🔑 Recovery, Metrics, & Local Testing
 **Q: How do I recover if the administrator loses their 2FA / TOTP key or gets locked out?**  
-A: Another administrator can use **Reset 2FA** on any non-root account. The root administrator (`INITIAL_USER`) can only be changed by itself, so other admins cannot take it over. `INITIAL_USER`/`INITIAL_PASSWORD` only create the account when it does not exist yet; they never overwrite an existing one. With Redis CLI access you can reset the root admin's second factors manually (DB 0 holds users), then log in with the password and enroll a new TOTP:
+A: Another administrator can use **Reset 2FA** on any non-root account. The root administrator (`INITIAL_USER`) can only be changed by itself, so other admins cannot take it over. `INITIAL_USER`/`INITIAL_PASSWORD` only create the account when it does not exist yet; they never overwrite an existing one. With Redis CLI access you can reset the root admin's second factors manually (DB 0 holds users), then log in with the password and enroll a new TOTP. Set `U` to your configured `INITIAL_USER` (not necessarily `admin`):
 ```bash
-redis-cli -n 0 HSET user:admin 2fa_secret ""
-redis-cli -n 0 DEL user:admin:recovery_codes user:admin:webauthn_creds_v2 user:admin:webauthn_creds
-redis-cli -n 0 INCR authgen:admin   # signs out every session of the account
+U=admin   # replace with your INITIAL_USER
+redis-cli -n 0 HSET "user:$U" 2fa_secret ""
+redis-cli -n 0 DEL "user:$U:recovery_codes" "user:$U:webauthn_creds_v2" "user:$U:webauthn_creds"
+redis-cli -n 0 INCR "authgen:$U"   # signs out every session of the account
 ```
 
 **Q: Why is Prometheus unable to scrape metrics from the `/metrics` endpoint?**  

@@ -387,8 +387,8 @@ func (h *ProfileHandler) validateTOTP(username, otpCode, encryptedSecret string)
 // revokeOtherAccess ends every session and pending login of the user except
 // the caller's current session, which is re-stamped to the new generation.
 func revokeOtherAccess(username, currentToken string) {
-	if _, err := core.BumpAuthGeneration(username); err == nil && currentToken != "" {
-		core.RestampSession(currentToken, username)
+	if gen, err := core.BumpAuthGeneration(username); err == nil && currentToken != "" {
+		core.RestampSession(currentToken, gen)
 	}
 	core.InvalidateOtherUserSessions(username, currentToken)
 }

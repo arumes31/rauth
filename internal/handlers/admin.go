@@ -364,11 +364,13 @@ func (h *AdminHandler) guardRootAdmin(target, admin string) error {
 // dropped from the index) and pending 2FA/setup tokens; the index sweep
 // removes the indexed sessions immediately.
 func revokeUserAccess(username string) error {
-	if _, err := core.BumpAuthGeneration(username); err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to revoke sessions")
-	}
+	_, bumpErr := core.BumpAuthGeneration(username)
+	// Sweep the index even if the bump failed, so indexed sessions still die.
 	if err := core.InvalidateUserSessions(username); err != nil {
-		slog.Warn("Session index sweep failed; generation bump still revokes access", "user", username, "error", err)
+		slog.Warn("Session index sweep failed", "user", username, "error", err)
+	}
+	if bumpErr != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to revoke sessions")
 	}
 	return nil
 }
