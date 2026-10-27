@@ -680,12 +680,14 @@ func CreateIPExtractor(cfg *core.Config) echo.IPExtractor {
 			if cfg.TrustXRealIP {
 				return realIP
 			}
-			// Legacy smart mode: the private peer is assumed to be the proxy and
-			// to have overwritten X-Real-IP with the address it saw (public or a
-			// LAN client's private address alike). With TRUSTED_PROXIES set,
+			// Legacy smart mode: accept only a public header IP from a private
+			// peer. Any private host (not just the proxy) counts as a trusted
+			// peer here, so accepting private values would let a LAN client claim
+			// any private address. A private value falls through to the
+			// proxy-appended X-Forwarded-For hop below. With TRUSTED_PROXIES set,
 			// X-Real-IP is only used when TRUST_X_REAL_IP is enabled, since not
 			// every proxy overwrites it.
-			if !explicit && peerTrusted {
+			if !explicit && peerTrusted && !core.IsPrivateIP(realIP) {
 				return realIP
 			}
 		}
