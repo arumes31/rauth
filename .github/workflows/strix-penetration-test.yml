@@ -120,9 +120,9 @@ jobs:
             echo "summary<<$delim"
             echo "$summary"
             echo "$delim"
+            echo "exit_code=$result"
+            echo "outcome=$outcome"
           } >> "$GITHUB_OUTPUT"
-          echo "exit_code=$result" >> "$GITHUB_OUTPUT"
-          echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
 
           printf '### Strix scan\n\n%s\n\nExit code: %s.\n' "$message" "$result" >> "$GITHUB_STEP_SUMMARY"
 
