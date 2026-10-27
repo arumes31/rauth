@@ -360,7 +360,9 @@ RAuth is configured via Environment Variables.
 | **Proxy**  | `TRUSTED_PROXIES` | IPs/CIDRs of your reverse proxies. Forwarding headers are only honoured from these peers (`X-Real-IP`/`CF-Connecting-IP` additionally need their `TRUST_*` flag). Empty = legacy smart mode (any private peer is trusted; `TRUST_*` flags apply to every peer) | (Empty) |
 | **Proxy**  | `TRUST_X_FORWARDED_FOR` | Trust `X-Forwarded-For` (walked right-to-left; the first hop that is not a trusted proxy is the client) | `false` |
 | **Proxy**  | `TRUST_X_REAL_IP` | Trust IP in `X-Real-IP` | `false` |
-| **Proxy**  | `TRUST_CLOUDFLARE_IP` | Trust IP in `CF-Connecting-IP` | `false` |
+| **Proxy**  | `TRUST_CLOUDFLARE_IP` | Trust IP in `CF-Connecting-IP` — only when the request arrived from a Cloudflare edge (the direct peer, or the `X-Real-IP` reported by a trusted proxy), so direct-to-origin clients cannot forge it | `false` |
+| **Proxy**  | `CLOUDFLARE_IP_RANGES` | Cloudflare edge CIDRs used for that check (comma separated) | Built-in list |
+| **Proxy**  | `CLOUDFLARE_IP_AUTO_UPDATE` | Refresh the edge list from `cloudflare.com/ips-v4` / `ips-v6` at startup and daily (keeps the current list on failure). Only active with `TRUST_CLOUDFLARE_IP=true` | `true` |
 | **Policy** | `PWD_MIN_LENGTH` | Minimum required password length | `8` |
 | **Policy** | `PWD_REQUIRE_UPPER` | Require uppercase in passwords | `true` |
 | **Policy** | `PWD_REQUIRE_LOWER` | Require lowercase in passwords | `true` |

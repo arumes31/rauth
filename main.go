@@ -588,7 +588,7 @@ func initializeSystem(cfg *core.Config) func() {
 		case core.ValidatePassword(cfg.InitialPassword, cfg) != nil:
 			// The root admin enrolls TOTP on first login, so a weak bootstrap
 			// password would let whoever guesses it first own the account.
-			slog.Error("INITIAL_PASSWORD does not meet the password policy; initial admin not created", "error", core.ValidatePassword(cfg.InitialPassword, cfg))
+			slog.Error("INITIAL_PASSWORD does not meet the password policy (see PWD_* settings); initial admin not created")
 		default:
 			if err := core.CreateUser(cfg.InitialUser, cfg.InitialPassword, cfg.InitialEmail, true, cfg.Initial2FASecret); err == nil {
 				slog.Info("Initial admin user created")
@@ -600,6 +600,9 @@ func initializeSystem(cfg *core.Config) func() {
 
 	// Background metrics and index synchronization
 	ctx, cancel := context.WithCancel(context.Background())
+
+	// Cloudflare edge ranges: seeded from config, refreshed at boot and daily.
+	core.StartCloudflareUpdater(ctx, cfg)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -651,10 +654,22 @@ func CreateIPExtractor(cfg *core.Config) echo.IPExtractor {
 			return remoteHost
 		}
 
-		// 1. Check Cloudflare (if explicitly trusted)
+		// 1. Check Cloudflare (if explicitly trusted). CF-Connecting-IP is only
+		// meaningful when the request really came through Cloudflare: the edge
+		// must be either the direct peer or, behind a local proxy, the address
+		// that proxy reports in X-Real-IP. Anyone reaching the origin directly
+		// could otherwise forge the header.
 		if cfg.TrustCloudflareIP {
-			if ip := net.ParseIP(strings.TrimSpace(req.Header.Get("CF-Connecting-IP"))); ip != nil {
-				return ip.String()
+			edge := remoteHost
+			if peerTrusted {
+				if ip := net.ParseIP(strings.TrimSpace(req.Header.Get("X-Real-IP"))); ip != nil {
+					edge = ip.String()
+				}
+			}
+			if core.IsCloudflareIP(edge) {
+				if ip := net.ParseIP(strings.TrimSpace(req.Header.Get("CF-Connecting-IP"))); ip != nil {
+					return ip.String()
+				}
 			}
 		}
 

@@ -99,3 +99,24 @@ func TestRegression_StaticNoDirectoryListing(t *testing.T) {
 	assert.NoError(t, err)
 	_ = f.Close()
 }
+
+// Hardening: CF-Connecting-IP is ignored unless the request came through a
+// Cloudflare edge, so a client hitting the origin directly cannot forge it.
+func TestRegression_CloudflareHeaderRequiresCloudflareEdge(t *testing.T) {
+	cfg := &core.Config{
+		TrustedProxies:     []string{"172.27.0.0/16"},
+		TrustCloudflareIP:  true,
+		TrustXRealIP:       true,
+		CloudflareIPRanges: core.DefaultCloudflareIPRanges,
+	}
+	extract := CreateIPExtractor(cfg)
+	req, _ := http.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "172.27.0.1:1234"
+	req.Header.Set("CF-Connecting-IP", "8.8.8.8")
+
+	req.Header.Set("X-Real-IP", "104.16.0.1")
+	assert.Equal(t, "8.8.8.8", extract(req), "via a Cloudflare edge the header is honoured")
+
+	req.Header.Set("X-Real-IP", "198.51.100.9")
+	assert.Equal(t, "198.51.100.9", extract(req), "direct-to-origin requests cannot forge CF-Connecting-IP")
+}

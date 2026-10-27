@@ -184,10 +184,12 @@ func TestCreateIPExtractor(t *testing.T) {
 		{
 			name: "TrustCloudflareIP",
 			cfg: &core.Config{
-				TrustCloudflareIP: true,
+				TrustCloudflareIP:  true,
+				CloudflareIPRanges: core.DefaultCloudflareIPRanges,
 			},
 			headers: map[string]string{
 				"CF-Connecting-IP": "203.0.113.1",
+				"X-Real-IP":        "104.16.0.1", // the proxy saw a Cloudflare edge
 			},
 			remoteAddr: "192.168.1.10:12345",
 			expectedIP: "203.0.113.1",
