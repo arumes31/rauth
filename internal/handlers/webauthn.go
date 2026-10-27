@@ -19,7 +19,7 @@ type WebAuthnHandler struct {
 
 func (h *WebAuthnHandler) BeginRegistration(c echo.Context) error {
 	clientIP := c.RealIP()
-	if !core.CheckRateLimit("reg_ip:"+clientIP, h.Cfg.RateLimitRegistrationMax, h.Cfg.RateLimitRegistrationDecay) {
+	if !core.CheckRateLimit("reg_ip:"+core.RateLimitIP(clientIP), h.Cfg.RateLimitRegistrationMax, h.Cfg.RateLimitRegistrationDecay) {
 		return echo.NewHTTPError(http.StatusTooManyRequests, fmt.Sprintf("Too many registration attempts from this IP (%s)", clientIP))
 	}
 
@@ -41,9 +41,12 @@ func (h *WebAuthnHandler) BeginRegistration(c echo.Context) error {
 
 	user := core.NewWebAuthnUser(userRecord)
 
-	options, sessionData, err := core.WebAuthnInstance.BeginRegistration(user)
+	// Exclude already-registered authenticators so the same key is not enrolled twice.
+	options, sessionData, err := core.WebAuthnInstance.BeginRegistration(user,
+		webauthn.WithExclusions(webauthn.Credentials(user.WebAuthnCredentials()).CredentialDescriptors()))
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		slog.Error("WebAuthn BeginRegistration failed", "user", username, "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to start passkey registration")
 	}
 
 	// Store session data in Redis temporarily (5 minutes)
@@ -55,7 +58,7 @@ func (h *WebAuthnHandler) BeginRegistration(c echo.Context) error {
 
 func (h *WebAuthnHandler) FinishRegistration(c echo.Context) error {
 	clientIP := c.RealIP()
-	if !core.CheckRateLimit("reg_ip:"+clientIP, h.Cfg.RateLimitRegistrationMax, h.Cfg.RateLimitRegistrationDecay) {
+	if !core.CheckRateLimit("reg_ip:"+core.RateLimitIP(clientIP), h.Cfg.RateLimitRegistrationMax, h.Cfg.RateLimitRegistrationDecay) {
 		return echo.NewHTTPError(http.StatusTooManyRequests, fmt.Sprintf("Too many registration attempts from this IP (%s)", clientIP))
 	}
 
@@ -86,7 +89,8 @@ func (h *WebAuthnHandler) FinishRegistration(c echo.Context) error {
 
 	credential, err := core.WebAuthnInstance.FinishRegistration(user, sessionData, c.Request())
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		slog.Warn("WebAuthn FinishRegistration failed", "user", username, "error", err)
+		return echo.NewHTTPError(http.StatusBadRequest, "Passkey registration failed")
 	}
 
 	if err := core.SaveWebAuthnCredential(username, credential); err != nil {
@@ -109,7 +113,7 @@ func (h *WebAuthnHandler) FinishRegistration(c echo.Context) error {
 
 func (h *WebAuthnHandler) BeginLogin(c echo.Context) error {
 	clientIP := c.RealIP()
-	if !core.CheckRateLimit("login_access:"+clientIP, h.Cfg.RateLimitLoginAccessMax, h.Cfg.RateLimitLoginAccessDecay) {
+	if !core.CheckRateLimit("login_access:"+core.RateLimitIP(clientIP), h.Cfg.RateLimitLoginAccessMax, h.Cfg.RateLimitLoginAccessDecay) {
 		return echo.NewHTTPError(http.StatusTooManyRequests, fmt.Sprintf("Too many login attempts from this IP (%s)", clientIP))
 	}
 
@@ -137,7 +141,8 @@ func (h *WebAuthnHandler) BeginLogin(c echo.Context) error {
 	}
 
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		slog.Error("WebAuthn BeginLogin failed", "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to start passkey login")
 	}
 
 	sessionJSON, _ := json.Marshal(sessionData)
@@ -165,7 +170,7 @@ func (h *WebAuthnHandler) BeginLogin(c echo.Context) error {
 
 func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 	clientIP := c.RealIP()
-	if !core.CheckRateLimit("login_ip:"+clientIP, h.Cfg.RateLimitLoginMax, h.Cfg.RateLimitLoginDecay) {
+	if !core.CheckRateLimit("login_ip:"+core.RateLimitIP(clientIP), h.Cfg.RateLimitLoginMax, h.Cfg.RateLimitLoginDecay) {
 		return echo.NewHTTPError(http.StatusTooManyRequests, fmt.Sprintf("Too many login attempts from this IP (%s)", clientIP))
 	}
 
@@ -199,7 +204,17 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 	credential, err := core.WebAuthnInstance.ValidateLogin(user, *sessionData, parsedResponse)
 	if err != nil {
 		slog.Error("WebAuthn validation failed", "error", err, "username", username)
-		return echo.NewHTTPError(http.StatusUnauthorized, "Passkey validation failed: "+err.Error())
+		return echo.NewHTTPError(http.StatusUnauthorized, "Passkey validation failed")
+	}
+
+	// With WEBAUTHN_USER_VERIFICATION=required a passkey login must prove user
+	// verification (PIN/biometric), not just presence. The library enforces
+	// this when the session requires it; check again here so a session begun
+	// under an older configuration can never downgrade the assurance.
+	if h.Cfg.WebAuthnRequireUserVerification && !credential.Flags.UserVerified {
+		slog.Warn("WebAuthn assertion without user verification rejected", "username", username)
+		core.LogAudit("PASSKEY_UV_MISSING", username, clientIP, nil)
+		return echo.NewHTTPError(http.StatusUnauthorized, "Passkey validation failed: user verification (PIN or biometric) is required")
 	}
 
 	// A non-increasing signature counter means the authenticator may have been
@@ -325,28 +340,35 @@ func (h *WebAuthnHandler) issuePasskeyToken(c echo.Context, username string, use
 		return echo.NewHTTPError(http.StatusForbidden, "Access from your location is restricted")
 	}
 
-	finalRedisKey := "X-rauth-authtoken=" + token
-	// Stamp groups/is_admin and Client Hints into the session so the forward-auth
-	// path (/rauthvalidate) forwards X-RAuth-Groups/X-RAuth-Admin and the device
-	// check behaves identically to a password login (see issueToken).
-	core.TokenDB.HSet(core.Ctx, finalRedisKey, map[string]interface{}{
+	authGen, err := core.AuthGeneration(username)
+	if err != nil {
+		slog.Error("Failed to read auth generation at passkey login", "user", username, "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to create session")
+	}
+
+	// Stamp groups/is_admin, the auth generation and Client Hints into the
+	// session so the forward-auth path (/rauthvalidate) forwards
+	// X-RAuth-Groups/X-RAuth-Admin and the device check behaves identically to a
+	// password login (see issueToken). The write is atomic: a session missing
+	// from the revocation index must never be issued.
+	tokenValidity := time.Duration(h.Cfg.TokenValidityMinutes) * time.Minute
+	if err := core.StoreSession(token, username, clientIP, map[string]interface{}{
 		"status":         "valid",
 		"ip":             clientIP,
 		"username":       username,
 		"country":        countryCode,
 		"groups":         userRecord.Groups,
 		"is_admin":       userRecord.IsAdmin,
+		"auth_gen":       authGen,
 		"user_agent":     ua,
 		"ua_ch_platform": c.Request().Header.Get("Sec-CH-UA-Platform"),
 		"ua_ch_mobile":   c.Request().Header.Get("Sec-CH-UA-Mobile"),
 		"ua_ch_model":    c.Request().Header.Get("Sec-CH-UA-Model"),
 		"created_at":     time.Now().Unix(),
-	})
-	core.AddSessionIndex(username, token)
-	core.AddIPSessionIndex(clientIP, token)
-
-	tokenValidity := time.Duration(h.Cfg.TokenValidityMinutes) * time.Minute
-	core.TokenDB.Expire(core.Ctx, finalRedisKey, tokenValidity)
+	}, tokenValidity); err != nil {
+		slog.Error("Failed to store passkey session", "user", username, "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to create session")
+	}
 
 	cookie := &http.Cookie{
 		Name:     "X-rauth-authtoken",

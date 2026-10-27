@@ -13,11 +13,13 @@ concurrency:
 
 jobs:
   security-scan:
-    name: Strix (advisory)
+    name: Strix
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    continue-on-error: true
     timeout-minutes: 90
+    outputs:
+      report: ${{ steps.scan.outputs.report }}
+      findings: ${{ steps.scan.outputs.findings }}
     env:
       LLM_TIMEOUT: "3600"
       LITELLM_REQUEST_TIMEOUT: "3600"
@@ -68,8 +70,8 @@ jobs:
           echo "$install_dir" >> "$GITHUB_PATH"
 
       - name: Run Strix
+        id: scan
         if: steps.install.outcome == 'success'
-        continue-on-error: true
         timeout-minutes: 62
         env:
           STRIX_LLM: ${{ secrets.STRIX_LLM }}
@@ -83,10 +85,21 @@ jobs:
             scope=(--scope-mode diff --diff-base "origin/$STRIX_DIFF_BASE")
           fi
 
+          log="$RUNNER_TEMP/strix-output.txt"
           set +e
-          timeout --signal=TERM --kill-after=30s 60m strix -n -t ./ --scan-mode quick --max-budget 10 "${scope[@]}"
-          result=$?
+          timeout --signal=TERM --kill-after=30s 60m strix -n -t ./ --scan-mode quick --max-budget 10 "${scope[@]}" 2>&1 | tee "$log"
+          result=${PIPESTATUS[0]}
           set -e
+
+          # Build a comment-safe report: strip ANSI colours and redact the model
+          # name, key and endpoint (GitHub masks secrets in logs only, not in
+          # artifacts or comments).
+          mkdir -p strix-report
+          sed -r 's/\x1b\[[0-9;?]*[A-Za-z]//g' "$log" \
+            | perl -pe 'for my $k (qw(STRIX_LLM LLM_API_KEY LLM_API_BASE)) { my $v = $ENV{$k}; s/\Q$v\E/***/g if defined $v && length $v }' \
+            > strix-report/report.txt
+          echo "$result" > strix-report/exit-code
+          echo "report=true" >> "$GITHUB_OUTPUT"
 
           case "$result" in
             0) message="Strix finished successfully; review the scan report for coverage." ;;
@@ -94,8 +107,78 @@ jobs:
             124|137) message="Strix reached its one-hour scan limit." ;;
             *) message="Strix failed with exit code $result; review the scan logs." ;;
           esac
-          if [[ "$result" -ne 0 ]]; then
-            echo "::warning::$message This advisory scan does not fail CI."
+          printf '### Strix scan\n\n%s\n\nExit code: %s.\n' "$message" "$result" >> "$GITHUB_STEP_SUMMARY"
+
+          # Reported vulnerabilities turn this check red so they cannot be
+          # missed; scanner errors and timeouts stay warnings.
+          if [[ "$result" -eq 2 ]]; then
+            echo "findings=true" >> "$GITHUB_OUTPUT"
+            echo "::error::$message"
+            exit 1
           fi
-          printf '### Strix advisory scan\n\n%s\n\nExit code: %s. CI is not blocked.\n' "$message" "$result" >> "$GITHUB_STEP_SUMMARY"
-          exit 0
+          if [[ "$result" -ne 0 ]]; then
+            echo "::warning::$message"
+          fi
+
+      - name: Upload Strix report
+        if: always() && steps.scan.outputs.report == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: strix-report
+          path: strix-report/
+          retention-days: 14
+
+  comment:
+    name: Strix PR comment
+    needs: security-scan
+    # A separate job so the one that executes PR code and the LLM never holds a
+    # write-capable token. Only same-repo PRs reach this point (see above).
+    if: always() && github.event_name == 'pull_request' && needs.security-scan.outputs.report == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      pull-requests: write
+    steps:
+      - name: Post or update the Strix report comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          FINDINGS: ${{ needs.security-scan.outputs.findings }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          gh run download "$RUN_ID" --repo "$REPO" --name strix-report --dir strix-report
+          marker='<!-- strix-report -->'
+          fence='```'
+          if [[ "$FINDINGS" == "true" ]]; then
+            status="vulnerabilities reported"
+          else
+            status="no vulnerabilities reported"
+          fi
+          {
+            echo "$marker"
+            echo "### Strix security scan: $status"
+            echo
+            echo "Commit ${HEAD_SHA:0:7} · exit code $(cat strix-report/exit-code) · [workflow run]($RUN_URL)"
+            echo
+            echo "<details><summary>Full report</summary>"
+            echo
+            echo "${fence}text"
+            # Keep well under GitHub's 65k comment limit, and neutralise any
+            # code fence inside the report so it cannot break out of the block.
+            tail -c 60000 strix-report/report.txt | sed "s/${fence}/'''/g"
+            echo "$fence"
+            echo
+            echo "</details>"
+          } > comment.md
+          existing=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\"))) | .id" | head -n1)
+          if [[ -n "$existing" ]]; then
+            gh api --method PATCH "repos/$REPO/issues/comments/$existing" -F body=@comment.md > /dev/null
+          else
+            gh pr comment "$PR" --repo "$REPO" --body-file comment.md
+          fi

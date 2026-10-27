@@ -13,6 +13,8 @@ concurrency:
 jobs:
   promote:
     name: Tag Latest as Stable
+    # Promotion moves the :stable tag consumers pull, so only allow it from main.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:

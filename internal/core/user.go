@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -128,17 +129,69 @@ func EnsureUserUIDs() {
 	}
 }
 
+// migratePlaintextTOTPScript re-encrypts a legacy secret only if it is still
+// the exact plaintext value read, so a concurrent change is never clobbered.
+var migratePlaintextTOTPScript = redis.NewScript(`
+if redis.call("HGET", KEYS[1], "2fa_secret") == ARGV[1] then
+	redis.call("HSET", KEYS[1], "2fa_secret", ARGV[2])
+	return 1
+end
+return 0
+`)
+
+// MigratePlaintextTOTPSecrets encrypts TOTP secrets stored by versions that
+// predate at-rest encryption, so a Redis dump no longer exposes them.
+func MigratePlaintextTOTPSecrets() {
+	usernames, err := UserDB.SMembers(Ctx, "users").Result()
+	if err != nil {
+		slog.Error("MigratePlaintextTOTPSecrets: failed to list users", "error", err)
+		return
+	}
+	for _, username := range usernames {
+		secret, err := UserDB.HGet(Ctx, "user:"+username, "2fa_secret").Result()
+		if err != nil || secret == "" || strings.HasPrefix(secret, "enc:") {
+			continue
+		}
+		encrypted, err := Encrypt2FASecret(secret, ServerSecret)
+		if err != nil {
+			slog.Error("MigratePlaintextTOTPSecrets: encryption failed", "user", username, "error", err)
+			continue
+		}
+		if err := migratePlaintextTOTPScript.Run(Ctx, UserDB, []string{"user:" + username}, secret, encrypted).Err(); err != nil {
+			slog.Error("MigratePlaintextTOTPSecrets: write failed", "user", username, "error", err)
+			continue
+		}
+		slog.Info("Encrypted legacy plaintext TOTP secret", "user", username)
+	}
+}
+
 func CreateUser(username, password, email string, isAdmin bool, twoFactor string) error {
-	exists, err := UserDB.Exists(Ctx, "user:"+username).Result()
+	// Hash before claiming the name so a slow bcrypt never holds a half-created
+	// record visible to concurrent logins.
+	hash, err := HashPassword(password)
 	if err != nil {
 		return err
 	}
-	if exists > 0 {
+
+	// Atomically claim the username: HSETNX on the "username" field fails when a
+	// real account exists, so two concurrent creations cannot overwrite each
+	// other. A stub hash without a username field (left by a stale write to a
+	// deleted account) is taken over and fully overwritten below.
+	claimed, err := UserDB.HSetNX(Ctx, "user:"+username, "username", username).Result()
+	if err != nil {
+		return err
+	}
+	if !claimed {
 		return fmt.Errorf("user already exists")
 	}
 
-	hash, err := HashPassword(password)
-	if err != nil {
+	// A recreated name must not inherit satellite state that survived (or was
+	// re-materialized after) a previous deletion, nor any of its sessions or
+	// pending tokens.
+	ClearRecoveryCodes(username)
+	UserDB.Del(Ctx, "user:"+username+":webauthn_creds_v2", "user:"+username+":webauthn_creds")
+	if _, err := BumpAuthGeneration(username); err != nil {
+		UserDB.Del(Ctx, "user:"+username)
 		return err
 	}
 
@@ -167,6 +220,7 @@ func CreateUser(username, password, email string, isAdmin bool, twoFactor string
 
 	err = UserDB.HSet(Ctx, "user:"+username, user).Err()
 	if err != nil {
+		UserDB.Del(Ctx, "user:"+username)
 		return err
 	}
 
@@ -178,6 +232,11 @@ func CreateUser(username, password, email string, isAdmin bool, twoFactor string
 }
 
 func DeleteUser(username string) error {
+	// Invalidate every session and pending token first, including ones the
+	// session index does not know about or that are being minted concurrently.
+	if _, err := BumpAuthGeneration(username); err != nil {
+		return err
+	}
 	user, err := GetUser(username)
 	if err == nil {
 		UserDB.Del(Ctx, "uid:"+user.UID)
@@ -187,7 +246,7 @@ func DeleteUser(username string) error {
 	}
 	AuditDB.Del(Ctx, "user_audit_logs:"+username)
 	// A deleted user must not retain a usable session until token expiry.
-	InvalidateUserSessions(username)
+	_ = InvalidateUserSessions(username)
 	// Remove per-user satellite keys so a future account with the same name
 	// does not inherit recovery codes or passkeys.
 	ClearRecoveryCodes(username)
