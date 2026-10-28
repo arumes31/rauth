@@ -104,7 +104,7 @@ func TestProfileHandler_ChangePassword(t *testing.T) {
 
 	password := "oldpassword"
 	hash, _ := core.HashPassword(password)
-	core.UserDB.HSet(core.Ctx, "user:passuser", "password", hash)
+	seedUserFields(t, "passuser", map[string]interface{}{"password": hash})
 
 	t.Run("Successful password change", func(t *testing.T) {
 		f := make(url.Values)
@@ -120,7 +120,7 @@ func TestProfileHandler_ChangePassword(t *testing.T) {
 		assert.Equal(t, http.StatusFound, rec.Code)
 
 		// Verify new password
-		newData, _ := core.UserDB.HGet(core.Ctx, "user:passuser", "password").Result()
+		newData := userField(t, "passuser", "password")
 		assert.True(t, core.CheckPasswordHash("NewSecure123!", newData))
 	})
 
@@ -159,7 +159,7 @@ func TestProfileHandler_ChangePassword(t *testing.T) {
 
 	t.Run("Keeps current session, invalidates others", func(t *testing.T) {
 		hash, _ := core.HashPassword(password)
-		core.UserDB.HSet(core.Ctx, "user:passuser2", "password", hash)
+		seedUserFields(t, "passuser2", map[string]interface{}{"password": hash})
 		core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken=cur", "status", "valid", "username", "passuser2")
 		core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken=other", "status", "valid", "username", "passuser2")
 		core.AddSessionIndex("passuser2", "cur")
@@ -191,7 +191,7 @@ func TestProfileHandler_GenerateRecoveryCodes(t *testing.T) {
 	e := echo.New()
 
 	t.Run("Generate recovery codes missing 2fa", func(t *testing.T) {
-		core.UserDB.Del(core.Ctx, "user:profileuser")
+		removeUserRow(t, "profileuser")
 
 		f := make(url.Values)
 		f.Set("otp_code", "123456")
@@ -222,7 +222,7 @@ func TestProfileHandler_RenamePasskey(t *testing.T) {
 		seedAccount(t, "profileuser")
 
 		// Pre-populate credential properly mapped
-		core.UserDB.HSet(core.Ctx, "user:profileuser:webauthn_creds_v2", "dGVzdGlk", `{"id":"dGVzdGlk","publicKey":"","attestationType":"","authenticator":{"aaguid":"","signCount":0,"cloneWarning":false}}`)
+		seedPasskey(t, "profileuser", "dGVzdGlk", `{"id":"dGVzdGlk","publicKey":"","attestationType":"","authenticator":{"aaguid":"","signCount":0,"cloneWarning":false}}`)
 
 		err := h.RenamePasskey(c)
 		assert.NoError(t, err)
@@ -236,7 +236,7 @@ func TestProfileHandler_RevokePasskey(t *testing.T) {
 
 	t.Run("Revoke passkey requires step-up", func(t *testing.T) {
 		_ = core.CreateUser("profileuser", "password123", "", false, "")
-		core.UserDB.HSet(core.Ctx, "user:profileuser:webauthn_creds_v2", "dGVzdGlk", `{"id":"dGVzdGlk","publicKey":"","attestationType":"","authenticator":{"aaguid":"","signCount":0,"cloneWarning":false}}`)
+		seedPasskey(t, "profileuser", "dGVzdGlk", `{"id":"dGVzdGlk","publicKey":"","attestationType":"","authenticator":{"aaguid":"","signCount":0,"cloneWarning":false}}`)
 
 		f := make(url.Values)
 		f.Set("id", "dGVzdGlk")
@@ -248,7 +248,7 @@ func TestProfileHandler_RevokePasskey(t *testing.T) {
 		if assert.Error(t, err) {
 			assert.Equal(t, http.StatusBadRequest, err.(*echo.HTTPError).Code)
 		}
-		exists, _ := core.UserDB.HExists(core.Ctx, "user:profileuser:webauthn_creds_v2", "dGVzdGlk").Result()
+		exists := passkeyExists(t, "profileuser", "dGVzdGlk")
 		assert.True(t, exists, "passkey must survive a revoke without step-up")
 	})
 
@@ -261,7 +261,7 @@ func TestProfileHandler_RevokePasskey(t *testing.T) {
 		c, _ := createTestContext(e, http.MethodPost, "/rauthprofile/passkeys/revoke", f)
 		c.Set("username", "profileuser")
 
-		core.UserDB.HSet(core.Ctx, "user:profileuser:webauthn_creds_v2", "dGVzdGlk", `{"id":"dGVzdGlk","publicKey":"","attestationType":"","authenticator":{"aaguid":"","signCount":0,"cloneWarning":false}}`)
+		seedPasskey(t, "profileuser", "dGVzdGlk", `{"id":"dGVzdGlk","publicKey":"","attestationType":"","authenticator":{"aaguid":"","signCount":0,"cloneWarning":false}}`)
 
 		err := h.RevokePasskey(c)
 		assert.NoError(t, err)
@@ -274,7 +274,7 @@ func TestProfileHandler_DisableTOTP(t *testing.T) {
 	e := echo.New()
 
 	t.Run("Disable TOTP missing secret", func(t *testing.T) {
-		core.UserDB.Del(core.Ctx, "user:profileuser")
+		seedAccount(t, "profileuser")
 
 		f := make(url.Values)
 		f.Set("otp_code", "123456")
@@ -303,7 +303,7 @@ func TestProfileHandler_TerminateAllOtherSessions(t *testing.T) {
 		c.Set("username", "profileuser")
 		c.Set("token", "currenttoken")
 
-		core.UserDB.HSet(core.Ctx, "user:profileuser", "password", string(hashedPwd))
+		seedUserFields(t, "profileuser", map[string]interface{}{"password": string(hashedPwd)})
 		core.TokenDB.SAdd(core.Ctx, "user_sessions:profileuser", "currenttoken", "othertoken")
 		core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken=othertoken", "status", "valid")
 

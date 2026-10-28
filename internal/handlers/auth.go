@@ -392,7 +392,7 @@ func (h *AuthHandler) logLoginFailed(username, clientIP string) {
 		core.LogAudit("LOGIN_FAILED", "", clientIP, map[string]interface{}{"attempted_username": "(invalid)"})
 		return
 	}
-	if exists, err := core.UserDB.Exists(core.Ctx, "user:"+username).Result(); err != nil || exists == 0 {
+	if exists, err := core.UserExists(username); err != nil || !exists {
 		core.LogAudit("LOGIN_FAILED", "", clientIP, map[string]interface{}{"attempted_username": username})
 		return
 	}

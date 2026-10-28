@@ -7,7 +7,6 @@ import (
 	"rauth/internal/core"
 
 	"github.com/labstack/echo/v4"
-	"github.com/redis/go-redis/v9"
 )
 
 func AuthMiddleware(cfg *core.Config) echo.MiddlewareFunc {
@@ -64,8 +63,8 @@ func AuthMiddleware(cfg *core.Config) echo.MiddlewareFunc {
 			// single-field user lookup only for legacy sessions that predate it.
 			isAdmin := data["is_admin"]
 			if isAdmin == "" {
-				if v, err := core.UserDB.HGet(core.Ctx, "user:"+username, "is_admin").Result(); err == nil {
-					isAdmin = v
+				if v, err := core.UserIsAdmin(username); err == nil && v {
+					isAdmin = "1"
 				}
 			}
 			if isAdmin == "" {
@@ -95,16 +94,13 @@ func AdminMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 		// Check admin status against the live user record rather than the value
 		// stamped into the session at login, so a demotion takes effect on the
 		// admin UI immediately instead of after the session expires.
-		isAdmin, err := core.UserDB.HGet(core.Ctx, "user:"+username, "is_admin").Result()
-		if err == redis.Nil {
-			// Missing field => not an admin; fall through to the 403 below.
-			isAdmin = "0"
-		} else if err != nil {
+		isAdmin, err := core.UserIsAdmin(username)
+		if err != nil {
 			slog.Error("Failed to fetch admin status in admin middleware", "user", username, "error", err)
 			return echo.NewHTTPError(http.StatusInternalServerError, "Internal Server Error")
 		}
 
-		if isAdmin != "1" {
+		if !isAdmin {
 			slog.Warn("Unauthorized admin access attempt", "user", username, "ip", c.RealIP())
 			return echo.NewHTTPError(http.StatusForbidden, "Admin access required")
 		}

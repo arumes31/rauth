@@ -83,7 +83,7 @@ RAuth eliminates the complexity of full-scale identity providers while maintaini
     <td width="50%" valign="top">
       <h3>🌐 Smart Session Management</h3>
       <ul>
-        <li><b>Sub-millisecond Validation</b>: Near-zero latency Go backend cached on a high-speed Redis database.</li>
+        <li><b>Sub-millisecond Validation</b>: Near-zero latency Go backend with sessions in Redis and accounts in PostgreSQL.</li>
         <li><b>Automatic Token Rotation</b>: Periodically replaces active session tokens during validation, neutralizing the impact of stolen tokens.</li>
         <li><b>Hardware Binding</b>: Optionally binds sessions to specific device models using high-entropy User-Agent Client Hints.</li>
         <li><b>Geo-Fencing</b>: Real-time MaxMind integration instantly invalidating sessions initiated from anomalous countries.</li>
@@ -127,7 +127,8 @@ RAuth integrates seamlessly into your existing Nginx proxy stack using the `auth
 graph TD
     User((User)) -->|HTTPS Request| Nginx[Nginx Reverse Proxy]
     Nginx -->|1. auth_request| RAuth[RAuth Auth Service]
-    RAuth <-->|2. Session Check| Redis[(Redis Store)]
+    RAuth <-->|2. Session Check| Redis[(Redis: sessions)]
+    RAuth <-->|Accounts, passkeys, audit| Postgres[(PostgreSQL)]
     RAuth -->|3. Return 200/401| Nginx
     Nginx -->|4. If 200: Forward| Backend[Your App Backend]
     Nginx -->|5. If 401: Redirect| Login[RAuth Login UI]
@@ -140,7 +141,7 @@ graph TD
 RAuth is built with a "Security-First" mindset, implementing advanced system-wide hardening:
 
 1.  **Authenticated Encryption**: All session tokens stored in cookies are encrypted using **AES-256-GCM**.
-2.  **At-Rest Secret Encryption**: User TOTP secrets are encrypted with the `SERVER_SECRET` before being stored in Redis, protecting against database exposure.
+2.  **At-Rest Secret Encryption**: User TOTP secrets are encrypted with the `SERVER_SECRET` before being stored in the database, protecting against database exposure.
 3.  **Enumeration & Timing Attack Mitigation**: Uniform response times for login and session checks using fully valid, pre-computed 60-character dummy bcrypt hashes, completely neutralizing username enumeration timing attacks.
 4.  **Brute-Force Protection & Rate Limiting**: Atomic Redis-backed rate limiting per IP and per username, protecting login pages, registration endpoints, and sensitive profile-level operations (e.g. 2FA verification, password change).
 5.  **Hardened CSRF & CSP**: Strictly configured CSRF cookies (HTTPOnly, Secure, SameSite=Lax) and a robust Content Security Policy (CSP).
@@ -160,7 +161,8 @@ RAuth is built with a "Security-First" mindset, implementing advanced system-wid
 
 *   **Runtime**: [Go 1.26+](https://golang.org/) (High-concurrency, memory-safe)
 *   **Web Framework**: [Echo v4](https://echo.labstack.com/)
-*   **Identity Store**: [Redis 7.4+](https://redis.io/)
+*   **Identity Store**: [PostgreSQL 18](https://www.postgresql.org/) (accounts, passkeys, recovery codes, bypass rules, audit log)
+*   **Session Store**: [Redis 7.4+](https://redis.io/) (sessions, rate limits, invites)
 *   **MFA Core**: [go-webauthn](https://github.com/go-webauthn/webauthn) & [pquerna/otp](https://github.com/pquerna/otp)
 *   **Geo-IP**: Native Go MMDB integration via [geoip2-golang](https://github.com/oschwald/geoip2-golang)
 *   **Monitoring**: [Prometheus Client](https://github.com/prometheus/client_golang)
@@ -319,7 +321,7 @@ app.example.com/example    Login required
 app.example.com/*          Public
 ```
 
-Manage rules in **`/rauthmgmt` → Public Access**. Before you can add, edit or remove rules, you unlock the tab once with your TOTP code (or your current password if you have no TOTP). The unlock is bound to your session and lasts 15 minutes, or until you press **Lock now**. Every change writes an audit log entry. Rules are stored in Redis, and every instance picks up changes within about 15 seconds. You can also set fixed rules with `AUTH_BYPASS_RULES` (comma separated). Those appear in the UI as read-only.
+Manage rules in **`/rauthmgmt` → Public Access**. Before you can add, edit or remove rules, you unlock the tab once with your TOTP code (or your current password if you have no TOTP). The unlock is bound to your session and lasts 15 minutes, or until you press **Lock now**. Every change writes an audit log entry. Rules are stored in PostgreSQL, and every instance picks up changes within about 15 seconds. You can also set fixed rules with `AUTH_BYPASS_RULES` (comma separated). Those appear in the UI as read-only.
 
 How matching works:
 - Hosts match exactly and ignore case and port. Path rules match on whole segments and are case-sensitive.
@@ -384,6 +386,12 @@ RAuth is configured via Environment Variables.
 | **Redis**  | `REDIS_HOST` | Hostname of the Redis instance | `rauth-auth-redis` |
 | **Redis**  | `REDIS_PORT` | Port of the Redis instance | `6379` |
 | **Redis**  | `REDIS_PASSWORD` | Password for Redis auth (required by the compose files) | (None) |
+| **Postgres** | `POSTGRES_HOST` | Hostname of the PostgreSQL server | `rauth-auth-postgres` |
+| **Postgres** | `POSTGRES_PORT` | Port of the PostgreSQL server | `5432` |
+| **Postgres** | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | Credentials and database (password required by the compose files) | `rauth` / (None) / `rauth` |
+| **Postgres** | `POSTGRES_SSLMODE` | libpq `sslmode` | `disable` |
+| **Postgres** | `DATABASE_URL` | Full connection string; overrides the `POSTGRES_*` settings. The bundled compose files still require `POSTGRES_PASSWORD` for their own Postgres container | (None) |
+| **Audit**  | `AUDIT_RETENTION_DAYS` | Days to keep audit log entries (`0` = forever) | `365` |
 | **Auth**   | `COOKIE_DOMAIN` | Domain for the auth cookie | `example.com` |
 | **Auth**   | `ALLOWED_HOSTS` | Redirect whitelist (Comma-separated) | `localhost,127.0.0.1` |
 | **Auth**   | `TOKEN_VALIDITY_MINUTES`| Session duration in minutes | `2880` (2 days) |
@@ -521,6 +529,8 @@ services:
       - REDIS_HOST=rauth-auth-redis
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+      - POSTGRES_HOST=rauth-auth-postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       - INITIAL_USER=${INITIAL_USER:-admin}
       - INITIAL_PASSWORD=${INITIAL_PASSWORD}
       - INITIAL_EMAIL=${INITIAL_EMAIL:-admin@example.com}
@@ -562,7 +572,10 @@ services:
       - SMTP_PASS=${SMTP_PASS}
       - SMTP_FROM=${SMTP_FROM}
     depends_on:
-      - rauth-auth-redis
+      rauth-auth-redis:
+        condition: service_started
+      rauth-auth-postgres:
+        condition: service_healthy
     volumes:
       - ./geoip-data:/app/geoip
     networks:
@@ -577,6 +590,29 @@ services:
       - no-new-privileges:true
     volumes:
       - ./redis-data:/data
+    networks:
+      - auth-network
+
+  # Durable store: accounts, passkeys, recovery codes, bypass rules, audit log.
+  # Redis keeps only sessions, rate limits and invites.
+  rauth-auth-postgres:
+    image: postgres:18-alpine@sha256:10a5c69a83035ab5239f5620d708520e8b28f5aa1f2b20143e6024532edadfb5
+    container_name: rauth-auth-postgres
+    hostname: rauth-auth-postgres
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-rauth}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      - POSTGRES_DB=${POSTGRES_DB:-rauth}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      # Postgres 18+ images keep PGDATA under /var/lib/postgresql/<major>/docker.
+      - ./postgres-data:/var/lib/postgresql
     networks:
       - auth-network
 
@@ -595,7 +631,9 @@ If you are modifying the codebase or prefer to compile the application locally, 
 ```bash
 docker compose up -d --build
 ```
-RAuth will automatically pull the secure image from GHCR, download and update the latest Geo-IP database, boot the Redis memory store, and seed your initial admin user.
+RAuth will automatically pull the secure image from GHCR, download and update the latest Geo-IP database, boot Redis and PostgreSQL, and seed your initial admin user.
+
+> **Upgrading from a Redis-only release:** add the `rauth-auth-postgres` service and `POSTGRES_PASSWORD`, keep Redis and its volume, then start the new image. On its first start RAuth copies accounts, passkeys, recovery codes, auth generations, bypass rules and the audit log from Redis DB 0/3 into PostgreSQL, once, in one transaction. Redis is left untouched, so rolling back to the previous image keeps working (changes made after the upgrade are not copied back).
 
 ### 🔐 Step 4: Access the Admin Dashboard & Secure Account
 1. Open your browser and navigate to RAuth's administration portal at `https://auth.example.com/rauthmgmt` (or `http://localhost:5980/rauthmgmt` for local development).
@@ -615,6 +653,13 @@ To start protecting your applications, configure your reverse proxy to forward u
 ### Prerequisites
 *   Go 1.26+
 *   Redis (or [miniredis](https://github.com/alicebob/miniredis) for testing)
+*   PostgreSQL for the tests that touch the durable store:
+    ```bash
+    docker run -d --name rauth-test-pg -e POSTGRES_PASSWORD=test -p 55432:5432 postgres:18-alpine
+    export RAUTH_TEST_DATABASE_URL='postgres://postgres:test@localhost:55432/postgres?sslmode=disable'
+    go test ./...
+    ```
+    Without `RAUTH_TEST_DATABASE_URL` those tests are skipped locally (and fail in CI).
 
 ### Testing
 We use a combination of unit tests, integration tests, and fuzzing to ensure core security logic remains robust.
@@ -680,12 +725,16 @@ A: Ensure RAuth's container can reach the SMTP host (check DNS and outbound fire
 
 ### 🔑 Recovery, Metrics, & Local Testing
 **Q: How do I recover if the administrator loses their 2FA / TOTP key or gets locked out?**  
-A: Another administrator can use **Reset 2FA** on any non-root account. The root administrator (`INITIAL_USER`) can only be changed by itself, so other admins cannot take it over. `INITIAL_USER`/`INITIAL_PASSWORD` only create the account when it does not exist yet; they never overwrite an existing one. With Redis CLI access you can reset the root admin's second factors manually (DB 0 holds users), then log in with the password and enroll a new TOTP. Set `U` to your configured `INITIAL_USER` (not necessarily `admin`):
+A: Another administrator can use **Reset 2FA** on any non-root account. The root administrator (`INITIAL_USER`) can only be changed by itself, so other admins cannot take it over. `INITIAL_USER`/`INITIAL_PASSWORD` only create the account when it does not exist yet; they never overwrite an existing one. With database access you can reset the root admin's second factors manually, then log in with the password and enroll a new TOTP. Replace `admin` with your configured `INITIAL_USER`:
 ```bash
-U=admin   # replace with your INITIAL_USER
-redis-cli -n 0 HSET "user:$U" 2fa_secret ""
-redis-cli -n 0 DEL "user:$U:recovery_codes" "user:$U:webauthn_creds_v2" "user:$U:webauthn_creds"
-redis-cli -n 0 INCR "authgen:$U"   # signs out every session of the account
+docker exec -i rauth-auth-postgres sh -c 'psql -U "$POSTGRES_USER" "$POSTGRES_DB"' <<'SQL'
+UPDATE users SET totp_secret = '' WHERE username = 'admin';
+DELETE FROM recovery_codes WHERE username = 'admin';
+DELETE FROM webauthn_credentials WHERE username = 'admin';
+-- signs out every session of the account
+INSERT INTO auth_generations (username, gen) VALUES ('admin', 1)
+  ON CONFLICT (username) DO UPDATE SET gen = auth_generations.gen + 1;
+SQL
 ```
 
 **Q: Why is Prometheus unable to scrape metrics from the `/metrics` endpoint?**  

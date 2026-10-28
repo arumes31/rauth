@@ -18,7 +18,6 @@ func setupTestRedis(t *testing.T) *miniredis.Miniredis {
 		Addr: mr.Addr(),
 	})
 
-	UserDB = client
 	TokenDB = client
 	RateLimitDB = client
 

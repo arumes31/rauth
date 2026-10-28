@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/redis/go-redis/v9"
+	"github.com/jackc/pgx/v5"
 )
 
 // totpReplayWindow is how long a consumed TOTP code is remembered. It comfortably
@@ -37,26 +37,15 @@ func TOTPCodeReused(username, code string) bool {
 	return !ok
 }
 
-// setSecondFactorScript writes 2fa_secret only if the account exists (has a
-// username field) and has no second factor yet, so a stale enrollment can
-// neither overwrite an enrolled TOTP nor create a stub hash for a deleted user.
-var setSecondFactorScript = redis.NewScript(`
-if redis.call("HEXISTS", KEYS[1], "username") == 0 then
-	return 0
-end
-local current = redis.call("HGET", KEYS[1], "2fa_secret")
-if current and current ~= "" then
-	return 0
-end
-redis.call("HSET", KEYS[1], "2fa_secret", ARGV[1])
-return 1
-`)
-
 // SetSecondFactorIfUnset stores an encrypted TOTP secret only when the user
-// exists and has none, reporting whether it was stored.
+// exists and has none, reporting whether it was stored. A stale enrollment can
+// therefore neither overwrite an enrolled TOTP nor resurrect a deleted account.
 func SetSecondFactorIfUnset(username, encryptedSecret string) (bool, error) {
-	n, err := setSecondFactorScript.Run(Ctx, UserDB, []string{"user:" + username}, encryptedSecret).Int()
-	return n == 1, err
+	tag, err := PG.Exec(Ctx, "UPDATE users SET totp_secret = $2 WHERE username = $1 AND totp_secret = ''", username, encryptedSecret)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() == 1, nil
 }
 
 // recoveryCodeCount is how many single-use recovery codes are issued per batch.
@@ -64,8 +53,6 @@ const recoveryCodeCount = 10
 
 // recoveryCodeBytes is the entropy per recovery code (80 bits).
 const recoveryCodeBytes = 10
-
-func recoveryCodesKey(username string) string { return "user:" + username + ":recovery_codes" }
 
 // normalizeRecoveryCode lowercases a code and strips separators.
 func normalizeRecoveryCode(code string) string {
@@ -75,7 +62,7 @@ func normalizeRecoveryCode(code string) string {
 }
 
 // hashRecoveryCode keys the stored hash with a secret derived from
-// SERVER_SECRET, so a Redis dump alone does not allow offline guessing of the
+// SERVER_SECRET, so a database dump alone does not allow offline guessing of the
 // codes. Only hashes are stored.
 func hashRecoveryCode(code string) string {
 	mac := hmac.New(sha256.New, deriveKey("rauth-recovery-codes"))
@@ -94,7 +81,7 @@ func legacyHashRecoveryCode(code string) string {
 // replacing any existing ones, and returns the plaintext codes for one-time display.
 func GenerateRecoveryCodes(username string) ([]string, error) {
 	codes := make([]string, 0, recoveryCodeCount)
-	hashes := make([]interface{}, 0, recoveryCodeCount)
+	hashes := make([]string, 0, recoveryCodeCount)
 	for i := 0; i < recoveryCodeCount; i++ {
 		b := make([]byte, recoveryCodeBytes)
 		if _, err := rand.Read(b); err != nil {
@@ -106,11 +93,14 @@ func GenerateRecoveryCodes(username string) ([]string, error) {
 		hashes = append(hashes, hashRecoveryCode(code))
 	}
 
-	key := recoveryCodesKey(username)
-	pipe := UserDB.Pipeline()
-	pipe.Del(Ctx, key)
-	pipe.SAdd(Ctx, key, hashes...)
-	if _, err := pipe.Exec(Ctx); err != nil {
+	err := pgx.BeginFunc(Ctx, PG, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(Ctx, "DELETE FROM recovery_codes WHERE username = $1", username); err != nil {
+			return err
+		}
+		_, err := tx.Exec(Ctx, "INSERT INTO recovery_codes (username, code_hash) SELECT $1, unnest($2::text[])", username, hashes)
+		return err
+	})
+	if err != nil {
 		return nil, err
 	}
 	return codes, nil
@@ -122,19 +112,20 @@ func ConsumeRecoveryCode(username, code string) bool {
 	if strings.TrimSpace(code) == "" {
 		return false
 	}
-	// SREM is atomic per call, so a code (keyed or legacy hash) can only be
+	// The DELETE is atomic, so a code (keyed or legacy hash) can only be
 	// consumed once even under concurrent submissions.
-	removed, err := UserDB.SRem(Ctx, recoveryCodesKey(username), hashRecoveryCode(code), legacyHashRecoveryCode(code)).Result()
+	tag, err := PG.Exec(Ctx, "DELETE FROM recovery_codes WHERE username = $1 AND code_hash IN ($2, $3)",
+		username, hashRecoveryCode(code), legacyHashRecoveryCode(code))
 	if err != nil {
 		return false
 	}
-	return removed > 0
+	return tag.RowsAffected() > 0
 }
 
 // CountRecoveryCodes returns how many unused recovery codes remain.
 func CountRecoveryCodes(username string) int64 {
-	n, err := UserDB.SCard(Ctx, recoveryCodesKey(username)).Result()
-	if err != nil {
+	var n int64
+	if err := PG.QueryRow(Ctx, "SELECT count(*) FROM recovery_codes WHERE username = $1", username).Scan(&n); err != nil {
 		return 0
 	}
 	return n
@@ -142,5 +133,7 @@ func CountRecoveryCodes(username string) int64 {
 
 // ClearRecoveryCodes removes all recovery codes for a user (used when 2FA is disabled/reset).
 func ClearRecoveryCodes(username string) {
-	UserDB.Del(Ctx, recoveryCodesKey(username))
+	if _, err := PG.Exec(Ctx, "DELETE FROM recovery_codes WHERE username = $1", username); err != nil {
+		slog.Error("Failed to clear recovery codes", "user", username, "error", err)
+	}
 }

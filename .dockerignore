@@ -16,6 +16,7 @@ rauth.exe
 
 # Redis and Data
 redis-data
+postgres-data
 geoip-data
 *.out
 *.coverprofile

@@ -21,7 +21,7 @@ func TestWebAuthnHandlers(t *testing.T) {
 	defer s.Close()
 
 	core.TokenDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
-	core.UserDB = core.TokenDB
+	usePG(t)
 	core.RateLimitDB = core.TokenDB
 
 	cfg := &core.Config{
@@ -263,8 +263,7 @@ func TestWebAuthnHandlers(t *testing.T) {
 	// forward-auth forwards X-RAuth-Groups/X-RAuth-Admin and brute-force checks
 	// (HasActiveSessions) can see passkey sessions.
 	t.Run("issuePasskeyToken_StampsGroupsAdminAndIPIndex", func(t *testing.T) {
-		core.AuditDB = core.TokenDB
-		core.UserDB.HSet(core.Ctx, "user:passkeyuser", map[string]interface{}{
+		seedUserFields(t, "passkeyuser", map[string]interface{}{
 			"username": "passkeyuser",
 			"groups":   "engineering,ops",
 			"is_admin": "1",
@@ -310,7 +309,7 @@ func TestWebAuthnHandler_identifyWebAuthnUser(t *testing.T) {
 
 	t.Run("Identify by usernameParam", func(t *testing.T) {
 		// Mock user in DB
-		core.UserDB.HSet(core.Ctx, "user:testuser", "username", "testuser", "uid", "test-uid")
+		seedUserFields(t, "testuser", map[string]interface{}{"username": "testuser", "uid": "0f8e2c1a-3b4d-4e5f-8a6b-7c9d0e1f2a3b"})
 
 		parsedResponse := &protocol.ParsedCredentialAssertionData{
 			Response: protocol.ParsedAssertionResponse{
@@ -323,7 +322,7 @@ func TestWebAuthnHandler_identifyWebAuthnUser(t *testing.T) {
 		username, userID, userRec, err := h.identifyWebAuthnUser(c, parsedResponse)
 		assert.NoError(t, err)
 		assert.Equal(t, "testuser", username)
-		assert.Equal(t, []byte("test-uid"), userID)
+		assert.Equal(t, []byte("0f8e2c1a-3b4d-4e5f-8a6b-7c9d0e1f2a3b"), userID)
 		assert.NotNil(t, userRec)
 	})
 }

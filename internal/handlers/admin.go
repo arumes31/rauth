@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -78,24 +77,9 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 	}
 
 	// Fetch Audit Logs
-	rawLogs, err := core.AuditDB.LRange(core.Ctx, "audit_logs", 0, 99).Result()
+	logs, err := core.RecentAuditLogs(100)
 	if err != nil {
-		slog.Error("Failed to fetch audit logs from Redis", "error", err)
-	}
-
-	var logs []core.AuditLog
-	if len(rawLogs) > 0 {
-		// Fallback approach: The combined JSON unmarshaling fails entirely if
-		// even a single log entry is malformed, breaking fault tolerance.
-		// We revert to looping, but pre-allocate the slice to save memory overhead.
-		logs = make([]core.AuditLog, 0, len(rawLogs))
-		for _, l := range rawLogs {
-			var log core.AuditLog
-			if err := json.Unmarshal([]byte(l), &log); err != nil {
-				continue
-			}
-			logs = append(logs, log)
-		}
+		slog.Error("Failed to fetch audit logs", "error", err)
 	}
 
 	// The Public Access unlock asks for TOTP if the admin has it, otherwise
@@ -288,7 +272,7 @@ func (h *AdminHandler) ChangeUserPassword(c echo.Context) error {
 	}
 
 	if err := core.UpdateUser(target, map[string]interface{}{"password": hash}); err != nil {
-		slog.Error("Failed to update user password in Redis", "user", target, "error", err)
+		slog.Error("Failed to update user password", "user", target, "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to update password")
 	}
 
@@ -330,7 +314,7 @@ func (h *AdminHandler) UpdateUserEmail(c echo.Context) error {
 		return herr
 	}
 	if err := core.UpdateUser(target, map[string]interface{}{"email": newEmail}); err != nil {
-		slog.Error("Failed to update user email in Redis", "user", target, "error", err)
+		slog.Error("Failed to update user email", "user", target, "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to update email")
 	}
 

@@ -97,7 +97,7 @@ func TestAdminHandler_CreateUser(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusFound, rec.Code)
 
-		exists := core.UserDB.Exists(core.Ctx, "user:brandnew").Val()
+		exists := userExistsN(t, "brandnew")
 		assert.Equal(t, int64(1), exists)
 	})
 
@@ -119,12 +119,12 @@ func TestAdminHandler_CreateUser(t *testing.T) {
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 		}
 
-		exists := core.UserDB.Exists(core.Ctx, "user:invalid").Val()
+		exists := userExistsN(t, "invalid")
 		assert.Equal(t, int64(0), exists)
 	})
 
 	t.Run("Create user - duplicate", func(t *testing.T) {
-		core.UserDB.HSet(core.Ctx, "user:duplicate", "username", "duplicate")
+		seedUserFields(t, "duplicate", map[string]interface{}{"username": "duplicate"})
 
 		f := make(url.Values)
 		f.Set("new_username", "duplicate")
@@ -157,8 +157,7 @@ func TestAdminHandler_DeleteUser(t *testing.T) {
 	e := echo.New()
 
 	t.Run("Delete other user", func(t *testing.T) {
-		core.UserDB.HSet(core.Ctx, "user:victim", "username", "victim")
-		core.UserDB.SAdd(core.Ctx, "users", "victim")
+		seedUserFields(t, "victim", map[string]interface{}{"username": "victim"})
 
 		f := make(url.Values)
 		f.Set("username", "victim")
@@ -169,12 +168,12 @@ func TestAdminHandler_DeleteUser(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusFound, rec.Code)
 
-		exists := core.UserDB.Exists(core.Ctx, "user:victim").Val()
+		exists := userExistsN(t, "victim")
 		assert.Equal(t, int64(0), exists)
 	})
 
 	t.Run("Delete self - should fail", func(t *testing.T) {
-		core.UserDB.HSet(core.Ctx, "user:admin", "username", "admin")
+		seedUserFields(t, "admin", map[string]interface{}{"username": "admin"})
 
 		f := make(url.Values)
 		f.Set("username", "admin")
@@ -190,7 +189,7 @@ func TestAdminHandler_DeleteUser(t *testing.T) {
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 		}
 
-		exists := core.UserDB.Exists(core.Ctx, "user:admin").Val()
+		exists := userExistsN(t, "admin")
 		assert.Equal(t, int64(1), exists)
 	})
 }
@@ -221,9 +220,8 @@ func TestAdminHandler_DeleteUserPermissions(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			setupHandlersTest(t)
 			target := strings.TrimSpace(tc.target)
-			require.NoError(t, core.UserDB.HSet(core.Ctx, "user:"+tc.actor, "username", tc.actor, "is_admin", tc.actorAdmin).Err())
-			require.NoError(t, core.UserDB.HSet(core.Ctx, "user:"+target, "username", target, "is_admin", tc.targetAdmin).Err())
-			require.NoError(t, core.UserDB.SAdd(core.Ctx, "users", tc.actor, target).Err())
+			seedUserFields(t, tc.actor, map[string]interface{}{"is_admin": tc.actorAdmin})
+			seedUserFields(t, target, map[string]interface{}{"is_admin": tc.targetAdmin})
 			require.NoError(t, core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken=target-session", "username", target, "status", "valid").Err())
 			core.AddSessionIndex(target, "target-session")
 			h := &AdminHandler{Cfg: &core.Config{InitialUser: tc.root}}
@@ -239,8 +237,8 @@ func TestAdminHandler_DeleteUserPermissions(t *testing.T) {
 				wantExists = 0
 				assert.Equal(t, "/rauthmgmt?success=user_deleted", rec.Header().Get(echo.HeaderLocation))
 			}
-			assert.Equal(t, wantExists, core.UserDB.Exists(core.Ctx, "user:"+target).Val())
-			assert.Equal(t, wantExists == 1, core.UserDB.SIsMember(core.Ctx, "users", target).Val())
+			assert.Equal(t, wantExists, userExistsN(t, target))
+			assert.Equal(t, wantExists == 1, (userExistsN(t, target) == 1))
 			assert.Equal(t, wantExists, core.TokenDB.Exists(core.Ctx, "X-rauth-authtoken=target-session").Val())
 		})
 	}
@@ -305,8 +303,7 @@ func TestAdminHandler_ChangeUserPassword_Full(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		// Seed user
-		core.UserDB.HSet(core.Ctx, "user:targetuser", "username", "targetuser", "password", "oldhash")
-		core.UserDB.SAdd(core.Ctx, "users", "targetuser")
+		seedUserFields(t, "targetuser", map[string]interface{}{"username": "targetuser", "password": "oldhash"})
 
 		// Create a dummy session for the user
 		sessionToken := "target_session_token"
@@ -327,7 +324,7 @@ func TestAdminHandler_ChangeUserPassword_Full(t *testing.T) {
 		assert.Equal(t, "/rauthmgmt?success=password_changed", rec.Header().Get("Location"))
 
 		// Verify the password was updated
-		newHash, _ := core.UserDB.HGet(core.Ctx, "user:targetuser", "password").Result()
+		newHash := userField(t, "targetuser", "password")
 		assert.NotEqual(t, "oldhash", newHash)
 		assert.True(t, core.CheckPasswordHash("NewStrongPass1!", newHash))
 
@@ -373,8 +370,7 @@ func TestAdminHandler_ChangeUserPassword_Full(t *testing.T) {
 	})
 
 	t.Run("Missing Password", func(t *testing.T) {
-		core.UserDB.HSet(core.Ctx, "user:exists", "username", "exists")
-		core.UserDB.SAdd(core.Ctx, "users", "exists")
+		seedUserFields(t, "exists", map[string]interface{}{"username": "exists"})
 
 		f := make(url.Values)
 		f.Set("username", "exists")
@@ -389,8 +385,7 @@ func TestAdminHandler_ChangeUserPassword_Full(t *testing.T) {
 	})
 
 	t.Run("Change Own Password", func(t *testing.T) {
-		core.UserDB.HSet(core.Ctx, "user:adminuser", "username", "adminuser")
-		core.UserDB.SAdd(core.Ctx, "users", "adminuser")
+		seedUserFields(t, "adminuser", map[string]interface{}{"username": "adminuser"})
 
 		f := make(url.Values)
 		f.Set("username", "adminuser")
@@ -431,10 +426,8 @@ func TestAdminHandler_UserOperations_Validation(t *testing.T) {
 	e := echo.New()
 
 	// Seed some users
-	core.UserDB.HSet(core.Ctx, "user:exists", "username", "exists")
-	core.UserDB.SAdd(core.Ctx, "users", "exists")
-	core.UserDB.HSet(core.Ctx, "user:adminuser", "username", "adminuser")
-	core.UserDB.SAdd(core.Ctx, "users", "adminuser")
+	seedUserFields(t, "exists", map[string]interface{}{"username": "exists"})
+	seedUserFields(t, "adminuser", map[string]interface{}{"username": "adminuser"})
 
 	testCases := []struct {
 		name         string

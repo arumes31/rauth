@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
@@ -26,8 +27,8 @@ func TestTOTPCodeReused(t *testing.T) {
 }
 
 func TestRecoveryCodes(t *testing.T) {
-	s := miniredis.RunT(t)
-	UserDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
+	setupPG(t)
+	require.NoError(t, PutUser(User{Username: "alice"}))
 
 	codes, err := GenerateRecoveryCodes("alice")
 	require.NoError(t, err)
@@ -63,13 +64,15 @@ func TestRecoveryCodes(t *testing.T) {
 
 }
 
-func TestConsumeRecoveryCode_RedisError(t *testing.T) {
-	// Redis error returns false.
-	// Use a new client with a closed connection
-	oldUserDB := UserDB
-	UserDB = redis.NewClient(&redis.Options{Addr: "localhost:1"}) // wrong port to simulate error
-	_ = UserDB.Close() // Close immediately to simulate a broken connection
-	defer func() { UserDB = oldUserDB }()
+func TestConsumeRecoveryCode_DatabaseError(t *testing.T) {
+	// A database error returns false: point PG at a closed pool.
+	setupPG(t)
+	oldPG := PG
+	closed, err := pgxpool.New(Ctx, "postgres://localhost:1/none")
+	require.NoError(t, err)
+	closed.Close()
+	PG = closed
+	defer func() { PG = oldPG }()
 
 	require.False(t, ConsumeRecoveryCode("alice", "valid-code"))
 }

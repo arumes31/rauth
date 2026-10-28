@@ -10,10 +10,8 @@ import (
 
 var (
 	Ctx          = context.Background()
-	UserDB       *redis.Client
 	TokenDB      *redis.Client
 	RateLimitDB  *redis.Client
-	AuditDB      *redis.Client
 	InviteDB     *redis.Client
 	ServerSecret string
 	StartTime    = time.Now()
@@ -22,28 +20,29 @@ var (
 // redisPoolSize is the per-database connection pool size.
 const redisPoolSize = 20
 
+// Redis logical databases.
+const (
+	redisLegacyUserDB  = 0
+	redisTokenDB       = 1
+	redisRateLimitDB   = 2
+	redisLegacyAuditDB = 3
+	redisInviteDB      = 4
+)
+
 func InitRedis(cfg *Config) error {
 	ServerSecret = cfg.ServerSecret
-	opts := &redis.Options{
-		Addr:         fmt.Sprintf("%s:%s", cfg.RedisHost, cfg.RedisPort),
-		Password:     cfg.RedisPassword,
-		DialTimeout:  5 * time.Second,
-		ReadTimeout:  3 * time.Second,
-		WriteTimeout: 3 * time.Second,
-		PoolSize:     redisPoolSize,
-		PoolTimeout:  30 * time.Second,
-	}
+	opts := redisOptions(cfg)
 
-	UserDB = redis.NewClient(copyOptions(opts, 0))
-	TokenDB = redis.NewClient(copyOptions(opts, 1))
-	RateLimitDB = redis.NewClient(copyOptions(opts, 2))
-	AuditDB = redis.NewClient(copyOptions(opts, 3))
-	InviteDB = redis.NewClient(copyOptions(opts, 4))
+	// DB 0 (users) and DB 3 (audit) held the durable data before it moved to
+	// Postgres; they are only read by the one-time import (ImportFromRedis).
+	TokenDB = redis.NewClient(copyOptions(opts, redisTokenDB))
+	RateLimitDB = redis.NewClient(copyOptions(opts, redisRateLimitDB))
+	InviteDB = redis.NewClient(copyOptions(opts, redisInviteDB))
 
 	// Ping all
-	for i, client := range []*redis.Client{UserDB, TokenDB, RateLimitDB, AuditDB, InviteDB} {
+	for _, client := range []*redis.Client{TokenDB, RateLimitDB, InviteDB} {
 		if err := client.Ping(Ctx).Err(); err != nil {
-			return fmt.Errorf("failed to connect to Redis DB %d: %w", i, err)
+			return fmt.Errorf("failed to connect to Redis DB %d: %w", client.Options().DB, err)
 		}
 	}
 
@@ -278,6 +277,18 @@ func reconcileIndexSets(pattern string) int64 {
 		}
 	}
 	return live
+}
+
+func redisOptions(cfg *Config) *redis.Options {
+	return &redis.Options{
+		Addr:         fmt.Sprintf("%s:%s", cfg.RedisHost, cfg.RedisPort),
+		Password:     cfg.RedisPassword,
+		DialTimeout:  5 * time.Second,
+		ReadTimeout:  3 * time.Second,
+		WriteTimeout: 3 * time.Second,
+		PoolSize:     redisPoolSize,
+		PoolTimeout:  30 * time.Second,
+	}
 }
 
 func copyOptions(base *redis.Options, db int) *redis.Options {

@@ -16,6 +16,14 @@ services:
       - REDIS_HOST=rauth-auth-redis
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+      - POSTGRES_HOST=rauth-auth-postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:-rauth}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      - POSTGRES_DB=${POSTGRES_DB:-rauth}
+      - POSTGRES_SSLMODE=${POSTGRES_SSLMODE:-disable}
+      - DATABASE_URL=${DATABASE_URL:-}
+      - AUDIT_RETENTION_DAYS=${AUDIT_RETENTION_DAYS:-365}
       - INITIAL_USER=${INITIAL_USER:-admin}
       - INITIAL_PASSWORD=${INITIAL_PASSWORD}
       - INITIAL_EMAIL=${INITIAL_EMAIL:-admin@example.com}
@@ -68,7 +76,10 @@ services:
       - SMTP_PASS=${SMTP_PASS}
       - SMTP_FROM=${SMTP_FROM}
     depends_on:
-      - rauth-auth-redis
+      rauth-auth-redis:
+        condition: service_started
+      rauth-auth-postgres:
+        condition: service_healthy
     volumes:
       - ./geoip-data:/app/geoip
     networks:
@@ -83,6 +94,29 @@ services:
       - no-new-privileges:true
     volumes:
       - ./redis-data:/data
+    networks:
+      - auth-network
+
+  # Durable store: accounts, passkeys, recovery codes, bypass rules, audit log.
+  # Redis keeps only sessions, rate limits and invites.
+  rauth-auth-postgres:
+    image: postgres:18-alpine@sha256:10a5c69a83035ab5239f5620d708520e8b28f5aa1f2b20143e6024532edadfb5
+    container_name: rauth-auth-postgres
+    hostname: rauth-auth-postgres
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-rauth}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      - POSTGRES_DB=${POSTGRES_DB:-rauth}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      # Postgres 18+ images keep PGDATA under /var/lib/postgresql/<major>/docker.
+      - ./postgres-data:/var/lib/postgresql
     networks:
       - auth-network
 

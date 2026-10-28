@@ -1,234 +1,196 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/redis/go-redis/v9"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type User struct {
-	Username  string `json:"username" redis:"username"`
-	Password  string `json:"password" redis:"password"`
-	Email     string `json:"email" redis:"email"`
-	Groups    string `json:"groups" redis:"groups"`
-	IsAdmin   string `json:"is_admin" redis:"is_admin"`
-	TwoFactor string `json:"2fa_secret" redis:"2fa_secret"`
-	UID       string `json:"uid" redis:"uid"`
-	CreatedAt int64  `json:"created_at" redis:"created_at"`
+	Username  string `json:"username"`
+	Password  string `json:"password"`
+	Email     string `json:"email"`
+	Groups    string `json:"groups"`
+	IsAdmin   string `json:"is_admin"`
+	TwoFactor string `json:"2fa_secret"`
+	UID       string `json:"uid"`
+	CreatedAt int64  `json:"created_at"`
+}
+
+// ErrUserNotFound reports that no account exists with the given name or UID.
+var ErrUserNotFound = errors.New("user not found")
+
+const userColumns = "username, password, email, groups, is_admin, totp_secret, COALESCE(uid::text, ''), created_at"
+
+func scanUser(row pgx.Row) (User, error) {
+	var u User
+	var admin bool
+	err := row.Scan(&u.Username, &u.Password, &u.Email, &u.Groups, &admin, &u.TwoFactor, &u.UID, &u.CreatedAt)
+	if isNoRows(err) {
+		return User{}, ErrUserNotFound
+	}
+	u.IsAdmin = boolFlag(admin)
+	return u, err
+}
+
+func boolFlag(b bool) string {
+	if b {
+		return "1"
+	}
+	return "0"
 }
 
 func ListUsers() ([]User, error) {
-	usernames, err := UserDB.SMembers(Ctx, "users").Result()
+	rows, err := PG.Query(Ctx, "SELECT "+userColumns+" FROM users ORDER BY username")
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
-	if len(usernames) == 0 {
-		return []User{}, nil
-	}
-
-	pipe := UserDB.Pipeline()
-	cmds := make(map[string]*redis.MapStringStringCmd, len(usernames))
-	for _, username := range usernames {
-		cmds[username] = pipe.HGetAll(Ctx, "user:"+username)
-	}
-
-	if _, err := pipe.Exec(Ctx); err != nil {
-		return nil, err
-	}
-
-	var users []User
-	for _, username := range usernames {
-		var user User
-		err := cmds[username].Scan(&user)
-		if err != nil || user.Username == "" {
-			continue
+	users := []User{}
+	for rows.Next() {
+		u, err := scanUser(rows)
+		if err != nil {
+			return nil, err
 		}
-		// UID backfill is handled at startup by EnsureUserUIDs, so no per-row
-		// mutation is needed here.
-		users = append(users, user)
+		users = append(users, u)
 	}
-	return users, nil
+	return users, rows.Err()
 }
 
-// GetUser reads a user record. It is side-effect free; UID backfill for legacy
-// records is handled by EnsureUserUIDs at startup and by CreateUser for new users.
+// GetUser reads a user record, returning ErrUserNotFound for unknown names.
 func GetUser(username string) (User, error) {
-	var user User
-	err := UserDB.HGetAll(Ctx, "user:"+username).Scan(&user)
-	if err != nil {
-		return user, err
-	}
-	if user.Username == "" {
-		return user, fmt.Errorf("user not found")
-	}
-	return user, nil
+	return scanUser(PG.QueryRow(Ctx, "SELECT "+userColumns+" FROM users WHERE username = $1", username))
 }
 
-// ensureUID assigns a UID and its lookup indexes to a user that lacks one.
-func ensureUID(username string) (string, error) {
-	newUUID := uuid.New()
-	uidStr := newUUID.String()
+// UserExists reports whether an account with the given name exists.
+func UserExists(username string) (bool, error) {
+	var exists bool
+	err := PG.QueryRow(Ctx, "SELECT EXISTS (SELECT 1 FROM users WHERE username = $1)", username).Scan(&exists)
+	return exists, err
+}
 
-	pipe := UserDB.TxPipeline()
-	pipe.Set(Ctx, "uid:"+uidStr, username, 0)
-	pipe.Set(Ctx, "uid_bin:"+string(newUUID[:]), username, 0)
-	pipe.HSet(Ctx, "user:"+username, "uid", uidStr)
-
-	if _, err := pipe.Exec(Ctx); err != nil {
-		return "", err
+// UserIsAdmin reads the live admin flag. A missing account is not an admin.
+func UserIsAdmin(username string) (bool, error) {
+	var admin bool
+	err := PG.QueryRow(Ctx, "SELECT is_admin FROM users WHERE username = $1", username).Scan(&admin)
+	if isNoRows(err) {
+		return false, nil
 	}
-	return uidStr, nil
+	return admin, err
+}
+
+// PutUser inserts or fully replaces a user record as given, without hashing
+// or encrypting anything. It is used to import existing records; new accounts
+// go through CreateUser.
+func PutUser(u User) error {
+	var uid any
+	if u.UID != "" {
+		parsed, err := uuid.Parse(u.UID)
+		if err != nil {
+			return fmt.Errorf("invalid uid for %s: %w", u.Username, err)
+		}
+		uid = parsed
+	}
+	groups := u.Groups
+	if groups == "" {
+		groups = "default"
+	}
+	_, err := PG.Exec(Ctx, `INSERT INTO users (username, password, email, groups, is_admin, totp_secret, uid, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		ON CONFLICT (username) DO UPDATE SET password = EXCLUDED.password, email = EXCLUDED.email,
+			groups = EXCLUDED.groups, is_admin = EXCLUDED.is_admin, totp_secret = EXCLUDED.totp_secret,
+			uid = EXCLUDED.uid, created_at = EXCLUDED.created_at`,
+		u.Username, u.Password, u.Email, groups, u.IsAdmin == "1", u.TwoFactor, uid, u.CreatedAt)
+	return err
 }
 
 // EnsureUserUIDs backfills UIDs for any legacy users created before UIDs
 // existed. Run once at startup so GetUser can remain read-only.
 func EnsureUserUIDs() {
-	usernames, err := UserDB.SMembers(Ctx, "users").Result()
+	tag, err := PG.Exec(Ctx, "UPDATE users SET uid = gen_random_uuid() WHERE uid IS NULL")
 	if err != nil {
-		slog.Error("EnsureUserUIDs: failed to list users", "error", err)
+		slog.Error("EnsureUserUIDs: backfill failed", "error", err)
 		return
 	}
-
-	if len(usernames) == 0 {
-		return
-	}
-
-	pipe := UserDB.Pipeline()
-	cmds := make(map[string]*redis.StringCmd, len(usernames))
-	for _, username := range usernames {
-		cmds[username] = pipe.HGet(Ctx, "user:"+username, "uid")
-	}
-
-	// pipe.Exec returns the first error encountered by any command in the pipeline.
-	// We ignore redis.Nil here because it's expected for users needing backfill.
-	_, err = pipe.Exec(Ctx)
-	if err != nil && err != redis.Nil {
-		slog.Error("EnsureUserUIDs: pipeline failed", "error", err)
-		return
-	}
-
-	for _, username := range usernames {
-		uid, err := cmds[username].Result()
-		if err == nil && uid != "" {
-			continue
-		}
-		// Only the missing-field case (redis.Nil) warrants a backfill; a real
-		// Redis error must not be mistaken for "no uid" and trigger a rewrite.
-		if err != nil && err != redis.Nil {
-			slog.Error("EnsureUserUIDs: failed to read uid", "user", username, "error", err)
-			continue
-		}
-		if _, err := ensureUID(username); err != nil {
-			slog.Warn("EnsureUserUIDs: failed to backfill UID", "user", username, "error", err)
-		}
+	if n := tag.RowsAffected(); n > 0 {
+		slog.Info("Backfilled user UIDs", "count", n)
 	}
 }
 
-// migratePlaintextTOTPScript re-encrypts a legacy secret only if it is still
-// the exact plaintext value read, so a concurrent change is never clobbered.
-var migratePlaintextTOTPScript = redis.NewScript(`
-if redis.call("HGET", KEYS[1], "2fa_secret") == ARGV[1] then
-	redis.call("HSET", KEYS[1], "2fa_secret", ARGV[2])
-	return 1
-end
-return 0
-`)
-
 // MigratePlaintextTOTPSecrets encrypts TOTP secrets stored by versions that
-// predate at-rest encryption, so a Redis dump no longer exposes them.
+// predate at-rest encryption, so a database dump no longer exposes them.
 func MigratePlaintextTOTPSecrets() {
-	usernames, err := UserDB.SMembers(Ctx, "users").Result()
+	rows, err := PG.Query(Ctx, "SELECT username, totp_secret FROM users WHERE totp_secret <> '' AND totp_secret NOT LIKE 'enc:%'")
 	if err != nil {
 		slog.Error("MigratePlaintextTOTPSecrets: failed to list users", "error", err)
 		return
 	}
-	for _, username := range usernames {
-		secret, err := UserDB.HGet(Ctx, "user:"+username, "2fa_secret").Result()
-		if err != nil || secret == "" || strings.HasPrefix(secret, "enc:") {
-			continue
+	type legacy struct{ username, secret string }
+	var pending []legacy
+	for rows.Next() {
+		var l legacy
+		if err := rows.Scan(&l.username, &l.secret); err == nil {
+			pending = append(pending, l)
 		}
-		encrypted, err := Encrypt2FASecret(secret, ServerSecret)
+	}
+	rows.Close()
+
+	for _, l := range pending {
+		encrypted, err := Encrypt2FASecret(l.secret, ServerSecret)
 		if err != nil {
-			slog.Error("MigratePlaintextTOTPSecrets: encryption failed", "user", username, "error", err)
+			slog.Error("MigratePlaintextTOTPSecrets: encryption failed", "user", l.username, "error", err)
 			continue
 		}
-		if err := migratePlaintextTOTPScript.Run(Ctx, UserDB, []string{"user:" + username}, secret, encrypted).Err(); err != nil {
-			slog.Error("MigratePlaintextTOTPSecrets: write failed", "user", username, "error", err)
+		// Only replace the exact plaintext read, so a concurrent change is never clobbered.
+		if _, err := PG.Exec(Ctx, "UPDATE users SET totp_secret = $3 WHERE username = $1 AND totp_secret = $2", l.username, l.secret, encrypted); err != nil {
+			slog.Error("MigratePlaintextTOTPSecrets: write failed", "user", l.username, "error", err)
 			continue
 		}
-		slog.Info("Encrypted legacy plaintext TOTP secret", "user", username)
+		slog.Info("Encrypted legacy plaintext TOTP secret", "user", l.username)
 	}
 }
 
+// errUserExists is returned by CreateUser when the name is taken.
+var errUserExists = errors.New("user already exists")
+
 func CreateUser(username, password, email string, isAdmin bool, twoFactor string) error {
-	// Hash before claiming the name so a slow bcrypt never holds a half-created
-	// record visible to concurrent logins.
 	hash, err := HashPassword(password)
 	if err != nil {
 		return err
 	}
-
-	// Atomically claim the username: HSETNX on the "username" field fails when a
-	// real account exists, so two concurrent creations cannot overwrite each
-	// other. A stub hash without a username field (left by a stale write to a
-	// deleted account) is taken over and fully overwritten below.
-	claimed, err := UserDB.HSetNX(Ctx, "user:"+username, "username", username).Result()
-	if err != nil {
-		return err
-	}
-	if !claimed {
-		return fmt.Errorf("user already exists")
-	}
-
-	// A recreated name must not inherit satellite state that survived (or was
-	// re-materialized after) a previous deletion, nor any of its sessions or
-	// pending tokens.
-	ClearRecoveryCodes(username)
-	UserDB.Del(Ctx, "user:"+username+":webauthn_creds_v2", "user:"+username+":webauthn_creds")
-	if _, err := BumpAuthGeneration(username); err != nil {
-		UserDB.Del(Ctx, "user:"+username)
-		return err
-	}
-
-	adminVal := "0"
-	if isAdmin {
-		adminVal = "1"
-	}
-
 	encryptedSecret, err := Encrypt2FASecret(twoFactor, ServerSecret)
 	if err != nil {
 		return err
 	}
 
-	newUUID := uuid.New()
-	uidStr := newUUID.String()
-	user := map[string]interface{}{
-		"username":   username,
-		"password":   hash,
-		"email":      email,
-		"is_admin":   adminVal,
-		"groups":     "default",
-		"uid":        uidStr,
-		"created_at": time.Now().Unix(),
-		"2fa_secret": encryptedSecret,
+	// The primary key makes the insert the atomic claim on the name. Recovery
+	// codes and passkeys cascade with the account row, so a recreated name
+	// cannot inherit them.
+	_, err = PG.Exec(Ctx, `INSERT INTO users (username, password, email, groups, is_admin, totp_secret, uid, created_at)
+		VALUES ($1, $2, $3, 'default', $4, $5, $6, $7)`,
+		username, hash, email, isAdmin, encryptedSecret, uuid.New(), time.Now().Unix())
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		return errUserExists
 	}
-
-	err = UserDB.HSet(Ctx, "user:"+username, user).Err()
 	if err != nil {
-		UserDB.Del(Ctx, "user:"+username)
 		return err
 	}
 
-	// Add UID indexes for nameless passkey login
-	UserDB.Set(Ctx, "uid:"+uidStr, username, 0)
-	UserDB.Set(Ctx, "uid_bin:"+string(newUUID[:]), username, 0)
-
-	return UserDB.SAdd(Ctx, "users", username).Err()
+	// Sessions and pending tokens issued to an earlier account with this name
+	// must not carry over.
+	if _, err := BumpAuthGeneration(username); err != nil {
+		_, _ = PG.Exec(Ctx, "DELETE FROM users WHERE username = $1", username)
+		return err
+	}
+	return nil
 }
 
 func DeleteUser(username string) error {
@@ -237,35 +199,68 @@ func DeleteUser(username string) error {
 	if _, err := BumpAuthGeneration(username); err != nil {
 		return err
 	}
-	user, err := GetUser(username)
-	if err == nil {
-		UserDB.Del(Ctx, "uid:"+user.UID)
-		if u, err := uuid.Parse(user.UID); err == nil {
-			UserDB.Del(Ctx, "uid_bin:"+string(u[:]))
-		}
-	}
-	AuditDB.Del(Ctx, "user_audit_logs:"+username)
 	// A deleted user must not retain a usable session until token expiry.
 	_ = InvalidateUserSessions(username)
-	// Remove per-user satellite keys so a future account with the same name
-	// does not inherit recovery codes or passkeys.
-	ClearRecoveryCodes(username)
-	UserDB.Del(Ctx, "user:"+username+":webauthn_creds_v2", "user:"+username+":webauthn_creds")
-	if err := UserDB.Del(Ctx, "user:"+username).Err(); err != nil {
+	// Recovery codes and passkeys are removed by ON DELETE CASCADE. Audit
+	// entries are kept; profile views only show entries newer than the account.
+	_, err := PG.Exec(Ctx, "DELETE FROM users WHERE username = $1", username)
+	return err
+}
+
+// userUpdateColumns maps the field names callers use to their columns.
+var userUpdateColumns = map[string]string{
+	"password":   "password",
+	"email":      "email",
+	"groups":     "groups",
+	"is_admin":   "is_admin",
+	"2fa_secret": "totp_secret",
+}
+
+// UpdateUser sets the given fields of an existing user.
+func UpdateUser(username string, updates map[string]interface{}) error {
+	if len(updates) == 0 {
+		return nil
+	}
+	sets := make([]string, 0, len(updates))
+	args := []any{username}
+	for field, value := range updates {
+		col, ok := userUpdateColumns[field]
+		if !ok {
+			return fmt.Errorf("unknown user field %q", field)
+		}
+		if col == "is_admin" {
+			value = fmt.Sprint(value) == "1"
+		}
+		args = append(args, value)
+		sets = append(sets, fmt.Sprintf("%s = $%d", col, len(args)))
+	}
+	tag, err := PG.Exec(Ctx, "UPDATE users SET "+strings.Join(sets, ", ")+" WHERE username = $1", args...)
+	if err != nil {
 		return err
 	}
-	return UserDB.SRem(Ctx, "users", username).Err()
-}
-
-func UpdateUser(username string, updates map[string]interface{}) error {
-	return UserDB.HSet(Ctx, "user:"+username, updates).Err()
-}
-
-func GetUsernameByUID(uid string) (string, error) {
-	// Try string lookup first
-	if val, err := UserDB.Get(Ctx, "uid:"+uid).Result(); err == nil {
-		return val, nil
+	if tag.RowsAffected() == 0 {
+		return ErrUserNotFound
 	}
-	// Try binary lookup
-	return UserDB.Get(Ctx, "uid_bin:"+uid).Result()
+	return nil
+}
+
+// GetUsernameByUID resolves a WebAuthn user handle, given either as the UUID
+// string or as its 16 raw bytes.
+func GetUsernameByUID(uid string) (string, error) {
+	id, err := uuid.Parse(uid)
+	if err != nil {
+		if len(uid) != 16 {
+			return "", ErrUserNotFound
+		}
+		id, err = uuid.FromBytes([]byte(uid))
+		if err != nil {
+			return "", ErrUserNotFound
+		}
+	}
+	var username string
+	err = PG.QueryRow(Ctx, "SELECT username FROM users WHERE uid = $1", id).Scan(&username)
+	if isNoRows(err) {
+		return "", ErrUserNotFound
+	}
+	return username, err
 }

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"rauth/internal/core"
+	"rauth/internal/pgtest"
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
@@ -15,9 +16,8 @@ import (
 func TestAuthMiddleware(t *testing.T) {
 	s := miniredis.RunT(t)
 	core.TokenDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
-	core.UserDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
-	core.AuditDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
-	core.UserDB.HSet(core.Ctx, "user:testuser", "username", "testuser")
+	usePG(t)
+	assert.NoError(t, core.PutUser(core.User{Username: "testuser"}))
 
 	e := echo.New()
 	cfg := &core.Config{ServerSecret: "32byte-secret-key-for-testing-!!"}
@@ -85,8 +85,7 @@ func TestAuthMiddleware(t *testing.T) {
 }
 
 func TestAdminMiddleware(t *testing.T) {
-	s := miniredis.RunT(t)
-	core.UserDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
+	usePG(t)
 
 	e := echo.New()
 	handler := AdminMiddleware(func(c echo.Context) error {
@@ -94,7 +93,7 @@ func TestAdminMiddleware(t *testing.T) {
 	})
 
 	t.Run("Forbidden if not admin", func(t *testing.T) {
-		core.UserDB.HSet(core.Ctx, "user:normal", map[string]interface{}{"is_admin": "0"})
+		assert.NoError(t, core.PutUser(core.User{Username: "normal", IsAdmin: "0"}))
 
 		req := httptest.NewRequest(http.MethodGet, "/rauthmgmt", nil)
 		rec := httptest.NewRecorder()
@@ -108,7 +107,7 @@ func TestAdminMiddleware(t *testing.T) {
 	})
 
 	t.Run("Demotion applies despite admin flag stamped in session", func(t *testing.T) {
-		core.UserDB.HSet(core.Ctx, "user:demoted", map[string]interface{}{"is_admin": "0"})
+		assert.NoError(t, core.PutUser(core.User{Username: "demoted", IsAdmin: "0"}))
 
 		req := httptest.NewRequest(http.MethodGet, "/rauthmgmt", nil)
 		rec := httptest.NewRecorder()
@@ -123,7 +122,7 @@ func TestAdminMiddleware(t *testing.T) {
 	})
 
 	t.Run("Success if admin", func(t *testing.T) {
-		core.UserDB.HSet(core.Ctx, "user:admin", map[string]interface{}{"is_admin": "1"})
+		assert.NoError(t, core.PutUser(core.User{Username: "admin", IsAdmin: "1"}))
 
 		req := httptest.NewRequest(http.MethodGet, "/rauthmgmt", nil)
 		rec := httptest.NewRecorder()
@@ -134,4 +133,10 @@ func TestAdminMiddleware(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusOK, rec.Code)
 	})
+}
+
+func usePG(t *testing.T) {
+	t.Helper()
+	core.PG = pgtest.Open(t, core.Migrate)
+	pgtest.Reset(t, core.PG)
 }

@@ -46,7 +46,7 @@ func TestAuthHandler_Verify2FA(t *testing.T) {
 	encryptedSecret, err := core.Encrypt2FASecret(secret, cfg.ServerSecret)
 	assert.NoError(t, err)
 
-	core.UserDB.HSet(core.Ctx, "user:testuser", map[string]interface{}{
+	seedUserFields(t, "testuser", map[string]interface{}{
 		"username":   "testuser",
 		"2fa_secret": encryptedSecret,
 		"password":   "dummy",
@@ -88,7 +88,7 @@ func TestAuthHandler_Verify2FA(t *testing.T) {
 		// outstanding: codes derived from an empty key are publicly computable,
 		// so the handler must abort, not call totp.Validate with secret "".
 		emptyUser := "no2fauser"
-		core.UserDB.HSet(core.Ctx, "user:"+emptyUser, map[string]interface{}{
+		seedUserFields(t, emptyUser, map[string]interface{}{
 			"username": emptyUser,
 			"password": "dummy",
 		})
@@ -361,9 +361,9 @@ func TestAuthHandler_Verify2FA(t *testing.T) {
 		sum := sha256.Sum256([]byte(norm))
 		recoveryCodeHash := hex.EncodeToString(sum[:])
 
-		core.UserDB.SAdd(core.Ctx, "user:testuser:recovery_codes", recoveryCodeHash)
+		seedRecoveryHash(t, "testuser", recoveryCodeHash)
 		// reset recovery code after test
-		defer core.UserDB.Del(core.Ctx, "user:testuser:recovery_codes")
+		defer core.ClearRecoveryCodes("testuser")
 		// ensure rate limits don't break us
 		core.ResetRateLimit("2fa_fail_user:testuser")
 
@@ -389,7 +389,7 @@ func TestAuthHandler_Verify2FA(t *testing.T) {
 
 	t.Run("Unreadable secret disables TOTP but keeps recovery codes usable", func(t *testing.T) {
 		brokenUser := "brokenuser"
-		core.UserDB.HSet(core.Ctx, "user:"+brokenUser, map[string]interface{}{
+		seedUserFields(t, brokenUser, map[string]interface{}{
 			"username":   brokenUser,
 			"2fa_secret": "enc:not-decryptable",
 			"password":   "dummy",
@@ -419,7 +419,7 @@ func TestAuthHandler_Verify2FA(t *testing.T) {
 
 		// A valid recovery code still signs the user in.
 		sum := sha256.Sum256([]byte("brokenrecovery"))
-		core.UserDB.SAdd(core.Ctx, "user:"+brokenUser+":recovery_codes", hex.EncodeToString(sum[:]))
+		seedRecoveryHash(t, brokenUser, hex.EncodeToString(sum[:]))
 		rec = verify("brokenrecovery")
 		assert.Equal(t, http.StatusFound, rec.Code)
 		assert.NotEqual(t, "/rauthlogin", rec.Header().Get("Location"))

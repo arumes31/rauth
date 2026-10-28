@@ -22,16 +22,14 @@ func TestInitRedis(t *testing.T) {
 	err := InitRedis(cfg)
 	assert.NoError(t, err)
 
-	assert.NotNil(t, UserDB)
 	assert.NotNil(t, TokenDB)
 	assert.NotNil(t, RateLimitDB)
-	assert.NotNil(t, AuditDB)
+	assert.NotNil(t, InviteDB)
 
-	// Verify they point to different DBs
-	assert.Equal(t, 0, UserDB.Options().DB)
+	// Verify they point to different DBs (0 and 3 held the pre-Postgres data)
 	assert.Equal(t, 1, TokenDB.Options().DB)
 	assert.Equal(t, 2, RateLimitDB.Options().DB)
-	assert.Equal(t, 3, AuditDB.Options().DB)
+	assert.Equal(t, 4, InviteDB.Options().DB)
 }
 
 func TestSessionManagement(t *testing.T) {

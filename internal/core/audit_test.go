@@ -1,89 +1,69 @@
 package core
 
 import (
-	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
 
-	"github.com/alicebob/miniredis/v2"
-	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLogAudit(t *testing.T) {
-	s := miniredis.RunT(t)
-	AuditDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
+	setupPG(t)
 
 	t.Run("Record log entry", func(t *testing.T) {
 		LogAudit("TEST_ACTION", "testuser", "1.2.3.4", map[string]interface{}{"foo": "bar"})
 
-		val, err := AuditDB.LRange(Ctx, "audit_logs", 0, -1).Result()
-		assert.NoError(t, err)
-		assert.Len(t, val, 1)
-
-		var log AuditLog
-		err = json.Unmarshal([]byte(val[0]), &log)
-		assert.NoError(t, err)
-		assert.Equal(t, "TEST_ACTION", log.Action)
-		assert.Equal(t, "testuser", log.Username)
-		assert.Equal(t, "1.2.3.4", log.IP)
-		assert.Equal(t, "bar", log.Details["foo"])
+		logs, err := RecentAuditLogs(100)
+		require.NoError(t, err)
+		require.Len(t, logs, 1)
+		assert.Equal(t, "TEST_ACTION", logs[0].Action)
+		assert.Equal(t, "testuser", logs[0].Username)
+		assert.Equal(t, "1.2.3.4", logs[0].IP)
+		assert.Equal(t, "bar", logs[0].Details["foo"])
 	})
 
-	t.Run("Log trimming", func(t *testing.T) {
-		// Log 1005 times
-		for i := 0; i < 1005; i++ {
-			LogAudit("FILL", "user", "127.0.0.1", nil)
+	t.Run("Newest first and limited", func(t *testing.T) {
+		for i := 0; i < 105; i++ {
+			LogAudit("FILL", "user", "127.0.0.1", map[string]interface{}{"i": i})
 		}
-
-		val, _ := AuditDB.LRange(Ctx, "audit_logs", 0, -1).Result()
-		// LTrim 0, 999 keeps 1000 elements
-		assert.Equal(t, 1000, len(val))
+		logs, err := RecentAuditLogs(100)
+		require.NoError(t, err)
+		assert.Len(t, logs, 100)
+		assert.EqualValues(t, 104, logs[0].Details["i"])
 	})
 
-	t.Run("User audit logs performance optimization", func(t *testing.T) {
-		tests := []struct {
-			name           string
-			username       string
-			count          int
-			expectedCount  int
-			checkLastEntry bool
-		}{
-			{
-				name:           "Individual user logs are populated",
-				username:       "user1",
-				count:          5,
-				expectedCount:  5,
-				checkLastEntry: true,
-			},
-			{
-				name:           "User logs are trimmed to 100",
-				username:       "user2",
-				count:          105,
-				expectedCount:  100,
-				checkLastEntry: false,
-			},
+	t.Run("Per-user logs", func(t *testing.T) {
+		for i := 0; i < 5; i++ {
+			LogAudit("ACTION_user1", "user1", "127.0.0.1", map[string]interface{}{"i": i})
 		}
+		logs, err := UserAuditLogs("user1", 100)
+		require.NoError(t, err)
+		require.Len(t, logs, 5)
+		assert.Equal(t, "user1", logs[0].Username)
+		assert.Equal(t, fmt.Sprintf("ACTION_%s", "user1"), logs[0].Action)
+	})
 
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				for i := 0; i < tt.count; i++ {
-					LogAudit("ACTION_"+tt.username, tt.username, "127.0.0.1", map[string]interface{}{"i": i})
-				}
+	t.Run("Recreated account does not inherit history", func(t *testing.T) {
+		_, err := PG.Exec(Ctx, "INSERT INTO audit_logs (ts, action, username) VALUES ($1, 'OLD', 'reborn')", time.Now().Add(-time.Hour).Unix())
+		require.NoError(t, err)
+		require.NoError(t, PutUser(User{Username: "reborn", CreatedAt: time.Now().Unix()}))
+		LogAudit("NEW", "reborn", "127.0.0.1", nil)
+		logs, err := UserAuditLogs("reborn", 100)
+		require.NoError(t, err)
+		require.Len(t, logs, 1)
+		assert.Equal(t, "NEW", logs[0].Action)
+	})
 
-				key := "user_audit_logs:" + tt.username
-				val, err := AuditDB.LRange(Ctx, key, 0, -1).Result()
-				assert.NoError(t, err)
-				assert.Equal(t, tt.expectedCount, len(val))
-
-				if tt.checkLastEntry && len(val) > 0 {
-					var log AuditLog
-					err = json.Unmarshal([]byte(val[0]), &log)
-					assert.NoError(t, err)
-					assert.Equal(t, tt.username, log.Username)
-					assert.Equal(t, fmt.Sprintf("ACTION_%s", tt.username), log.Action)
-				}
-			})
-		}
+	t.Run("Prune by retention", func(t *testing.T) {
+		_, err := PG.Exec(Ctx, "INSERT INTO audit_logs (ts, action) VALUES ($1, 'ANCIENT')", time.Now().AddDate(0, 0, -40).Unix())
+		require.NoError(t, err)
+		PruneAuditLogs(30)
+		var n int
+		require.NoError(t, PG.QueryRow(Ctx, "SELECT count(*) FROM audit_logs WHERE action = 'ANCIENT'").Scan(&n))
+		assert.Equal(t, 0, n)
+		require.NoError(t, PG.QueryRow(Ctx, "SELECT count(*) FROM audit_logs WHERE action = 'NEW'").Scan(&n))
+		assert.Equal(t, 1, n)
 	})
 }

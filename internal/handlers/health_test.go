@@ -5,6 +5,7 @@ import (
 	"rauth/internal/core"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
@@ -25,17 +26,19 @@ func TestHealthCheck(t *testing.T) {
 		assert.Contains(t, rec.Body.String(), "\"status\"")
 	})
 
-	// Redis is a required dependency, so a failed ping makes the service
-	// unready: status FAIL with HTTP 503 (readiness), not merely degraded.
-	t.Run("Redis UserDB Failure", func(t *testing.T) {
-		originalUserDB := core.UserDB
-		failClient := redis.NewClient(&redis.Options{Addr: "localhost:1"})
-		core.UserDB = failClient
-		defer func() { core.UserDB = originalUserDB }()
+	// Postgres and Redis are required dependencies, so a failed ping makes the
+	// service unready: status FAIL with HTTP 503 (readiness), not merely degraded.
+	t.Run("Postgres Failure", func(t *testing.T) {
+		originalPG := core.PG
+		failPool, err := pgxpool.New(core.Ctx, "postgres://localhost:1/none?connect_timeout=1")
+		assert.NoError(t, err)
+		failPool.Close()
+		core.PG = failPool
+		defer func() { core.PG = originalPG }()
 
 		c, rec := createTestContext(e, http.MethodGet, "/health", nil)
 
-		err := h.Check(c)
+		err = h.Check(c)
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 		assert.Contains(t, rec.Body.String(), "FAIL")
