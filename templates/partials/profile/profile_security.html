@@ -10,7 +10,7 @@
                     <div class="sub">Other sessions are signed out after a change</div>
                 </div>
             </div>
-            <form method="POST" action="/rauthprofile/password" class="panel-body" id="passwordForm">
+            <form method="POST" action="/rauthprofile/password" class="panel-body" id="passwordForm" data-async>
                 <input type="hidden" name="csrf" value="{{.csrf}}">
                 <input type="text" name="username" value="{{.username}}" autocomplete="username" hidden>
                 <div class="mb-3">
@@ -65,7 +65,7 @@
                         </div>
                     </div>
                     {{if .has2FA}}
-                    <form method="POST" action="/rauthprofile/disable-totp" class="control" data-confirm="Your account will be protected by your password only, and your recovery codes stop working." data-confirm-title="Disable two-factor authentication?" data-confirm-icon="bi-shield-slash" data-confirm-btn="Disable 2FA">
+                    <form method="POST" action="/rauthprofile/disable-totp" class="control" data-async data-confirm="Your account will be protected by your password only, and your recovery codes stop working." data-confirm-title="Disable two-factor authentication?" data-confirm-icon="bi-shield-slash" data-confirm-btn="Disable 2FA">
                         <input type="hidden" name="csrf" value="{{.csrf}}">
                         <input type="text" name="otp_code" class="form-control form-control-sm otp-input" placeholder="000000" required maxlength="6" inputmode="numeric" autocomplete="one-time-code" aria-label="Authenticator code">
                         <button type="submit" class="btn btn-outline-danger btn-sm">Disable</button>
@@ -80,7 +80,7 @@
                         </div>
                         <div class="desc">Single-use codes for when you lose your authenticator. Generating new ones invalidates the old set.</div>
                     </div>
-                    <form method="POST" action="/rauthprofile/recovery/generate" class="control" data-confirm="Any unused recovery codes stop working immediately. Store the new ones somewhere safe." data-confirm-title="Generate new recovery codes?" data-confirm-icon="bi-arrow-repeat" data-confirm-variant="warning" data-confirm-btn="Generate">
+                    <form method="POST" action="/rauthprofile/recovery/generate" class="control" data-async data-confirm="Any unused recovery codes stop working immediately. Store the new ones somewhere safe." data-confirm-title="Generate new recovery codes?" data-confirm-icon="bi-arrow-repeat" data-confirm-variant="warning" data-confirm-btn="Generate">
                         <input type="hidden" name="csrf" value="{{.csrf}}">
                         <input type="text" name="otp_code" class="form-control form-control-sm otp-input" placeholder="000000" required maxlength="6" inputmode="numeric" autocomplete="one-time-code" aria-label="Authenticator code">
                         <button type="submit" class="btn btn-secondary btn-sm">Generate</button>
@@ -127,12 +127,12 @@
                                 <td class="actions-cell">
                                     <button type="button" class="btn-icon" title="Rename" aria-label="Rename {{.Nickname}}"
                                             data-rename-passkey="{{printf "%x" .ID}}" data-passkey-name="{{.Nickname}}"><i class="bi bi-pencil"></i></button>
-                                    <form method="POST" action="/rauthprofile/passkey/rename" id="rename-form-{{printf "%x" .ID}}" hidden>
+                                    <form method="POST" action="/rauthprofile/passkey/rename" id="rename-form-{{printf "%x" .ID}}" data-async data-managed hidden>
                                         <input type="hidden" name="csrf" value="{{$.csrf}}">
                                         <input type="hidden" name="id" value="{{printf "%x" .ID}}">
                                         <input type="hidden" name="nickname">
                                     </form>
-                                    <form method="POST" action="/rauthprofile/passkey/revoke" class="passkey-revoke" data-passkey-name="{{.Nickname}}">
+                                    <form method="POST" action="/rauthprofile/passkey/revoke" class="passkey-revoke" data-passkey-name="{{.Nickname}}" data-async data-managed>
                                         <input type="hidden" name="csrf" value="{{$.csrf}}">
                                         <input type="hidden" name="id" value="{{printf "%x" .ID}}">
                                         <input type="hidden" name="{{if $.has2FA}}otp_code{{else}}current_password{{end}}" data-passkey-stepup>

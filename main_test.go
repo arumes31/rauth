@@ -93,6 +93,30 @@ func TestSetupMiddleware(t *testing.T) {
 	assert.NotNil(t, e.HTTPErrorHandler)
 }
 
+func TestErrorHandlerJSONForFetchClients(t *testing.T) {
+	e := echo.New()
+	setupRenderer(e)
+	setupErrorHandlers(e)
+	e.POST("/rauthprofile/password", func(c echo.Context) error {
+		return echo.NewHTTPError(http.StatusBadRequest, "Current password incorrect")
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/rauthprofile/password", nil)
+	req.Header.Set("Accept", "application/json")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Header().Get("Content-Type"), "application/json")
+	assert.JSONEq(t, `{"error":"Current password incorrect","code":400}`, rec.Body.String())
+
+	// Browsers navigating normally still get the HTML error page.
+	req = httptest.NewRequest(http.MethodPost, "/rauthprofile/password", nil)
+	req.Header.Set("Accept", "text/html,application/xhtml+xml")
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	assert.Contains(t, rec.Header().Get("Content-Type"), "text/html")
+}
+
 func TestSetupSecurityMiddlewareIncludesTrustedFormActions(t *testing.T) {
 	e := echo.New()
 	cfg := &core.Config{

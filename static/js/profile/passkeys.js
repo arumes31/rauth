@@ -1,6 +1,6 @@
 // Passkey registration, rename and removal. Adding or removing a passkey
 // needs the step-up value (TOTP code or current password) from #passkeyStepup.
-import { $, $$, alertDialog, confirmDialog, csrfToken, promptDialog } from '../console/index.js';
+import { $, $$, alertDialog, confirmDialog, csrfToken, promptDialog, submitForm } from '../console/index.js';
 
 function setMessage(text, tone) {
     const msg = $('#passkeyMessage');
@@ -86,7 +86,7 @@ export function initPasskeys() {
         if (!name || !name.trim()) return;
         const form = document.getElementById('rename-form-' + btn.dataset.renamePasskey);
         form.elements.nickname.value = name.trim();
-        form.submit();
+        submitForm(form);
     }));
 
     $$('form.passkey-revoke').forEach(form => form.addEventListener('submit', async (e) => {
@@ -101,6 +101,6 @@ export function initPasskeys() {
         });
         if (!ok) return;
         form.querySelector('[data-passkey-stepup]').value = stepup.value;
-        HTMLFormElement.prototype.submit.call(form);
+        submitForm(form);
     }));
 }

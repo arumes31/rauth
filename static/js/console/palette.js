@@ -1,5 +1,9 @@
 // Command palette opened with Ctrl/Cmd+K, "/" or [data-open-palette].
 // commands: [{ name, cmd, icon, run }]
+//
+// #commandInput is a combobox controlling the #commandResults listbox; the
+// active option is exposed through aria-activedescendant / aria-selected and
+// is always the command Enter runs.
 import { $, $$, escapeHtml } from './dom.js';
 
 export function initPalette(commands) {
@@ -13,25 +17,38 @@ export function initPalette(commands) {
 
     const run = (c) => { modal.hide(); setTimeout(() => c.run(), 150); };
 
+    const syncActive = () => {
+        Array.from(results.querySelectorAll('[role="option"]')).forEach((opt, i) => {
+            const active = i === focus;
+            opt.classList.toggle('active', active);
+            opt.setAttribute('aria-selected', active ? 'true' : 'false');
+            if (active) opt.scrollIntoView({ block: 'nearest' });
+        });
+        input.setAttribute('aria-activedescendant', filtered.length ? `command-option-${focus}` : '');
+    };
+
     const render = () => {
         const q = input.value.trim().toLowerCase();
         filtered = commands.filter(c => !q || c.name.toLowerCase().includes(q) || c.cmd.includes(q));
-        results.innerHTML = filtered.length ? '' : '<div class="command-empty">No matching command</div>';
+        if (focus >= filtered.length) focus = 0;
+        results.innerHTML = filtered.length ? '' : '<div class="command-empty" role="status">No matching command</div>';
         filtered.forEach((c, i) => {
             const opt = document.createElement('div');
-            opt.className = 'command-option' + (i === focus ? ' active' : '');
+            opt.id = `command-option-${i}`;
+            opt.className = 'command-option';
             opt.setAttribute('role', 'option');
-            opt.innerHTML = `<span><i class="bi ${escapeHtml(c.icon || 'bi-chevron-right')} me-2"></i>${escapeHtml(c.name)}</span><span class="kbd">${escapeHtml(c.cmd)}</span>`;
+            opt.innerHTML = `<span><i class="bi ${escapeHtml(c.icon || 'bi-chevron-right')} me-2" aria-hidden="true"></i>${escapeHtml(c.name)}</span><span class="kbd" aria-hidden="true">${escapeHtml(c.cmd)}</span>`;
             opt.addEventListener('click', () => run(c));
+            opt.addEventListener('mousemove', () => { if (focus !== i) { focus = i; syncActive(); } });
             results.appendChild(opt);
         });
+        syncActive();
     };
 
     const move = (delta) => {
         if (!filtered.length) return;
         focus = (focus + delta + filtered.length) % filtered.length;
-        render();
-        results.children[focus]?.scrollIntoView({ block: 'nearest' });
+        syncActive();
     };
 
     document.addEventListener('keydown', (e) => {

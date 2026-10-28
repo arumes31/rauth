@@ -353,7 +353,7 @@ func setupErrorHandlers(e *echo.Echo) {
 		case path == "/rauthvalidate":
 			_ = c.NoContent(code)
 			return
-		case strings.HasPrefix(path, "/webauthn/") || path == "/metrics" || path == "/health":
+		case strings.HasPrefix(path, "/webauthn/") || path == "/metrics" || path == "/health" || wantsJSON(c.Request()):
 			if jsonErr := c.JSON(code, map[string]interface{}{"error": message, "code": code}); jsonErr != nil {
 				slog.Error("Failed to render JSON error", "error", jsonErr)
 			}
@@ -398,6 +398,13 @@ func setupErrorHandlers(e *echo.Echo) {
 	echo.NotFoundHandler = func(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound)
 	}
+}
+
+// wantsJSON reports whether the client asked for a JSON error, as the console
+// pages do when they submit forms with fetch so they can show the message
+// in place instead of navigating to the error page.
+func wantsJSON(r *http.Request) bool {
+	return strings.Contains(r.Header.Get("Accept"), "application/json")
 }
 
 func setupRoutes(e *echo.Echo, cfg *core.Config) {
