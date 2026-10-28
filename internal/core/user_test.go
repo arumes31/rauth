@@ -1,20 +1,19 @@
 package core
 
 import (
-	"context"
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/go-webauthn/webauthn/webauthn"
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
 
 func TestUserManagement(t *testing.T) {
 	s := miniredis.RunT(t)
-
-	UserDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
-	AuditDB = redis.NewClient(&redis.Options{Addr: s.Addr()}) // Reuse s for simplicity
 	TokenDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
+	setupPG(t)
 
 	err := CreateUser("newuser", "pass123", "user@test.com", false, "")
 	if err != nil {
@@ -48,9 +47,8 @@ func TestUserManagement(t *testing.T) {
 func TestDeleteUserCleanup(t *testing.T) {
 	s := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: s.Addr()})
-	UserDB = client
-	AuditDB = client
 	TokenDB = client
+	setupPG(t)
 
 	username := "cleanupuser"
 	require.NoError(t, CreateUser(username, "pass123", "u@test.com", false, ""))
@@ -60,25 +58,21 @@ func TestDeleteUserCleanup(t *testing.T) {
 	AddSessionIndex(username, "tok1")
 	_, err := GenerateRecoveryCodes(username)
 	require.NoError(t, err)
-	UserDB.HSet(Ctx, "user:"+username+":webauthn_creds_v2", "abcd", "{}")
+	require.NoError(t, SaveWebAuthnCredential(username, &webauthn.Credential{ID: []byte("k1")}))
 
 	require.NoError(t, DeleteUser(username))
 
-	for _, key := range []string{
-		"X-rauth-authtoken=tok1",
-		"user_sessions:" + username,
-		"user:" + username + ":recovery_codes",
-		"user:" + username + ":webauthn_creds_v2",
-	} {
+	for _, key := range []string{"X-rauth-authtoken=tok1", "user_sessions:" + username} {
 		n, err := client.Exists(Ctx, key).Result()
 		require.NoError(t, err)
 		require.Zero(t, n, "expected %s to be deleted", key)
 	}
+	require.Zero(t, CountRecoveryCodes(username))
+	require.Empty(t, GetStoredCredentials(username))
 }
 
 func TestUpdateUser(t *testing.T) {
-	s := miniredis.RunT(t)
-	UserDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
+	setupPG(t)
 
 	username := "updateuser"
 	err := CreateUser(username, "oldpass", "old@email.com", false, "")
@@ -91,50 +85,48 @@ func TestUpdateUser(t *testing.T) {
 			"email":  "new@email.com",
 			"groups": "admins,users",
 		}
-		err := UpdateUser(username, updates)
-		if err != nil {
-			t.Fatalf("UpdateUser failed: %v", err)
-		}
+		require.NoError(t, UpdateUser(username, updates))
 
-		userData, _ := UserDB.HGetAll(Ctx, "user:"+username).Result()
-		if userData["email"] != "new@email.com" {
-			t.Errorf("Expected email new@email.com, got %s", userData["email"])
-		}
-		if userData["groups"] != "admins,users" {
-			t.Errorf("Expected groups admins,users, got %s", userData["groups"])
-		}
+		u, err := GetUser(username)
+		require.NoError(t, err)
+		require.Equal(t, "new@email.com", u.Email)
+		require.Equal(t, "admins,users", u.Groups)
+	})
+
+	t.Run("Admin flag", func(t *testing.T) {
+		require.NoError(t, UpdateUser(username, map[string]interface{}{"is_admin": "1"}))
+		admin, err := UserIsAdmin(username)
+		require.NoError(t, err)
+		require.True(t, admin)
+	})
+
+	t.Run("Unknown field and user", func(t *testing.T) {
+		require.Error(t, UpdateUser(username, map[string]interface{}{"uid": "x"}))
+		require.ErrorIs(t, UpdateUser("nobody", map[string]interface{}{"email": "x"}), ErrUserNotFound)
 	})
 }
 
 func TestGetUsernameByUID(t *testing.T) {
-	mr, err := miniredis.Run()
-	require.NoError(t, err)
-	defer mr.Close()
-
-	client := redis.NewClient(&redis.Options{
-		Addr: mr.Addr(),
-	})
-	UserDB = client
-	Ctx = context.Background()
+	setupPG(t)
+	id := uuid.New()
+	require.NoError(t, PutUser(User{Username: "testuser", UID: id.String()}))
 
 	t.Run("String Lookup", func(t *testing.T) {
-		UserDB.Set(Ctx, "uid:12345", "testuser", 0)
-
-		username, err := GetUsernameByUID("12345")
+		username, err := GetUsernameByUID(id.String())
 		require.NoError(t, err)
 		require.Equal(t, "testuser", username)
 	})
 
 	t.Run("Binary Lookup", func(t *testing.T) {
-		UserDB.Set(Ctx, "uid_bin:67890", "binuser", 0)
-
-		username, err := GetUsernameByUID("67890")
+		username, err := GetUsernameByUID(string(id[:]))
 		require.NoError(t, err)
-		require.Equal(t, "binuser", username)
+		require.Equal(t, "testuser", username)
 	})
 
 	t.Run("Not Found", func(t *testing.T) {
-		_, err := GetUsernameByUID("99999")
-		require.Error(t, err)
+		_, err := GetUsernameByUID(uuid.NewString())
+		require.ErrorIs(t, err, ErrUserNotFound)
+		_, err = GetUsernameByUID("99999")
+		require.ErrorIs(t, err, ErrUserNotFound)
 	})
 }

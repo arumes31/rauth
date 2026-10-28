@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"rauth/internal/core"
 	"rauth/internal/handlers"
+	"rauth/internal/pgtest"
 	"strings"
 	"testing"
 
@@ -158,20 +159,18 @@ func TestSetupRoutes(t *testing.T) {
 }
 
 func TestInitializeSystem(t *testing.T) {
-	origUserDB := core.UserDB
 	origTokenDB := core.TokenDB
-	origAuditDB := core.AuditDB
+	origPG := core.PG
 	defer func() {
-		core.UserDB = origUserDB
 		core.TokenDB = origTokenDB
-		core.AuditDB = origAuditDB
+		core.PG = origPG
 	}()
 
 	s := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: s.Addr()})
-	core.UserDB = client
 	core.TokenDB = client
-	core.AuditDB = client
+	core.PG = pgtest.Open(t, core.Migrate)
+	pgtest.Reset(t, core.PG)
 
 	tmpDir := t.TempDir()
 	cfg := &core.Config{
@@ -190,9 +189,9 @@ func TestInitializeSystem(t *testing.T) {
 	defer stopSync()
 
 	// The initial admin user should have been created.
-	exists, err := core.UserDB.Exists(core.Ctx, "user:bootadmin").Result()
+	exists, err := core.UserExists("bootadmin")
 	require.NoError(t, err)
-	assert.Equal(t, int64(1), exists)
+	assert.True(t, exists)
 }
 
 func TestCreateIPExtractor(t *testing.T) {

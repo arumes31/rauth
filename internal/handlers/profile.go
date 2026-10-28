@@ -1,7 +1,7 @@
 package handlers
 
 import (
-	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -21,8 +21,8 @@ type ProfileHandler struct {
 func (h *ProfileHandler) Show(c echo.Context) error {
 	username := c.Get("username").(string)
 	currentToken := c.Get("token").(string)
-	userData, err := core.UserDB.HGetAll(core.Ctx, "user:"+username).Result()
-	if err != nil {
+	userData, err := core.GetUser(username)
+	if err != nil && !errors.Is(err, core.ErrUserNotFound) {
 		slog.Error("Failed to fetch user data", "user", username, "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to load profile")
 	}
@@ -84,30 +84,21 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 	}
 
 	// Personal Logs
-	rawLogs, err := core.AuditDB.LRange(core.Ctx, "user_audit_logs:"+username, 0, 99).Result()
+	logs, err := core.UserAuditLogs(username, 100)
 	if err != nil {
 		slog.Error("Failed to fetch audit logs", "error", err)
 	}
-
-	logs := make([]core.AuditLog, len(rawLogs))
-	validCount := 0
-	for _, l := range rawLogs {
-		if err := json.Unmarshal([]byte(l), &logs[validCount]); err == nil {
-			validCount++
-		}
-	}
-	logs = logs[:validCount]
 
 	passkeys := core.GetStoredCredentials(username)
 
 	return c.Render(http.StatusOK, "profile.html", map[string]interface{}{
 		"username":      username,
-		"email":         userData["email"],
-		"groups":        userData["groups"],
-		"isAdmin":       userData["is_admin"] == "1",
+		"email":         userData.Email,
+		"groups":        userData.Groups,
+		"isAdmin":       userData.IsAdmin == "1",
 		"isRoot":        username == h.Cfg.InitialUser,
-		"createdAt":     userData["created_at"],
-		"has2FA":        userData["2fa_secret"] != "",
+		"createdAt":     userData.CreatedAt,
+		"has2FA":        userData.TwoFactor != "",
 		"recoveryCount": core.CountRecoveryCodes(username),
 		"sessions":      sessions,
 		"logs":          logs,
@@ -121,11 +112,11 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 func (h *ProfileHandler) GenerateRecoveryCodes(c echo.Context) error {
 	username := c.Get("username").(string)
 
-	// ⚡ Bolt optimization: Use HGet instead of HGetAll to only fetch 2fa_secret.
-	secret, err := core.UserDB.HGet(core.Ctx, "user:"+username, "2fa_secret").Result()
-	if err != nil && err.Error() != "redis: nil" {
+	rec, err := core.GetUser(username)
+	if err != nil && !errors.Is(err, core.ErrUserNotFound) {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Internal error")
 	}
+	secret := rec.TwoFactor
 	if secret == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "Enable TOTP before generating recovery codes")
 	}
@@ -185,8 +176,8 @@ func (h *ProfileHandler) RevokePasskey(c echo.Context) error {
 	}
 
 	// Send notification email
-	email, _ := core.UserDB.HGet(core.Ctx, "user:"+username, "email").Result()
-	if email != "" {
+	if rec, err := core.GetUser(username); err == nil && rec.Email != "" {
+		email := rec.Email
 		device := core.FormatDevice(c.Request().UserAgent(),
 			c.Request().Header.Get("Sec-CH-UA-Platform"),
 			c.Request().Header.Get("Sec-CH-UA-Mobile"),
@@ -202,20 +193,11 @@ func (h *ProfileHandler) DisableTOTP(c echo.Context) error {
 	username := c.Get("username").(string)
 	otpCode := c.FormValue("otp_code")
 
-	// ⚡ Bolt optimization: Use HMGet instead of HGetAll to only fetch 2fa_secret and email.
-	vals, err := core.UserDB.HMGet(core.Ctx, "user:"+username, "2fa_secret", "email").Result()
-	if err != nil || len(vals) != 2 {
+	rec, err := core.GetUser(username)
+	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Internal error")
 	}
-
-	secret := ""
-	if vals[0] != nil {
-		secret = vals[0].(string)
-	}
-	email := ""
-	if vals[1] != nil {
-		email = vals[1].(string)
-	}
+	secret, email := rec.TwoFactor, rec.Email
 
 	if secret != "" {
 		if err := h.validateTOTP(username, otpCode, secret); err != nil {
@@ -300,19 +282,19 @@ func (h *ProfileHandler) ChangePassword(c echo.Context) error {
 	confirm := c.FormValue("confirm_password")
 	otpCode := c.FormValue("otp_code")
 
-	userData, err := core.UserDB.HGetAll(core.Ctx, "user:"+username).Result()
-	if err != nil {
+	userData, err := core.GetUser(username)
+	if err != nil && !errors.Is(err, core.ErrUserNotFound) {
 		slog.Error("Failed to fetch user data for password change", "user", username, "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Internal error")
 	}
-	if !core.CheckPasswordHash(current, userData["password"]) {
+	if !core.CheckPasswordHash(current, userData.Password) {
 		core.CheckRateLimit("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax, h.Cfg.RateLimitLoginFailUserDecay)
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Current password incorrect"})
 	}
 
 	// 2FA Verification if enabled
-	if userData["2fa_secret"] != "" {
-		if err := h.validateTOTP(username, otpCode, userData["2fa_secret"]); err != nil {
+	if userData.TwoFactor != "" {
+		if err := h.validateTOTP(username, otpCode, userData.TwoFactor); err != nil {
 			return c.JSON(err.Code, map[string]string{"error": err.Message.(string)})
 		}
 	}
@@ -332,17 +314,17 @@ func (h *ProfileHandler) ChangePassword(c echo.Context) error {
 	}
 
 	if err := core.UpdateUser(username, map[string]interface{}{"password": hash}); err != nil {
-		slog.Error("Failed to update user password in Redis", "user", username, "error", err)
+		slog.Error("Failed to update user password", "user", username, "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to update password")
 	}
 
 	// Send notification email
-	if userData["email"] != "" {
+	if userData.Email != "" {
 		device := core.FormatDevice(c.Request().UserAgent(),
 			c.Request().Header.Get("Sec-CH-UA-Platform"),
 			c.Request().Header.Get("Sec-CH-UA-Mobile"),
 			c.Request().Header.Get("Sec-CH-UA-Model"))
-		go core.SendPasswordChangeNotification(userData["email"], username, c.RealIP(), device)
+		go core.SendPasswordChangeNotification(userData.Email, username, c.RealIP(), device)
 	}
 
 	// Security Hardening: Invalidate all other sessions. The current session

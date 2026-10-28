@@ -24,8 +24,7 @@ func TestXSSProtection(t *testing.T) {
 	e.Renderer = &xssMockRenderer{tmpl: tmpl}
 
 	maliciousUser := "<script>alert('XSS')</script>"
-	core.UserDB.SAdd(core.Ctx, "users", maliciousUser)
-	core.UserDB.HSet(core.Ctx, "user:"+maliciousUser, map[string]interface{}{"username": maliciousUser})
+	seedUserFields(t, maliciousUser, map[string]interface{}{"username": maliciousUser})
 
 	req := httptest.NewRequest(http.MethodGet, "/rauthmgmt", nil)
 	rec := httptest.NewRecorder()

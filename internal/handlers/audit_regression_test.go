@@ -87,7 +87,7 @@ func TestRegression_PendingSetupRevokedByAdminPasswordChange(t *testing.T) {
 	assert.Equal(t, http.StatusFound, grec.Code)
 	assert.Equal(t, "/rauthlogin", grec.Header().Get("Location"))
 
-	secret, _ := core.UserDB.HGet(core.Ctx, "user:victim", "2fa_secret").Result()
+	secret := userField(t, "victim", "2fa_secret")
 	assert.Empty(t, secret, "no TOTP may be enrolled through the stale setup token")
 }
 
@@ -109,7 +109,7 @@ func TestRegression_CompleteSetupDoesNotOverwriteEnrolledTOTP(t *testing.T) {
 
 	// Victim enrolls their own TOTP in the meantime.
 	victimEnc, _ := core.Encrypt2FASecret("KRSXG5CTMVRXEZLU", cfg.ServerSecret)
-	core.UserDB.HSet(core.Ctx, "user:alice", "2fa_secret", victimEnc)
+	seedUserFields(t, "alice", map[string]interface{}{"2fa_secret": victimEnc})
 
 	code, _ := totp.GenerateCode(attackerSecret, time.Now())
 	encrypted, _ := core.EncryptToken(setupToken, cfg.ServerSecret)
@@ -118,7 +118,7 @@ func TestRegression_CompleteSetupDoesNotOverwriteEnrolledTOTP(t *testing.T) {
 	require.NoError(t, h.CompleteSetup2FA(c))
 
 	assert.Equal(t, "/rauthlogin", rec.Header().Get("Location"))
-	stored, _ := core.UserDB.HGet(core.Ctx, "user:alice", "2fa_secret").Result()
+	stored := userField(t, "alice", "2fa_secret")
 	assert.Equal(t, victimEnc, stored)
 	assert.Nil(t, cookieFrom(rec, "X-rauth-authtoken"))
 }

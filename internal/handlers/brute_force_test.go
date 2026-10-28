@@ -35,7 +35,7 @@ func TestBruteForceProtection(t *testing.T) {
 	e.Renderer = renderer
 
 	// Setup user
-	core.UserDB.HSet(core.Ctx, "user:bruteuser", "password", "$2a$12$nothing")
+	seedUserFields(t, "bruteuser", map[string]interface{}{"password": "$2a$12$nothing"})
 
 	t.Run("Login IP Brute Force", func(t *testing.T) {
 		clientIP := "1.2.3.4"
@@ -164,7 +164,7 @@ func TestBruteForceProtection(t *testing.T) {
 		pendingToken := "brute-2fa-token"
 		encryptedToken, _ := core.EncryptToken(pendingToken, cfg.ServerSecret)
 		core.TokenDB.Set(core.Ctx, "pending_2fa:"+pendingToken, "bruteuser", 5*time.Minute)
-		core.UserDB.HSet(core.Ctx, "user:bruteuser", "2fa_secret", "JBSWY3DPEHPK3PXP")
+		seedUserFields(t, "bruteuser", map[string]interface{}{"2fa_secret": "JBSWY3DPEHPK3PXP"})
 
 		clientIP := "9.9.9.9"
 		core.ResetRateLimit("login_post_ip:" + clientIP)
@@ -236,6 +236,6 @@ func TestSuccessfulLoginDoesNotResetIPCounters(t *testing.T) {
 
 	// The failed attempt for an unknown account must not create a per-user
 	// audit list for the attacker-chosen name.
-	exists, _ := core.AuditDB.Exists(core.Ctx, "user_audit_logs:victim").Result()
+	exists := int64(userAuditCount(t, "victim"))
 	assert.Equal(t, int64(0), exists)
 }

@@ -1,9 +1,8 @@
 package core
 
 import (
-	"errors"
-	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,33 +19,35 @@ import (
 // concurrently with a revocation, dropped from the index, or copied by token
 // rotation all fail the generation check.
 //
-// The counter lives in its own key (not the user hash) so it survives account
-// deletion: a recreated account with the same name starts above every token
-// issued to the deleted one.
-
-// authGenKey returns the Redis key holding a user's auth generation.
-func authGenKey(username string) string {
-	return "authgen:" + username
-}
+// The counter lives in its own table (not the users row) so it survives
+// account deletion: a recreated account with the same name starts above every
+// token issued to the deleted one.
 
 // AuthGeneration returns the user's current auth generation ("0" if never bumped).
 func AuthGeneration(username string) (string, error) {
-	v, err := UserDB.Get(Ctx, authGenKey(username)).Result()
-	if err == redis.Nil {
+	var gen int64
+	err := PG.QueryRow(Ctx, "SELECT gen FROM auth_generations WHERE username = $1", username).Scan(&gen)
+	if isNoRows(err) {
 		return "0", nil
 	}
-	return v, err
+	if err != nil {
+		return "", err
+	}
+	return strconv.FormatInt(gen, 10), nil
 }
 
 // BumpAuthGeneration invalidates every session and pending token previously
 // issued to the user and returns the new generation.
 func BumpAuthGeneration(username string) (string, error) {
-	n, err := UserDB.Incr(Ctx, authGenKey(username)).Result()
+	var n int64
+	err := PG.QueryRow(Ctx, `INSERT INTO auth_generations (username, gen) VALUES ($1, 1)
+		ON CONFLICT (username) DO UPDATE SET gen = auth_generations.gen + 1
+		RETURNING gen`, username).Scan(&n)
 	if err != nil {
 		slog.Error("Failed to bump auth generation", "user", username, "error", err)
 		return "", err
 	}
-	return fmt.Sprintf("%d", n), nil
+	return strconv.FormatInt(n, 10), nil
 }
 
 // sessionGen returns the generation stamped into a session hash. Sessions that
@@ -60,27 +61,21 @@ func sessionGen(data map[string]string) string {
 }
 
 // SessionAuthorized reports whether a session hash still belongs to a live
-// account at the current auth generation. It fails closed on Redis errors.
+// account at the current auth generation. It fails closed on database errors.
 func SessionAuthorized(data map[string]string) bool {
 	username := data["username"]
 	if username == "" {
 		return false
 	}
-	pipe := UserDB.Pipeline()
-	exists := pipe.Exists(Ctx, "user:"+username)
-	gen := pipe.Get(Ctx, authGenKey(username))
-	if _, err := pipe.Exec(Ctx); err != nil && !errors.Is(err, redis.Nil) {
+	var exists bool
+	var gen int64
+	err := PG.QueryRow(Ctx, `SELECT EXISTS (SELECT 1 FROM users WHERE username = $1),
+		COALESCE((SELECT gen FROM auth_generations WHERE username = $1), 0)`, username).Scan(&exists, &gen)
+	if err != nil {
 		slog.Error("Failed to check session authorization", "user", username, "error", err)
 		return false
 	}
-	if exists.Val() != 1 {
-		return false
-	}
-	current := gen.Val()
-	if current == "" {
-		current = "0"
-	}
-	return current == sessionGen(data)
+	return exists && strconv.FormatInt(gen, 10) == sessionGen(data)
 }
 
 // restampScript sets auth_gen only on an existing session hash, so a session

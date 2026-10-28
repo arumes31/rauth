@@ -15,11 +15,17 @@ import (
 )
 
 type Config struct {
-	ListenAddr           string
-	ServerSecret         string
-	RedisHost            string
-	RedisPort            string
-	RedisPassword        string
+	ListenAddr    string
+	ServerSecret  string
+	RedisHost     string
+	RedisPort     string
+	RedisPassword string
+	// PostgresURL is the connection string for the durable store (users,
+	// credentials, bypass rules, audit log). Built from POSTGRES_* when
+	// DATABASE_URL is unset.
+	PostgresURL string
+	// AuditRetentionDays bounds how long audit entries are kept (0 = forever).
+	AuditRetentionDays   int
 	CookieDomains        []string
 	TokenValidityMinutes int
 	AllowedHosts         []string
@@ -128,6 +134,8 @@ func LoadConfig() *Config {
 		RedisHost:            getEnv("REDIS_HOST", "rauth-auth-redis"),
 		RedisPort:            getEnv("REDIS_PORT", "6379"),
 		RedisPassword:        getEnv("REDIS_PASSWORD", ""),
+		PostgresURL:          postgresURLFromEnv(),
+		AuditRetentionDays:   getEnvInt("AUDIT_RETENTION_DAYS", 365),
 		CookieDomains:        getEnvSlice("COOKIE_DOMAIN", []string{"example.com"}),
 		TokenValidityMinutes: getEnvInt("TOKEN_VALIDITY_MINUTES", 2880),
 		AllowedHosts:         getEnvSlice("ALLOWED_HOSTS", []string{"localhost", "127.0.0.1"}),
@@ -403,6 +411,22 @@ func normalizeHostname(h string) string {
 	}
 
 	return h
+}
+
+// postgresURLFromEnv returns DATABASE_URL, or a URL assembled from the
+// POSTGRES_* variables used by the bundled compose file.
+func postgresURLFromEnv() string {
+	if v := strings.TrimSpace(getEnv("DATABASE_URL", "")); v != "" {
+		return v
+	}
+	u := url.URL{
+		Scheme:   "postgres",
+		User:     url.UserPassword(getEnv("POSTGRES_USER", "rauth"), getEnv("POSTGRES_PASSWORD", "")),
+		Host:     net.JoinHostPort(getEnv("POSTGRES_HOST", "rauth-auth-postgres"), getEnv("POSTGRES_PORT", "5432")),
+		Path:     "/" + getEnv("POSTGRES_DB", "rauth"),
+		RawQuery: "sslmode=" + url.QueryEscape(getEnv("POSTGRES_SSLMODE", "disable")),
+	}
+	return u.String()
 }
 
 func getEnv(key, fallback string) string {

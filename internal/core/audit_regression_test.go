@@ -16,7 +16,8 @@ func newRegressionRedis(t *testing.T) {
 	t.Helper()
 	s := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: s.Addr()})
-	UserDB, TokenDB, RateLimitDB, AuditDB, InviteDB = client, client, client, client, client
+	TokenDB, RateLimitDB, InviteDB = client, client, client
+	setupPG(t)
 	ServerSecret = "32byte-secret-key-for-testing-!!"
 }
 
@@ -39,12 +40,15 @@ func TestRegression_CredentialNotRematerializedAfterDelete(t *testing.T) {
 
 	err := UpdateWebAuthnSignCount("erin", []byte("k1"), 7)
 	assert.Error(t, err)
-	exists, _ := UserDB.Exists(Ctx, "user:erin:webauthn_creds_v2").Result()
-	assert.Equal(t, int64(0), exists)
+	var n int
+	require.NoError(t, PG.QueryRow(Ctx, "SELECT count(*) FROM webauthn_credentials WHERE username = 'erin'").Scan(&n))
+	assert.Equal(t, 0, n)
 
-	// Leftover satellite state from any path is cleared on recreation.
-	UserDB.HSet(Ctx, "user:erin:webauthn_creds_v2", "6b31", "{}")
-	UserDB.SAdd(Ctx, "user:erin:recovery_codes", "x")
+	// Satellite rows cannot outlive the account (foreign keys), so a
+	// recreated account starts clean.
+	assert.Error(t, SaveWebAuthnCredential("erin", &webauthn.Credential{ID: []byte("k2")}))
+	_, err = GenerateRecoveryCodes("erin")
+	assert.Error(t, err)
 	require.NoError(t, CreateUser("erin", "Password123", "", false, ""))
 	assert.Empty(t, GetWebAuthnCredentials("erin"))
 	assert.Equal(t, int64(0), CountRecoveryCodes("erin"))
@@ -82,16 +86,19 @@ func TestRegression_CreateUserIsAtomic(t *testing.T) {
 // Hardening: recovery codes are keyed hashes; legacy unkeyed codes still work.
 func TestRegression_RecoveryCodesKeyedAndBackwardCompatible(t *testing.T) {
 	newRegressionRedis(t)
+	require.NoError(t, CreateUser("hank", "Password123", "", false, ""))
 	codes, err := GenerateRecoveryCodes("hank")
 	require.NoError(t, err)
 	require.Len(t, codes, recoveryCodeCount)
 	assert.Len(t, normalizeRecoveryCode(codes[0]), 2*recoveryCodeBytes)
-	stored, _ := UserDB.SMembers(Ctx, recoveryCodesKey("hank")).Result()
+	var stored []string
+	require.NoError(t, PG.QueryRow(Ctx, "SELECT array_agg(code_hash) FROM recovery_codes WHERE username = 'hank'").Scan(&stored))
 	assert.NotContains(t, stored, legacyHashRecoveryCode(codes[0]), "new codes must use the keyed hash")
 	assert.True(t, ConsumeRecoveryCode("hank", codes[0]))
 	assert.False(t, ConsumeRecoveryCode("hank", codes[0]))
 
-	UserDB.SAdd(Ctx, recoveryCodesKey("hank"), legacyHashRecoveryCode("abcde-12345"))
+	_, err = PG.Exec(Ctx, "INSERT INTO recovery_codes (username, code_hash) VALUES ('hank', $1)", legacyHashRecoveryCode("abcde-12345"))
+	require.NoError(t, err)
 	assert.True(t, ConsumeRecoveryCode("hank", "abcde-12345"))
 }
 
@@ -105,14 +112,14 @@ func TestRegression_ReconcileKeepsLiveSessions(t *testing.T) {
 	assert.Equal(t, []string{"live"}, members)
 }
 
-// The second-factor write refuses to overwrite or to create a stub hash.
+// The second-factor write refuses to overwrite or to create an account.
 func TestRegression_SetSecondFactorIfUnset(t *testing.T) {
 	newRegressionRedis(t)
 	ok, err := SetSecondFactorIfUnset("ghost", "enc:x")
 	require.NoError(t, err)
 	assert.False(t, ok)
-	exists, _ := UserDB.Exists(Ctx, "user:ghost").Result()
-	assert.Equal(t, int64(0), exists)
+	exists, _ := UserExists("ghost")
+	assert.False(t, exists)
 
 	require.NoError(t, CreateUser("judy", "Password123", "", false, ""))
 	ok, _ = SetSecondFactorIfUnset("judy", "enc:first")

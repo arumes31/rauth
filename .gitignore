@@ -11,6 +11,9 @@ rauth.exe
 # Redis data
 redis-data/
 
+# Postgres data
+postgres-data/
+
 # GeoIP data
 geoip-data/
 

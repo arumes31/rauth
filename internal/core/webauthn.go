@@ -8,15 +8,12 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
-	"runtime"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
-	"github.com/redis/go-redis/v9"
 )
 
 // WebAuthnUser implements the webauthn.User interface
@@ -160,14 +157,17 @@ func InitWebAuthn(cfg *Config) error {
 }
 
 func SaveWebAuthnCredential(username string, cred *webauthn.Credential) error {
-	hashKey := "user:" + username + ":webauthn_creds_v2"
 	stored := StoredCredential{
 		Credential: *cred,
 		Nickname:   fmt.Sprintf("Key %d", len(GetWebAuthnCredentials(username))+1),
 		CreatedAt:  time.Now().Unix(),
 	}
 	data, _ := json.Marshal(stored)
-	return UserDB.HSet(Ctx, hashKey, fmt.Sprintf("%x", cred.ID), data).Err()
+	// The foreign key rejects a credential for an account deleted meanwhile.
+	_, err := PG.Exec(Ctx, `INSERT INTO webauthn_credentials (username, cred_id, data, created_at) VALUES ($1, $2, $3, $4)
+		ON CONFLICT (username, cred_id) DO UPDATE SET data = EXCLUDED.data`,
+		username, fmt.Sprintf("%x", cred.ID), data, stored.CreatedAt)
+	return err
 }
 
 func GetWebAuthnCredentials(username string) []webauthn.Credential {
@@ -184,201 +184,95 @@ func GetWebAuthnCredentials(username string) []webauthn.Credential {
 }
 
 func GetStoredCredentials(username string) []StoredCredential {
-	hashKey := "user:" + username + ":webauthn_creds_v2"
-	listKey := "user:" + username + ":webauthn_creds"
-
-	// 1. Try Hash
-	data, err := UserDB.HGetAll(Ctx, hashKey).Result()
-	if err == nil && len(data) > 0 {
-		var creds []StoredCredential
-		for _, r := range data {
-			var c StoredCredential
-			if err := json.Unmarshal([]byte(r), &c); err == nil {
-				creds = append(creds, c)
-			}
-		}
-		// Sort by CreatedAt to maintain consistent order
-		slices.SortFunc(creds, compareStoredCredentials)
-		return creds
+	rows, err := PG.Query(Ctx, "SELECT data FROM webauthn_credentials WHERE username = $1", username)
+	if err != nil {
+		slog.Error("Failed to load passkeys", "user", username, "error", err)
+		return nil
 	}
+	defer rows.Close()
 
-	// 2. Fallback to List & Migrate
-	results, _ := UserDB.LRange(Ctx, listKey, 0, -1).Result()
-	if len(results) > 0 {
-		numWorkers := runtime.GOMAXPROCS(0)
-		if numWorkers > len(results) {
-			numWorkers = len(results)
+	var creds []StoredCredential
+	for rows.Next() {
+		var raw []byte
+		if err := rows.Scan(&raw); err != nil {
+			continue
 		}
-		if numWorkers < 1 {
-			numWorkers = 1
+		var c StoredCredential
+		if err := json.Unmarshal(raw, &c); err == nil {
+			creds = append(creds, c)
 		}
-		credsArray := make([]StoredCredential, len(results))
-		var wg sync.WaitGroup
-		wg.Add(numWorkers)
-		chunkSize := (len(results) + numWorkers - 1) / numWorkers
-
-		for w := 0; w < numWorkers; w++ {
-			start := w * chunkSize
-			end := start + chunkSize
-			if end > len(results) {
-				end = len(results)
-			}
-			go func(start, end int) {
-				defer wg.Done()
-				for j := start; j < end; j++ {
-					var c StoredCredential
-					if err := json.Unmarshal([]byte(results[j]), &c); err == nil {
-						credsArray[j] = c
-					}
-				}
-			}(start, end)
-		}
-		wg.Wait()
-
-		var creds []StoredCredential
-		pipe := UserDB.Pipeline()
-		for i, c := range credsArray {
-			if len(c.ID) > 0 {
-				creds = append(creds, c)
-				pipe.HSet(Ctx, hashKey, fmt.Sprintf("%x", c.ID), results[i])
-			}
-		}
-		pipe.Del(Ctx, listKey)
-		// Best-effort migration: if it fails we still return what we read from
-		// the list for this request, and a later call will retry the migration.
-		_, _ = pipe.Exec(Ctx)
-
-		slices.SortFunc(creds, compareStoredCredentials)
-		return creds
 	}
-
-	return nil
+	// Sort by CreatedAt to maintain consistent order
+	slices.SortFunc(creds, compareStoredCredentials)
+	return creds
 }
-
-// writeExistingCredentialScript updates a stored credential only while both
-// the credential field and the owning account still exist. A plain HSET after
-// a read could otherwise re-create the credential hash of an account deleted in
-// between, which a recreated account with the same name would then inherit.
-var writeExistingCredentialScript = redis.NewScript(`
-if redis.call("HEXISTS", KEYS[2], "username") == 0 then
-	return 0
-end
-if redis.call("HEXISTS", KEYS[1], ARGV[1]) == 0 then
-	return 0
-end
-redis.call("HSET", KEYS[1], ARGV[1], ARGV[2])
-return 1
-`)
 
 // errCredentialGone reports that a credential (or its account) was removed
 // while it was being updated.
 var errCredentialGone = errors.New("credential or account no longer exists")
 
-func writeExistingCredential(username, field string, data []byte) error {
-	n, err := writeExistingCredentialScript.Run(Ctx, UserDB,
-		[]string{"user:" + username + ":webauthn_creds_v2", "user:" + username}, field, data).Int()
+// updateStoredCredential applies mutate to a stored credential. The update
+// only matches a row that still exists, so it never re-creates a credential
+// removed concurrently (passkeys cascade with their account).
+func updateStoredCredential(username, credID string, mutate func(*StoredCredential)) error {
+	var raw []byte
+	err := PG.QueryRow(Ctx, "SELECT data FROM webauthn_credentials WHERE username = $1 AND cred_id = $2", username, credID).Scan(&raw)
+	if isNoRows(err) {
+		return errCredentialGone
+	}
 	if err != nil {
 		return err
 	}
-	if n == 0 {
+	var c StoredCredential
+	if err := json.Unmarshal(raw, &c); err != nil {
+		return err
+	}
+	mutate(&c)
+	data, _ := json.Marshal(c)
+	tag, err := PG.Exec(Ctx, "UPDATE webauthn_credentials SET data = $3 WHERE username = $1 AND cred_id = $2", username, credID, data)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
 		return errCredentialGone
 	}
 	return nil
 }
 
 func UpdateWebAuthnSignCount(username string, credID []byte, newCount uint32) error {
-	hashKey := "user:" + username + ":webauthn_creds_v2"
-	field := fmt.Sprintf("%x", credID)
-
-	val, err := UserDB.HGet(Ctx, hashKey, field).Result()
-	if err != nil {
-		// Try migration
-		GetStoredCredentials(username)
-		val, err = UserDB.HGet(Ctx, hashKey, field).Result()
-		if err != nil {
-			return err
-		}
-	}
-
-	var c StoredCredential
-	if err := json.Unmarshal([]byte(val), &c); err != nil {
-		return err
-	}
-	c.Authenticator.SignCount = newCount
-	c.LastUsed = time.Now().Unix()
-	data, _ := json.Marshal(c)
-	return writeExistingCredential(username, field, data)
+	return updateStoredCredential(username, fmt.Sprintf("%x", credID), func(c *StoredCredential) {
+		c.Authenticator.SignCount = newCount
+		c.LastUsed = time.Now().Unix()
+	})
 }
 
-// DeleteAllWebAuthnCredentials removes every passkey of a user, including the
-// legacy list format (used by the admin 2FA reset).
+// DeleteAllWebAuthnCredentials removes every passkey of a user (used by the
+// admin 2FA reset).
 func DeleteAllWebAuthnCredentials(username string) error {
-	return UserDB.Del(Ctx, "user:"+username+":webauthn_creds_v2", "user:"+username+":webauthn_creds").Err()
+	_, err := PG.Exec(Ctx, "DELETE FROM webauthn_credentials WHERE username = $1", username)
+	return err
 }
 
 func DeleteWebAuthnCredential(username string, credID string) error {
-	hashKey := "user:" + username + ":webauthn_creds_v2"
-	// Ensure migration
-	GetStoredCredentials(username)
-	return UserDB.HDel(Ctx, hashKey, credID).Err()
+	_, err := PG.Exec(Ctx, "DELETE FROM webauthn_credentials WHERE username = $1 AND cred_id = $2", username, credID)
+	return err
 }
 
 func UpdateWebAuthnNickname(username string, credID string, nickname string) error {
-	hashKey := "user:" + username + ":webauthn_creds_v2"
-	// Ensure migration
-	GetStoredCredentials(username)
-
-	val, err := UserDB.HGet(Ctx, hashKey, credID).Result()
-	if err != nil {
-		return err
-	}
-
-	var c StoredCredential
-	if err := json.Unmarshal([]byte(val), &c); err != nil {
-		return err
-	}
-	c.Nickname = nickname
-	data, _ := json.Marshal(c)
-	return writeExistingCredential(username, credID, data)
+	return updateStoredCredential(username, credID, func(c *StoredCredential) {
+		c.Nickname = nickname
+	})
 }
 
 func UpdateWebAuthnLastUsed(username string, credID []byte) error {
-	hashKey := "user:" + username + ":webauthn_creds_v2"
-	field := fmt.Sprintf("%x", credID)
-	// Ensure migration
-	GetStoredCredentials(username)
-
-	val, err := UserDB.HGet(Ctx, hashKey, field).Result()
-	if err != nil {
-		return err
-	}
-
-	var c StoredCredential
-	if err := json.Unmarshal([]byte(val), &c); err != nil {
-		return err
-	}
-	c.LastUsed = time.Now().Unix()
-	data, _ := json.Marshal(c)
-	return writeExistingCredential(username, field, data)
+	return updateStoredCredential(username, fmt.Sprintf("%x", credID), func(c *StoredCredential) {
+		c.LastUsed = time.Now().Unix()
+	})
 }
 
 func UpdateWebAuthnCredential(username string, cred *webauthn.Credential) error {
-	hashKey := "user:" + username + ":webauthn_creds_v2"
-	field := fmt.Sprintf("%x", cred.ID)
-	// Ensure migration
-	GetStoredCredentials(username)
-
-	val, err := UserDB.HGet(Ctx, hashKey, field).Result()
-	if err != nil {
-		return err
-	}
-
-	var c StoredCredential
-	if err := json.Unmarshal([]byte(val), &c); err != nil {
-		return err
-	}
-	c.Credential = *cred
-	c.LastUsed = time.Now().Unix()
-	data, _ := json.Marshal(c)
-	return writeExistingCredential(username, field, data)
+	return updateStoredCredential(username, fmt.Sprintf("%x", cred.ID), func(c *StoredCredential) {
+		c.Credential = *cred
+		c.LastUsed = time.Now().Unix()
+	})
 }

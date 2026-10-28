@@ -15,9 +15,8 @@ import (
 func TestHardwareBinding_Coverage(t *testing.T) {
 	s := miniredis.RunT(t)
 	core.TokenDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
-	core.UserDB = core.TokenDB
+	usePG(t)
 	core.RateLimitDB = core.TokenDB
-	core.AuditDB = core.TokenDB
 	seedAccount(t, "alice")
 
 	cfg := &core.Config{

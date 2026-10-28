@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"rauth/internal/core"
+	"rauth/internal/pgtest"
 	"strings"
 	"sync"
 	"testing"
@@ -39,13 +40,13 @@ func setupHandlersTest(t *testing.T) {
 
 	client := redis.NewClient(&redis.Options{Addr: sharedMiniredis.Addr()})
 	core.TokenDB = client
-	core.UserDB = client
-	core.AuditDB = client
 	core.RateLimitDB = client
 	core.InviteDB = client
 
 	// Clean slate for each test
 	sharedMiniredis.FlushAll()
+	core.PG = pgtest.Open(t, core.Migrate)
+	pgtest.Reset(t, core.PG)
 
 	t.Cleanup(func() {
 		globalTestMu.Unlock()
@@ -84,7 +85,7 @@ func (r *mockRenderer) Render(w io.Writer, name string, data interface{}, c echo
 // pass core.SessionAuthorized (which rejects sessions of non-existent accounts).
 func seedAccount(t *testing.T, username string) {
 	t.Helper()
-	if err := core.UserDB.HSet(core.Ctx, "user:"+username, "username", username).Err(); err != nil {
+	if err := core.PutUser(core.User{Username: username}); err != nil {
 		t.Fatalf("seed account %s: %v", username, err)
 	}
 }

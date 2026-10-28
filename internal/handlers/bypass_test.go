@@ -16,7 +16,7 @@ func resetBypassRules(t *testing.T) {
 	t.Helper()
 	t.Cleanup(func() {
 		core.SetEnvBypassRules(nil)
-		core.UserDB.Del(core.Ctx, "auth_bypass_rules")
+		_, _ = core.PG.Exec(core.Ctx, "DELETE FROM bypass_rules")
 		_ = core.ReloadBypassRules()
 	})
 }
@@ -134,7 +134,7 @@ func TestAdminHandler_BypassRules(t *testing.T) {
 	setupHandlersTest(t)
 	resetBypassRules(t)
 	hash, _ := core.HashPassword("AdminPass1!")
-	core.UserDB.HSet(core.Ctx, "user:adminuser", "username", "adminuser", "password", hash)
+	seedUserFields(t, "adminuser", map[string]interface{}{"username": "adminuser", "password": hash})
 	h := &AdminHandler{Cfg: &core.Config{RateLimitLoginFailUserMax: 1000, RateLimitLoginFailUserDecay: 60}}
 	e := echo.New()
 

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 	"rauth/internal/core"
@@ -24,6 +25,10 @@ type HealthStatus struct {
 	System    map[string]interface{} `json:"system,omitempty"`
 }
 
+func redisPing(client *redis.Client) func() error {
+	return func() error { return client.Ping(core.Ctx).Err() }
+}
+
 func (h *HealthHandler) Check(c echo.Context) error {
 	// /health is public. File paths and runtime details are only returned to
 	// clients inside METRICS_ALLOWED_IPS; everyone gets the status and
@@ -32,26 +37,31 @@ func (h *HealthHandler) Check(c echo.Context) error {
 	status := "OK"
 	checks := make(map[string]string, 4)
 
-	// Redis checks. These back-ends are required for the service to function,
-	// so a failure makes the service unready (503), not merely degraded.
-	redisChecks := []struct {
-		name   string
-		client *redis.Client
+	// Back-end checks. These are required for the service to function, so a
+	// failure makes the service unready (503), not merely degraded.
+	checkFuncs := []struct {
+		name string
+		ping func() error
 	}{
-		{"redis_user", core.UserDB},
-		{"redis_token", core.TokenDB},
-		{"redis_rate", core.RateLimitDB},
+		{"postgres", func() error {
+			if core.PG == nil {
+				return errors.New("postgres not initialized")
+			}
+			return core.PG.Ping(core.Ctx)
+		}},
+		{"redis_token", redisPing(core.TokenDB)},
+		{"redis_rate", redisPing(core.RateLimitDB)},
 	}
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	for _, check := range redisChecks {
+	for _, check := range checkFuncs {
 		name := check.name
-		client := check.client
+		ping := check.ping
 		wg.Add(1)
-		go func(name string, client *redis.Client) {
+		go func(name string, ping func() error) {
 			defer wg.Done()
-			err := client.Ping(core.Ctx).Err()
+			err := ping()
 
 			mu.Lock()
 			defer mu.Unlock()
@@ -63,7 +73,7 @@ func (h *HealthHandler) Check(c echo.Context) error {
 			} else {
 				checks[name] = "OK"
 			}
-		}(name, client)
+		}(name, ping)
 	}
 	wg.Wait()
 

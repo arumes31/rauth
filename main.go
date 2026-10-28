@@ -66,6 +66,17 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := core.InitPostgres(cfg); err != nil {
+		slog.Error("Postgres initialization failed", "error", err)
+		os.Exit(1)
+	}
+	// Move durable data from Redis on the first start with Postgres. Starting
+	// without it would present an empty user database, so a failure is fatal.
+	if err := core.ImportFromRedis(cfg); err != nil {
+		slog.Error("Importing data from Redis failed", "error", err)
+		os.Exit(1)
+	}
+
 	if err := core.InitWebAuthn(cfg); err != nil {
 		slog.Error("WebAuthn initialization failed", "error", err)
 	}
@@ -508,6 +519,9 @@ func setupRoutes(e *echo.Echo, cfg *core.Config) {
 // set that an admin changed elsewhere.
 const bypassRefreshInterval = 15 * time.Second
 
+// auditPruneInterval is how often audit entries past AUDIT_RETENTION_DAYS are deleted.
+const auditPruneInterval = 6 * time.Hour
+
 // noDirListingFS hides directories from http.FileServer so /static/ and its
 // subdirectories return 404 instead of an index of the embedded assets.
 type noDirListingFS struct{ fs.FS }
@@ -539,11 +553,11 @@ func initializeSystem(cfg *core.Config) func() {
 
 	if cfg.InitialUser != "" && cfg.InitialPassword != "" {
 		slog.Info("Checking initial user", "user", cfg.InitialUser)
-		exists, err := core.UserDB.Exists(core.Ctx, "user:"+cfg.InitialUser).Result()
+		exists, err := core.UserExists(cfg.InitialUser)
 		switch {
 		case err != nil:
 			slog.Error("Initial user check failed", "error", err)
-		case exists > 0:
+		case exists:
 			slog.Info("Initial user already exists")
 		case core.ValidatePassword(cfg.InitialPassword, cfg) != nil:
 			// The root admin enrolls TOTP on first login, so a weak bootstrap
@@ -565,7 +579,7 @@ func initializeSystem(cfg *core.Config) func() {
 	core.StartCloudflareUpdater(ctx, cfg)
 
 	// Auth bypass rules: read-only ones from AUTH_BYPASS_RULES plus UI-managed
-	// ones from Redis, refreshed so every instance sees admin changes.
+	// ones from Postgres, refreshed so every instance sees admin changes.
 	core.SetEnvBypassRules(cfg.AuthBypassRules)
 	core.StartBypassRefresher(ctx, bypassRefreshInterval)
 	done := make(chan struct{})
@@ -573,9 +587,14 @@ func initializeSystem(cfg *core.Config) func() {
 		defer close(done)
 		ticker := time.NewTicker(1 * time.Minute)
 		defer ticker.Stop()
+		var lastPrune time.Time
 		for {
 			count := core.SyncSessionIndexes()
 			core.ActiveSessionsGauge.Set(float64(count))
+			if time.Since(lastPrune) >= auditPruneInterval {
+				core.PruneAuditLogs(cfg.AuditRetentionDays)
+				lastPrune = time.Now()
+			}
 			select {
 			case <-ctx.Done():
 				return

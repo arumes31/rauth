@@ -14,12 +14,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/redis/go-redis/v9"
+	"github.com/jackc/pgx/v5"
 )
 
 // Auth bypass rules let selected hosts, or paths on a host, through the
 // forward-auth check without a session (anonymous access). They are configured
-// in the admin UI (stored in Redis) and optionally via AUTH_BYPASS_RULES
+// in the admin UI (stored in Postgres) and optionally via AUTH_BYPASS_RULES
 // (read-only in the UI). Rule syntax:
 //
 //	cloud.example.com          every request to that host (same as cloud.example.com/*)
@@ -75,10 +75,6 @@ type BypassRule struct {
 
 // Allows reports whether the rule grants anonymous access.
 func (r BypassRule) Allows() bool { return r.Action != BypassDeny }
-
-// bypassRulesKey is the Redis hash (UserDB) holding UI-managed rules:
-// field = canonical rule, value = JSON metadata (action, note, audit fields).
-const bypassRulesKey = "auth_bypass_rules" // #nosec G101 -- Redis key name, not a credential
 
 // maxBypassRules bounds the rule set (it is scanned on every forward-auth call).
 const maxBypassRules = 200
@@ -387,11 +383,27 @@ func SetEnvBypassRules(raw []string) {
 	}
 }
 
-// ReloadBypassRules refreshes the UI-managed rules from Redis. On error the
-// previous set is kept.
+// ReloadBypassRules refreshes the UI-managed rules from the database. On error
+// the previous set is kept.
 func ReloadBypassRules() error {
-	vals, err := UserDB.HGetAll(Ctx, bypassRulesKey).Result()
+	// bypass_rules holds the canonical rule text and its JSON metadata
+	// (action, note, audit fields).
+	rows, err := PG.Query(Ctx, "SELECT rule, meta FROM bypass_rules")
 	if err != nil {
+		return err
+	}
+	vals := map[string][]byte{}
+	for rows.Next() {
+		var rule string
+		var meta []byte
+		if err := rows.Scan(&rule, &meta); err != nil {
+			rows.Close()
+			return err
+		}
+		vals[rule] = meta
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
 		return err
 	}
 	rules := make([]BypassRule, 0, len(vals))
@@ -402,7 +414,7 @@ func ReloadBypassRules() error {
 			continue
 		}
 		var m BypassRule
-		_ = json.Unmarshal([]byte(meta), &m)
+		_ = json.Unmarshal(meta, &m)
 		action, err := normalizeAction(m.Action)
 		if err != nil {
 			// Unknown action: fail closed rather than open the path.
@@ -480,19 +492,19 @@ func AddBypassRule(raw, action, note, createdBy string) (BypassRule, error) {
 	if err != nil {
 		return BypassRule{}, err
 	}
-	n, err := UserDB.HLen(Ctx, bypassRulesKey).Result()
-	if err != nil {
+	var n int
+	if err := PG.QueryRow(Ctx, "SELECT count(*) FROM bypass_rules").Scan(&n); err != nil {
 		return BypassRule{}, err
 	}
 	if n >= maxBypassRules {
 		return BypassRule{}, errBypassTooMany
 	}
 	meta, _ := json.Marshal(BypassRule{Action: r.Action, Note: trimNote(note), CreatedBy: createdBy, CreatedAt: time.Now().Unix()})
-	set, err := UserDB.HSetNX(Ctx, bypassRulesKey, r.Rule, meta).Result()
+	tag, err := PG.Exec(Ctx, "INSERT INTO bypass_rules (rule, meta) VALUES ($1, $2) ON CONFLICT (rule) DO NOTHING", r.Rule, meta)
 	if err != nil {
 		return BypassRule{}, err
 	}
-	if !set {
+	if tag.RowsAffected() == 0 {
 		return BypassRule{}, errBypassExists
 	}
 	reloadAfter("add")
@@ -510,36 +522,39 @@ func UpdateBypassRule(oldRaw, newRaw, action, note, updatedBy string) (BypassRul
 	if err != nil {
 		return BypassRule{}, BypassRule{}, err
 	}
-	prevMeta, err := UserDB.HGet(Ctx, bypassRulesKey, old.Rule).Result()
-	if errors.Is(err, redis.Nil) {
-		return BypassRule{}, BypassRule{}, ErrBypassNotFound
-	} else if err != nil {
-		return BypassRule{}, BypassRule{}, err
-	}
-	var prev BypassRule
-	_ = json.Unmarshal([]byte(prevMeta), &prev)
-	old.Action, _ = normalizeAction(prev.Action)
+	err = pgx.BeginFunc(Ctx, PG, func(tx pgx.Tx) error {
+		var prevMeta []byte
+		err := tx.QueryRow(Ctx, "SELECT meta FROM bypass_rules WHERE rule = $1 FOR UPDATE", old.Rule).Scan(&prevMeta)
+		if isNoRows(err) {
+			return ErrBypassNotFound
+		} else if err != nil {
+			return err
+		}
+		var prev BypassRule
+		_ = json.Unmarshal(prevMeta, &prev)
+		old.Action, _ = normalizeAction(prev.Action)
 
-	meta, _ := json.Marshal(BypassRule{
-		Action: r.Action, Note: trimNote(note),
-		CreatedBy: prev.CreatedBy, CreatedAt: prev.CreatedAt,
-		UpdatedBy: updatedBy, UpdatedAt: time.Now().Unix(),
-	})
-	if r.Rule == old.Rule {
-		if err := UserDB.HSet(Ctx, bypassRulesKey, r.Rule, meta).Err(); err != nil {
-			return BypassRule{}, BypassRule{}, err
+		meta, _ := json.Marshal(BypassRule{
+			Action: r.Action, Note: trimNote(note),
+			CreatedBy: prev.CreatedBy, CreatedAt: prev.CreatedAt,
+			UpdatedBy: updatedBy, UpdatedAt: time.Now().Unix(),
+		})
+		if r.Rule == old.Rule {
+			_, err := tx.Exec(Ctx, "UPDATE bypass_rules SET meta = $2 WHERE rule = $1", r.Rule, meta)
+			return err
 		}
-	} else {
-		set, err := UserDB.HSetNX(Ctx, bypassRulesKey, r.Rule, meta).Result()
+		tag, err := tx.Exec(Ctx, "INSERT INTO bypass_rules (rule, meta) VALUES ($1, $2) ON CONFLICT (rule) DO NOTHING", r.Rule, meta)
 		if err != nil {
-			return BypassRule{}, BypassRule{}, err
+			return err
 		}
-		if !set {
-			return BypassRule{}, BypassRule{}, errBypassExists
+		if tag.RowsAffected() == 0 {
+			return errBypassExists
 		}
-		if err := UserDB.HDel(Ctx, bypassRulesKey, old.Rule).Err(); err != nil {
-			return BypassRule{}, BypassRule{}, err
-		}
+		_, err = tx.Exec(Ctx, "DELETE FROM bypass_rules WHERE rule = $1", old.Rule)
+		return err
+	})
+	if err != nil {
+		return BypassRule{}, BypassRule{}, err
 	}
 	reloadAfter("update")
 	return old, r, nil
@@ -552,12 +567,12 @@ func DeleteBypassRule(raw string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	n, err := UserDB.HDel(Ctx, bypassRulesKey, r.Rule).Result()
+	tag, err := PG.Exec(Ctx, "DELETE FROM bypass_rules WHERE rule = $1", r.Rule)
 	if err != nil {
 		return false, err
 	}
 	reloadAfter("delete")
-	return n > 0, nil
+	return tag.RowsAffected() > 0, nil
 }
 
 // DescribeBypassRule renders the rule scope for the admin UI.

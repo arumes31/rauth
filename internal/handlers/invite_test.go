@@ -125,7 +125,7 @@ func TestInviteHandler_Redeem(t *testing.T) {
 		assert.Equal(t, "/rauthlogin?success=account_created", rec.Header().Get("Location"))
 
 		// Verify user created
-		exists, _ := core.UserDB.Exists(core.Ctx, "user:newuser").Result()
+		exists := userExistsN(t, "newuser")
 		assert.Equal(t, int64(1), exists)
 
 		// Verify token deleted
@@ -139,7 +139,7 @@ func TestInviteHandler_Redeem(t *testing.T) {
 		if assert.Error(t, err) {
 			assert.Equal(t, http.StatusNotFound, err.(*echo.HTTPError).Code)
 		}
-		exists, _ = core.UserDB.Exists(core.Ctx, "user:seconduser").Result()
+		exists = userExistsN(t, "seconduser")
 		assert.Equal(t, int64(0), exists)
 	})
 
@@ -190,7 +190,7 @@ func TestInviteHandler_Redeem(t *testing.T) {
 		email := "test3@example.com"
 		core.InviteDB.Set(core.Ctx, "invite:"+token, email, 0)
 
-		core.UserDB.HSet(core.Ctx, "user:existinguser", "username", "existinguser")
+		seedUserFields(t, "existinguser", map[string]interface{}{"username": "existinguser"})
 
 		f := make(url.Values)
 		f.Set("token", token)
@@ -212,7 +212,7 @@ func TestInviteHandler_Redeem(t *testing.T) {
 
 		// Pre-create the user so the warm-up attempts fail with a conflict
 		// instead of redeeming (and deleting) the invite token.
-		core.UserDB.HSet(core.Ctx, "user:ratelimituser", "username", "ratelimituser")
+		seedUserFields(t, "ratelimituser", map[string]interface{}{"username": "ratelimituser"})
 
 		f := make(url.Values)
 		f.Set("token", token)

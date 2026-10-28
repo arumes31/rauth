@@ -91,7 +91,7 @@ func TestAuthHandler_Login(t *testing.T) {
 	// Create test user
 	password := "testpass"
 	hash, _ := core.HashPassword(password)
-	core.UserDB.HSet(core.Ctx, "user:testuser", map[string]interface{}{
+	seedUserFields(t, "testuser", map[string]interface{}{
 		"username": "testuser",
 		"password": hash,
 	})
@@ -146,7 +146,7 @@ func TestAuthHandler_Login(t *testing.T) {
 		// Create user with 2FA enabled
 		password := "testpass"
 		hash, _ := core.HashPassword(password)
-		core.UserDB.HSet(core.Ctx, "user:2fauser", map[string]interface{}{
+		seedUserFields(t, "2fauser", map[string]interface{}{
 			"username":   "2fauser",
 			"password":   hash,
 			"2fa_secret": "JBSWY3DPEHPK3PXP",
@@ -184,7 +184,7 @@ func TestAuthHandler_Login(t *testing.T) {
 		// User with no 2FA
 		password := "testpass"
 		hash, _ := core.HashPassword(password)
-		core.UserDB.HSet(core.Ctx, "user:newuser", map[string]interface{}{
+		seedUserFields(t, "newuser", map[string]interface{}{
 			"username": "newuser",
 			"password": hash,
 		})
@@ -382,7 +382,7 @@ func TestAuthHandler_CompleteSetup2FA(t *testing.T) {
 		encryptedToken, _ := core.EncryptToken(setupToken, cfg.ServerSecret)
 		// The account exists by the time setup completes (the user just passed the
 		// password step); keep any record a test created itself.
-		core.UserDB.HSetNX(core.Ctx, "user:"+username, "username", username)
+		seedUserFields(t, username, nil)
 		value, _ := core.PendingTokenValue(username)
 		core.TokenDB.Set(core.Ctx, "pending_setup:"+setupToken, value, 10*time.Minute)
 		core.TokenDB.Set(core.Ctx, "pending_setup_secret:"+setupToken, secret, 5*time.Minute)
@@ -528,7 +528,7 @@ func TestAuthHandler_CompleteSetup2FA(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusFound, rec.Code)
 
-		saved, _ := core.UserDB.HGet(core.Ctx, "user:"+username, "2fa_secret").Result()
+		saved := userField(t, username, "2fa_secret")
 		decrypted := core.Decrypt2FASecret(saved, cfg.ServerSecret)
 		assert.Equal(t, secret, decrypted)
 
@@ -558,7 +558,7 @@ func TestAuthHandler_InvalidateSessionIntegration(t *testing.T) {
 	e := echo.New()
 
 	username := "sessionuser"
-	core.UserDB.HSet(core.Ctx, "user:"+username, map[string]interface{}{"is_admin": "0", "username": username})
+	seedUserFields(t, username, map[string]interface{}{"is_admin": "0", "username": username})
 
 	// 1. Issue token
 	rawToken := "integration-token-xyz"
