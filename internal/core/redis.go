@@ -50,18 +50,22 @@ func InitRedis(cfg *Config) error {
 	return nil
 }
 
-func InvalidateUserSessions(username string) {
+// InvalidateUserSessions deletes every indexed session of the user. Callers that
+// revoke for security reasons should also BumpAuthGeneration, which catches
+// sessions the index missed.
+func InvalidateUserSessions(username string) error {
 	if TokenDB == nil {
-		return
+		return nil
 	}
 	indexKey := "user_sessions:" + username
 	tokens, err := TokenDB.SMembers(Ctx, indexKey).Result()
 	if err != nil {
-		return
+		slog.Error("Failed to read session index for revocation", "user", username, "error", err)
+		return err
 	}
 
 	if len(tokens) == 0 {
-		return
+		return nil
 	}
 
 	// ⚡ Bolt optimization: Batch variadic string keys to delete in one round trip, avoiding pipeline overhead.
@@ -73,7 +77,9 @@ func InvalidateUserSessions(username string) {
 
 	if err := TokenDB.Del(Ctx, toDel...).Err(); err != nil {
 		slog.Error("Failed to execute InvalidateUserSessions", "error", err)
+		return err
 	}
+	return nil
 }
 
 func InvalidateOtherUserSessions(username, currentToken string) {
@@ -228,19 +234,31 @@ func reconcileIndexSets(pattern string) int64 {
 		}
 
 		if len(hgetCmds) > 0 {
-			_, _ = pipe2.Exec(Ctx)
+			// A transport failure marks every queued command with the error; pruning
+			// on it would drop live sessions from the revocation index. Skip this
+			// batch and let the next run reconcile it.
+			if _, err := pipe2.Exec(Ctx); err != nil && err != redis.Nil {
+				slog.Error("SyncSessionIndexes: status lookup failed, skipping prune", "pattern", pattern, "error", err)
+				cursor = nextCursor
+				if cursor == 0 {
+					break
+				}
+				continue
+			}
 		}
 
-		// Phase 3: Batch SRem for all stale tokens
+		// Phase 3: Batch SRem for all stale tokens. Only tokens whose hash is
+		// definitely gone (redis.Nil) or no longer valid are pruned.
 		pipe3 := TokenDB.Pipeline()
 		var sremCount int
 		for key, tokens := range tokensByKey {
 			var stale []interface{}
 			for _, token := range tokens {
 				status, err := hgetCmds[token].Result()
-				if err == nil && status == "valid" {
+				switch {
+				case err == nil && status == "valid":
 					live++
-				} else {
+				case err == redis.Nil || (err == nil && status != "valid"):
 					stale = append(stale, token)
 				}
 			}

@@ -93,21 +93,25 @@ func InitGeoReader() {
 }
 
 func reloadReader(path string) {
-	geoLock.Lock()
-	defer geoLock.Unlock()
-
-	if geoReader != nil {
-		if err := geoReader.Close(); err != nil {
-			slog.Warn("Failed to close MaxMind database", "error", err)
-		}
-	}
-
+	// Open the new database before taking the lock, so lookups keep using the
+	// old one meanwhile and a failed open leaves it in place.
 	reader, err := geoip2.Open(path)
 	if err != nil {
 		slog.Warn("Failed to open MaxMind database", "path", path, "error", err)
 		return
 	}
+
+	// The write lock waits for every in-flight lookup (they hold the read lock
+	// for the whole lookup), so closing the old reader here is safe.
+	geoLock.Lock()
+	old := geoReader
 	geoReader = reader
+	if old != nil {
+		if err := old.Close(); err != nil {
+			slog.Warn("Failed to close MaxMind database", "error", err)
+		}
+	}
+	geoLock.Unlock()
 
 	// Update metadata metric
 	metadata := reader.Metadata()
@@ -211,17 +215,18 @@ func GetCountryCode(ipStr string) string {
 		return code
 	}
 
-	// Native lookup
+	// Native lookup. Hold the read lock for the whole lookup: reloadReader closes
+	// (unmaps) the old reader under the write lock, so a lookup running outside
+	// the lock could read freed memory and crash the process.
 	geoLock.RLock()
 	reader := geoReader
-	geoLock.RUnlock()
-
 	if reader == nil {
+		geoLock.RUnlock()
 		GeoIPLookupsTotal.WithLabelValues("unloaded").Inc()
 		return "unknown"
 	}
-
 	record, err := reader.Country(parsedIP)
+	geoLock.RUnlock()
 	if err != nil {
 		GeoIPLookupsTotal.WithLabelValues("error").Inc()
 		return "unknown"

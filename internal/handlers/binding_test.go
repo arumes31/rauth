@@ -18,6 +18,7 @@ func TestHardwareBinding_Coverage(t *testing.T) {
 	core.UserDB = core.TokenDB
 	core.RateLimitDB = core.TokenDB
 	core.AuditDB = core.TokenDB
+	seedAccount(t, "alice")
 
 	cfg := &core.Config{
 		TokenValidityMinutes: 10,

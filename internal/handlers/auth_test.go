@@ -221,6 +221,7 @@ func TestAuthHandler_Validate(t *testing.T) {
 		RateLimitLoginFailIPMax:   1000,
 	}
 	h := &AuthHandler{Cfg: cfg}
+	seedAccount(t, "testuser")
 	e := echo.New()
 
 	t.Run("Valid token", func(t *testing.T) {
@@ -295,6 +296,7 @@ func TestAuthHandler_Validate(t *testing.T) {
 
 func TestAuthHandler_Validate_GeoChangeMode(t *testing.T) {
 	setupHandlersTest(t)
+	seedAccount(t, "geouser")
 
 	baseCfg := func(mode string) *core.Config {
 		return &core.Config{
@@ -378,7 +380,11 @@ func TestAuthHandler_CompleteSetup2FA(t *testing.T) {
 	// Helper to setup a valid pending session
 	setupPending := func(username, setupToken, secret string) string {
 		encryptedToken, _ := core.EncryptToken(setupToken, cfg.ServerSecret)
-		core.TokenDB.Set(core.Ctx, "pending_setup:"+setupToken, username, 10*time.Minute)
+		// The account exists by the time setup completes (the user just passed the
+		// password step); keep any record a test created itself.
+		core.UserDB.HSetNX(core.Ctx, "user:"+username, "username", username)
+		value, _ := core.PendingTokenValue(username)
+		core.TokenDB.Set(core.Ctx, "pending_setup:"+setupToken, value, 10*time.Minute)
 		core.TokenDB.Set(core.Ctx, "pending_setup_secret:"+setupToken, secret, 5*time.Minute)
 		return encryptedToken
 	}

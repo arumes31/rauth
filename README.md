@@ -149,6 +149,10 @@ RAuth is built with a "Security-First" mindset, implementing advanced system-wid
 8.  **Injection-Safe Emails**: All automated emails are hardened against Header (CRLF) Injection and HTML/XSS attacks.
 9.  **Custom Error Interception**: Branded 404, 403, and 500 error pages prevent technical leakage and provide a unified UX.
 10. **Background Hardening**: Automatic daily Geo-IP database updates and session cleanup tasks.
+11. **Generation-Based Revocation**: Every session and pending login is stamped with a per-user auth generation. Password changes, 2FA resets and account deletion bump it, so revocation also catches sessions minted concurrently, sessions missing from the session index, and half-finished logins started with an old password.
+12. **Cross-Origin Protection**: State-changing requests are checked with Go's `http.CrossOriginProtection` (Sec-Fetch-Site / Origin) before the CSRF token, so sibling subdomains that share the session cookie cannot forge admin actions. The token cookie uses the `__Host-` prefix.
+13. **Source-Scoped Lockout**: Failed-password lockouts apply per account *and* client network (IPv6 aggregated to /64), so an anonymous client cannot lock a named account — including the root admin — out for everyone else.
+14. **Connection Limits**: Read, write and idle timeouts on the HTTP server stop slow clients from exhausting the forward-auth gate.
 
 ---
 
@@ -183,6 +187,9 @@ location = /rauth-verify {
     # TRUST_X_FORWARDED_FOR=true) on the rauth container.
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    # Needed for auth bypass rules (see "Public Access / Auth Bypass Rules")
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Uri $request_uri;
 }
 
 # 2. Protect your application
@@ -214,7 +221,7 @@ location @error401 {
 
 ### Real Client IP (Cloudflare + direct access)
 
-RAuth's only peer is your proxy (e.g. the Docker bridge `172.x.x.x`), so the real client IP must arrive in a header nginx sets. With no `TRUST_*` flag, RAuth uses **smart mode**, which rejects *private* forwarded IPs — so a direct **LAN** client (`192.168.x`/`10.x`) is dropped and you "only see the Docker IP".
+RAuth's only peer is your proxy (e.g. the Docker bridge `172.x.x.x`), so the real client IP must arrive in a header nginx sets. With neither `TRUSTED_PROXIES` nor a `TRUST_*` flag, RAuth uses legacy **smart mode**: any private peer is assumed to be the proxy, and RAuth uses the `X-Real-IP` it sets, or else only the **last** `X-Forwarded-For` hop (the one the proxy appended). Entries further left are written by the client and are never used. Prefer an explicit `TRUSTED_PROXIES` list.
 
 If your service is reachable **both** through Cloudflare **and** directly (LAN/Tailscale bypassing Cloudflare), do **not** set `TRUST_CLOUDFLARE_IP` — RAuth can't distinguish the two paths (its peer is always nginx), so a direct client could spoof `CF-Connecting-IP`. Instead, let nginx resolve the visitor and forward a single authoritative `X-Real-IP`:
 
@@ -276,7 +283,6 @@ services:
     container_name: rauth-auth-service
     labels:
       - "traefik.http.middlewares.rauth-auth.forwardauth.address=http://rauth-auth-service:5980/rauthvalidate"
-      - "traefik.http.middlewares.rauth-auth.forwardauth.trustForwardHeader=true"
       - "traefik.http.middlewares.rauth-auth.forwardauth.authResponseHeaders=X-RAuth-User"
 
   # 2. Reference the middleware to protect your application
@@ -287,8 +293,33 @@ services:
       - "traefik.http.routers.your-app.middlewares=rauth-auth"
 ```
 
+> [!WARNING]
+> Leave `trustForwardHeader` off (the default). With it enabled, Traefik passes client-supplied `X-Forwarded-*` headers to RAuth, so a client could pick its own `X-Forwarded-Host` / `X-Forwarded-Uri` and match a [bypass rule](#-public-access--auth-bypass-rules). Real client IPs belong in the entrypoint's `forwardedHeaders.trustedIPs` instead.
+
 ### 🌐 Proxying Multiple Domains
 RAuth can protect multiple apps across different subdomains using a single deployment. Set your `COOKIE_DOMAIN` to the root domain (e.g., `example.com`) to share session state between `app1.example.com` and `app2.example.com`.
+
+### 🔓 Public Access / Auth Bypass Rules
+Some hosts or paths behind the shared forward-auth config have to stay reachable without a login, such as an app with its own auth or a webhook receiver. Bypass rules make `/rauthvalidate` answer `200` for matching requests that have no valid session, so they go through anonymously. Logged-in users keep their identity headers.
+
+| Rule | Allows anonymously | Still requires login |
+|------|--------------------|----------------------|
+| `cloud.example.com` | every path on that host | — |
+| `*.public.example.com` | every subdomain of `public.example.com` (not the apex) | `public.example.com` |
+| `web.example.com/webhook` | `/webhook` and everything below it, e.g. `/webhook/github?x=1` | `/`, `/admin`, `/webhooks`, `/webhook-admin` |
+
+Manage rules in **`/rauthmgmt` → Public Access**. Adding or removing a rule asks for your TOTP code (or your current password if you have no TOTP) and writes an audit log entry. Rules are stored in Redis, and every instance picks up changes within about 15 seconds. You can also set fixed rules with `AUTH_BYPASS_RULES` (comma separated). Those appear in the UI as read-only.
+
+How matching works:
+- Hosts match exactly and ignore case and port. Path rules match on whole segments and are case-sensitive.
+- The query string is ignored.
+- A URI that contains `..`, `.`, `;`, a backslash, or encoded `/`, `\`, `.` or NUL is never bypassed, so tricks like `/webhook/..%2fadmin` cannot reach other paths.
+- Anonymous responses carry `X-RAuth-Anonymous: 1` and an empty `X-RAuth-User`. Backends must not treat an empty user as authenticated.
+
+The host and URI come from `X-Forwarded-Host` and `X-Forwarded-Uri` on the auth subrequest. Caddy (`forward_auth`) and Traefik (`forwardAuth`) send these headers by default. With nginx, add `proxy_set_header X-Forwarded-Host $host;` and `proxy_set_header X-Forwarded-Uri $request_uri;` to the `/rauth-verify` location. Setups that only send `X-Original-URI` can set `AUTH_BYPASS_URI_HEADER=X-Original-URI` instead. If a request is missing either header, it is never bypassed.
+
+> [!WARNING]
+> These headers decide who skips authentication. Your proxy must overwrite them (Traefik: keep `trustForwardHeader` off), and RAuth must only be reachable through the proxy. Set `TRUSTED_PROXIES`: once it is set, RAuth honours the bypass headers only from those peers. Without it, they are honoured only from private or loopback addresses.
 
 ---
 
@@ -346,7 +377,9 @@ RAuth is configured via Environment Variables.
 | **Auth**   | `ALLOWED_HOSTS` | Redirect whitelist (Comma-separated) | `localhost,127.0.0.1` |
 | **Auth**   | `TOKEN_VALIDITY_MINUTES`| Session duration in minutes | `2880` (2 days) |
 | **Auth**   | `ALLOWED_COUNTRIES` | List of allowed country codes (e.g. `US,DE`) | (Any) |
-| **WebAuthn**| `WEBAUTHN_ORIGINS`| Allowed origins for Passkeys (Comma-separated)| (Auto-generated) |
+| **WebAuthn**| `WEBAUTHN_ORIGINS`| Allowed origins for Passkeys (Comma-separated). A bare host means `https://host`; plain `http://` must be spelled out | (Auto-generated) |
+| **WebAuthn**| `WEBAUTHN_USER_VERIFICATION` | `preferred` accepts any registered passkey (works with Bitwarden and PIN-less keys). `required` makes passkey logins prove a PIN/biometric, since a passkey replaces both password and TOTP | `preferred` |
+| **Security**| `CSRF_TRUSTED_ORIGINS` | Extra origins (`https://host[:port]`) allowed to send state-changing requests to RAuth. Requests from any other origin — including sibling subdomains — are rejected | (Empty) |
 | **URL**    | `PUBLIC_URL` | Base URL for email links (e.g., `https://auth.example.com`) | `http://localhost:5980` |
 | **Session**| `TOKEN_ROTATION_MINUTES` | Frequency of automatic session token rotation (0 = disabled) | `0` |
 | **Network**| `AUTH_PORT` | Port to expose the auth service | `5980` |
@@ -354,7 +387,12 @@ RAuth is configured via Environment Variables.
 | **Proxy**  | `TRUSTED_PROXIES` | IPs/CIDRs of your reverse proxies. Forwarding headers are only honoured from these peers (`X-Real-IP`/`CF-Connecting-IP` additionally need their `TRUST_*` flag). Empty = legacy smart mode (any private peer is trusted; `TRUST_*` flags apply to every peer) | (Empty) |
 | **Proxy**  | `TRUST_X_FORWARDED_FOR` | Trust `X-Forwarded-For` (walked right-to-left; the first hop that is not a trusted proxy is the client) | `false` |
 | **Proxy**  | `TRUST_X_REAL_IP` | Trust IP in `X-Real-IP` | `false` |
-| **Proxy**  | `TRUST_CLOUDFLARE_IP` | Trust IP in `CF-Connecting-IP` | `false` |
+| **Proxy**  | `TRUST_CLOUDFLARE_IP` | Trust IP in `CF-Connecting-IP` — only when the request arrived from a Cloudflare edge (the direct peer, or the `X-Real-IP` reported by a trusted proxy), so direct-to-origin clients cannot forge it | `false` |
+| **Proxy**  | `CLOUDFLARE_IP_RANGES` | Cloudflare edge CIDRs used for that check (comma separated) | Built-in list |
+| **Proxy**  | `CLOUDFLARE_IP_AUTO_UPDATE` | Refresh the edge list from `cloudflare.com/ips-v4` / `ips-v6` at startup and daily (keeps the current list on failure). Only active with `TRUST_CLOUDFLARE_IP=true` | `true` |
+| **Proxy**  | `AUTH_BYPASS_RULES` | Comma-separated hosts, `*.domain` wildcards or `host/path` prefixes that pass forward-auth without a login (see [Public Access / Auth Bypass Rules](#-public-access--auth-bypass-rules)). Additional rules can be managed in the admin UI | (Empty) |
+| **Proxy**  | `AUTH_BYPASS_HOST_HEADER` | Header carrying the original host on the auth subrequest | `X-Forwarded-Host` |
+| **Proxy**  | `AUTH_BYPASS_URI_HEADER` | Header carrying the original request URI on the auth subrequest | `X-Forwarded-Uri` |
 | **Policy** | `PWD_MIN_LENGTH` | Minimum required password length | `8` |
 | **Policy** | `PWD_REQUIRE_UPPER` | Require uppercase in passwords | `true` |
 | **Policy** | `PWD_REQUIRE_LOWER` | Require lowercase in passwords | `true` |
@@ -601,7 +639,7 @@ A: Large tablets (like the Samsung Galaxy Tab series) default to requesting the 
 A: WebAuthn requires a secure origin (HTTPS or `localhost` for development). Ensure your Nginx proxy is serving over SSL and forwarding the correct host headers (`proxy_set_header Host $host;`). Additionally, check that `WEBAUTHN_ORIGINS` is configured with the exact origin scheme and port (e.g., `https://auth.example.com`).
 
 **Q: How do I resolve signature counter/verification mismatches?**  
-A: This can happen if the hardware key was cloned or the local state fell out of sync. For security reasons, RAuth detects this as a potential clone attack. Reset the user's WebAuthn key in the administrative dashboard to register the device afresh.
+A: This can happen if the hardware key was cloned or the local state fell out of sync. For security reasons, RAuth detects this as a potential clone attack. The user can revoke the passkey on their profile page and register it again; an administrator can use **Reset 2FA** in the dashboard, which removes the user's TOTP, recovery codes **and all passkeys** and signs out every session.
 
 ---
 
@@ -631,9 +669,12 @@ A: Ensure RAuth's container can reach the SMTP host (check DNS and outbound fire
 
 ### 🔑 Recovery, Metrics, & Local Testing
 **Q: How do I recover if the administrator loses their 2FA / TOTP key or gets locked out?**  
-A: You can easily boot RAuth in a recovery mode. Set `INITIAL_USER`, `INITIAL_PASSWORD`, and `INITIAL_EMAIL` environment variables inside your `.env` file and restart the container. On startup, RAuth automatically verifies if the admin credentials are valid or updates them. Alternatively, if you have access to your Redis CLI, you can manually delete the admin's WebAuthn key using:
+A: Another administrator can use **Reset 2FA** on any non-root account. The root administrator (`INITIAL_USER`) can only be changed by itself, so other admins cannot take it over. `INITIAL_USER`/`INITIAL_PASSWORD` only create the account when it does not exist yet; they never overwrite an existing one. With Redis CLI access you can reset the root admin's second factors manually (DB 0 holds users), then log in with the password and enroll a new TOTP. Set `U` to your configured `INITIAL_USER` (not necessarily `admin`):
 ```bash
-redis-cli DEL user:admin:webauthn_creds
+U=admin   # replace with your INITIAL_USER
+redis-cli -n 0 HSET "user:$U" 2fa_secret ""
+redis-cli -n 0 DEL "user:$U:recovery_codes" "user:$U:webauthn_creds_v2" "user:$U:webauthn_creds"
+redis-cli -n 0 INCR "authgen:$U"   # signs out every session of the account
 ```
 
 **Q: Why is Prometheus unable to scrape metrics from the `/metrics` endpoint?**  
