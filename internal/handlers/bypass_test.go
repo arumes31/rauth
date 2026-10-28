@@ -115,6 +115,20 @@ func TestValidate_BypassTrustedProxies(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, code, "untrusted peer must not be able to claim a bypassed host")
 }
 
+func TestValidate_BypassSmartModePeers(t *testing.T) {
+	setupHandlersTest(t)
+	resetBypassRules(t)
+	core.SetEnvBypassRules([]string{"cloud.example.com"})
+	h := &AuthHandler{Cfg: bypassTestConfig()}
+
+	for _, peer := range []string{"127.0.0.1:5000", "172.18.0.5:5000", "[::1]:5000"} {
+		code, _ := validateWith(t, h, "cloud.example.com", "/", peer, nil)
+		assert.Equal(t, http.StatusOK, code, peer)
+	}
+	code, _ := validateWith(t, h, "cloud.example.com", "/", "203.0.113.7:5000", nil)
+	assert.Equal(t, http.StatusUnauthorized, code, "public peer without TRUSTED_PROXIES must not use bypass headers")
+}
+
 func TestAdminHandler_BypassRules(t *testing.T) {
 	setupHandlersTest(t)
 	resetBypassRules(t)

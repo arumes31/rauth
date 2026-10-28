@@ -217,21 +217,25 @@ func (h *AuthHandler) denyOrBypass(c echo.Context, rateLimitKey string, rateLimi
 }
 
 // matchBypass checks the auth bypass rules against the host and URI the
-// reverse proxy reports for the original request. With TRUSTED_PROXIES set,
-// those headers are only honoured from a trusted proxy.
+// reverse proxy reports for the original request. Those headers are only
+// honoured from TRUSTED_PROXIES or, when that list is empty (legacy smart
+// mode), from private/loopback peers, so a client reaching rauth directly
+// over a public address cannot pick a bypassed host.
 func (h *AuthHandler) matchBypass(c echo.Context) (core.BypassRule, bool) {
 	if !core.HasBypassRules() {
 		return core.BypassRule{}, false
 	}
 	req := c.Request()
+	peer, _, err := net.SplitHostPort(req.RemoteAddr)
+	if err != nil {
+		peer = req.RemoteAddr
+	}
 	if len(h.Cfg.TrustedProxies) > 0 {
-		peer, _, err := net.SplitHostPort(req.RemoteAddr)
-		if err != nil {
-			peer = req.RemoteAddr
-		}
 		if !h.Cfg.IsIPAllowed(peer, h.Cfg.TrustedProxies) {
 			return core.BypassRule{}, false
 		}
+	} else if ip := net.ParseIP(peer); ip == nil || (!ip.IsPrivate() && !ip.IsLoopback()) {
+		return core.BypassRule{}, false
 	}
 	return core.MatchBypass(req.Header.Get(h.Cfg.AuthBypassHostHeader), req.Header.Get(h.Cfg.AuthBypassURIHeader))
 }

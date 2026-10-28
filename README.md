@@ -319,7 +319,7 @@ How matching works:
 The host and URI come from `X-Forwarded-Host` and `X-Forwarded-Uri` on the auth subrequest. Caddy (`forward_auth`) and Traefik (`forwardAuth`) send these headers by default. With nginx, add `proxy_set_header X-Forwarded-Host $host;` and `proxy_set_header X-Forwarded-Uri $request_uri;` to the `/rauth-verify` location. Setups that only send `X-Original-URI` can set `AUTH_BYPASS_URI_HEADER=X-Original-URI` instead. If a request is missing either header, it is never bypassed.
 
 > [!WARNING]
-> These headers decide who skips authentication. Your proxy must overwrite them (Traefik: keep `trustForwardHeader` off), and RAuth must only be reachable through the proxy. Set `TRUSTED_PROXIES`: once it is set, RAuth honours the bypass headers only from those peers.
+> These headers decide who skips authentication. Your proxy must overwrite them (Traefik: keep `trustForwardHeader` off), and RAuth must only be reachable through the proxy. Set `TRUSTED_PROXIES`: once it is set, RAuth honours the bypass headers only from those peers. Without it, they are honoured only from private or loopback addresses.
 
 ---
 
