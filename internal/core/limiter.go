@@ -2,6 +2,7 @@ package core
 
 import (
 	"log/slog"
+	"net"
 	"strconv"
 	"strings"
 
@@ -19,6 +20,22 @@ if count == 1 then
 end
 return count
 `)
+
+// ipv6BucketBits is the prefix length IPv6 clients are aggregated to for rate
+// limiting. A single subscriber usually controls a whole /64, so keying on the
+// full address would hand them 2^64 independent budgets.
+const ipv6BucketBits = 64
+
+// RateLimitIP returns the rate-limit bucket for a client IP: IPv4 addresses are
+// used as-is, IPv6 addresses are masked to their /64. Unparseable input is
+// returned unchanged.
+func RateLimitIP(ip string) string {
+	parsed := net.ParseIP(ip)
+	if parsed == nil || parsed.To4() != nil {
+		return ip
+	}
+	return parsed.Mask(net.CIDRMask(ipv6BucketBits, 128)).String() + "/64"
+}
 
 func incrAndExpire(fullKey string, decaySeconds int) (int64, error) {
 	return incrAndExpireScript.Run(Ctx, RateLimitDB, []string{fullKey}, decaySeconds).Int64()

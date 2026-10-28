@@ -17,6 +17,7 @@ func TestAuthMiddleware(t *testing.T) {
 	core.TokenDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
 	core.UserDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
 	core.AuditDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
+	core.UserDB.HSet(core.Ctx, "user:testuser", "username", "testuser")
 
 	e := echo.New()
 	cfg := &core.Config{ServerSecret: "32byte-secret-key-for-testing-!!"}

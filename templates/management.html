@@ -103,6 +103,11 @@
                     <i class="bi bi-envelope-plus me-2"></i> Invitations
                 </button>
             </li>
+            <li class="nav-item">
+                <button class="nav-link" id="bypass-tab" data-bs-toggle="tab" data-bs-target="#bypass" type="button" role="tab">
+                    <i class="bi bi-unlock me-2"></i> Public Access
+                </button>
+            </li>
         </ul>
 
         <div class="tab-content" id="adminTabsContent">
@@ -341,6 +346,102 @@
                             <div class="extra-small text-muted mt-2">
                                 <i class="bi bi-info-circle me-1"></i> This link will expire in 24 hours.
                             </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Public Access (Auth Bypass) Tab -->
+            <div class="tab-pane fade" id="bypass" role="tabpanel">
+                <div class="card shadow-sm border-0">
+                    <div class="card-header py-3">
+                        <h6 class="mb-0 fw-bold">Public Access Rules (Auth Bypass)</h6>
+                    </div>
+                    <div class="card-body p-4">
+                        <div class="alert alert-warning small mb-4">
+                            <i class="bi bi-exclamation-triangle me-1"></i>
+                            Requests matching these rules reach the application <b>without login</b> (anonymous; no
+                            <code>X-RAuth-User</code>). Users who are signed in still get their identity forwarded.
+                            Your reverse proxy must <b>set (overwrite)</b> the headers
+                            <code>{{.bypass_host_hdr}}</code> and <code>{{.bypass_uri_hdr}}</code> on the auth
+                            subrequest, otherwise clients could forge them. Paths containing <code>..</code>,
+                            encoded slashes, backslashes or <code>;</code> never bypass.
+                        </div>
+
+                        <form method="POST" action="/rauthmgmt/bypass/add" class="row g-3 mb-4">
+                            <input type="hidden" name="csrf" value="{{.csrf}}">
+                            <div class="col-md-5">
+                                <label class="form-label small fw-bold text-muted">Rule</label>
+                                <input type="text" name="rule" class="form-control font-monospace" required maxlength="300"
+                                       placeholder="cloud.example.com  |  *.public.example.com  |  web.example.com/webhook">
+                                <div class="extra-small text-muted mt-1">
+                                    Host = whole site, <code>*.domain</code> = all subdomains, <code>host/path</code> = that path and everything below it.
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small fw-bold text-muted">Note (optional)</label>
+                                <input type="text" name="note" class="form-control" maxlength="200" placeholder="Why is this public?">
+                            </div>
+                            <div class="col-md-2">
+                                {{if .admin_has_2fa}}
+                                <label class="form-label small fw-bold text-muted">Your 2FA code</label>
+                                <input type="text" name="otp_code" class="form-control" inputmode="numeric" autocomplete="one-time-code" required>
+                                {{else}}
+                                <label class="form-label small fw-bold text-muted">Your password</label>
+                                <input type="password" name="current_password" class="form-control" autocomplete="current-password" required>
+                                {{end}}
+                            </div>
+                            <div class="col-md-2 d-flex align-items-end">
+                                <button type="submit" class="btn btn-danger w-100 py-2 fw-bold">Add Rule</button>
+                            </div>
+                        </form>
+
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0 align-middle">
+                                <thead>
+                                    <tr>
+                                        <th>Rule</th>
+                                        <th>Scope</th>
+                                        <th>Source</th>
+                                        <th>Note</th>
+                                        <th>Added</th>
+                                        <th class="text-end">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {{range .bypass_rules}}
+                                    <tr>
+                                        <td><code>{{.Rule}}</code></td>
+                                        <td class="small">{{.Scope}}</td>
+                                        <td>
+                                            {{if eq .Source "env"}}
+                                            <span class="badge bg-secondary" title="Defined in AUTH_BYPASS_RULES; change it in the environment">env</span>
+                                            {{else}}
+                                            <span class="badge bg-danger">ui</span>
+                                            {{end}}
+                                        </td>
+                                        <td class="small">{{.Note}}</td>
+                                        <td class="small text-muted">{{if .CreatedBy}}{{.CreatedBy}}, {{formatTime .CreatedAt}}{{else}}-{{end}}</td>
+                                        <td class="text-end">
+                                            {{if eq .Source "ui"}}
+                                            <form method="POST" action="/rauthmgmt/bypass/delete" class="d-inline-flex gap-1 justify-content-end">
+                                                <input type="hidden" name="csrf" value="{{$.csrf}}">
+                                                <input type="hidden" name="rule" value="{{.Rule}}">
+                                                {{if $.admin_has_2fa}}
+                                                <input type="text" name="otp_code" class="form-control form-control-sm" style="width:7rem" placeholder="2FA code" inputmode="numeric" autocomplete="one-time-code" required>
+                                                {{else}}
+                                                <input type="password" name="current_password" class="form-control form-control-sm" style="width:8rem" placeholder="Password" autocomplete="current-password" required>
+                                                {{end}}
+                                                <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+                                            </form>
+                                            {{end}}
+                                        </td>
+                                    </tr>
+                                    {{else}}
+                                    <tr><td colspan="6" class="text-center text-muted small py-4">No public access rules. Every request requires login.</td></tr>
+                                    {{end}}
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
@@ -584,6 +685,16 @@
             items[currentFocus].scrollIntoView({ block: 'nearest' });
         }
 
+        // Open the tab named in the URL fragment (e.g. after adding a bypass rule).
+        window.addEventListener('load', () => {
+            const hash = window.location.hash;
+            if (!/^#[a-z]+$/.test(hash)) return;
+            const tabButton = document.querySelector('[data-bs-target="' + hash + '"]');
+            if (tabButton) {
+                bootstrap.Tab.getOrCreateInstance(tabButton).show();
+            }
+        });
+
         // Handle success messages
         window.addEventListener('load', () => {
             const urlParams = new URLSearchParams(window.location.search);
@@ -594,7 +705,9 @@
                     'password_changed': 'User password has been updated successfully.',
                     'email_updated': 'User email address has been updated.',
                     'user_created': 'New identity created in the system.',
-                    'user_deleted': 'User has been purged from the directory.'
+                    'user_deleted': 'User has been purged from the directory.',
+                    'bypass_added': 'Public access rule added.',
+                    'bypass_deleted': 'Public access rule removed.'
                 };
                 
                 const msg = messages[success] || 'Administrative action completed.';

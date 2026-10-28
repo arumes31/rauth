@@ -117,6 +117,7 @@ func TestWebAuthnCredentialManagement(t *testing.T) {
 	UserDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
 
 	username := "testuser"
+	UserDB.HSet(Ctx, "user:"+username, "username", username)
 	c1 := &webauthn.Credential{ID: []byte("id1"), Authenticator: webauthn.Authenticator{SignCount: 1}}
 	c2 := &webauthn.Credential{ID: []byte("id2"), Authenticator: webauthn.Authenticator{SignCount: 2}}
 
@@ -236,6 +237,7 @@ func TestUpdateWebAuthnSignCount(t *testing.T) {
 	data, err := json.Marshal(stored)
 	require.NoError(t, err)
 
+	UserDB.HSet(Ctx, "user:testuser", "username", "testuser")
 	// Seed directly in Hash
 	UserDB.HSet(Ctx, "user:testuser:webauthn_creds_v2", "6372656431", string(data))
 

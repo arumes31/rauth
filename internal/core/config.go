@@ -59,6 +59,14 @@ type Config struct {
 	// TrustedProxies lists the reverse proxy IPs/CIDRs whose forwarding headers
 	// are honoured. Empty means legacy "smart" mode (any private peer).
 	TrustedProxies []string
+	// CloudflareIPRanges are the Cloudflare edge networks. With
+	// TRUST_CLOUDFLARE_IP, CF-Connecting-IP is only honoured when the request
+	// demonstrably arrived from one of them, so a client reaching the origin
+	// directly cannot forge it.
+	CloudflareIPRanges []string
+	// CloudflareAutoUpdate refreshes CloudflareIPRanges from Cloudflare's
+	// published lists at startup and daily (CLOUDFLARE_IP_AUTO_UPDATE).
+	CloudflareAutoUpdate bool
 	// Rate Limiting
 	RateLimitLoginMax           int
 	RateLimitLoginDecay         int
@@ -83,6 +91,34 @@ type Config struct {
 	//               country (helps roaming/VPN/CGNAT users avoid spurious logouts)
 	// The ALLOWED_COUNTRIES allowlist is always enforced regardless of this mode.
 	GeoChangeMode string
+	// WebAuthnRequireUserVerification makes passkey logins prove user
+	// verification (PIN/biometric). Off by default so passkey providers that do
+	// not always report UV (e.g. Bitwarden) keep working;
+	// WEBAUTHN_USER_VERIFICATION=required turns it on.
+	WebAuthnRequireUserVerification bool
+	// CSRFTrustedOrigins lists extra origins (scheme://host[:port]) allowed to
+	// send state-changing requests besides rauth's own origin.
+	CSRFTrustedOrigins []string
+	// AuthBypassRules are read-only bypass rules from AUTH_BYPASS_RULES (more
+	// can be managed in the admin UI). See bypass.go for the syntax.
+	AuthBypassRules []string
+	// AuthBypassHostHeader / AuthBypassURIHeader name the headers carrying the
+	// originally requested host and URI on the forward-auth subrequest. The
+	// reverse proxy must set (overwrite) them.
+	AuthBypassHostHeader string
+	AuthBypassURIHeader  string
+}
+
+// DefaultCloudflareIPRanges is Cloudflare's published edge list
+// (https://www.cloudflare.com/ips/). Override with CLOUDFLARE_IP_RANGES if it
+// changes before a release picks it up.
+var DefaultCloudflareIPRanges = []string{
+	"173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22",
+	"141.101.64.0/18", "108.162.192.0/18", "190.93.240.0/20", "188.114.96.0/20",
+	"197.234.240.0/22", "198.41.128.0/17", "162.158.0.0/15", "104.16.0.0/13",
+	"104.24.0.0/14", "172.64.0.0/13", "131.0.72.0/22",
+	"2400:cb00::/32", "2606:4700::/32", "2803:f800::/32", "2405:b500::/32",
+	"2405:8100::/32", "2a06:98c0::/29", "2c0f:f248::/32",
 }
 
 func LoadConfig() *Config {
@@ -125,10 +161,12 @@ func LoadConfig() *Config {
 		PublicURL:            getEnv("PUBLIC_URL", "http://localhost:5980"),
 		TokenRotationMinutes: getEnvInt("TOKEN_ROTATION_MINUTES", 0),
 		// IP Trust
-		TrustCloudflareIP:  getEnvBool("TRUST_CLOUDFLARE_IP", false),
-		TrustXRealIP:       getEnvBool("TRUST_X_REAL_IP", false),
-		TrustXForwardedFor: getEnvBool("TRUST_X_FORWARDED_FOR", false),
-		TrustedProxies:     getEnvSlice("TRUSTED_PROXIES", []string{}),
+		TrustCloudflareIP:    getEnvBool("TRUST_CLOUDFLARE_IP", false),
+		TrustXRealIP:         getEnvBool("TRUST_X_REAL_IP", false),
+		TrustXForwardedFor:   getEnvBool("TRUST_X_FORWARDED_FOR", false),
+		TrustedProxies:       getEnvSlice("TRUSTED_PROXIES", []string{}),
+		CloudflareIPRanges:   getEnvSlice("CLOUDFLARE_IP_RANGES", DefaultCloudflareIPRanges),
+		CloudflareAutoUpdate: getEnvBool("CLOUDFLARE_IP_AUTO_UPDATE", true),
 		// Rate Limiting Defaults
 		RateLimitLoginMax:           getEnvInt("RATE_LIMIT_LOGIN_MAX", 30),
 		RateLimitLoginDecay:         getEnvInt("RATE_LIMIT_LOGIN_DECAY", 300),
@@ -148,6 +186,13 @@ func LoadConfig() *Config {
 		BcryptCost:           getEnvInt("BCRYPT_COST", 12),
 		CheckCommonPasswords: getEnvBool("PWD_CHECK_COMMON", true),
 		GeoChangeMode:        strings.ToLower(getEnv("GEO_CHANGE_MODE", "strict")),
+		// Passkeys / CSRF
+		WebAuthnRequireUserVerification: strings.ToLower(strings.TrimSpace(getEnv("WEBAUTHN_USER_VERIFICATION", "preferred"))) == "required",
+		CSRFTrustedOrigins:              getEnvSlice("CSRF_TRUSTED_ORIGINS", []string{}),
+		// Auth bypass (anonymous access)
+		AuthBypassRules:      getEnvSlice("AUTH_BYPASS_RULES", []string{}),
+		AuthBypassHostHeader: getEnv("AUTH_BYPASS_HOST_HEADER", "X-Forwarded-Host"),
+		AuthBypassURIHeader:  getEnv("AUTH_BYPASS_URI_HEADER", "X-Forwarded-Uri"),
 	}
 }
 

@@ -109,8 +109,18 @@ func CheckPasswordHash(password, hash string) bool {
 }
 
 func getAESKey(key string) []byte {
+	return hkdfKey(key, "rauth-aes-key")
+}
+
+// deriveKey returns a 32-byte purpose-specific key derived from SERVER_SECRET,
+// so independent uses (e.g. recovery-code hashing) never share key material.
+func deriveKey(purpose string) []byte {
+	return hkdfKey(ServerSecret, purpose)
+}
+
+func hkdfKey(secret, info string) []byte {
 	hash := sha256.New
-	hk := hkdf.New(hash, []byte(key), nil, []byte("rauth-aes-key"))
+	hk := hkdf.New(hash, []byte(secret), nil, []byte(info))
 	derivedKey := make([]byte, 32)
 	if _, err := io.ReadFull(hk, derivedKey); err != nil {
 		// This should never happen with HKDF unless there's a serious system failure

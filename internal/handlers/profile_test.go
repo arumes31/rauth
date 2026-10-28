@@ -219,6 +219,7 @@ func TestProfileHandler_RenamePasskey(t *testing.T) {
 
 		c, _ := createTestContext(e, http.MethodPost, "/rauthprofile/passkeys/rename", f)
 		c.Set("username", "profileuser")
+		seedAccount(t, "profileuser")
 
 		// Pre-populate credential properly mapped
 		core.UserDB.HSet(core.Ctx, "user:profileuser:webauthn_creds_v2", "dGVzdGlk", `{"id":"dGVzdGlk","publicKey":"","attestationType":"","authenticator":{"aaguid":"","signCount":0,"cloneWarning":false}}`)
