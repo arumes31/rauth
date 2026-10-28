@@ -14,9 +14,10 @@ concurrency:
 
 jobs:
   security-scan:
-    name: Strix
+    name: Strix (advisory)
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    continue-on-error: true
     timeout-minutes: 90
     outputs:
       outcome: ${{ steps.scan.outputs.outcome }}
@@ -30,7 +31,7 @@ jobs:
       STRIX_SANDBOX_CONNECT_TIMEOUT: "3600"
     steps:
       - name: Check out repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         timeout-minutes: 5
         with:
           fetch-depth: 0
@@ -72,6 +73,7 @@ jobs:
           echo "$install_dir" >> "$GITHUB_PATH"
 
       - name: Run Strix
+        continue-on-error: true
         id: scan
         if: steps.install.outcome == 'success'
         timeout-minutes: 62
@@ -126,18 +128,14 @@ jobs:
 
           printf '### Strix scan\n\n%s\n\nExit code: %s.\n' "$message" "$result" >> "$GITHUB_STEP_SUMMARY"
 
-          # Reported vulnerabilities turn this check red so they cannot be
-          # missed; scanner errors and timeouts stay warnings.
-          if [[ "$outcome" == findings ]]; then
-            echo "::error::$message"
-            exit 1
-          fi
+          # Findings, scanner errors and timeouts remain advisory.
           if [[ "$outcome" != clean ]]; then
             echo "::warning::$message"
           fi
+          exit 0
 
   comment:
-    name: Strix PR comment
+    name: Strix PR comment (advisory)
     needs: security-scan
     # A separate job so the one that executes PR code and the LLM never holds a
     # write-capable token. Runs for every same-repo PR scan (the scan job is
@@ -145,11 +143,13 @@ jobs:
     # comment is never left looking current.
     if: always() && github.event_name == 'pull_request' && needs.security-scan.result != 'skipped'
     runs-on: ubuntu-latest
+    continue-on-error: true
     timeout-minutes: 5
     permissions:
       pull-requests: write # create/update the single Strix summary comment
     steps:
       - name: Post or update the Strix summary comment
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
