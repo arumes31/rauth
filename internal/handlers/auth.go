@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"rauth/internal/core"
@@ -67,18 +68,18 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 
 	cookie, err := c.Cookie("X-rauth-authtoken")
 	if err != nil {
-		return h.rateLimitedUnauthorized(c, rateLimitKey)
+		return h.denyOrBypass(c, rateLimitKey, true)
 	}
 
 	token, err := core.DecryptToken(cookie.Value, h.Cfg.ServerSecret)
 	if err != nil || token == "" {
-		return h.rateLimitedUnauthorized(c, rateLimitKey)
+		return h.denyOrBypass(c, rateLimitKey, true)
 	}
 
 	redisKey := "X-rauth-authtoken=" + token
 	data, err := core.TokenDB.HGetAll(core.Ctx, redisKey).Result()
 	if err != nil || len(data) == 0 || data["status"] != "valid" {
-		return h.rateLimitedUnauthorized(c, rateLimitKey)
+		return h.denyOrBypass(c, rateLimitKey, true)
 	}
 
 	// Reject sessions of deleted accounts or ones issued before the user's last
@@ -86,14 +87,14 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 	// expire rather than deleted: SessionAuthorized also fails closed on a
 	// transient Redis error, which must not destroy a valid session.
 	if !core.SessionAuthorized(data) {
-		return h.rateLimitedUnauthorized(c, rateLimitKey)
+		return h.denyOrBypass(c, rateLimitKey, true)
 	}
 
 	// Session is present: reset the per-IP validate throttle.
 	core.ResetRateLimit(rateLimitKey)
 
 	if !core.SessionBindingValid(h.Cfg, c.Request(), token, redisKey, data, clientIP) {
-		return c.NoContent(http.StatusUnauthorized)
+		return h.denyOrBypass(c, rateLimitKey, false)
 	}
 
 	// Forward identity headers to upstreams via nginx auth_request. groups and
@@ -192,6 +193,47 @@ func (h *AuthHandler) setSessionCookie(c echo.Context, value string, validity ti
 		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
 	})
+}
+
+// denyOrBypass is used for every path where /rauthvalidate would reject the
+// request. If an auth bypass rule matches the originally requested host and
+// URI, the request is allowed anonymously instead (200 with empty identity
+// headers); otherwise it is rejected, optionally through the validate rate limit.
+func (h *AuthHandler) denyOrBypass(c echo.Context, rateLimitKey string, rateLimit bool) error {
+	if rule, ok := h.matchBypass(c); ok {
+		core.AuthBypassTotal.Inc()
+		slog.Debug("Forward-auth request allowed by bypass rule", "rule", rule.Rule, "ip", c.RealIP())
+		hdr := c.Response().Header()
+		hdr.Set("X-RAuth-User", "")
+		hdr.Set("X-RAuth-Groups", "")
+		hdr.Set("X-RAuth-Admin", "0")
+		hdr.Set("X-RAuth-Anonymous", "1")
+		return c.NoContent(http.StatusOK)
+	}
+	if rateLimit {
+		return h.rateLimitedUnauthorized(c, rateLimitKey)
+	}
+	return c.NoContent(http.StatusUnauthorized)
+}
+
+// matchBypass checks the auth bypass rules against the host and URI the
+// reverse proxy reports for the original request. With TRUSTED_PROXIES set,
+// those headers are only honoured from a trusted proxy.
+func (h *AuthHandler) matchBypass(c echo.Context) (core.BypassRule, bool) {
+	if !core.HasBypassRules() {
+		return core.BypassRule{}, false
+	}
+	req := c.Request()
+	if len(h.Cfg.TrustedProxies) > 0 {
+		peer, _, err := net.SplitHostPort(req.RemoteAddr)
+		if err != nil {
+			peer = req.RemoteAddr
+		}
+		if !h.Cfg.IsIPAllowed(peer, h.Cfg.TrustedProxies) {
+			return core.BypassRule{}, false
+		}
+	}
+	return core.MatchBypass(req.Header.Get(h.Cfg.AuthBypassHostHeader), req.Header.Get(h.Cfg.AuthBypassURIHeader))
 }
 
 // rateLimitedUnauthorized applies the validate rate limit and returns 429 once

@@ -546,7 +546,13 @@ func setupRoutes(e *echo.Echo, cfg *core.Config) {
 	admin.POST("/user/update-email", adminHandler.UpdateUserEmail)
 	admin.POST("/session/invalidate", adminHandler.InvalidateSession)
 	admin.POST("/invite/create", inviteHandler.Create)
+	admin.POST("/bypass/add", adminHandler.AddBypassRule)
+	admin.POST("/bypass/delete", adminHandler.DeleteBypassRule)
 }
+
+// bypassRefreshInterval bounds how long another instance keeps serving a rule
+// set that an admin changed elsewhere.
+const bypassRefreshInterval = 15 * time.Second
 
 // noDirListingFS hides directories from http.FileServer so /static/ and its
 // subdirectories return 404 instead of an index of the embedded assets.
@@ -603,6 +609,11 @@ func initializeSystem(cfg *core.Config) func() {
 
 	// Cloudflare edge ranges: seeded from config, refreshed at boot and daily.
 	core.StartCloudflareUpdater(ctx, cfg)
+
+	// Auth bypass rules: read-only ones from AUTH_BYPASS_RULES plus UI-managed
+	// ones from Redis, refreshed so every instance sees admin changes.
+	core.SetEnvBypassRules(cfg.AuthBypassRules)
+	core.StartBypassRefresher(ctx, bypassRefreshInterval)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
