@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"cmp"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"runtime"
 	"slices"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
+	"github.com/redis/go-redis/v9"
 )
 
 // WebAuthnUser implements the webauthn.User interface
@@ -108,8 +111,9 @@ func InitWebAuthn(cfg *Config) error {
 				continue
 			}
 			if !strings.HasPrefix(trimmed, "http://") && !strings.HasPrefix(trimmed, "https://") {
+				// WebAuthn only works in a secure context, so a bare host means
+				// https. Plain http is accepted only when spelled out explicitly.
 				originMap["https://"+trimmed] = true
-				originMap["http://"+trimmed] = true
 			} else {
 				originMap[trimmed] = true
 			}
@@ -118,15 +122,11 @@ func InitWebAuthn(cfg *Config) error {
 		// Generate defaults from CookieDomains and AllowedHosts
 		for _, domain := range cfg.CookieDomains {
 			originMap[fmt.Sprintf("https://%s", domain)] = true
-			originMap[fmt.Sprintf("http://%s", domain)] = true
 			originMap[fmt.Sprintf("https://%s:5980", domain)] = true
-			originMap[fmt.Sprintf("http://%s:5980", domain)] = true
 		}
 		for _, host := range cfg.AllowedHosts {
 			originMap[fmt.Sprintf("https://%s", host)] = true
-			originMap[fmt.Sprintf("http://%s", host)] = true
 			originMap[fmt.Sprintf("https://%s:5980", host)] = true
-			originMap[fmt.Sprintf("http://%s:5980", host)] = true
 		}
 		// Always include standard local dev
 		originMap["http://localhost:5980"] = true
@@ -137,7 +137,15 @@ func InitWebAuthn(cfg *Config) error {
 
 	origins := slices.Collect(maps.Keys(originMap))
 
-	fmt.Printf("WebAuthn Registered Origins: %v\n", origins)
+	slog.Info("WebAuthn registered origins", "origins", origins)
+
+	// A passkey login replaces password and TOTP. User verification is
+	// requested ("preferred") by default so providers such as Bitwarden keep
+	// working, and enforced when WEBAUTHN_USER_VERIFICATION=required.
+	userVerification := protocol.VerificationPreferred
+	if cfg.WebAuthnRequireUserVerification {
+		userVerification = protocol.VerificationRequired
+	}
 
 	WebAuthnInstance, err = webauthn.New(&webauthn.Config{
 		RPDisplayName: "RAuth",
@@ -145,7 +153,7 @@ func InitWebAuthn(cfg *Config) error {
 		RPOrigins:     origins,
 		AuthenticatorSelection: protocol.AuthenticatorSelection{
 			ResidentKey:      protocol.ResidentKeyRequirementPreferred,
-			UserVerification: protocol.VerificationPreferred,
+			UserVerification: userVerification,
 		},
 	})
 	return err
@@ -247,6 +255,37 @@ func GetStoredCredentials(username string) []StoredCredential {
 	return nil
 }
 
+// writeExistingCredentialScript updates a stored credential only while both
+// the credential field and the owning account still exist. A plain HSET after
+// a read could otherwise re-create the credential hash of an account deleted in
+// between, which a recreated account with the same name would then inherit.
+var writeExistingCredentialScript = redis.NewScript(`
+if redis.call("HEXISTS", KEYS[2], "username") == 0 then
+	return 0
+end
+if redis.call("HEXISTS", KEYS[1], ARGV[1]) == 0 then
+	return 0
+end
+redis.call("HSET", KEYS[1], ARGV[1], ARGV[2])
+return 1
+`)
+
+// errCredentialGone reports that a credential (or its account) was removed
+// while it was being updated.
+var errCredentialGone = errors.New("credential or account no longer exists")
+
+func writeExistingCredential(username, field string, data []byte) error {
+	n, err := writeExistingCredentialScript.Run(Ctx, UserDB,
+		[]string{"user:" + username + ":webauthn_creds_v2", "user:" + username}, field, data).Int()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return errCredentialGone
+	}
+	return nil
+}
+
 func UpdateWebAuthnSignCount(username string, credID []byte, newCount uint32) error {
 	hashKey := "user:" + username + ":webauthn_creds_v2"
 	field := fmt.Sprintf("%x", credID)
@@ -268,7 +307,13 @@ func UpdateWebAuthnSignCount(username string, credID []byte, newCount uint32) er
 	c.Authenticator.SignCount = newCount
 	c.LastUsed = time.Now().Unix()
 	data, _ := json.Marshal(c)
-	return UserDB.HSet(Ctx, hashKey, field, data).Err()
+	return writeExistingCredential(username, field, data)
+}
+
+// DeleteAllWebAuthnCredentials removes every passkey of a user, including the
+// legacy list format (used by the admin 2FA reset).
+func DeleteAllWebAuthnCredentials(username string) error {
+	return UserDB.Del(Ctx, "user:"+username+":webauthn_creds_v2", "user:"+username+":webauthn_creds").Err()
 }
 
 func DeleteWebAuthnCredential(username string, credID string) error {
@@ -294,7 +339,7 @@ func UpdateWebAuthnNickname(username string, credID string, nickname string) err
 	}
 	c.Nickname = nickname
 	data, _ := json.Marshal(c)
-	return UserDB.HSet(Ctx, hashKey, credID, data).Err()
+	return writeExistingCredential(username, credID, data)
 }
 
 func UpdateWebAuthnLastUsed(username string, credID []byte) error {
@@ -314,7 +359,7 @@ func UpdateWebAuthnLastUsed(username string, credID []byte) error {
 	}
 	c.LastUsed = time.Now().Unix()
 	data, _ := json.Marshal(c)
-	return UserDB.HSet(Ctx, hashKey, field, data).Err()
+	return writeExistingCredential(username, field, data)
 }
 
 func UpdateWebAuthnCredential(username string, cred *webauthn.Credential) error {
@@ -335,5 +380,5 @@ func UpdateWebAuthnCredential(username string, cred *webauthn.Credential) error 
 	c.Credential = *cred
 	c.LastUsed = time.Now().Unix()
 	data, _ := json.Marshal(c)
-	return UserDB.HSet(Ctx, hashKey, field, data).Err()
+	return writeExistingCredential(username, field, data)
 }

@@ -45,4 +45,9 @@ var (
 		Name: "rauth_recovery_code_used_total",
 		Help: "The total number of 2FA recovery codes consumed during login",
 	})
+
+	AuthBypassTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "rauth_auth_bypass_total",
+		Help: "Forward-auth requests allowed anonymously by an auth bypass rule",
+	})
 )

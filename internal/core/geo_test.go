@@ -236,8 +236,13 @@ func TestReloadReader_Errors(t *testing.T) {
 	geoReader = mock
 	geoLock.Unlock()
 
+	// A failed open must keep the current reader instead of closing it, so
+	// lookups keep working until a valid database is available.
 	reloadReader("/nonexistent/path/2")
-	assert.True(t, closeCalled)
+	assert.False(t, closeCalled)
+	geoLock.RLock()
+	assert.Equal(t, geoReader, mock)
+	geoLock.RUnlock()
 }
 
 func TestGetGeoMetadataAndStatus(t *testing.T) {

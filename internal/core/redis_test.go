@@ -67,7 +67,7 @@ func TestSessionManagement(t *testing.T) {
 		TokenDB.HSet(Ctx, "X-rauth-authtoken=token456", "data", "val")
 		TokenDB.HSet(Ctx, "X-rauth-authtoken=token789", "data", "val")
 
-		InvalidateUserSessions("testuser2")
+		require.NoError(t, InvalidateUserSessions("testuser2"))
 
 		members, err := TokenDB.SMembers(Ctx, "user_sessions:testuser2").Result()
 		require.NoError(t, err)

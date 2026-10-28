@@ -79,3 +79,12 @@ func (r *mockRenderer) Render(w io.Writer, name string, data interface{}, c echo
 	r.LastData = data
 	return nil
 }
+
+// seedAccount creates a minimal user record so sessions issued for username
+// pass core.SessionAuthorized (which rejects sessions of non-existent accounts).
+func seedAccount(t *testing.T, username string) {
+	t.Helper()
+	if err := core.UserDB.HSet(core.Ctx, "user:"+username, "username", username).Err(); err != nil {
+		t.Fatalf("seed account %s: %v", username, err)
+	}
+}

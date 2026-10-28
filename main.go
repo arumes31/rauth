@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"rauth/internal/core"
@@ -52,8 +54,8 @@ func main() {
 
 	// Fail fast on a missing/weak server secret: it derives the AES key for
 	// session tokens and 2FA secrets, so an empty value is catastrophic.
-	if len(cfg.ServerSecret) < 16 {
-		slog.Error("SERVER_SECRET must be set to at least 16 characters", "length", len(cfg.ServerSecret))
+	if err := validateServerSecret(cfg.ServerSecret); err != nil {
+		slog.Error("Invalid SERVER_SECRET", "error", err)
 		os.Exit(1)
 	}
 
@@ -98,6 +100,8 @@ func main() {
 	setupRenderer(e)
 	setupRoutes(e, cfg)
 
+	configureServerTimeouts(e.Server)
+
 	go func() {
 		if err := e.Start(cfg.ListenAddr); err != nil && err != http.ErrServerClosed {
 			e.Logger.Fatal("shutting down the server")
@@ -113,6 +117,50 @@ func main() {
 	if err := e.Shutdown(ctx); err != nil {
 		e.Logger.Fatal(err)
 	}
+}
+
+// knownPlaceholderSecrets are example values shipped in docs/config templates.
+// Running with one of them makes every session cookie and stored TOTP secret
+// decryptable by anyone who has read the docs.
+var knownPlaceholderSecrets = []string{
+	"your_random_32_character_secret_here",
+	"change_me",
+	"changeme",
+	"secret",
+}
+
+// validateServerSecret rejects missing, short, placeholder and trivially
+// low-entropy secrets. SERVER_SECRET derives the AES key for session tokens and
+// 2FA secrets, so a weak value is catastrophic.
+func validateServerSecret(secret string) error {
+	if len(secret) < 16 {
+		return fmt.Errorf("must be at least 16 characters (got %d)", len(secret))
+	}
+	lower := strings.ToLower(secret)
+	for _, p := range knownPlaceholderSecrets {
+		if lower == p {
+			return fmt.Errorf("is a documented placeholder value; generate one with `openssl rand -hex 32`")
+		}
+	}
+	distinct := map[rune]bool{}
+	for _, r := range secret {
+		distinct[r] = true
+	}
+	if len(distinct) < 8 {
+		return fmt.Errorf("has too little variety (%d distinct characters); generate one with `openssl rand -hex 32`", len(distinct))
+	}
+	return nil
+}
+
+// configureServerTimeouts bounds how long a client may hold a connection.
+// Without them a slow or idle client keeps a goroutine and socket forever,
+// and every protected app depends on this forward-auth server answering.
+func configureServerTimeouts(s *http.Server) {
+	s.ReadHeaderTimeout = 10 * time.Second
+	s.ReadTimeout = 30 * time.Second
+	s.WriteTimeout = 30 * time.Second
+	s.IdleTimeout = 120 * time.Second
+	s.MaxHeaderBytes = 64 << 10
 }
 
 // parseLogLevel maps a LOG_LEVEL string to an slog.Level (defaults to Info).
@@ -139,7 +187,7 @@ func setupMiddleware(e *echo.Echo, cfg *core.Config) {
 	setupLoggingMiddleware(e)
 	e.Use(echoMiddleware.Recover())
 	setupErrorHandlers(e)
-	setupCSRFMiddleware(e)
+	setupCSRFMiddleware(e, cfg)
 }
 
 func setupSecurityMiddleware(e *echo.Echo, cfg *core.Config) {
@@ -164,16 +212,40 @@ func setupSecurityMiddleware(e *echo.Echo, cfg *core.Config) {
 	e.Use(echoMiddleware.BodyLimit("1M"))
 }
 
-func setupCSRFMiddleware(e *echo.Echo) {
-	// CSRF Protection
+func setupCSRFMiddleware(e *echo.Echo, cfg *core.Config) {
+	// 1. Origin-based protection (net/http CrossOriginProtection): rejects
+	// state-changing requests whose Sec-Fetch-Site / Origin show they come from
+	// another origin — including same-site sibling subdomains, which share the
+	// session cookie and could otherwise plant a matching double-submit cookie.
+	e.Use(echo.WrapMiddleware(newCrossOriginProtection(cfg).Handler))
+
+	// 2. Token-based protection for clients that send neither header. The
+	// __Host- prefix pins the cookie to this exact host so no other subdomain
+	// can set or overwrite it.
 	e.Use(echoMiddleware.CSRFWithConfig(echoMiddleware.CSRFConfig{ // #nosec G101
 		TokenLookup:    "header:X-CSRF-Token,form:csrf",
-		CookieName:     "_csrf",
+		CookieName:     "__Host-csrf",
 		CookiePath:     "/",
 		CookieHTTPOnly: true,
 		CookieSecure:   true,
 		CookieSameSite: http.SameSiteLaxMode,
 	}))
+}
+
+// newCrossOriginProtection builds the origin check, trusting any extra origins
+// configured in CSRF_TRUSTED_ORIGINS. Invalid entries are logged and skipped.
+func newCrossOriginProtection(cfg *core.Config) *http.CrossOriginProtection {
+	cop := http.NewCrossOriginProtection()
+	for _, origin := range cfg.CSRFTrustedOrigins {
+		if err := cop.AddTrustedOrigin(strings.TrimSuffix(strings.TrimSpace(origin), "/")); err != nil {
+			slog.Warn("Ignoring invalid CSRF_TRUSTED_ORIGINS entry", "origin", origin, "error", err)
+		}
+	}
+	cop.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		slog.Warn("Cross-origin state-changing request blocked", "path", r.URL.Path, "origin", r.Header.Get("Origin"), "sec_fetch_site", r.Header.Get("Sec-Fetch-Site"))
+		http.Error(w, "Cross-origin request blocked", http.StatusForbidden)
+	}))
+	return cop
 }
 
 func setupLoggingMiddleware(e *echo.Echo) {
@@ -196,7 +268,7 @@ func setupLoggingMiddleware(e *echo.Echo) {
 			attrs := []slog.Attr{
 				slog.String("client_ip", v.RemoteIP),
 				slog.String("method", v.Method),
-				slog.String("uri", v.URI),
+				slog.String("uri", redactURI(v.URI)),
 				slog.Int("status", v.Status),
 				slog.Duration("latency", v.Latency),
 				slog.String("geo", core.GetCountryCode(v.RemoteIP)),
@@ -222,6 +294,33 @@ func setupLoggingMiddleware(e *echo.Echo) {
 			return nil
 		},
 	}))
+}
+
+// sensitiveQueryParams are query parameters that carry bearer secrets (e.g.
+// single-use invite tokens) and must never reach the logs.
+var sensitiveQueryParams = []string{"token"}
+
+// redactURI masks sensitive query parameter values in a request URI.
+func redactURI(uri string) string {
+	path, rawQuery, found := strings.Cut(uri, "?")
+	if !found {
+		return uri
+	}
+	values, err := url.ParseQuery(rawQuery)
+	if err != nil {
+		return path + "?[unparseable]"
+	}
+	redacted := false
+	for _, p := range sensitiveQueryParams {
+		if values.Has(p) {
+			values.Set(p, "REDACTED")
+			redacted = true
+		}
+	}
+	if !redacted {
+		return uri
+	}
+	return path + "?" + values.Encode()
 }
 
 func setupClientHintsMiddleware(e *echo.Echo) {
@@ -358,7 +457,7 @@ func setupRenderer(e *echo.Echo) {
 }
 
 func setupRoutes(e *echo.Echo, cfg *core.Config) {
-	e.GET("/static/*", echo.WrapHandler(http.FileServer(http.FS(staticFS))))
+	e.GET("/static/*", echo.WrapHandler(http.FileServer(http.FS(noDirListingFS{staticFS}))))
 
 	authHandler := &handlers.AuthHandler{Cfg: cfg}
 	adminHandler := &handlers.AdminHandler{Cfg: cfg}
@@ -447,6 +546,28 @@ func setupRoutes(e *echo.Echo, cfg *core.Config) {
 	admin.POST("/user/update-email", adminHandler.UpdateUserEmail)
 	admin.POST("/session/invalidate", adminHandler.InvalidateSession)
 	admin.POST("/invite/create", inviteHandler.Create)
+	admin.POST("/bypass/add", adminHandler.AddBypassRule)
+	admin.POST("/bypass/delete", adminHandler.DeleteBypassRule)
+}
+
+// bypassRefreshInterval bounds how long another instance keeps serving a rule
+// set that an admin changed elsewhere.
+const bypassRefreshInterval = 15 * time.Second
+
+// noDirListingFS hides directories from http.FileServer so /static/ and its
+// subdirectories return 404 instead of an index of the embedded assets.
+type noDirListingFS struct{ fs.FS }
+
+func (n noDirListingFS) Open(name string) (fs.File, error) {
+	f, err := n.FS.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	if info, err := f.Stat(); err == nil && info.IsDir() {
+		_ = f.Close()
+		return nil, fs.ErrNotExist
+	}
+	return f, nil
 }
 
 // initializeSystem performs startup tasks and launches the background
@@ -459,19 +580,40 @@ func initializeSystem(cfg *core.Config) func() {
 
 	// Backfill UIDs for legacy users so GetUser stays read-only at runtime.
 	core.EnsureUserUIDs()
+	// Encrypt TOTP secrets stored before at-rest encryption existed.
+	core.MigratePlaintextTOTPSecrets()
 
 	if cfg.InitialUser != "" && cfg.InitialPassword != "" {
 		slog.Info("Checking initial user", "user", cfg.InitialUser)
-		err := core.CreateUser(cfg.InitialUser, cfg.InitialPassword, cfg.InitialEmail, true, cfg.Initial2FASecret)
-		if err == nil {
-			slog.Info("Initial admin user created")
-		} else {
-			slog.Info("Initial user already exists or check failed", "error", err)
+		exists, err := core.UserDB.Exists(core.Ctx, "user:"+cfg.InitialUser).Result()
+		switch {
+		case err != nil:
+			slog.Error("Initial user check failed", "error", err)
+		case exists > 0:
+			slog.Info("Initial user already exists")
+		case core.ValidatePassword(cfg.InitialPassword, cfg) != nil:
+			// The root admin enrolls TOTP on first login, so a weak bootstrap
+			// password would let whoever guesses it first own the account.
+			slog.Error("INITIAL_PASSWORD does not meet the password policy (see PWD_* settings); initial admin not created")
+		default:
+			if err := core.CreateUser(cfg.InitialUser, cfg.InitialPassword, cfg.InitialEmail, true, cfg.Initial2FASecret); err == nil {
+				slog.Info("Initial admin user created")
+			} else {
+				slog.Info("Initial user creation failed", "error", err)
+			}
 		}
 	}
 
 	// Background metrics and index synchronization
 	ctx, cancel := context.WithCancel(context.Background())
+
+	// Cloudflare edge ranges: seeded from config, refreshed at boot and daily.
+	core.StartCloudflareUpdater(ctx, cfg)
+
+	// Auth bypass rules: read-only ones from AUTH_BYPASS_RULES plus UI-managed
+	// ones from Redis, refreshed so every instance sees admin changes.
+	core.SetEnvBypassRules(cfg.AuthBypassRules)
+	core.StartBypassRefresher(ctx, bypassRefreshInterval)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -523,10 +665,22 @@ func CreateIPExtractor(cfg *core.Config) echo.IPExtractor {
 			return remoteHost
 		}
 
-		// 1. Check Cloudflare (if explicitly trusted)
+		// 1. Check Cloudflare (if explicitly trusted). CF-Connecting-IP is only
+		// meaningful when the request really came through Cloudflare: the edge
+		// must be either the direct peer or, behind a local proxy, the address
+		// that proxy reports in X-Real-IP. Anyone reaching the origin directly
+		// could otherwise forge the header.
 		if cfg.TrustCloudflareIP {
-			if ip := net.ParseIP(strings.TrimSpace(req.Header.Get("CF-Connecting-IP"))); ip != nil {
-				return ip.String()
+			edge := remoteHost
+			if peerTrusted {
+				if ip := net.ParseIP(strings.TrimSpace(req.Header.Get("X-Real-IP"))); ip != nil {
+					edge = ip.String()
+				}
+			}
+			if core.IsCloudflareIP(edge) {
+				if ip := net.ParseIP(strings.TrimSpace(req.Header.Get("CF-Connecting-IP"))); ip != nil {
+					return ip.String()
+				}
 			}
 		}
 
@@ -537,9 +691,11 @@ func CreateIPExtractor(cfg *core.Config) echo.IPExtractor {
 			if cfg.TrustXRealIP {
 				return realIP
 			}
-			// Legacy smart mode: accept a public header IP from a private peer; a
-			// private one falls through to X-Forwarded-For, which might carry the
-			// real client further down the chain. With TRUSTED_PROXIES set,
+			// Legacy smart mode: accept only a public header IP from a private
+			// peer. Any private host (not just the proxy) counts as a trusted
+			// peer here, so accepting private values would let a LAN client claim
+			// any private address. A private value falls through to the
+			// proxy-appended X-Forwarded-For hop below. With TRUSTED_PROXIES set,
 			// X-Real-IP is only used when TRUST_X_REAL_IP is enabled, since not
 			// every proxy overwrites it.
 			if !explicit && peerTrusted && !core.IsPrivateIP(realIP) {
@@ -549,7 +705,15 @@ func CreateIPExtractor(cfg *core.Config) echo.IPExtractor {
 
 		// 3. Check X-Forwarded-For
 		if xff := req.Header.Get("X-Forwarded-For"); xff != "" && (cfg.TrustXForwardedFor || peerTrusted) {
-			if ip := clientIPFromXFF(strings.Split(xff, ","), isTrustedProxy); ip != "" {
+			// In smart mode only the immediate peer is known to be a proxy, so
+			// only the hop it appended (the rightmost) is trustworthy. Walking
+			// further left past "private" hops would skip the real client's own
+			// LAN address and return an entry the client wrote itself.
+			walkTrust := isTrustedProxy
+			if !explicit {
+				walkTrust = func(string) bool { return false }
+			}
+			if ip := clientIPFromXFF(strings.Split(xff, ","), walkTrust); ip != "" {
 				return ip
 			}
 		}
