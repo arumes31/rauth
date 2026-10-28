@@ -3,10 +3,7 @@ package main
 import (
 	"context"
 	"embed"
-	"encoding/json"
 	"fmt"
-	"html/template"
-	"io"
 	"io/fs"
 	"log/slog"
 	"net"
@@ -17,7 +14,6 @@ import (
 	"rauth/internal/core"
 	"rauth/internal/handlers"
 	"rauth/internal/middleware"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -32,14 +28,6 @@ var staticFS embed.FS
 
 //go:embed templates/*
 var templateFS embed.FS
-
-type TemplateRenderer struct {
-	templates *template.Template
-}
-
-func (t *TemplateRenderer) Render(w io.Writer, name string, data interface{}, c echo.Context) error {
-	return t.templates.ExecuteTemplate(w, name, data)
-}
 
 func main() {
 	// Initialize the structured logger before parsing config so the
@@ -412,50 +400,6 @@ func setupErrorHandlers(e *echo.Echo) {
 	}
 }
 
-func setupRenderer(e *echo.Echo) {
-	funcMap := template.FuncMap{
-		"formatTime": func(input interface{}) string {
-			var timestamp int64
-			switch v := input.(type) {
-			case int64:
-				timestamp = v
-			case int:
-				timestamp = int64(v)
-			case string:
-				timestamp, _ = strconv.ParseInt(v, 10, 64)
-			default:
-				return "N/A"
-			}
-			if timestamp == 0 {
-				return "N/A"
-			}
-			return time.Unix(timestamp, 0).Format("2006-01-02 15:04:05")
-		},
-		"formatSeconds": func(s string) string {
-			sec, _ := strconv.Atoi(s)
-			return fmt.Sprintf("%dm %ds", sec/60, sec%60)
-		},
-		"marshal": func(v interface{}) string {
-			a, _ := json.Marshal(v)
-			return string(a)
-		},
-		"statusColor": func(action string) string {
-			if action == "LOGIN_SUCCESS" || action == "2FA_SETUP_SUCCESS" {
-				return "text-success"
-			}
-			if action == "LOGIN_FAILED" || action == "2FA_FAILED" || action == "COUNTRY_CHANGE_DETECTED" {
-				return "text-danger"
-			}
-			return "text-info"
-		},
-	}
-
-	renderer := &TemplateRenderer{
-		templates: template.Must(template.New("").Funcs(funcMap).ParseFS(templateFS, "templates/*.html")),
-	}
-	e.Renderer = renderer
-}
-
 func setupRoutes(e *echo.Echo, cfg *core.Config) {
 	e.GET("/static/*", echo.WrapHandler(http.FileServer(http.FS(noDirListingFS{staticFS}))))
 
@@ -546,7 +490,10 @@ func setupRoutes(e *echo.Echo, cfg *core.Config) {
 	admin.POST("/user/update-email", adminHandler.UpdateUserEmail)
 	admin.POST("/session/invalidate", adminHandler.InvalidateSession)
 	admin.POST("/invite/create", inviteHandler.Create)
+	admin.POST("/bypass/unlock", adminHandler.UnlockBypass)
+	admin.POST("/bypass/lock", adminHandler.LockBypass)
 	admin.POST("/bypass/add", adminHandler.AddBypassRule)
+	admin.POST("/bypass/update", adminHandler.UpdateBypassRule)
 	admin.POST("/bypass/delete", adminHandler.DeleteBypassRule)
 }
 

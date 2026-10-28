@@ -1,0 +1,34 @@
+{{/* Management sidebar: brand, section links and the signed-in admin. */}}
+{{define "admin_sidebar"}}
+<aside class="sidebar">
+    <a class="brand" href="/rauthmgmt#overview" data-nav="overview">
+        <span class="brand-mark"><i class="bi bi-shield-lock-fill"></i></span>
+        <span>RAUTH<small>Administration</small></span>
+    </a>
+
+    <nav class="nav-group" aria-label="Management sections">
+        <div class="nav-group-label small-caps">Manage</div>
+        <a href="#overview" class="nav-item-link" data-nav="overview"><i class="bi bi-grid-1x2"></i><span>Overview</span></a>
+        <a href="#users" class="nav-item-link" data-nav="users"><i class="bi bi-people"></i><span>Users</span><span class="count">{{len .users}}</span></a>
+        <a href="#sessions" class="nav-item-link" data-nav="sessions"><i class="bi bi-broadcast"></i><span>Sessions</span><span class="count">{{len .sessions}}</span></a>
+        <a href="#invites" class="nav-item-link" data-nav="invites"><i class="bi bi-envelope-plus"></i><span>Invitations</span></a>
+        <a href="#bypass" class="nav-item-link" data-nav="bypass"><i class="bi bi-globe2"></i><span>Public Access</span><span class="count">{{len .bypass_rules}}</span></a>
+        <a href="#audit" class="nav-item-link" data-nav="audit"><i class="bi bi-journal-text"></i><span>Audit Log</span></a>
+    </nav>
+
+    <div class="sidebar-footer">
+        <a href="/rauthprofile" class="nav-item-link"><i class="bi bi-person-circle"></i><span>My Profile</span></a>
+        <div class="me-card">
+            <img class="avatar" data-identicon="{{.username}}" width="34" height="34">
+            <div class="who">
+                <strong>{{.username}}</strong>
+                <span class="text-muted small">{{if eq .username .root_user}}Root administrator{{else}}Administrator{{end}}</span>
+            </div>
+            <form method="POST" action="/logout" class="ms-auto">
+                <input type="hidden" name="csrf" value="{{.csrf}}">
+                <button type="submit" class="btn-icon danger" title="Sign out" aria-label="Sign out"><i class="bi bi-box-arrow-right"></i></button>
+            </form>
+        </div>
+    </div>
+</aside>
+{{end}}

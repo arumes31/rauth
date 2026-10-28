@@ -15,7 +15,10 @@ func TestParseBypassRule(t *testing.T) {
 		"web.example.com/webhook":  {Rule: "web.example.com/webhook", Host: "web.example.com", Path: "/webhook"},
 		"web.example.com/webhook/": {Rule: "web.example.com/webhook", Host: "web.example.com", Path: "/webhook"},
 		"web.example.com/a//b":     {Rule: "web.example.com/a/b", Host: "web.example.com", Path: "/a/b"},
-		"web.example.com/":         {Rule: "web.example.com", Host: "web.example.com"},
+		"web.example.com/":         {Rule: "web.example.com/", Host: "web.example.com", Path: "/", Exact: true},
+		"web.example.com/*":        {Rule: "web.example.com", Host: "web.example.com"},
+		"web.example.com/api/*":    {Rule: "web.example.com/api", Host: "web.example.com", Path: "/api"},
+		"!web.example.com/admin":   {Rule: "web.example.com/admin", Host: "web.example.com", Path: "/admin", Action: BypassDeny},
 		"*.example.com/api/public": {Rule: "*.example.com/api/public", Host: "example.com", Wildcard: true, Path: "/api/public"},
 	}
 	for in, want := range valid {
@@ -25,13 +28,19 @@ func TestParseBypassRule(t *testing.T) {
 		assert.Equal(t, want.Host, got.Host, in)
 		assert.Equal(t, want.Wildcard, got.Wildcard, in)
 		assert.Equal(t, want.Path, got.Path, in)
+		assert.Equal(t, want.Exact, got.Exact, in)
+		wantAction := want.Action
+		if wantAction == "" {
+			wantAction = BypassAllow
+		}
+		assert.Equal(t, wantAction, got.Action, in)
 	}
 
 	for _, in := range []string{
 		"", "   ", "https://cloud.example.com", "cloud.example.com:8080", "*", "*.", "a.*.example.com",
 		"foo_bar.example.com", "-bad.example.com", "web.example.com/../admin", "web.example.com/a/./b",
 		"web.example.com/a%2fb", `web.example.com/a\b`, "web.example.com/a;b", "web.example.com/a?x=1",
-		"10.0.0.1:80", "exa mple.com",
+		"10.0.0.1:80", "exa mple.com", "!", "web.example.com/a*b", "web.example.com/*/x", "web.example.com/**",
 	} {
 		_, err := ParseBypassRule(in)
 		assert.Error(t, err, in)
@@ -115,10 +124,12 @@ func TestBypassRuleStorage(t *testing.T) {
 	newRegressionRedis(t)
 	t.Cleanup(func() { activeBypass.Store(&bypassSet{}) })
 
-	_, err := AddBypassRule("not a host!", "", "admin")
+	_, err := AddBypassRule("not a host!", "", "", "admin")
 	assert.Error(t, err)
+	_, err = AddBypassRule("web.example.com", "maybe", "", "admin")
+	assert.Error(t, err, "unknown action")
 
-	r, err := AddBypassRule("Web.Example.com/webhook/", "GitHub hooks", "admin")
+	r, err := AddBypassRule("Web.Example.com/webhook/", "allow", "GitHub hooks", "admin")
 	require.NoError(t, err)
 	assert.Equal(t, "web.example.com/webhook", r.Rule)
 	_, ok := MatchBypass("web.example.com", "/webhook/x")
@@ -136,13 +147,94 @@ func TestBypassRuleStorage(t *testing.T) {
 	_, ok = MatchBypass("web.example.com", "/webhook")
 	assert.True(t, ok)
 
-	existed, err := DeleteBypassRule("web.example.com/webhook")
+	_, err = AddBypassRule("web.example.com/webhook", "deny", "", "admin")
+	assert.Error(t, err, "duplicate host/path must not overwrite")
+	_, ok = MatchBypass("web.example.com", "/webhook")
+	assert.True(t, ok)
+
+	// Edit: change action and path, keep creation metadata.
+	_, _, err = UpdateBypassRule("web.example.com/missing", "web.example.com/x", "allow", "", "admin2")
+	assert.ErrorIs(t, err, ErrBypassNotFound)
+	old, upd, err := UpdateBypassRule("web.example.com/webhook", "web.example.com/hooks", "deny", "now private", "admin2")
+	require.NoError(t, err)
+	assert.Equal(t, "web.example.com/webhook", old.Rule)
+	assert.Equal(t, BypassAllow, old.Action)
+	assert.Equal(t, "web.example.com/hooks", upd.Rule)
+	rules = ListBypassRules()
+	require.Len(t, rules, 1)
+	assert.Equal(t, "web.example.com/hooks", rules[0].Rule)
+	assert.Equal(t, BypassDeny, rules[0].Action)
+	assert.Equal(t, "now private", rules[0].Note)
+	assert.Equal(t, "admin", rules[0].CreatedBy)
+	assert.Equal(t, "admin2", rules[0].UpdatedBy)
+	_, ok = MatchBypass("web.example.com", "/webhook")
+	assert.False(t, ok)
+
+	// Editing in place (same rule text) flips the action back.
+	_, _, err = UpdateBypassRule("web.example.com/hooks", "web.example.com/hooks/", "allow", "", "admin2")
+	require.NoError(t, err)
+	_, ok = MatchBypass("web.example.com", "/hooks/a")
+	assert.True(t, ok)
+
+	// Renaming onto an existing rule is refused.
+	_, err = AddBypassRule("web.example.com/other", "", "", "admin")
+	require.NoError(t, err)
+	_, _, err = UpdateBypassRule("web.example.com/other", "web.example.com/hooks", "allow", "", "admin2")
+	assert.Error(t, err)
+	_, err = DeleteBypassRule("web.example.com/other")
+	require.NoError(t, err)
+
+	existed, err := DeleteBypassRule("web.example.com/hooks")
 	require.NoError(t, err)
 	assert.True(t, existed)
 	_, ok = MatchBypass("web.example.com", "/webhook")
 	assert.False(t, ok)
 
-	existed, err = DeleteBypassRule("web.example.com/webhook")
+	existed, err = DeleteBypassRule("web.example.com/hooks")
 	require.NoError(t, err)
 	assert.False(t, existed)
+}
+
+func TestMatchBypassPrecedence(t *testing.T) {
+	t.Cleanup(func() { activeBypass.Store(&bypassSet{}) })
+	// The root page is public, /example requires login, everything else is public.
+	SetEnvBypassRules([]string{
+		"app.example.com/", "!app.example.com/example", "app.example.com/*",
+		// Only the root page of shop is public.
+		"shop.example.com/",
+		// Wildcard opens all, but one host and one path stay private.
+		"*.pub.example.com", "!secret.pub.example.com", "!*.pub.example.com/admin", "secret.pub.example.com/status",
+		// Same rule as allow and deny: deny wins.
+		"tie.example.com/x", "!tie.example.com/x",
+	})
+
+	cases := []struct {
+		host, uri string
+		want      bool
+	}{
+		{"app.example.com", "/", true},
+		{"app.example.com", "/?q=1", true},
+		{"app.example.com", "/index.html", true},
+		{"app.example.com", "/example", false},
+		{"app.example.com", "/example/", false},
+		{"app.example.com", "/example/deep/x", false},
+		{"app.example.com", "/examples", true},
+		{"app.example.com", "/other/example", true},
+		{"shop.example.com", "/", true},
+		{"shop.example.com", "", false},
+		{"shop.example.com", "/cart", false},
+		{"a.pub.example.com", "/", true},
+		{"a.pub.example.com", "/admin/x", false},
+		{"secret.pub.example.com", "/", false},
+		{"secret.pub.example.com", "/status", true},
+		{"secret.pub.example.com", "/admin", false},
+		{"tie.example.com", "/x", false},
+	}
+	for _, tc := range cases {
+		_, got := MatchBypass(tc.host, tc.uri)
+		assert.Equal(t, tc.want, got, "host=%q uri=%q", tc.host, tc.uri)
+	}
+
+	SetEnvBypassRules([]string{"!only.example.com"})
+	assert.False(t, HasBypassRules(), "deny rules alone open nothing")
 }

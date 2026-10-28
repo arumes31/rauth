@@ -1,0 +1,38 @@
+{{/* Edit public access rule modal (filled by management.js). */}}
+{{define "admin_bypass_modal"}}
+<div class="modal fade" id="editBypassModal" tabindex="-1" aria-labelledby="editBypassTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <form method="POST" action="/rauthmgmt/bypass/update">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="editBypassTitle">Edit public access rule</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" name="csrf" value="{{.csrf}}">
+                    <input type="hidden" name="original_rule" id="editBypassOriginal">
+                    <div class="mb-3">
+                        <label class="form-label" for="editBypassAction">Access</label>
+                        <select name="action" id="editBypassAction" class="form-select">
+                            <option value="allow">Public</option>
+                            <option value="deny">Login required</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="editBypassRule">Rule</label>
+                        <input type="text" name="rule" id="editBypassRule" class="form-control mono" required maxlength="300" spellcheck="false">
+                    </div>
+                    <div>
+                        <label class="form-label" for="editBypassNote">Note <span class="text-faint fw-normal">(optional)</span></label>
+                        <input type="text" name="note" id="editBypassNote" class="form-control" maxlength="200">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-ghost" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save rule</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{{end}}

@@ -1,0 +1,53 @@
+{{/* Profile activity: the user's own audit events with search and filter. */}}
+{{define "profile_activity"}}
+<section data-panel="activity" data-title="Activity" hidden>
+    <div class="panel">
+        <div class="panel-header">
+            <div>
+                <h2>Security activity</h2>
+                <div class="sub">Showing <span data-filter-count="#activityTable">{{len .logs}}</span> of your latest {{len .logs}} events. Click an event for details.</div>
+            </div>
+            <div class="tools">
+                <div class="search">
+                    <i class="bi bi-search"></i>
+                    <input type="search" class="form-control" placeholder="Event or IP" data-filter="#activityTable" aria-label="Search activity">
+                </div>
+                <select class="form-select" data-filter-kind="#activityTable" aria-label="Filter events">
+                    <option value="">All events</option>
+                    <option value="bad">Failures and warnings</option>
+                    <option value="ok">Successful sign-ins</option>
+                    <option value="admin">Admin actions</option>
+                    <option value="info">Other</option>
+                </select>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table class="data-table" id="activityTable">
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Event</th>
+                        <th>Source</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .logs}}
+                    <tr data-row class="clickable" tabindex="0" data-kind="{{eventClass .Action}}"
+                        data-search="{{.Action}} {{humanAction .Action}} {{.IP}} {{.Details.country}}"
+                        data-details="{{.Details | marshal}}" data-details-title="{{humanAction .Action}}">
+                        <td class="text-muted small text-nowrap"><time data-ts="{{.Timestamp}}">{{.Timestamp | formatTime}}</time></td>
+                        <td><span class="event-name event-{{eventClass .Action}}">{{humanAction .Action}}</span></td>
+                        <td>
+                            <span class="mono small">{{.IP}}</span>
+                            {{if eq .Details.country "Tailscale"}}<span class="chip info ms-1"><i class="bi bi-shield-shaded"></i>Tailscale</span>
+                            {{else if .Details.country}}<span class="cell-sub ms-1">{{.Details.country}}</span>{{end}}
+                        </td>
+                    </tr>
+                    {{end}}
+                    <tr data-filter-empty {{if .logs}}hidden{{end}}><td colspan="3" class="empty"><i class="bi bi-clock-history"></i>No events match</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+{{end}}

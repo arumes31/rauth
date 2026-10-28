@@ -1,0 +1,60 @@
+{{/* Audit log with search and event-type filter. */}}
+{{define "admin_audit"}}
+<section data-panel="audit" data-title="Audit Log" hidden>
+    <div class="panel">
+        <div class="panel-header">
+            <div>
+                <h2>Audit log</h2>
+                <div class="sub">Showing <span data-filter-count="#auditTable">{{len .logs}}</span> of the latest {{len .logs}} events. Click an event for details.</div>
+            </div>
+            <div class="tools">
+                <div class="search">
+                    <i class="bi bi-search"></i>
+                    <input type="search" class="form-control" placeholder="Event, user or IP" data-filter="#auditTable" aria-label="Search audit log">
+                </div>
+                <select class="form-select" id="auditKind" data-filter-kind="#auditTable" aria-label="Filter events">
+                    <option value="">All events</option>
+                    <option value="bad">Failures and warnings</option>
+                    <option value="ok">Successful sign-ins</option>
+                    <option value="admin">Admin actions</option>
+                    <option value="info">Other</option>
+                </select>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table class="data-table" id="auditTable">
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Event</th>
+                        <th>User</th>
+                        <th>Source</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .logs}}
+                    <tr data-row class="clickable" tabindex="0" data-kind="{{eventClass .Action}}"
+                        data-search="{{.Action}} {{humanAction .Action}} {{.Username}} {{.IP}} {{.Details.country}}"
+                        data-details="{{.Details | marshal}}" data-details-title="{{humanAction .Action}}">
+                        <td class="text-muted small text-nowrap"><time data-ts="{{.Timestamp}}">{{.Timestamp | formatTime}}</time></td>
+                        <td><span class="event-name event-{{eventClass .Action}}">{{humanAction .Action}}</span></td>
+                        <td>
+                            <div class="cell-user">
+                                <img class="avatar sm" data-identicon="{{.Username}}" width="24" height="24">
+                                <span>{{.Username}}</span>
+                            </div>
+                        </td>
+                        <td>
+                            <span class="mono small">{{.IP}}</span>
+                            {{if eq .Details.country "Tailscale"}}<span class="chip info ms-1"><i class="bi bi-shield-shaded"></i>Tailscale</span>
+                            {{else if .Details.country}}<span class="cell-sub ms-1">{{.Details.country}}</span>{{end}}
+                        </td>
+                    </tr>
+                    {{end}}
+                    <tr data-filter-empty {{if .logs}}hidden{{end}}><td colspan="4" class="empty"><i class="bi bi-journal"></i>No events match</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+{{end}}

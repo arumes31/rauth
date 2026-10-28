@@ -1,0 +1,159 @@
+{{/* Public access (auth bypass) rules: unlock, add, edit, remove. */}}
+{{define "admin_public_access"}}
+<section data-panel="bypass" data-title="Public Access" hidden>
+    <p class="section-intro">
+        Requests matching a <strong class="text-body">Public</strong> rule reach the application without login
+        (anonymous, no <code>X-RAuth-User</code>). Signed-in users still get their identity forwarded.
+    </p>
+
+    <div class="callout warn mb-4">
+        <i class="bi bi-exclamation-triangle-fill"></i>
+        <div>
+            Your reverse proxy must <strong>set (overwrite)</strong> <code>{{.bypass_host_hdr}}</code> and
+            <code>{{.bypass_uri_hdr}}</code> on the auth subrequest, otherwise clients could forge them.
+            Paths containing <code>..</code>, encoded slashes, backslashes or <code>;</code> never bypass.
+        </div>
+    </div>
+
+    {{if .bypass_unlock_m}}
+    <div class="panel mb-4">
+        <div class="panel-header">
+            <div>
+                <h2>Add rule</h2>
+                <div class="sub"><i class="bi bi-unlock-fill text-success me-1"></i>Unlocked for about {{.bypass_unlock_m}} more minute(s)</div>
+            </div>
+            <div class="tools">
+                <form method="POST" action="/rauthmgmt/bypass/lock">
+                    <input type="hidden" name="csrf" value="{{.csrf}}">
+                    <button type="submit" class="btn btn-ghost btn-sm"><i class="bi bi-lock me-1"></i>Lock now</button>
+                </form>
+            </div>
+        </div>
+        <div class="panel-body">
+            <form method="POST" action="/rauthmgmt/bypass/add" class="row g-3 align-items-end">
+                <input type="hidden" name="csrf" value="{{.csrf}}">
+                <div class="col-md-3 col-lg-2">
+                    <label class="form-label" for="bypassAction">Access</label>
+                    <select name="action" id="bypassAction" class="form-select">
+                        <option value="allow">Public</option>
+                        <option value="deny">Login required</option>
+                    </select>
+                </div>
+                <div class="col-md-9 col-lg-5">
+                    <label class="form-label" for="bypassRule">Rule</label>
+                    <input type="text" name="rule" id="bypassRule" class="form-control mono" required maxlength="300"
+                           placeholder="app.example.com/webhook" autocomplete="off" spellcheck="false">
+                </div>
+                <div class="col-md-9 col-lg-3">
+                    <label class="form-label" for="bypassNote">Note <span class="text-faint fw-normal">(optional)</span></label>
+                    <input type="text" name="note" id="bypassNote" class="form-control" maxlength="200" placeholder="Why is this needed?">
+                </div>
+                <div class="col-md-3 col-lg-2">
+                    <button type="submit" class="btn btn-primary w-100"><i class="bi bi-plus-lg me-1"></i>Add rule</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    {{else}}
+    <div class="panel mb-4">
+        <div class="panel-body">
+            <form method="POST" action="/rauthmgmt/bypass/unlock" class="d-flex flex-wrap align-items-end gap-3">
+                <input type="hidden" name="csrf" value="{{.csrf}}">
+                <div class="flex-grow-1" style="min-width: 240px;">
+                    <div class="fw-semibold"><i class="bi bi-lock-fill text-warning me-1"></i>Changes are locked</div>
+                    <div class="text-muted small">Confirm your identity once to add, edit or remove rules. The unlock lasts 15 minutes for this session.</div>
+                </div>
+                <div>
+                    {{if .admin_has_2fa}}
+                    <label class="form-label" for="unlockCode">Your 2FA code</label>
+                    <input type="text" name="otp_code" id="unlockCode" class="form-control otp-input" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000" required>
+                    {{else}}
+                    <label class="form-label" for="unlockPassword">Your password</label>
+                    <input type="password" name="current_password" id="unlockPassword" class="form-control" autocomplete="current-password" required>
+                    {{end}}
+                </div>
+                <button type="submit" class="btn btn-primary"><i class="bi bi-unlock me-1"></i>Unlock</button>
+            </form>
+        </div>
+    </div>
+    {{end}}
+
+    <div class="panel">
+        <div class="panel-header">
+            <div>
+                <h2>Rules</h2>
+                <div class="sub">The most specific matching rule wins</div>
+            </div>
+            <div class="tools">
+                <button type="button" class="btn btn-ghost btn-sm" data-bs-toggle="collapse" data-bs-target="#bypassHelp" aria-expanded="false"><i class="bi bi-question-circle me-1"></i>Syntax</button>
+            </div>
+        </div>
+        <div class="collapse" id="bypassHelp">
+            <div class="panel-body border-bottom small text-muted">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <div><code>host</code> or <code>host/*</code> whole site</div>
+                        <div><code>*.domain</code> all subdomains (not the apex)</div>
+                        <div><code>host/</code> only the root page</div>
+                        <div><code>host/path</code> that path and everything below it</div>
+                    </div>
+                    <div class="col-md-6">
+                        Precedence: exact host beats wildcard, then <code>/</code> beats prefixes, then the longest path.
+                        On a tie, Login required wins. Example: Public <code>app.example.com/</code>,
+                        Login required <code>app.example.com/example</code>, Public <code>app.example.com/*</code>.
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Access</th>
+                        <th>Rule</th>
+                        <th>Scope</th>
+                        <th>Note</th>
+                        <th>History</th>
+                        <th class="text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .bypass_rules}}
+                    <tr data-row>
+                        <td>
+                            {{if .Allows}}<span class="chip danger"><i class="bi bi-globe2"></i>Public</span>
+                            {{else}}<span class="chip ok"><i class="bi bi-lock-fill"></i>Login required</span>{{end}}
+                        </td>
+                        <td>
+                            <code>{{.Rule}}</code>
+                            {{if eq .Source "env"}}<span class="chip ms-1" title="Defined in AUTH_BYPASS_RULES; change it in the environment">env</span>{{end}}
+                        </td>
+                        <td class="small text-muted">{{.Scope}}</td>
+                        <td class="small">{{.Note}}</td>
+                        <td class="small text-muted">
+                            {{if .CreatedBy}}{{.CreatedBy}}, <time data-ts="{{.CreatedAt}}">{{formatTime .CreatedAt}}</time>{{else}}-{{end}}
+                            {{if .UpdatedBy}}<div>edited by {{.UpdatedBy}}, <time data-ts="{{.UpdatedAt}}">{{formatTime .UpdatedAt}}</time></div>{{end}}
+                        </td>
+                        <td class="actions-cell">
+                            {{if and (eq .Source "ui") $.bypass_unlock_m}}
+                            <button type="button" class="btn-icon bypass-edit" title="Edit rule" aria-label="Edit rule"
+                                    data-rule="{{.Rule}}" data-action="{{if .Allows}}allow{{else}}deny{{end}}" data-note="{{.Note}}"><i class="bi bi-pencil"></i></button>
+                            <form method="POST" action="/rauthmgmt/bypass/delete" data-confirm="Remove the rule {{.Rule}}? Matching requests will follow the next most specific rule." data-confirm-title="Remove rule" data-confirm-icon="bi-trash" data-confirm-btn="Remove">
+                                <input type="hidden" name="csrf" value="{{$.csrf}}">
+                                <input type="hidden" name="rule" value="{{.Rule}}">
+                                <button type="submit" class="btn-icon danger" title="Remove rule" aria-label="Remove rule"><i class="bi bi-trash"></i></button>
+                            </form>
+                            {{else if eq .Source "ui"}}
+                            <span class="text-faint small"><i class="bi bi-lock"></i></span>
+                            {{end}}
+                        </td>
+                    </tr>
+                    {{else}}
+                    <tr><td colspan="6" class="empty"><i class="bi bi-shield-check"></i>No public access rules. Every request requires login.</td></tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+{{end}}

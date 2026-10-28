@@ -1,0 +1,29 @@
+{{/* Modals every console page has: event details and the command palette. */}}
+{{define "console_overlays"}}
+<div class="modal fade" id="detailModal" tabindex="-1" aria-labelledby="detailTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="detailTitle">Event details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body"><pre class="detail-pre" id="detailBody"></pre></div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="commandPalette" tabindex="-1" aria-label="Command palette" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content command-palette">
+            <input type="text" id="commandInput" class="form-control command-input" placeholder="Type a command..." autocomplete="off" aria-label="Command">
+            <div id="commandResults" class="command-results" role="listbox"></div>
+        </div>
+    </div>
+</div>
+{{end}}
+
+{{/* Bootstrap (classic script, provides the global) then the page module. Call with the module path. */}}
+{{define "console_scripts"}}
+<script src="/static/js/bootstrap.bundle.min.js"></script>
+<script type="module" src="{{.}}"></script>
+{{end}}

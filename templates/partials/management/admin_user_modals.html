@@ -1,0 +1,107 @@
+{{/* Create-user and edit-user modals (filled by management.js). */}}
+{{define "admin_user_modals"}}
+<div class="modal fade" id="createUserModal" tabindex="-1" aria-labelledby="createUserTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <form method="POST" action="/rauthmgmt/user/create" autocomplete="off">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="createUserTitle">Add user</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" name="csrf" value="{{.csrf}}">
+                    <div class="mb-3">
+                        <label class="form-label" for="newUsername">Username</label>
+                        <input type="text" name="new_username" id="newUsername" class="form-control" required placeholder="jane.doe" autocapitalize="off" spellcheck="false">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="newEmail">Email <span class="text-faint fw-normal">(optional)</span></label>
+                        <input type="email" name="new_email" id="newEmail" class="form-control" placeholder="jane@example.com">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="newPassword">Initial password</label>
+                        <div class="input-group">
+                            <input type="password" name="new_password" id="newPassword" class="form-control" required autocomplete="new-password">
+                            <button type="button" class="btn btn-secondary" data-reveal="#newPassword" aria-label="Show password"><i class="bi bi-eye"></i></button>
+                            <button type="button" class="btn btn-secondary" data-generate="#newPassword" title="Generate a strong password"><i class="bi bi-magic"></i></button>
+                        </div>
+                        <div class="form-text">Share it securely. The user sets up 2FA at first sign-in.</div>
+                    </div>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" name="is_admin" id="isAdminCheck">
+                        <label class="form-check-label" for="isAdminCheck">Administrator <span class="text-muted small">(full access to this console)</span></label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-ghost" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Create user</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Edit user -->
+<div class="modal fade" id="editUserModal" tabindex="-1" aria-labelledby="editUserTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="cell-user">
+                    <img class="avatar" id="editUserAvatar" width="34" height="34" alt="">
+                    <div>
+                        <h5 class="modal-title" id="editUserTitle">Edit user</h5>
+                        <div class="cell-sub" id="editUserMeta"></div>
+                    </div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <ul class="nav nav-pills nav-pills-sm mb-3" role="tablist">
+                    <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#editTabEmail" type="button" role="tab">Email</button></li>
+                    <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#editTabPassword" type="button" role="tab">Password</button></li>
+                    <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#editTabSecurity" type="button" role="tab">Two-factor</button></li>
+                </ul>
+                <div class="tab-content">
+                    <div class="tab-pane fade show active" id="editTabEmail" role="tabpanel">
+                        <form method="POST" action="/rauthmgmt/user/update-email">
+                            <input type="hidden" name="csrf" value="{{.csrf}}">
+                            <input type="hidden" name="username" id="emailUsernameInput">
+                            <label class="form-label" for="emailInput">Email address</label>
+                            <div class="input-group">
+                                <input type="email" name="new_email" id="emailInput" class="form-control" placeholder="name@example.com" required>
+                                <button class="btn btn-primary" type="submit">Save</button>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="tab-pane fade" id="editTabPassword" role="tabpanel">
+                        <form method="POST" action="/rauthmgmt/user/change-password" data-confirm="Set a new password for this user? Their other sessions will be signed out." data-confirm-title="Change password" data-confirm-icon="bi-key" data-confirm-variant="warning" data-confirm-btn="Change password">
+                            <input type="hidden" name="csrf" value="{{.csrf}}">
+                            <input type="hidden" name="username" id="passwordUsernameInput">
+                            <label class="form-label" for="adminNewPassword">New password</label>
+                            <div class="input-group">
+                                <input type="password" name="new_password" id="adminNewPassword" class="form-control" required autocomplete="new-password">
+                                <button type="button" class="btn btn-secondary" data-reveal="#adminNewPassword" aria-label="Show password"><i class="bi bi-eye"></i></button>
+                                <button type="button" class="btn btn-secondary" data-generate="#adminNewPassword" title="Generate a strong password"><i class="bi bi-magic"></i></button>
+                                <button class="btn btn-primary" type="submit">Update</button>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="tab-pane fade" id="editTabSecurity" role="tabpanel">
+                        <div class="d-flex flex-wrap align-items-center gap-3">
+                            <div class="flex-grow-1">
+                                <div class="fw-semibold">Two-factor authentication <span id="edit2faChip"></span></div>
+                                <div class="text-muted small">Resetting clears the TOTP secret and recovery codes. The user sets up a new authenticator at their next sign-in.</div>
+                            </div>
+                            <form method="POST" action="/rauthmgmt/user/reset-2fa" data-confirm="This clears the user's TOTP secret and recovery codes. They will set up 2FA again at their next sign-in." data-confirm-title="Reset 2FA" data-confirm-icon="bi-shield-exclamation" data-confirm-variant="warning" data-confirm-btn="Reset 2FA">
+                                <input type="hidden" name="csrf" value="{{.csrf}}">
+                                <input type="hidden" name="username" id="reset2faUsernameInput">
+                                <button type="submit" class="btn btn-outline-danger btn-sm" id="reset2faBtn">Reset 2FA</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}

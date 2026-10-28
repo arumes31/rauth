@@ -1,0 +1,107 @@
+{{/* Profile overview: identity, security level, checklist and recent activity. */}}
+{{define "profile_overview"}}
+<section data-panel="overview" data-title="Overview">
+    <div class="hero">
+        <img class="avatar lg" data-identicon="{{.username}}" width="72" height="72">
+        <div class="min-w-0">
+            <h2>{{.username}}</h2>
+            <div class="text-muted">{{if .email}}{{.email}}{{else}}No email address on file{{end}}</div>
+            <div class="meta">
+                {{if .isRoot}}<span class="chip danger"><i class="bi bi-star-fill"></i>Root administrator</span>
+                {{else if .isAdmin}}<span class="chip danger"><i class="bi bi-shield-fill"></i>Administrator</span>
+                {{else}}<span class="chip">User</span>{{end}}
+                {{if .groups}}<span class="chip info" title="Groups"><i class="bi bi-people"></i>{{.groups}}</span>{{end}}
+                {{if and .createdAt (ne .createdAt "0")}}<span class="chip"><i class="bi bi-calendar3"></i>Member since <time data-ts="{{.createdAt}}">{{formatTime .createdAt}}</time></span>{{end}}
+            </div>
+        </div>
+        <div class="score">
+            <div class="small-caps mb-1">Account security</div>
+            {{if and .has2FA .passkeys}}
+            <div class="value text-success">Strong</div>
+            <div class="meter ok mt-2"><span style="width: 100%"></span></div>
+            {{else if or .has2FA .passkeys}}
+            <div class="value text-warning">Good</div>
+            <div class="meter warn mt-2"><span style="width: 66%"></span></div>
+            {{else}}
+            <div class="value text-danger">Basic</div>
+            <div class="meter mt-2"><span style="width: 33%"></span></div>
+            {{end}}
+        </div>
+    </div>
+
+    <div class="grid-2">
+        <div class="panel">
+            <div class="panel-header">
+                <div>
+                    <h2>Security checklist</h2>
+                    <div class="sub">How your account is protected</div>
+                </div>
+                <div class="tools"><button type="button" class="btn btn-ghost btn-sm" data-goto="security">Manage</button></div>
+            </div>
+            <ul class="checklist px-3 py-1">
+                <li>
+                    <span class="dot ok"><i class="bi bi-check-lg"></i></span>
+                    <div class="grow"><div class="fw-semibold">Password</div><div class="cell-sub">Set</div></div>
+                </li>
+                <li>
+                    {{if .has2FA}}
+                    <span class="dot ok"><i class="bi bi-check-lg"></i></span>
+                    <div class="grow"><div class="fw-semibold">Authenticator app (TOTP)</div><div class="cell-sub">Enabled</div></div>
+                    {{else}}
+                    <span class="dot todo"><i class="bi bi-exclamation-lg"></i></span>
+                    <div class="grow"><div class="fw-semibold">Authenticator app (TOTP)</div><div class="cell-sub">Not set up. You will be asked to set it up at your next password sign-in.</div></div>
+                    {{end}}
+                </li>
+                <li>
+                    {{if .passkeys}}
+                    <span class="dot ok"><i class="bi bi-check-lg"></i></span>
+                    <div class="grow"><div class="fw-semibold">Passkeys</div><div class="cell-sub">{{len .passkeys}} registered</div></div>
+                    {{else}}
+                    <span class="dot todo"><i class="bi bi-key"></i></span>
+                    <div class="grow"><div class="fw-semibold">Passkeys</div><div class="cell-sub">None yet. Sign in faster and phishing-resistant.</div></div>
+                    <button type="button" class="btn btn-ghost btn-sm" data-goto="security">Add</button>
+                    {{end}}
+                </li>
+                {{if .has2FA}}
+                <li>
+                    {{if ge .recoveryCount 3}}
+                    <span class="dot ok"><i class="bi bi-check-lg"></i></span>
+                    {{else}}
+                    <span class="dot todo"><i class="bi bi-exclamation-lg"></i></span>
+                    {{end}}
+                    <div class="grow"><div class="fw-semibold">Recovery codes</div><div class="cell-sub">{{.recoveryCount}} unused</div></div>
+                    {{if lt .recoveryCount 3}}<button type="button" class="btn btn-ghost btn-sm" data-goto="security">Generate</button>{{end}}
+                </li>
+                {{end}}
+            </ul>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <div>
+                    <h2>Recent activity</h2>
+                    <div class="sub">Latest security events on your account</div>
+                </div>
+                <div class="tools"><button type="button" class="btn btn-ghost btn-sm" data-goto="activity">View all</button></div>
+            </div>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <tbody>
+                        {{range $i, $l := .logs}}{{if lt $i 6}}
+                        <tr data-row class="clickable" tabindex="0" data-details="{{$l.Details | marshal}}" data-details-title="{{humanAction $l.Action}}">
+                            <td>
+                                <div class="event-name event-{{eventClass $l.Action}}">{{humanAction $l.Action}}</div>
+                                <div class="cell-sub mono">{{$l.IP}}{{if $l.Details.country}} · {{$l.Details.country}}{{end}}</div>
+                            </td>
+                            <td class="text-end text-muted small text-nowrap"><time data-ts="{{$l.Timestamp}}">{{$l.Timestamp | formatTime}}</time></td>
+                        </tr>
+                        {{end}}{{else}}
+                        <tr><td class="empty"><i class="bi bi-clock-history"></i>No activity recorded yet</td></tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</section>
+{{end}}

@@ -1,0 +1,65 @@
+{{/* Profile devices: the user's active sessions. */}}
+{{define "profile_devices"}}
+<section data-panel="sessions" data-title="Devices" hidden>
+    <div class="panel">
+        <div class="panel-header">
+            <div>
+                <h2>Signed-in devices</h2>
+                <div class="sub">{{len .sessions}} active session(s). End any you do not recognise.</div>
+            </div>
+            <div class="tools">
+                <form method="POST" action="/rauthprofile/session/terminate-others" data-confirm="Every other device will be signed out immediately and has to sign in again." data-confirm-title="Sign out other devices?" data-confirm-icon="bi-shield-slash" data-confirm-btn="Sign out others">
+                    <input type="hidden" name="csrf" value="{{.csrf}}">
+                    <button type="submit" class="btn btn-outline-danger btn-sm"><i class="bi bi-box-arrow-right me-1"></i>Sign out all other devices</button>
+                </form>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Device</th>
+                        <th>Location</th>
+                        <th>Signed in</th>
+                        <th>Expires in</th>
+                        <th class="text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .sessions}}
+                    <tr data-row class="{{if eq .is_current "1"}}current{{end}}">
+                        <td>
+                            <div class="cell-user">
+                                <span class="device-icon"><i class="bi {{.device_icon}}"></i></span>
+                                <div class="min-w-0">
+                                    <div class="name"><span class="truncate" title="{{.user_agent}}">{{.friendly_ua}}</span></div>
+                                    {{if eq .is_current "1"}}<span class="chip solid-danger">This device</span>{{end}}
+                                </div>
+                            </div>
+                        </td>
+                        <td>
+                            <div class="mono small">{{.ip}}</div>
+                            {{if eq .country "Tailscale"}}<span class="chip info mt-1"><i class="bi bi-shield-shaded"></i>Tailscale</span>
+                            {{else if .country}}<span class="cell-sub">{{.country}}</span>{{end}}
+                        </td>
+                        <td class="text-muted small text-nowrap"><time data-ts="{{.created_at}}">{{.created_at | formatTime}}</time></td>
+                        <td class="small text-nowrap">{{.ttl | formatSeconds}}</td>
+                        <td class="actions-cell">
+                            {{if ne .is_current "1"}}
+                            <form method="POST" action="/rauthprofile/session/terminate" data-confirm="Sign out {{.friendly_ua}}? It will have to sign in again." data-confirm-title="Sign out device" data-confirm-icon="bi-laptop" data-confirm-btn="Sign out">
+                                <input type="hidden" name="csrf" value="{{$.csrf}}">
+                                <input type="hidden" name="token" value="{{.token}}">
+                                <button type="submit" class="btn-icon danger" title="Sign out this device" aria-label="Sign out this device"><i class="bi bi-x-circle"></i></button>
+                            </form>
+                            {{end}}
+                        </td>
+                    </tr>
+                    {{else}}
+                    <tr><td colspan="5" class="empty"><i class="bi bi-laptop"></i>No active sessions</td></tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+{{end}}

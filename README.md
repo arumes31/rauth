@@ -307,8 +307,19 @@ Some hosts or paths behind the shared forward-auth config have to stay reachable
 | `cloud.example.com` | every path on that host | — |
 | `*.public.example.com` | every subdomain of `public.example.com` (not the apex) | `public.example.com` |
 | `web.example.com/webhook` | `/webhook` and everything below it, e.g. `/webhook/github?x=1` | `/`, `/admin`, `/webhooks`, `/webhook-admin` |
+| `web.example.com/` | only the root page `/` (any query string) | every other path |
+| `web.example.com/*` | same as `web.example.com` | — |
+| `!web.example.com/admin` | — (deny rule) | `/admin` and everything below it, even if a broader rule allows the host |
 
-Manage rules in **`/rauthmgmt` → Public Access**. Adding or removing a rule asks for your TOTP code (or your current password if you have no TOTP) and writes an audit log entry. Rules are stored in Redis, and every instance picks up changes within about 15 seconds. You can also set fixed rules with `AUTH_BYPASS_RULES` (comma separated). Those appear in the UI as read-only.
+Each rule is either **Public** (allow) or **Login required** (deny; `!` prefix in `AUTH_BYPASS_RULES`). When several rules match, the most specific one wins: an exact host beats a wildcard (a longer wildcard suffix beats a shorter one), then `/` beats a prefix, then the longest path prefix wins. On a tie, Login required wins. For example, these three rules on one host make everything public except `/example` and below:
+
+```
+app.example.com/           Public
+app.example.com/example    Login required
+app.example.com/*          Public
+```
+
+Manage rules in **`/rauthmgmt` → Public Access**. Before you can add, edit or remove rules, you unlock the tab once with your TOTP code (or your current password if you have no TOTP). The unlock is bound to your session and lasts 15 minutes, or until you press **Lock now**. Every change writes an audit log entry. Rules are stored in Redis, and every instance picks up changes within about 15 seconds. You can also set fixed rules with `AUTH_BYPASS_RULES` (comma separated). Those appear in the UI as read-only.
 
 How matching works:
 - Hosts match exactly and ignore case and port. Path rules match on whole segments and are case-sensitive.

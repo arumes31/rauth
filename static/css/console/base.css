@@ -1,0 +1,58 @@
+/* RAuth console: design tokens and base typography. Loaded after bootstrap.min.css with <html data-bs-theme="dark">. */
+
+:root,
+[data-bs-theme=dark] {
+    --rc-bg: #0b0b0d;
+    --rc-surface: #131316;
+    --rc-surface-2: #1a1a1f;
+    --rc-surface-3: #222228;
+    --rc-border: #2a2a31;
+    --rc-border-strong: #3a3a43;
+    --rc-text: #ececf1;
+    --rc-muted: #9b9ba7;
+    --rc-faint: #6c6c78;
+    --rc-accent: #ef4444;
+    --rc-accent-hover: #f05252;
+    --rc-accent-soft: rgba(239, 68, 68, 0.12);
+    --rc-accent-line: rgba(239, 68, 68, 0.35);
+    --rc-ok: #22c55e;
+    --rc-ok-soft: rgba(34, 197, 94, 0.12);
+    --rc-warn: #eab308;
+    --rc-warn-soft: rgba(234, 179, 8, 0.12);
+    --rc-info: #38bdf8;
+    --rc-info-soft: rgba(56, 189, 248, 0.12);
+    --rc-radius: 10px;
+    --rc-radius-sm: 6px;
+    --rc-sidebar: 248px;
+    --rc-font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --rc-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+
+    --bs-body-bg: var(--rc-bg);
+    --bs-body-color: var(--rc-text);
+    --bs-body-font-family: var(--rc-font);
+    --bs-border-color: var(--rc-border);
+    --bs-secondary-color: var(--rc-muted);
+    --bs-tertiary-bg: var(--rc-surface-2);
+    --bs-primary: var(--rc-accent);
+    --bs-primary-rgb: 239, 68, 68;
+    --bs-link-color: var(--rc-accent);
+    --bs-link-hover-color: var(--rc-accent-hover);
+    --bs-link-color-rgb: 239, 68, 68;
+    --bs-focus-ring-color: rgba(239, 68, 68, 0.35);
+}
+
+html, body { background: var(--rc-bg); }
+body {
+    font-family: var(--rc-font);
+    font-size: 0.925rem;
+    color: var(--rc-text);
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+}
+
+.mono, code, kbd, .kbd { font-family: var(--rc-mono); }
+code { color: #fda4a4; font-size: 0.85em; }
+.text-muted, .text-secondary { color: var(--rc-muted) !important; }
+.text-faint { color: var(--rc-faint) !important; }
+.small-caps { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; color: var(--rc-muted); }
+a { text-decoration: none; }

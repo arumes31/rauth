@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"rauth/internal/core"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -137,45 +138,90 @@ func TestAdminHandler_BypassRules(t *testing.T) {
 	h := &AdminHandler{Cfg: &core.Config{RateLimitLoginFailUserMax: 1000, RateLimitLoginFailUserDecay: 60}}
 	e := echo.New()
 
-	post := func(fn func(echo.Context) error, f url.Values) (int, string, error) {
+	postAs := func(token string, fn func(echo.Context) error, f url.Values) (int, string, error) {
 		c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/bypass", f)
 		c.Set("username", "adminuser")
+		c.Set("token", token)
 		err := fn(c)
 		if he, ok := err.(*echo.HTTPError); ok {
 			return he.Code, "", nil
 		}
 		return rec.Code, rec.Header().Get("Location"), err
 	}
+	post := func(fn func(echo.Context) error, f url.Values) (int, string, error) {
+		return postAs("session-a", fn, f)
+	}
 
-	code, _, err := post(h.AddBypassRule, url.Values{"rule": {"web.example.com/webhook"}})
+	// Locked: every change is refused, even with a password in the form.
+	code, _, err := post(h.AddBypassRule, url.Values{"rule": {"web.example.com/webhook"}, "current_password": {"AdminPass1!"}})
 	require.NoError(t, err)
-	assert.Equal(t, http.StatusBadRequest, code, "step-up required")
-
-	code, _, _ = post(h.AddBypassRule, url.Values{"rule": {"web.example.com/webhook"}, "current_password": {"wrong"}})
-	assert.Equal(t, http.StatusBadRequest, code, "wrong password")
+	assert.Equal(t, http.StatusForbidden, code, "locked")
 	_, ok := core.MatchBypass("web.example.com", "/webhook")
 	assert.False(t, ok)
 
-	code, _, _ = post(h.AddBypassRule, url.Values{"rule": {"https://bad"}, "current_password": {"AdminPass1!"}})
-	assert.Equal(t, http.StatusBadRequest, code, "invalid rule")
+	code, _, _ = post(h.UnlockBypass, url.Values{})
+	assert.Equal(t, http.StatusBadRequest, code, "step-up required")
+	code, _, _ = post(h.UnlockBypass, url.Values{"current_password": {"wrong"}})
+	assert.Equal(t, http.StatusBadRequest, code, "wrong password")
+	code, _, _ = postAs("", h.UnlockBypass, url.Values{"current_password": {"AdminPass1!"}})
+	assert.Equal(t, http.StatusUnauthorized, code, "no session token")
 
-	code, loc, err := post(h.AddBypassRule, url.Values{"rule": {"web.example.com/webhook"}, "note": {"hooks"}, "current_password": {"AdminPass1!"}})
+	code, loc, err := post(h.UnlockBypass, url.Values{"current_password": {"AdminPass1!"}})
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusFound, code)
-	assert.Equal(t, "/rauthmgmt?success=bypass_added#bypass", loc)
-	_, ok = core.MatchBypass("web.example.com", "/webhook/x")
+	assert.Equal(t, "/rauthmgmt?success=bypass_unlocked#bypass", loc)
+	ttl := core.TokenDB.TTL(core.Ctx, "bypass_unlock:session-a").Val()
+	assert.Greater(t, ttl, time.Duration(0))
+	assert.LessOrEqual(t, ttl, bypassUnlockTTL)
+
+	// Unlocked: several changes without further step-up.
+	code, _, _ = post(h.AddBypassRule, url.Values{"rule": {"https://bad"}})
+	assert.Equal(t, http.StatusBadRequest, code, "invalid rule")
+
+	for _, f := range []url.Values{
+		{"rule": {"app.example.com/"}},
+		{"rule": {"app.example.com/example"}, "action": {"deny"}},
+		{"rule": {"app.example.com/*"}, "note": {"rest is public"}},
+	} {
+		code, loc, err = post(h.AddBypassRule, f)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusFound, code, f.Get("rule"))
+		assert.Equal(t, "/rauthmgmt?success=bypass_added#bypass", loc)
+	}
+	for uri, want := range map[string]bool{"/": true, "/foo": true, "/example": false, "/example/x": false} {
+		_, ok = core.MatchBypass("app.example.com", uri)
+		assert.Equal(t, want, ok, uri)
+	}
+
+	code, _, _ = post(h.AddBypassRule, url.Values{"rule": {"app.example.com/example"}})
+	assert.Equal(t, http.StatusBadRequest, code, "duplicate")
+
+	// Another session of the same admin is not unlocked.
+	code, _, _ = postAs("session-b", h.DeleteBypassRule, url.Values{"rule": {"app.example.com/example"}})
+	assert.Equal(t, http.StatusForbidden, code)
+
+	code, loc, err = post(h.UpdateBypassRule, url.Values{"original_rule": {"app.example.com/example"}, "rule": {"app.example.com/example"}, "action": {"allow"}})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusFound, code)
+	assert.Equal(t, "/rauthmgmt?success=bypass_updated#bypass", loc)
+	_, ok = core.MatchBypass("app.example.com", "/example")
 	assert.True(t, ok)
 
-	code, _, _ = post(h.DeleteBypassRule, url.Values{"rule": {"web.example.com/webhook"}})
-	assert.Equal(t, http.StatusBadRequest, code, "delete also needs step-up")
+	code, _, _ = post(h.UpdateBypassRule, url.Values{"original_rule": {"app.example.com/nope"}, "rule": {"app.example.com/x"}})
+	assert.Equal(t, http.StatusNotFound, code)
 
-	code, loc, err = post(h.DeleteBypassRule, url.Values{"rule": {"web.example.com/webhook"}, "current_password": {"AdminPass1!"}})
+	code, loc, err = post(h.DeleteBypassRule, url.Values{"rule": {"app.example.com/example"}})
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusFound, code)
 	assert.Equal(t, "/rauthmgmt?success=bypass_deleted#bypass", loc)
-	_, ok = core.MatchBypass("web.example.com", "/webhook")
-	assert.False(t, ok)
 
-	code, _, _ = post(h.DeleteBypassRule, url.Values{"rule": {"web.example.com/webhook"}, "current_password": {"AdminPass1!"}})
+	code, _, _ = post(h.DeleteBypassRule, url.Values{"rule": {"app.example.com/example"}})
 	assert.Equal(t, http.StatusNotFound, code)
+
+	// Lock ends the unlock immediately.
+	code, loc, _ = post(h.LockBypass, url.Values{})
+	assert.Equal(t, http.StatusFound, code)
+	assert.Equal(t, "/rauthmgmt?success=bypass_locked#bypass", loc)
+	code, _, _ = post(h.DeleteBypassRule, url.Values{"rule": {"app.example.com"}})
+	assert.Equal(t, http.StatusForbidden, code)
 }

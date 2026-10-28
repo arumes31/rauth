@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"rauth/internal/core"
+	"rauth/internal/handlers"
 	"strings"
 	"testing"
 
@@ -63,12 +64,16 @@ func TestManagementDeletionControls(t *testing.T) {
 				"username":  actor,
 				"root_user": "owner",
 				"csrf":      "test-csrf",
-				"users": []core.User{
-					{Username: "owner", IsAdmin: "1"},
+				"users": []handlers.AdminUserView{
+					{Username: "owner", IsAdmin: "1", Has2FA: true},
 					{Username: "operator", IsAdmin: "1"},
 					{Username: "peeradmin", IsAdmin: "1"},
 					{Username: "member", IsAdmin: "0"},
 				},
+				"stats":        handlers.AdminStats{Users: 4, Admins: 3, With2FA: 1},
+				"sessions":     []map[string]string{},
+				"logs":         []core.AuditLog{},
+				"bypass_rules": []handlers.BypassRuleView{},
 			}, nil)
 			require.NoError(t, err)
 			body := page.String()
