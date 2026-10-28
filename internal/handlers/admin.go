@@ -98,13 +98,26 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 		}
 	}
 
+	// Step-up for bypass rule changes asks for TOTP if the admin has it,
+	// otherwise the current password.
+	adminHas2FA := false
+	if adminName, ok := c.Get("username").(string); ok {
+		if rec, err := core.GetUser(adminName); err == nil {
+			adminHas2FA = rec.TwoFactor != ""
+		}
+	}
+
 	return c.Render(http.StatusOK, "management.html", map[string]interface{}{
-		"username":  c.Get("username"),
-		"root_user": h.Cfg.InitialUser,
-		"users":     users,
-		"sessions":  sessions,
-		"logs":      logs,
-		"csrf":      c.Get("csrf"),
+		"username":        c.Get("username"),
+		"root_user":       h.Cfg.InitialUser,
+		"users":           users,
+		"sessions":        sessions,
+		"logs":            logs,
+		"csrf":            c.Get("csrf"),
+		"bypass_rules":    bypassRuleViews(),
+		"bypass_host_hdr": h.Cfg.AuthBypassHostHeader,
+		"bypass_uri_hdr":  h.Cfg.AuthBypassURIHeader,
+		"admin_has_2fa":   adminHas2FA,
 	})
 }
 

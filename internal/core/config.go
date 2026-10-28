@@ -99,6 +99,14 @@ type Config struct {
 	// CSRFTrustedOrigins lists extra origins (scheme://host[:port]) allowed to
 	// send state-changing requests besides rauth's own origin.
 	CSRFTrustedOrigins []string
+	// AuthBypassRules are read-only bypass rules from AUTH_BYPASS_RULES (more
+	// can be managed in the admin UI). See bypass.go for the syntax.
+	AuthBypassRules []string
+	// AuthBypassHostHeader / AuthBypassURIHeader name the headers carrying the
+	// originally requested host and URI on the forward-auth subrequest. The
+	// reverse proxy must set (overwrite) them.
+	AuthBypassHostHeader string
+	AuthBypassURIHeader  string
 }
 
 // DefaultCloudflareIPRanges is Cloudflare's published edge list
@@ -181,6 +189,10 @@ func LoadConfig() *Config {
 		// Passkeys / CSRF
 		WebAuthnRequireUserVerification: strings.ToLower(strings.TrimSpace(getEnv("WEBAUTHN_USER_VERIFICATION", "preferred"))) == "required",
 		CSRFTrustedOrigins:              getEnvSlice("CSRF_TRUSTED_ORIGINS", []string{}),
+		// Auth bypass (anonymous access)
+		AuthBypassRules:      getEnvSlice("AUTH_BYPASS_RULES", []string{}),
+		AuthBypassHostHeader: getEnv("AUTH_BYPASS_HOST_HEADER", "X-Forwarded-Host"),
+		AuthBypassURIHeader:  getEnv("AUTH_BYPASS_URI_HEADER", "X-Forwarded-Uri"),
 	}
 }
 

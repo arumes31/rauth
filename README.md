@@ -187,6 +187,9 @@ location = /rauth-verify {
     # TRUST_X_FORWARDED_FOR=true) on the rauth container.
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    # Needed for auth bypass rules (see "Public Access / Auth Bypass Rules")
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Uri $request_uri;
 }
 
 # 2. Protect your application
@@ -280,7 +283,6 @@ services:
     container_name: rauth-auth-service
     labels:
       - "traefik.http.middlewares.rauth-auth.forwardauth.address=http://rauth-auth-service:5980/rauthvalidate"
-      - "traefik.http.middlewares.rauth-auth.forwardauth.trustForwardHeader=true"
       - "traefik.http.middlewares.rauth-auth.forwardauth.authResponseHeaders=X-RAuth-User"
 
   # 2. Reference the middleware to protect your application
@@ -291,8 +293,33 @@ services:
       - "traefik.http.routers.your-app.middlewares=rauth-auth"
 ```
 
+> [!WARNING]
+> Leave `trustForwardHeader` off (the default). With it enabled, Traefik passes client-supplied `X-Forwarded-*` headers to RAuth, so a client could pick its own `X-Forwarded-Host` / `X-Forwarded-Uri` and match a [bypass rule](#-public-access--auth-bypass-rules). Real client IPs belong in the entrypoint's `forwardedHeaders.trustedIPs` instead.
+
 ### 🌐 Proxying Multiple Domains
 RAuth can protect multiple apps across different subdomains using a single deployment. Set your `COOKIE_DOMAIN` to the root domain (e.g., `example.com`) to share session state between `app1.example.com` and `app2.example.com`.
+
+### 🔓 Public Access / Auth Bypass Rules
+Some hosts or paths behind the shared forward-auth config have to stay reachable without a login, such as an app with its own auth or a webhook receiver. Bypass rules make `/rauthvalidate` answer `200` for matching requests that have no valid session, so they go through anonymously. Logged-in users keep their identity headers.
+
+| Rule | Allows anonymously | Still requires login |
+|------|--------------------|----------------------|
+| `cloud.example.com` | every path on that host | — |
+| `*.public.example.com` | every subdomain of `public.example.com` (not the apex) | `public.example.com` |
+| `web.example.com/webhook` | `/webhook` and everything below it, e.g. `/webhook/github?x=1` | `/`, `/admin`, `/webhooks`, `/webhook-admin` |
+
+Manage rules in **`/rauthmgmt` → Public Access**. Adding or removing a rule asks for your TOTP code (or your current password if you have no TOTP) and writes an audit log entry. Rules are stored in Redis, and every instance picks up changes within about 15 seconds. You can also set fixed rules with `AUTH_BYPASS_RULES` (comma separated). Those appear in the UI as read-only.
+
+How matching works:
+- Hosts match exactly and ignore case and port. Path rules match on whole segments and are case-sensitive.
+- The query string is ignored.
+- A URI that contains `..`, `.`, `;`, a backslash, or encoded `/`, `\`, `.` or NUL is never bypassed, so tricks like `/webhook/..%2fadmin` cannot reach other paths.
+- Anonymous responses carry `X-RAuth-Anonymous: 1` and an empty `X-RAuth-User`. Backends must not treat an empty user as authenticated.
+
+The host and URI come from `X-Forwarded-Host` and `X-Forwarded-Uri` on the auth subrequest. Caddy (`forward_auth`) and Traefik (`forwardAuth`) send these headers by default. With nginx, add `proxy_set_header X-Forwarded-Host $host;` and `proxy_set_header X-Forwarded-Uri $request_uri;` to the `/rauth-verify` location. Setups that only send `X-Original-URI` can set `AUTH_BYPASS_URI_HEADER=X-Original-URI` instead. If a request is missing either header, it is never bypassed.
+
+> [!WARNING]
+> These headers decide who skips authentication. Your proxy must overwrite them (Traefik: keep `trustForwardHeader` off), and RAuth must only be reachable through the proxy. Set `TRUSTED_PROXIES`: once it is set, RAuth honours the bypass headers only from those peers. Without it, they are honoured only from private or loopback addresses.
 
 ---
 
@@ -363,6 +390,9 @@ RAuth is configured via Environment Variables.
 | **Proxy**  | `TRUST_CLOUDFLARE_IP` | Trust IP in `CF-Connecting-IP` — only when the request arrived from a Cloudflare edge (the direct peer, or the `X-Real-IP` reported by a trusted proxy), so direct-to-origin clients cannot forge it | `false` |
 | **Proxy**  | `CLOUDFLARE_IP_RANGES` | Cloudflare edge CIDRs used for that check (comma separated) | Built-in list |
 | **Proxy**  | `CLOUDFLARE_IP_AUTO_UPDATE` | Refresh the edge list from `cloudflare.com/ips-v4` / `ips-v6` at startup and daily (keeps the current list on failure). Only active with `TRUST_CLOUDFLARE_IP=true` | `true` |
+| **Proxy**  | `AUTH_BYPASS_RULES` | Comma-separated hosts, `*.domain` wildcards or `host/path` prefixes that pass forward-auth without a login (see [Public Access / Auth Bypass Rules](#-public-access--auth-bypass-rules)). Additional rules can be managed in the admin UI | (Empty) |
+| **Proxy**  | `AUTH_BYPASS_HOST_HEADER` | Header carrying the original host on the auth subrequest | `X-Forwarded-Host` |
+| **Proxy**  | `AUTH_BYPASS_URI_HEADER` | Header carrying the original request URI on the auth subrequest | `X-Forwarded-Uri` |
 | **Policy** | `PWD_MIN_LENGTH` | Minimum required password length | `8` |
 | **Policy** | `PWD_REQUIRE_UPPER` | Require uppercase in passwords | `true` |
 | **Policy** | `PWD_REQUIRE_LOWER` | Require lowercase in passwords | `true` |
