@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -83,11 +84,19 @@ func importFromRedis(ctx context.Context, userDB, auditDB *redis.Client) error {
 	return nil
 }
 
+// scanKeys returns the keys matching pattern in first-seen order. SCAN may
+// report a key more than once, so duplicates are dropped.
 func scanKeys(ctx context.Context, client *redis.Client, pattern string) ([]string, error) {
 	var keys []string
+	seen := map[string]struct{}{}
 	iter := client.Scan(ctx, 0, pattern, 500).Iterator()
 	for iter.Next(ctx) {
-		keys = append(keys, iter.Val())
+		key := iter.Val()
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		keys = append(keys, key)
 	}
 	return keys, iter.Err()
 }
@@ -108,7 +117,13 @@ func copyRedisData(ctx context.Context, tx pgx.Tx, userDB, auditDB *redis.Client
 		if strings.Contains(name, ":") {
 			continue
 		}
-		if t, err := userDB.Type(ctx, key).Result(); err != nil || t != "hash" {
+		// Redis errors abort the import so the transaction rolls back and the
+		// next start retries; only keys of another type are skipped.
+		t, err := userDB.Type(ctx, key).Result()
+		if err != nil {
+			return stats, err
+		}
+		if t != "hash" {
 			continue
 		}
 		h, err := userDB.HGetAll(ctx, key).Result()
@@ -190,8 +205,11 @@ func copyRedisData(ctx context.Context, tx pgx.Tx, userDB, auditDB *redis.Client
 	}
 	for _, key := range genKeys {
 		v, err := userDB.Get(ctx, key).Result()
-		if err != nil {
+		if errors.Is(err, redis.Nil) {
 			continue
+		}
+		if err != nil {
+			return stats, err
 		}
 		gen, err := strconv.ParseInt(v, 10, 64)
 		if err != nil {

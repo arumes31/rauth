@@ -390,7 +390,7 @@ RAuth is configured via Environment Variables.
 | **Postgres** | `POSTGRES_PORT` | Port of the PostgreSQL server | `5432` |
 | **Postgres** | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | Credentials and database (password required by the compose files) | `rauth` / (None) / `rauth` |
 | **Postgres** | `POSTGRES_SSLMODE` | libpq `sslmode` | `disable` |
-| **Postgres** | `DATABASE_URL` | Full connection string; overrides the `POSTGRES_*` settings | (None) |
+| **Postgres** | `DATABASE_URL` | Full connection string; overrides the `POSTGRES_*` settings. The bundled compose files still require `POSTGRES_PASSWORD` for their own Postgres container | (None) |
 | **Audit**  | `AUDIT_RETENTION_DAYS` | Days to keep audit log entries (`0` = forever) | `365` |
 | **Auth**   | `COOKIE_DOMAIN` | Domain for the auth cookie | `example.com` |
 | **Auth**   | `ALLOWED_HOSTS` | Redirect whitelist (Comma-separated) | `localhost,127.0.0.1` |
@@ -727,7 +727,7 @@ A: Ensure RAuth's container can reach the SMTP host (check DNS and outbound fire
 **Q: How do I recover if the administrator loses their 2FA / TOTP key or gets locked out?**  
 A: Another administrator can use **Reset 2FA** on any non-root account. The root administrator (`INITIAL_USER`) can only be changed by itself, so other admins cannot take it over. `INITIAL_USER`/`INITIAL_PASSWORD` only create the account when it does not exist yet; they never overwrite an existing one. With database access you can reset the root admin's second factors manually, then log in with the password and enroll a new TOTP. Replace `admin` with your configured `INITIAL_USER`:
 ```bash
-docker exec -i rauth-auth-postgres psql -U rauth rauth <<'SQL'
+docker exec -i rauth-auth-postgres sh -c 'psql -U "$POSTGRES_USER" "$POSTGRES_DB"' <<'SQL'
 UPDATE users SET totp_secret = '' WHERE username = 'admin';
 DELETE FROM recovery_codes WHERE username = 'admin';
 DELETE FROM webauthn_credentials WHERE username = 'admin';

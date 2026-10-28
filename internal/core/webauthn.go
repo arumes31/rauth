@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
+	"github.com/jackc/pgx/v5"
 )
 
 // WebAuthnUser implements the webauthn.User interface
@@ -211,32 +212,29 @@ func GetStoredCredentials(username string) []StoredCredential {
 // while it was being updated.
 var errCredentialGone = errors.New("credential or account no longer exists")
 
-// updateStoredCredential applies mutate to a stored credential. The update
-// only matches a row that still exists, so it never re-creates a credential
-// removed concurrently (passkeys cascade with their account).
+// updateStoredCredential applies mutate to a stored credential. The row is
+// locked for the read-modify-write, so concurrent updates (sign count,
+// nickname, last used) cannot overwrite each other, and a credential removed
+// concurrently is never re-created (passkeys cascade with their account).
 func updateStoredCredential(username, credID string, mutate func(*StoredCredential)) error {
-	var raw []byte
-	err := PG.QueryRow(Ctx, "SELECT data FROM webauthn_credentials WHERE username = $1 AND cred_id = $2", username, credID).Scan(&raw)
-	if isNoRows(err) {
-		return errCredentialGone
-	}
-	if err != nil {
+	return pgx.BeginFunc(Ctx, PG, func(tx pgx.Tx) error {
+		var raw []byte
+		err := tx.QueryRow(Ctx, "SELECT data FROM webauthn_credentials WHERE username = $1 AND cred_id = $2 FOR UPDATE", username, credID).Scan(&raw)
+		if isNoRows(err) {
+			return errCredentialGone
+		}
+		if err != nil {
+			return err
+		}
+		var c StoredCredential
+		if err := json.Unmarshal(raw, &c); err != nil {
+			return err
+		}
+		mutate(&c)
+		data, _ := json.Marshal(c)
+		_, err = tx.Exec(Ctx, "UPDATE webauthn_credentials SET data = $3 WHERE username = $1 AND cred_id = $2", username, credID, data)
 		return err
-	}
-	var c StoredCredential
-	if err := json.Unmarshal(raw, &c); err != nil {
-		return err
-	}
-	mutate(&c)
-	data, _ := json.Marshal(c)
-	tag, err := PG.Exec(Ctx, "UPDATE webauthn_credentials SET data = $3 WHERE username = $1 AND cred_id = $2", username, credID, data)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return errCredentialGone
-	}
-	return nil
+	})
 }
 
 func UpdateWebAuthnSignCount(username string, credID []byte, newCount uint32) error {
