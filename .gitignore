@@ -20,6 +20,8 @@ coverage.out
 coverage.html
 *.out
 *.html
+# ...but templates (including partials) are source
+!templates/**/*.html
 
 # Docker
 .docker-compose.un~

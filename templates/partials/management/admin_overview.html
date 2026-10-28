@@ -1,0 +1,107 @@
+{{/* Overview: headline stats, items needing attention and recent activity. */}}
+{{define "admin_overview"}}
+<section data-panel="overview" data-title="Overview">
+    {{with .stats}}
+    <div class="stats">
+        <a href="#users" class="stat" data-goto="users">
+            <span class="label"><i class="bi bi-people"></i>Users</span>
+            <span class="value">{{.Users}}</span>
+            <span class="hint">{{.Admins}} administrator(s)</span>
+        </a>
+        <a href="#sessions" class="stat" data-goto="sessions">
+            <span class="label"><i class="bi bi-broadcast"></i>Active sessions</span>
+            <span class="value">{{.Sessions}}</span>
+            <span class="hint">{{.OnlineUsers}} user(s) signed in</span>
+        </a>
+        <a href="#users" class="stat {{if lt .With2FA .Users}}warn{{else}}ok{{end}}" data-goto="users">
+            <span class="label"><i class="bi bi-shield-check"></i>Two-factor coverage</span>
+            <span class="value">{{.With2FA}}<span class="text-faint fs-6"> / {{.Users}}</span></span>
+            <span class="hint">users with TOTP enabled</span>
+        </a>
+        <a href="#audit" class="stat {{if .FailedLogins}}danger{{end}}" data-goto="audit">
+            <span class="label"><i class="bi bi-exclamation-octagon"></i>Failed sign-ins</span>
+            <span class="value">{{.FailedLogins}}</span>
+            <span class="hint">in the last 100 audit events</span>
+        </a>
+        <a href="#bypass" class="stat {{if .PublicRules}}warn{{end}}" data-goto="bypass">
+            <span class="label"><i class="bi bi-globe2"></i>Public access rules</span>
+            <span class="value">{{.PublicRules}}</span>
+            <span class="hint">hosts or paths without login</span>
+        </a>
+    </div>
+    {{end}}
+
+    <div class="grid-2">
+        <div class="panel">
+            <div class="panel-header">
+                <div>
+                    <h2>Needs attention</h2>
+                    <div class="sub">Accounts and settings worth a look</div>
+                </div>
+            </div>
+            <ul class="checklist px-3 py-1">
+                {{range .users}}{{if not .Has2FA}}
+                <li>
+                    <span class="dot todo"><i class="bi bi-shield-exclamation"></i></span>
+                    <div class="grow">
+                        <div class="fw-semibold">{{.Username}}</div>
+                        <div class="cell-sub">No TOTP yet. They are asked to set it up at their next password sign-in.</div>
+                    </div>
+                    <button type="button" class="btn btn-ghost btn-sm" data-edit-user data-username="{{.Username}}" data-email="{{.Email}}" data-has2fa="0" data-sessions="{{.Sessions}}">Open</button>
+                </li>
+                {{end}}{{end}}
+                {{with .stats}}{{if .FailedLogins}}
+                <li>
+                    <span class="dot todo"><i class="bi bi-exclamation-octagon"></i></span>
+                    <div class="grow">
+                        <div class="fw-semibold">{{.FailedLogins}} failed sign-in(s)</div>
+                        <div class="cell-sub">Recent failed password or 2FA attempts in the audit log.</div>
+                    </div>
+                    <button type="button" class="btn btn-ghost btn-sm" data-audit-filter="bad">Review</button>
+                </li>
+                {{end}}{{if .PublicRules}}
+                <li>
+                    <span class="dot todo"><i class="bi bi-globe2"></i></span>
+                    <div class="grow">
+                        <div class="fw-semibold">{{.PublicRules}} public access rule(s)</div>
+                        <div class="cell-sub">Matching requests reach applications without login.</div>
+                    </div>
+                    <button type="button" class="btn btn-ghost btn-sm" data-goto="bypass">Review</button>
+                </li>
+                {{end}}{{end}}
+                <li class="all-clear">
+                    <span class="dot ok"><i class="bi bi-check-lg"></i></span>
+                    <div class="grow text-muted">Nothing else needs attention.</div>
+                </li>
+            </ul>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <div>
+                    <h2>Recent activity</h2>
+                    <div class="sub">Latest audit events across all users</div>
+                </div>
+                <div class="tools"><button type="button" class="btn btn-ghost btn-sm" data-goto="audit">View all</button></div>
+            </div>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <tbody>
+                        {{range $i, $l := .logs}}{{if lt $i 8}}
+                        <tr data-row class="clickable" tabindex="0" data-details="{{$l.Details | marshal}}" data-details-title="{{humanAction $l.Action}}">
+                            <td>
+                                <div class="event-name event-{{eventClass $l.Action}}">{{humanAction $l.Action}}</div>
+                                <div class="cell-sub">{{$l.Username}} · <span class="mono">{{$l.IP}}</span></div>
+                            </td>
+                            <td class="text-end text-muted small text-nowrap"><time data-ts="{{$l.Timestamp}}">{{$l.Timestamp | formatTime}}</time></td>
+                        </tr>
+                        {{end}}{{else}}
+                        <tr><td class="empty"><i class="bi bi-journal"></i>No audit events yet</td></tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</section>
+{{end}}

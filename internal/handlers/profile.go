@@ -105,6 +105,8 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 		"email":         userData["email"],
 		"groups":        userData["groups"],
 		"isAdmin":       userData["is_admin"] == "1",
+		"isRoot":        username == h.Cfg.InitialUser,
+		"createdAt":     userData["created_at"],
 		"has2FA":        userData["2fa_secret"] != "",
 		"recoveryCount": core.CountRecoveryCodes(username),
 		"sessions":      sessions,

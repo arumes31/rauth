@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"rauth/internal/core"
+	"rauth/internal/handlers"
 	"strings"
 	"testing"
 
@@ -63,12 +64,16 @@ func TestManagementDeletionControls(t *testing.T) {
 				"username":  actor,
 				"root_user": "owner",
 				"csrf":      "test-csrf",
-				"users": []core.User{
-					{Username: "owner", IsAdmin: "1"},
+				"users": []handlers.AdminUserView{
+					{Username: "owner", IsAdmin: "1", Has2FA: true},
 					{Username: "operator", IsAdmin: "1"},
 					{Username: "peeradmin", IsAdmin: "1"},
 					{Username: "member", IsAdmin: "0"},
 				},
+				"stats":        handlers.AdminStats{Users: 4, Admins: 3, With2FA: 1},
+				"sessions":     []map[string]string{},
+				"logs":         []core.AuditLog{},
+				"bypass_rules": []handlers.BypassRuleView{},
 			}, nil)
 			require.NoError(t, err)
 			body := page.String()
@@ -86,6 +91,30 @@ func TestSetupMiddleware(t *testing.T) {
 	// Should register middleware and error/not-found handlers without panicking.
 	setupMiddleware(e, &core.Config{})
 	assert.NotNil(t, e.HTTPErrorHandler)
+}
+
+func TestErrorHandlerJSONForFetchClients(t *testing.T) {
+	e := echo.New()
+	setupRenderer(e)
+	setupErrorHandlers(e)
+	e.POST("/rauthprofile/password", func(c echo.Context) error {
+		return echo.NewHTTPError(http.StatusBadRequest, "Current password incorrect")
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/rauthprofile/password", nil)
+	req.Header.Set("Accept", "application/json")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Header().Get("Content-Type"), "application/json")
+	assert.JSONEq(t, `{"error":"Current password incorrect","code":400}`, rec.Body.String())
+
+	// Browsers navigating normally still get the HTML error page.
+	req = httptest.NewRequest(http.MethodPost, "/rauthprofile/password", nil)
+	req.Header.Set("Accept", "text/html,application/xhtml+xml")
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	assert.Contains(t, rec.Header().Get("Content-Type"), "text/html")
 }
 
 func TestSetupSecurityMiddlewareIncludesTrustedFormActions(t *testing.T) {

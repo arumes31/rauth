@@ -1,0 +1,27 @@
+{{/* Shared <head> contents for the console pages; call with the page data (uses .csrf). */}}
+{{define "console_head"}}
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{.csrf}}">
+    <link rel="icon" type="image/png" href="/static/favicon.png">
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/css/bootstrap-icons.min.css" rel="stylesheet">
+    <link href="/static/css/console/base.css" rel="stylesheet">
+    <link href="/static/css/console/layout.css" rel="stylesheet">
+    <link href="/static/css/console/components.css" rel="stylesheet">
+    <link href="/static/css/console/overlays.css" rel="stylesheet">
+{{end}}
+
+{{/* Top bar with the page title and the command palette button. */}}
+{{define "console_topbar_start"}}
+        <header class="topbar">
+            <h1 id="pageTitle">Overview</h1>
+            <div class="actions">
+                <button type="button" class="palette-btn" data-open-palette title="Command palette">
+                    <i class="bi bi-search"></i><span class="label">Search commands</span><span class="kbd">Ctrl K</span>
+                </button>
+{{end}}
+{{define "console_topbar_end"}}
+            </div>
+        </header>
+{{end}}

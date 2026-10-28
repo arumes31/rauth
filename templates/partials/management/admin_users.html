@@ -1,0 +1,90 @@
+{{/* User directory with search, filters and per-user actions. */}}
+{{define "admin_users"}}
+<section data-panel="users" data-title="Users" hidden>
+    <div class="panel">
+        <div class="panel-header">
+            <div>
+                <h2>User directory</h2>
+                <div class="sub"><span data-filter-count="#usersTable">{{len .users}}</span> of {{len .users}} accounts</div>
+            </div>
+            <div class="tools">
+                <div class="search">
+                    <i class="bi bi-search"></i>
+                    <input type="search" class="form-control" placeholder="Search name or email" data-filter="#usersTable" aria-label="Search users">
+                </div>
+                <select class="form-select" data-filter-kind="#usersTable" aria-label="Filter users">
+                    <option value="">All users</option>
+                    <option value="admin">Administrators</option>
+                    <option value="no2fa">Without 2FA</option>
+                    <option value="online">Signed in now</option>
+                </select>
+                <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#createUserModal"><i class="bi bi-person-plus me-1"></i>Add user</button>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table class="data-table" id="usersTable">
+                <thead>
+                    <tr>
+                        <th>User</th>
+                        <th>Role</th>
+                        <th>Two-factor</th>
+                        <th>Sessions</th>
+                        <th class="text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .users}}
+                    <tr data-row data-search="{{.Username}} {{.Email}} {{.Groups}}"
+                        data-kind="{{if eq .IsAdmin "1"}}admin{{end}} {{if not .Has2FA}}no2fa{{end}} {{if .Sessions}}online{{end}}">
+                        <td>
+                            <div class="cell-user">
+                                <img class="avatar" data-identicon="{{.Username}}" width="34" height="34">
+                                <div class="min-w-0">
+                                    <div class="name">{{.Username}}{{if eq .Username $.username}} <span class="chip ms-1">you</span>{{end}}</div>
+                                    <div class="cell-sub">{{if .Email}}{{.Email}}{{else}}<span class="text-faint">No email</span>{{end}}</div>
+                                </div>
+                            </div>
+                        </td>
+                        <td>
+                            {{if eq .Username $.root_user}}
+                            <span class="chip danger" title="This account is protected from deletion"><i class="bi bi-star-fill"></i>Root Administrator</span>
+                            {{else if eq .IsAdmin "1"}}
+                            <span class="chip danger"><i class="bi bi-shield-fill"></i>Administrator</span>
+                            {{else}}
+                            <span class="chip">User</span>
+                            {{end}}
+                        </td>
+                        <td>
+                            {{if .Has2FA}}<span class="chip ok"><i class="bi bi-check-circle"></i>Enabled</span>
+                            {{else}}<span class="chip warn"><i class="bi bi-exclamation-circle"></i>Not set up</span>{{end}}
+                        </td>
+                        <td>
+                            {{if .Sessions}}
+                            <button type="button" class="btn btn-link btn-sm p-0" data-sessions-for="{{.Username}}">{{.Sessions}} active</button>
+                            {{else}}<span class="text-faint">None</span>{{end}}
+                        </td>
+                        <td class="actions-cell">
+                            <button type="button" class="btn-icon" title="Edit {{.Username}}" aria-label="Edit {{.Username}}"
+                                    data-edit-user data-username="{{.Username}}" data-email="{{.Email}}"
+                                    data-has2fa="{{if .Has2FA}}1{{else}}0{{end}}" data-sessions="{{.Sessions}}">
+                                <i class="bi bi-pencil"></i>
+                            </button>
+                            {{if and (ne .Username $.root_user) (ne .Username $.username)}}
+                            <form method="POST" action="/rauthmgmt/user/delete" data-confirm="This permanently deletes the account for {{.Username}}, ends their sessions and removes their passkeys. This cannot be undone." data-confirm-title="Delete {{.Username}}?" data-confirm-icon="bi-person-x" data-confirm-btn="Delete user">
+                                <input type="hidden" name="csrf" value="{{$.csrf}}">
+                                <input type="hidden" name="username" value="{{.Username}}">
+                                <button type="submit" class="btn-icon danger" title="Delete {{.Username}}" aria-label="Delete {{.Username}}"><i class="bi bi-trash"></i></button>
+                            </form>
+                            {{else}}
+                            <button type="button" class="btn-icon" disabled title="{{if eq .Username $.root_user}}The root administrator cannot be deleted{{else}}You cannot delete your own account{{end}}"><i class="bi bi-trash"></i></button>
+                            {{end}}
+                        </td>
+                    </tr>
+                    {{end}}
+                    <tr data-filter-empty {{if .users}}hidden{{end}}><td colspan="5" class="empty"><i class="bi bi-person-slash"></i>No users match</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+{{end}}

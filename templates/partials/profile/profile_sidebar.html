@@ -1,0 +1,34 @@
+{{/* Profile sidebar: brand, section links, admin console link and sign-out. */}}
+{{define "profile_sidebar"}}
+<aside class="sidebar">
+    <a class="brand" href="/rauthprofile#overview" data-nav="overview">
+        <span class="brand-mark"><i class="bi bi-shield-lock-fill"></i></span>
+        <span>RAUTH<small>My account</small></span>
+    </a>
+
+    <nav class="nav-group" aria-label="Profile sections">
+        <div class="nav-group-label small-caps">Account</div>
+        <a href="#overview" class="nav-item-link" data-nav="overview"><i class="bi bi-person-badge"></i><span>Overview</span></a>
+        <a href="#security" class="nav-item-link" data-nav="security"><i class="bi bi-shield-lock"></i><span>Security</span>{{if not .has2FA}}<span class="count">!</span>{{end}}</a>
+        <a href="#sessions" class="nav-item-link" data-nav="sessions"><i class="bi bi-laptop"></i><span>Devices</span><span class="count">{{len .sessions}}</span></a>
+        <a href="#activity" class="nav-item-link" data-nav="activity"><i class="bi bi-clock-history"></i><span>Activity</span></a>
+    </nav>
+
+    <div class="sidebar-footer">
+        {{if .isAdmin}}
+        <a href="/rauthmgmt" class="nav-item-link"><i class="bi bi-speedometer2"></i><span>Admin console</span></a>
+        {{end}}
+        <div class="me-card">
+            <img class="avatar" data-identicon="{{.username}}" width="34" height="34">
+            <div class="who">
+                <strong>{{.username}}</strong>
+                <span class="text-muted small">{{if .email}}{{.email}}{{else}}Signed in{{end}}</span>
+            </div>
+            <form method="POST" action="/logout" class="ms-auto">
+                <input type="hidden" name="csrf" value="{{.csrf}}">
+                <button type="submit" class="btn-icon danger" title="Sign out" aria-label="Sign out"><i class="bi bi-box-arrow-right"></i></button>
+            </form>
+        </div>
+    </div>
+</aside>
+{{end}}

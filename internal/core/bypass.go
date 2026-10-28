@@ -13,16 +13,27 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
-// Auth bypass rules let selected hosts, or path prefixes on a host, through the
+// Auth bypass rules let selected hosts, or paths on a host, through the
 // forward-auth check without a session (anonymous access). They are configured
 // in the admin UI (stored in Redis) and optionally via AUTH_BYPASS_RULES
 // (read-only in the UI). Rule syntax:
 //
-//	cloud.example.com          every request to that host
+//	cloud.example.com          every request to that host (same as cloud.example.com/*)
 //	*.public.example.com       every request to any subdomain of public.example.com
-//	web.example.com/webhook    /webhook and everything below it on that host
+//	web.example.com/           only the root page "/" of that host
+//	web.example.com/webhook    /webhook and everything below it (same as /webhook/*)
+//	!web.example.com/admin     deny: /admin and below always require login
+//
+// A rule either allows anonymous access ("allow") or explicitly requires login
+// ("deny"). When several rules match a request, the most specific one wins:
+// an exact host beats a wildcard (longer wildcard suffixes beat shorter ones),
+// then an exact path ("/") beats a prefix, and a longer prefix beats a shorter
+// one. On a tie, deny wins. So "host/", "!host/example" and "host/*" together
+// open the whole host except /example and below.
 //
 // The requested host and URI come from headers the reverse proxy sets on the
 // auth subrequest (AUTH_BYPASS_HOST_HEADER / AUTH_BYPASS_URI_HEADER). The proxy
@@ -31,25 +42,42 @@ import (
 // reinterpreted by a backend (dot segments, encoded slashes, backslashes, ';')
 // never bypass.
 
+// Bypass rule actions.
+const (
+	BypassAllow = "allow"
+	BypassDeny  = "deny"
+)
+
 // BypassRule is one normalized bypass rule.
 type BypassRule struct {
-	// Rule is the canonical text form ("host" or "host/path").
+	// Rule is the canonical text form ("host", "host/" or "host/path"),
+	// without the "!" deny marker.
 	Rule string `json:"rule"`
 	// Host is the lowercase host (without the "*." prefix for wildcards).
 	Host string `json:"-"`
 	// Wildcard matches subdomains of Host (not Host itself).
 	Wildcard bool `json:"-"`
-	// Path is the prefix ("" means the whole host); never ends with "/".
+	// Path is the prefix ("" means the whole host); never ends with "/"
+	// unless Exact is set, in which case it is "/".
 	Path string `json:"-"`
+	// Exact matches only the request path equal to Path (the root page).
+	Exact bool `json:"-"`
+	// Action is BypassAllow (anonymous access) or BypassDeny (login required).
+	Action string `json:"action,omitempty"`
 	// Source is "ui" (Redis, editable) or "env" (AUTH_BYPASS_RULES, read-only).
 	Source    string `json:"source"`
 	Note      string `json:"note,omitempty"`
 	CreatedBy string `json:"created_by,omitempty"`
 	CreatedAt int64  `json:"created_at,omitempty"`
+	UpdatedBy string `json:"updated_by,omitempty"`
+	UpdatedAt int64  `json:"updated_at,omitempty"`
 }
 
+// Allows reports whether the rule grants anonymous access.
+func (r BypassRule) Allows() bool { return r.Action != BypassDeny }
+
 // bypassRulesKey is the Redis hash (UserDB) holding UI-managed rules:
-// field = canonical rule, value = JSON metadata.
+// field = canonical rule, value = JSON metadata (action, note, audit fields).
 const bypassRulesKey = "auth_bypass_rules" // #nosec G101 -- Redis key name, not a credential
 
 // maxBypassRules bounds the rule set (it is scanned on every forward-auth call).
@@ -59,15 +87,24 @@ const maxBypassRules = 200
 const maxBypassNote = 200
 
 var (
-	errBypassEmpty   = errors.New("rule is empty")
-	errBypassHost    = errors.New("invalid host: use a hostname like app.example.com or *.example.com (no scheme or port)")
-	errBypassPath    = errors.New("invalid path: must start with / and must not contain '..', '.', '%', '\\', ';', '?' or '#' segments")
-	errBypassTooMany = fmt.Errorf("too many rules (maximum %d)", maxBypassRules)
+	errBypassEmpty    = errors.New("rule is empty")
+	errBypassHost     = errors.New("invalid host: use a hostname like app.example.com or *.example.com (no scheme or port)")
+	errBypassPath     = errors.New("invalid path: must start with /, may only end in /*, and must not contain '..', '.', '%', '\\', ';', '?', '#' or other '*'")
+	errBypassAction   = errors.New("invalid action: must be allow or deny")
+	errBypassTooMany  = fmt.Errorf("too many rules (maximum %d)", maxBypassRules)
+	errBypassExists   = errors.New("a rule for this host and path already exists; edit it instead")
+	ErrBypassNotFound = errors.New("rule not found (rules from AUTH_BYPASS_RULES can only be changed in the environment)")
 )
 
 // ParseBypassRule validates and normalizes a rule such as "web.example.com/webhook".
+// A leading "!" makes it a deny rule.
 func ParseBypassRule(raw string) (BypassRule, error) {
 	s := strings.TrimSpace(raw)
+	r := BypassRule{Action: BypassAllow}
+	if strings.HasPrefix(s, "!") {
+		r.Action = BypassDeny
+		s = strings.TrimSpace(s[1:])
+	}
 	if s == "" {
 		return BypassRule{}, errBypassEmpty
 	}
@@ -79,7 +116,6 @@ func ParseBypassRule(raw string) (BypassRule, error) {
 		hostPart, pathPart = s[:i], s[i:]
 	}
 
-	r := BypassRule{}
 	host := strings.TrimSuffix(strings.ToLower(hostPart), ".")
 	if strings.HasPrefix(host, "*.") {
 		r.Wildcard = true
@@ -91,11 +127,11 @@ func ParseBypassRule(raw string) (BypassRule, error) {
 	r.Host = host
 
 	if pathPart != "" {
-		p, ok := normalizeRulePath(pathPart)
+		p, exact, ok := normalizeRulePath(pathPart)
 		if !ok {
 			return BypassRule{}, errBypassPath
 		}
-		r.Path = p
+		r.Path, r.Exact = p, exact
 	}
 
 	r.Rule = host
@@ -104,6 +140,17 @@ func ParseBypassRule(raw string) (BypassRule, error) {
 	}
 	r.Rule += r.Path
 	return r, nil
+}
+
+// normalizeAction maps a form value to a rule action; "" means allow.
+func normalizeAction(a string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(a)) {
+	case "", BypassAllow:
+		return BypassAllow, nil
+	case BypassDeny:
+		return BypassDeny, nil
+	}
+	return "", errBypassAction
 }
 
 // validHostname accepts DNS hostnames (letters, digits, hyphens, dots); IP
@@ -125,22 +172,27 @@ func validHostname(h string) bool {
 	return true
 }
 
-// normalizeRulePath validates a configured path prefix. "/" (or a trailing
-// slash) is normalized away, so "/" means the whole host.
-func normalizeRulePath(p string) (string, bool) {
-	if !strings.HasPrefix(p, "/") || strings.ContainsAny(p, "%\\;?#") {
-		return "", false
+// normalizeRulePath validates a configured path. "/" alone means only the root
+// page (exact=true). "/*" means the whole host (""), and a trailing "/*" or "/"
+// on a longer path is dropped because prefixes already cover everything below.
+func normalizeRulePath(p string) (string, bool, bool) {
+	if p == "/" {
+		return "/", true, true
+	}
+	p = strings.TrimSuffix(p, "*")
+	if !strings.HasPrefix(p, "/") || strings.ContainsAny(p, "%\\;?#*") {
+		return "", false, false
 	}
 	for _, seg := range strings.Split(p, "/") {
 		if seg == "." || seg == ".." {
-			return "", false
+			return "", false, false
 		}
 	}
 	cleaned := path.Clean(p)
 	if cleaned == "/" {
-		return "", true
+		return "", false, true
 	}
-	return cleaned, true
+	return cleaned, false, true
 }
 
 // safeRequestPath turns the URI reported by the proxy into a normalized path
@@ -221,10 +273,30 @@ func (r BypassRule) matches(host, reqPath string) bool {
 	} else if host != r.Host {
 		return false
 	}
+	if r.Exact {
+		return reqPath == r.Path
+	}
 	if r.Path == "" {
 		return true
 	}
 	return reqPath == r.Path || strings.HasPrefix(reqPath, r.Path+"/")
+}
+
+// moreSpecific reports whether r should win over other when both match.
+func (r BypassRule) moreSpecific(other BypassRule) bool {
+	if r.Wildcard != other.Wildcard {
+		return !r.Wildcard
+	}
+	if r.Wildcard && len(r.Host) != len(other.Host) {
+		return len(r.Host) > len(other.Host)
+	}
+	if r.Exact != other.Exact {
+		return r.Exact
+	}
+	if len(r.Path) != len(other.Path) {
+		return len(r.Path) > len(other.Path)
+	}
+	return !r.Allows() && other.Allows()
 }
 
 // --- rule set cache -------------------------------------------------------
@@ -240,8 +312,9 @@ func init() {
 	activeBypass.Store(&bypassSet{})
 }
 
-// MatchBypass reports the first rule matching the given host and URI, as
-// reported by the reverse proxy. It fails closed on anything unclear.
+// MatchBypass returns the most specific rule matching the given host and URI,
+// as reported by the reverse proxy, and whether it allows anonymous access.
+// It fails closed on anything unclear.
 func MatchBypass(rawHost, rawURI string) (BypassRule, bool) {
 	set := activeBypass.Load()
 	if len(set.env) == 0 && len(set.ui) == 0 {
@@ -255,20 +328,33 @@ func MatchBypass(rawHost, rawURI string) (BypassRule, bool) {
 	if !ok {
 		return BypassRule{}, false
 	}
+	var best BypassRule
+	found := false
 	for _, list := range [][]BypassRule{set.env, set.ui} {
 		for _, r := range list {
-			if r.matches(host, reqPath) {
-				return r, true
+			if r.matches(host, reqPath) && (!found || r.moreSpecific(best)) {
+				best, found = r, true
 			}
 		}
 	}
-	return BypassRule{}, false
+	if !found {
+		return BypassRule{}, false
+	}
+	return best, best.Allows()
 }
 
-// HasBypassRules reports whether any bypass rule is active.
+// HasBypassRules reports whether any allow rule is active (deny rules alone
+// never open anything).
 func HasBypassRules() bool {
 	set := activeBypass.Load()
-	return len(set.env) > 0 || len(set.ui) > 0
+	for _, list := range [][]BypassRule{set.env, set.ui} {
+		for _, r := range list {
+			if r.Allows() {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // ListBypassRules returns all active rules: env rules first, then UI rules
@@ -311,14 +397,21 @@ func ReloadBypassRules() error {
 	rules := make([]BypassRule, 0, len(vals))
 	for field, meta := range vals {
 		r, err := ParseBypassRule(field)
-		if err != nil {
+		if err != nil || strings.HasPrefix(field, "!") {
 			slog.Error("Ignoring invalid stored bypass rule", "rule", field, "error", err)
 			continue
 		}
 		var m BypassRule
 		_ = json.Unmarshal([]byte(meta), &m)
+		action, err := normalizeAction(m.Action)
+		if err != nil {
+			// Unknown action: fail closed rather than open the path.
+			action = BypassDeny
+		}
+		r.Action = action
 		r.Source = "ui"
 		r.Note, r.CreatedBy, r.CreatedAt = m.Note, m.CreatedBy, m.CreatedAt
+		r.UpdatedBy, r.UpdatedAt = m.UpdatedBy, m.UpdatedAt
 		rules = append(rules, r)
 	}
 	sort.Slice(rules, func(i, j int) bool { return rules[i].Rule < rules[j].Rule })
@@ -349,15 +442,43 @@ func StartBypassRefresher(ctx context.Context, interval time.Duration) {
 	}()
 }
 
-// AddBypassRule stores a UI-managed rule and reloads the active set.
-func AddBypassRule(raw, note, createdBy string) (BypassRule, error) {
+// parseRuleInput parses the rule text and action from the admin UI. The
+// action field wins over a "!" prefix in the rule text only when it says deny.
+func parseRuleInput(raw, action string) (BypassRule, error) {
 	r, err := ParseBypassRule(raw)
 	if err != nil {
 		return BypassRule{}, err
 	}
+	a, err := normalizeAction(action)
+	if err != nil {
+		return BypassRule{}, err
+	}
+	if a == BypassDeny {
+		r.Action = BypassDeny
+	}
+	return r, nil
+}
+
+func trimNote(note string) string {
 	note = strings.TrimSpace(note)
 	if len(note) > maxBypassNote {
 		note = note[:maxBypassNote]
+	}
+	return note
+}
+
+func reloadAfter(op string) {
+	if err := ReloadBypassRules(); err != nil {
+		slog.Error("Failed to reload auth bypass rules after "+op, "error", err)
+	}
+}
+
+// AddBypassRule stores a new UI-managed rule and reloads the active set. An
+// existing rule for the same host and path is not overwritten.
+func AddBypassRule(raw, action, note, createdBy string) (BypassRule, error) {
+	r, err := parseRuleInput(raw, action)
+	if err != nil {
+		return BypassRule{}, err
 	}
 	n, err := UserDB.HLen(Ctx, bypassRulesKey).Result()
 	if err != nil {
@@ -366,14 +487,62 @@ func AddBypassRule(raw, note, createdBy string) (BypassRule, error) {
 	if n >= maxBypassRules {
 		return BypassRule{}, errBypassTooMany
 	}
-	meta, _ := json.Marshal(BypassRule{Note: note, CreatedBy: createdBy, CreatedAt: time.Now().Unix()})
-	if err := UserDB.HSet(Ctx, bypassRulesKey, r.Rule, meta).Err(); err != nil {
+	meta, _ := json.Marshal(BypassRule{Action: r.Action, Note: trimNote(note), CreatedBy: createdBy, CreatedAt: time.Now().Unix()})
+	set, err := UserDB.HSetNX(Ctx, bypassRulesKey, r.Rule, meta).Result()
+	if err != nil {
 		return BypassRule{}, err
 	}
-	if err := ReloadBypassRules(); err != nil {
-		slog.Error("Failed to reload auth bypass rules after add", "error", err)
+	if !set {
+		return BypassRule{}, errBypassExists
 	}
+	reloadAfter("add")
 	return r, nil
+}
+
+// UpdateBypassRule changes the rule text, action and note of a UI-managed
+// rule, keeping its creation metadata. It returns the old and new rule.
+func UpdateBypassRule(oldRaw, newRaw, action, note, updatedBy string) (BypassRule, BypassRule, error) {
+	old, err := ParseBypassRule(oldRaw)
+	if err != nil {
+		return BypassRule{}, BypassRule{}, err
+	}
+	r, err := parseRuleInput(newRaw, action)
+	if err != nil {
+		return BypassRule{}, BypassRule{}, err
+	}
+	prevMeta, err := UserDB.HGet(Ctx, bypassRulesKey, old.Rule).Result()
+	if errors.Is(err, redis.Nil) {
+		return BypassRule{}, BypassRule{}, ErrBypassNotFound
+	} else if err != nil {
+		return BypassRule{}, BypassRule{}, err
+	}
+	var prev BypassRule
+	_ = json.Unmarshal([]byte(prevMeta), &prev)
+	old.Action, _ = normalizeAction(prev.Action)
+
+	meta, _ := json.Marshal(BypassRule{
+		Action: r.Action, Note: trimNote(note),
+		CreatedBy: prev.CreatedBy, CreatedAt: prev.CreatedAt,
+		UpdatedBy: updatedBy, UpdatedAt: time.Now().Unix(),
+	})
+	if r.Rule == old.Rule {
+		if err := UserDB.HSet(Ctx, bypassRulesKey, r.Rule, meta).Err(); err != nil {
+			return BypassRule{}, BypassRule{}, err
+		}
+	} else {
+		set, err := UserDB.HSetNX(Ctx, bypassRulesKey, r.Rule, meta).Result()
+		if err != nil {
+			return BypassRule{}, BypassRule{}, err
+		}
+		if !set {
+			return BypassRule{}, BypassRule{}, errBypassExists
+		}
+		if err := UserDB.HDel(Ctx, bypassRulesKey, old.Rule).Err(); err != nil {
+			return BypassRule{}, BypassRule{}, err
+		}
+	}
+	reloadAfter("update")
+	return old, r, nil
 }
 
 // DeleteBypassRule removes a UI-managed rule and reloads the active set. It
@@ -387,9 +556,7 @@ func DeleteBypassRule(raw string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if err := ReloadBypassRules(); err != nil {
-		slog.Error("Failed to reload auth bypass rules after delete", "error", err)
-	}
+	reloadAfter("delete")
 	return n > 0, nil
 }
 
@@ -399,16 +566,29 @@ func DescribeBypassRule(r BypassRule) string {
 	if r.Wildcard {
 		target = "any subdomain of " + r.Host
 	}
-	if r.Path == "" {
-		return "All requests to " + target
+	var scope string
+	switch {
+	case r.Exact:
+		scope = "Only the root page / of " + target
+	case r.Path == "":
+		scope = "All requests to " + target
+	default:
+		scope = r.Path + " and below on " + target
 	}
-	return r.Path + " and below on " + target
+	if r.Allows() {
+		return scope + ": public"
+	}
+	return scope + ": login required"
 }
 
 func ruleTexts(rules []BypassRule) []string {
 	out := make([]string, len(rules))
 	for i, r := range rules {
-		out[i] = r.Rule
+		if r.Allows() {
+			out[i] = r.Rule
+		} else {
+			out[i] = "!" + r.Rule
+		}
 	}
 	return out
 }

@@ -1,0 +1,154 @@
+{{/* Profile security: password, two-factor, recovery codes and passkeys. */}}
+{{define "profile_security"}}
+<section data-panel="security" data-title="Security" hidden>
+    <div class="grid-2">
+        <!-- Password -->
+        <div class="panel">
+            <div class="panel-header">
+                <div>
+                    <h2>Change password</h2>
+                    <div class="sub">Other sessions are signed out after a change</div>
+                </div>
+            </div>
+            <form method="POST" action="/rauthprofile/password" class="panel-body" id="passwordForm" data-async>
+                <input type="hidden" name="csrf" value="{{.csrf}}">
+                <input type="text" name="username" value="{{.username}}" autocomplete="username" hidden>
+                <div class="mb-3">
+                    <label class="form-label" for="currentPassword">Current password</label>
+                    <div class="input-group">
+                        <input type="password" name="current_password" id="currentPassword" class="form-control" required autocomplete="current-password">
+                        <button type="button" class="btn btn-secondary" data-reveal="#currentPassword" aria-label="Show password"><i class="bi bi-eye"></i></button>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label" for="newPassword">New password</label>
+                    <div class="input-group">
+                        <input type="password" name="new_password" id="newPassword" class="form-control" required autocomplete="new-password">
+                        <button type="button" class="btn btn-secondary" data-reveal="#newPassword" aria-label="Show password"><i class="bi bi-eye"></i></button>
+                        <button type="button" class="btn btn-secondary" data-generate="#newPassword" title="Generate a strong password"><i class="bi bi-magic"></i></button>
+                    </div>
+                    <div class="strength" id="strengthBar" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+                    <div class="strength-label" id="strengthLabel"></div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label" for="confirmPassword">Confirm new password</label>
+                    <input type="password" name="confirm_password" id="confirmPassword" class="form-control" required autocomplete="new-password">
+                    <div class="form-text" id="matchHint"></div>
+                </div>
+                {{if .has2FA}}
+                <div class="mb-3">
+                    <label class="form-label" for="passwordOtp">Authenticator code</label>
+                    <input type="text" name="otp_code" id="passwordOtp" class="form-control otp-input" placeholder="000000" required maxlength="6" inputmode="numeric" autocomplete="one-time-code">
+                </div>
+                {{end}}
+                <button type="submit" class="btn btn-primary">Update password</button>
+            </form>
+        </div>
+
+        <div>
+            <!-- Two-factor -->
+            <div class="panel">
+                <div class="panel-header">
+                    <div>
+                        <h2>Two-factor authentication</h2>
+                        <div class="sub">A code from your authenticator app at every password sign-in</div>
+                    </div>
+                </div>
+                <div class="setting">
+                    <div class="info">
+                        <div class="title">Authenticator app (TOTP)
+                            {{if .has2FA}}<span class="chip ok">Enabled</span>{{else}}<span class="chip warn">Not set up</span>{{end}}
+                        </div>
+                        <div class="desc">
+                            {{if .has2FA}}Disabling removes the second factor and your recovery codes, and signs out your other sessions.
+                            {{else}}You will be asked to set it up at your next password sign-in.{{end}}
+                        </div>
+                    </div>
+                    {{if .has2FA}}
+                    <form method="POST" action="/rauthprofile/disable-totp" class="control" data-async data-confirm="Your account will be protected by your password only, and your recovery codes stop working." data-confirm-title="Disable two-factor authentication?" data-confirm-icon="bi-shield-slash" data-confirm-btn="Disable 2FA">
+                        <input type="hidden" name="csrf" value="{{.csrf}}">
+                        <input type="text" name="otp_code" class="form-control form-control-sm otp-input" placeholder="000000" required maxlength="6" inputmode="numeric" autocomplete="one-time-code" aria-label="Authenticator code">
+                        <button type="submit" class="btn btn-outline-danger btn-sm">Disable</button>
+                    </form>
+                    {{end}}
+                </div>
+                {{if .has2FA}}
+                <div class="setting">
+                    <div class="info">
+                        <div class="title">Recovery codes
+                            {{if ge .recoveryCount 3}}<span class="chip ok">{{.recoveryCount}} left</span>{{else}}<span class="chip warn">{{.recoveryCount}} left</span>{{end}}
+                        </div>
+                        <div class="desc">Single-use codes for when you lose your authenticator. Generating new ones invalidates the old set.</div>
+                    </div>
+                    <form method="POST" action="/rauthprofile/recovery/generate" class="control" data-async data-confirm="Any unused recovery codes stop working immediately. Store the new ones somewhere safe." data-confirm-title="Generate new recovery codes?" data-confirm-icon="bi-arrow-repeat" data-confirm-variant="warning" data-confirm-btn="Generate">
+                        <input type="hidden" name="csrf" value="{{.csrf}}">
+                        <input type="text" name="otp_code" class="form-control form-control-sm otp-input" placeholder="000000" required maxlength="6" inputmode="numeric" autocomplete="one-time-code" aria-label="Authenticator code">
+                        <button type="submit" class="btn btn-secondary btn-sm">Generate</button>
+                    </form>
+                </div>
+                {{end}}
+            </div>
+
+            <!-- Passkeys -->
+            <div class="panel">
+                <div class="panel-header">
+                    <div>
+                        <h2>Passkeys</h2>
+                        <div class="sub">Sign in with a security key, Touch ID, Windows Hello or your phone</div>
+                    </div>
+                </div>
+                <div class="panel-body">
+                    <label class="form-label" for="passkeyStepup">{{if .has2FA}}Authenticator code{{else}}Current password{{end}} <span class="text-faint fw-normal">(required to add or remove)</span></label>
+                    <div class="d-flex flex-wrap gap-2">
+                        {{if .has2FA}}
+                        <input type="text" id="passkeyStepup" data-stepup-name="otp_code" class="form-control otp-input" placeholder="000000" maxlength="6" inputmode="numeric" autocomplete="one-time-code">
+                        {{else}}
+                        <input type="password" id="passkeyStepup" data-stepup-name="current_password" class="form-control" style="max-width: 16rem;" autocomplete="current-password">
+                        {{end}}
+                        <button type="button" id="registerPasskey" class="btn btn-primary"><i class="bi bi-plus-lg me-1"></i>Add passkey</button>
+                    </div>
+                    <div id="passkeyMessage" class="small mt-2" role="status"></div>
+                </div>
+                {{if .passkeys}}
+                <div class="table-wrap border-top">
+                    <table class="data-table">
+                        <tbody>
+                            {{range .passkeys}}
+                            <tr data-row>
+                                <td>
+                                    <div class="cell-user">
+                                        <span class="device-icon"><i class="bi bi-key"></i></span>
+                                        <div>
+                                            <div class="name">{{.Nickname}}</div>
+                                            <div class="cell-sub">Added <time data-ts="{{.CreatedAt}}">{{.CreatedAt | formatTime}}</time>{{if .LastUsed}} · last used <time data-ts="{{.LastUsed}}">{{.LastUsed | formatTime}}</time>{{end}}</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="actions-cell">
+                                    <button type="button" class="btn-icon" title="Rename" aria-label="Rename {{.Nickname}}"
+                                            data-rename-passkey="{{printf "%x" .ID}}" data-passkey-name="{{.Nickname}}"><i class="bi bi-pencil"></i></button>
+                                    <form method="POST" action="/rauthprofile/passkey/rename" id="rename-form-{{printf "%x" .ID}}" data-async data-managed hidden>
+                                        <input type="hidden" name="csrf" value="{{$.csrf}}">
+                                        <input type="hidden" name="id" value="{{printf "%x" .ID}}">
+                                        <input type="hidden" name="nickname">
+                                    </form>
+                                    <form method="POST" action="/rauthprofile/passkey/revoke" class="passkey-revoke" data-passkey-name="{{.Nickname}}" data-async data-managed>
+                                        <input type="hidden" name="csrf" value="{{$.csrf}}">
+                                        <input type="hidden" name="id" value="{{printf "%x" .ID}}">
+                                        <input type="hidden" name="{{if $.has2FA}}otp_code{{else}}current_password{{end}}" data-passkey-stepup>
+                                        <button type="submit" class="btn-icon danger" title="Remove" aria-label="Remove {{.Nickname}}"><i class="bi bi-trash"></i></button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                </div>
+                {{else}}
+                <div class="panel-footer"><i class="bi bi-info-circle me-1"></i>No passkeys registered yet.</div>
+                {{end}}
+            </div>
+        </div>
+    </div>
+</section>
+{{end}}

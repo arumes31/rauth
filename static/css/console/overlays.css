@@ -1,0 +1,150 @@
+/* RAuth console: modals, command palette, toasts and dialogs. Loaded after bootstrap.min.css with <html data-bs-theme="dark">. */
+
+/* ---------- Modals ---------- */
+.modal-content {
+    background: var(--rc-surface);
+    border: 1px solid var(--rc-border);
+    border-radius: var(--rc-radius);
+    color: var(--rc-text);
+}
+.modal-header, .modal-footer { border-color: var(--rc-border); }
+.modal-title { font-size: 1rem; font-weight: 700; }
+.modal-backdrop.show { opacity: 0.7; }
+.detail-pre {
+    margin: 0;
+    padding: 1rem;
+    max-height: 60vh;
+    overflow: auto;
+    border-radius: var(--rc-radius-sm);
+    background: var(--rc-bg);
+    border: 1px solid var(--rc-border);
+    color: #a7f3d0;
+    font-family: var(--rc-mono);
+    font-size: 0.8rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.nav-pills-sm { gap: 0.25rem; }
+.nav-pills-sm .nav-link {
+    padding: 0.35rem 0.75rem;
+    font-size: 0.84rem;
+    color: var(--rc-muted);
+    border-radius: var(--rc-radius-sm);
+}
+.nav-pills-sm .nav-link.active { background: var(--rc-accent-soft); color: #fff; }
+
+/* ---------- Command palette ---------- */
+.command-palette { overflow: hidden; }
+.command-input {
+    border: 0 !important;
+    border-bottom: 1px solid var(--rc-border) !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    padding: 1rem 1.1rem;
+    font-size: 1rem;
+    box-shadow: none !important;
+}
+.command-results { max-height: 50vh; overflow-y: auto; padding: 0.4rem; }
+.command-option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.6rem 0.75rem;
+    border-radius: var(--rc-radius-sm);
+    cursor: pointer;
+    color: var(--rc-muted);
+}
+.command-option.active, .command-option:hover { background: var(--rc-accent-soft); color: var(--rc-text); }
+.command-empty { padding: 1rem; text-align: center; color: var(--rc-faint); }
+.kbd {
+    display: inline-block;
+    padding: 0.05rem 0.4rem;
+    font-size: 0.72rem;
+    border-radius: 4px;
+    border: 1px solid var(--rc-border);
+    background: var(--rc-surface-2);
+    color: var(--rc-muted);
+}
+
+/* ---------- Toasts ---------- */
+.toast-host {
+    position: fixed;
+    right: 1rem;
+    bottom: 1rem;
+    z-index: 2000;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-width: calc(100vw - 2rem);
+}
+.rauth-toast {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    min-width: 280px;
+    max-width: 420px;
+    padding: 0.75rem 0.85rem;
+    border-radius: var(--rc-radius);
+    background: var(--rc-surface-2);
+    border: 1px solid var(--rc-border-strong);
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity 0.2s, transform 0.2s;
+}
+.rauth-toast.visible { opacity: 1; transform: none; }
+.rauth-toast span { flex: 1; }
+.rauth-toast.success > i { color: var(--rc-ok); }
+.rauth-toast.error > i { color: var(--rc-accent); }
+.rauth-toast.info > i { color: var(--rc-info); }
+.rauth-toast .btn-close { font-size: 0.65rem; }
+
+/* ---------- Dialogs ---------- */
+.rauth-dialog-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 3000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    background: rgba(0, 0, 0, 0.65);
+    opacity: 0;
+    transition: opacity 0.18s;
+}
+.rauth-dialog-overlay.visible { opacity: 1; }
+.rauth-dialog {
+    width: 100%;
+    max-width: 440px;
+    background: var(--rc-surface);
+    border: 1px solid var(--rc-border-strong);
+    border-radius: 12px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+    transform: translateY(10px) scale(0.98);
+    transition: transform 0.2s;
+}
+.rauth-dialog-overlay.visible .rauth-dialog { transform: none; }
+.rauth-dialog-head { display: flex; gap: 0.9rem; padding: 1.25rem 1.25rem 0.5rem; }
+.rauth-dialog-icon {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    flex: none;
+    font-size: 1.15rem;
+    background: var(--rc-accent-soft);
+    color: var(--rc-accent);
+}
+.rauth-dialog-icon.warning { background: var(--rc-warn-soft); color: var(--rc-warn); }
+.rauth-dialog-icon.info { background: var(--rc-info-soft); color: var(--rc-info); }
+.rauth-dialog-title { font-weight: 700; margin-bottom: 0.25rem; }
+.rauth-dialog-message { color: var(--rc-muted); font-size: 0.88rem; line-height: 1.5; }
+.rauth-dialog-field { padding: 0.5rem 1.25rem 0; }
+.rauth-dialog-actions { display: flex; justify-content: flex-end; gap: 0.5rem; padding: 1rem 1.25rem 1.25rem; }
+.btn-warning { --bs-btn-color: #111; }
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition: none !important; animation: none !important; }
+}
