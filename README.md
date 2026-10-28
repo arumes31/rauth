@@ -283,7 +283,6 @@ services:
     container_name: rauth-auth-service
     labels:
       - "traefik.http.middlewares.rauth-auth.forwardauth.address=http://rauth-auth-service:5980/rauthvalidate"
-      - "traefik.http.middlewares.rauth-auth.forwardauth.trustForwardHeader=true"
       - "traefik.http.middlewares.rauth-auth.forwardauth.authResponseHeaders=X-RAuth-User"
 
   # 2. Reference the middleware to protect your application
@@ -293,6 +292,9 @@ services:
       - "traefik.http.routers.your-app.rule=Host(`app.example.com`)"
       - "traefik.http.routers.your-app.middlewares=rauth-auth"
 ```
+
+> [!WARNING]
+> Leave `trustForwardHeader` off (the default). With it enabled, Traefik passes client-supplied `X-Forwarded-*` headers to RAuth, so a client could pick its own `X-Forwarded-Host` / `X-Forwarded-Uri` and match a [bypass rule](#-public-access--auth-bypass-rules). Real client IPs belong in the entrypoint's `forwardedHeaders.trustedIPs` instead.
 
 ### 🌐 Proxying Multiple Domains
 RAuth can protect multiple apps across different subdomains using a single deployment. Set your `COOKIE_DOMAIN` to the root domain (e.g., `example.com`) to share session state between `app1.example.com` and `app2.example.com`.
@@ -317,7 +319,7 @@ How matching works:
 The host and URI come from `X-Forwarded-Host` and `X-Forwarded-Uri` on the auth subrequest. Caddy (`forward_auth`) and Traefik (`forwardAuth`) send these headers by default. With nginx, add `proxy_set_header X-Forwarded-Host $host;` and `proxy_set_header X-Forwarded-Uri $request_uri;` to the `/rauth-verify` location. Setups that only send `X-Original-URI` can set `AUTH_BYPASS_URI_HEADER=X-Original-URI` instead. If a request is missing either header, it is never bypassed.
 
 > [!WARNING]
-> These headers decide who skips authentication. Your proxy must overwrite them, and RAuth must only be reachable through the proxy. Set `TRUSTED_PROXIES`: once it is set, RAuth honours the bypass headers only from those peers.
+> These headers decide who skips authentication. Your proxy must overwrite them (Traefik: keep `trustForwardHeader` off), and RAuth must only be reachable through the proxy. Set `TRUSTED_PROXIES`: once it is set, RAuth honours the bypass headers only from those peers.
 
 ---
 

@@ -50,7 +50,7 @@ type BypassRule struct {
 
 // bypassRulesKey is the Redis hash (UserDB) holding UI-managed rules:
 // field = canonical rule, value = JSON metadata.
-const bypassRulesKey = "auth_bypass_rules"
+const bypassRulesKey = "auth_bypass_rules" // #nosec G101 -- Redis key name, not a credential
 
 // maxBypassRules bounds the rule set (it is scanned on every forward-auth call).
 const maxBypassRules = 200
@@ -117,7 +117,7 @@ func validHostname(h string) bool {
 			return false
 		}
 		for _, c := range label {
-			if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-') {
+			if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '-' {
 				return false
 			}
 		}
@@ -146,22 +146,31 @@ func normalizeRulePath(p string) (string, bool) {
 // safeRequestPath turns the URI reported by the proxy into a normalized path
 // for matching. It refuses (ok=false) anything a backend might resolve
 // differently from rauth: dot segments, encoded or literal backslashes,
-// encoded slashes, NUL, ';' path parameters and unparseable escapes.
+// encoded slashes, NUL, ';' path parameters, double encoding ("%25", which a
+// second decoding pass downstream could turn into "%2e"/"%2f") and
+// unparseable escapes.
 func safeRequestPath(uri string) (string, bool) {
 	if uri == "" {
 		return "", false
 	}
-	// Absolute-form request targets (http://host/path) carry the path after the authority.
-	if i := strings.Index(uri, "://"); i >= 0 {
-		rest := uri[i+3:]
-		j := strings.Index(rest, "/")
-		if j < 0 {
-			return "/", true
-		}
-		uri = rest[j:]
-	}
+	// Strip query and fragment first so a URL inside the query string can
+	// never be mistaken for the request target.
 	if k := strings.IndexAny(uri, "?#"); k >= 0 {
 		uri = uri[:k]
+	}
+	// Absolute-form request targets (http://host/path) carry the path after
+	// the authority. Only a target that starts with the scheme counts.
+	lowerURI := strings.ToLower(uri)
+	for _, scheme := range []string{"http://", "https://"} {
+		if strings.HasPrefix(lowerURI, scheme) {
+			rest := uri[len(scheme):]
+			if j := strings.Index(rest, "/"); j >= 0 {
+				uri = rest[j:]
+			} else {
+				uri = "/"
+			}
+			break
+		}
 	}
 	if uri == "" {
 		uri = "/"
@@ -170,7 +179,7 @@ func safeRequestPath(uri string) (string, bool) {
 		return "", false
 	}
 	lower := strings.ToLower(uri)
-	if strings.Contains(lower, "%2f") || strings.Contains(lower, "%5c") || strings.Contains(lower, "%00") || strings.Contains(lower, "%2e") {
+	if strings.Contains(lower, "%2f") || strings.Contains(lower, "%5c") || strings.Contains(lower, "%00") || strings.Contains(lower, "%2e") || strings.Contains(lower, "%25") {
 		return "", false
 	}
 	decoded, err := url.PathUnescape(uri)

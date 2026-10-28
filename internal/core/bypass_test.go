@@ -49,6 +49,7 @@ func TestSafeRequestPath(t *testing.T) {
 		"https://web.example.com/a": "/a",
 		"http://host":               "/",
 		"?only=query":               "/",
+		"/admin?next=https://web.example.com/webhook": "/admin",
 	}
 	for in, want := range ok {
 		got, valid := safeRequestPath(in)
@@ -59,7 +60,8 @@ func TestSafeRequestPath(t *testing.T) {
 	for _, in := range []string{
 		"", "webhook", "/webhook/../admin", "/webhook/./x", "/webhook/%2e%2e/admin", "/webhook%2f..%2fadmin",
 		"/webhook%2Fadmin", `/webhook\..\admin`, "/webhook%5cadmin", "/webhook;jsessionid=1", "/webhook/%00",
-		"/webhook/%zz", "/..", "/webhook/%2E",
+		"/webhook/%zz", "/..", "/webhook/%2E", "/webhook/%252e%252e/admin", "/webhook%252f..%252fadmin",
+		"/webhook/%25", "ftp://host/webhook",
 	} {
 		_, valid := safeRequestPath(in)
 		assert.False(t, valid, in)
@@ -91,6 +93,11 @@ func TestMatchBypass(t *testing.T) {
 		{"web.example.com", "/webhook%2f..%2fadmin", false},
 		{"web.example.com", "/webhook;x=1", false},
 		{"web.example.com", "/WEBHOOK", false},
+		{"web.example.com", "/webhook/%252e%252e/admin", false},
+		{"web.example.com", "/admin?x=http://web.example.com/webhook", false},
+		{"web.example.com", "/admin#https://h/webhook", false},
+		{"web.example.com", "/webhook?target=https://example.com/callback", true},
+		{"web.example.com", "HTTPS://web.example.com/webhook/x", true},
 		{"a.public.example.com", "/anything", true},
 		{"a.b.public.example.com", "/anything", true},
 		{"public.example.com", "/", false},
