@@ -47,6 +47,7 @@ func TestLogAudit(t *testing.T) {
 	})
 
 	t.Run("Per-user logs", func(t *testing.T) {
+		require.NoError(t, CreateUser("user1", "Password123", "", false, ""))
 		for i := 0; i < 5; i++ {
 			LogAudit("ACTION_user1", "user1", "127.0.0.1", map[string]interface{}{"i": i})
 		}
@@ -66,6 +67,19 @@ func TestLogAudit(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, logs, 1)
 		assert.Equal(t, "NEW", logs[0].Action)
+	})
+
+	// Without a known creation time there is no boundary, so entries without
+	// an owner UID could belong to anyone who held the name before.
+	t.Run("Unowned entries need a known creation time", func(t *testing.T) {
+		_, err := PG.Exec(Ctx, "INSERT INTO audit_logs (ts, action, username) VALUES ($1, 'LEGACY', 'nodate')", time.Now().Unix())
+		require.NoError(t, err)
+		require.NoError(t, PutUser(User{Username: "nodate", UID: uuid.NewString()}))
+		LogAudit("OWNED", "nodate", "127.0.0.1", nil)
+		logs, err := UserAuditLogs("nodate", 100)
+		require.NoError(t, err)
+		require.Len(t, logs, 1)
+		assert.Equal(t, "OWNED", logs[0].Action)
 	})
 
 	// Timestamps have one-second precision: an entry of the deleted account

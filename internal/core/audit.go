@@ -137,13 +137,14 @@ func RecentAuditLogs(limit int) ([]AuditLog, error) {
 // UserAuditLogs returns the newest entries owned by the account currently
 // named username, so a recreated account does not see the history of a
 // deleted one with the same name. Entries carry the owner's UID; older ones
-// without it are shown only when strictly newer than the account (timestamps
-// have one-second precision, so the creation second itself is ambiguous).
+// without it are shown only when strictly newer than an account with a known
+// creation time (timestamps have one-second precision, so the creation second
+// itself is ambiguous, and created_at 0 gives no boundary at all).
 func UserAuditLogs(username string, limit int) ([]AuditLog, error) {
 	return queryAuditLogs(`SELECT a.ts, a.action, a.username, a.ip, a.details
 		FROM audit_logs a LEFT JOIN users u ON u.username = $1
 		WHERE a.username = $1
-			AND (a.user_uid = u.uid OR (a.user_uid IS NULL AND a.ts > COALESCE(u.created_at, -1)))
+			AND (a.user_uid = u.uid OR (a.user_uid IS NULL AND u.created_at > 0 AND a.ts > u.created_at))
 		ORDER BY a.id DESC LIMIT $2`, username, limit)
 }
 

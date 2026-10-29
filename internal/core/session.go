@@ -80,7 +80,9 @@ func sessionUAMatches(req *http.Request, token, redisKey string, data map[string
 
 	uaIsValid := true
 	useClientHints := false
-	comparable := func(stored, current string) bool { return stored != "" && current != "" }
+	// Compared after normalizing: desktop Chrome sends Sec-CH-UA-Model: "",
+	// and two empty models would otherwise count as a successful comparison.
+	comparable := func(stored, current string) bool { return normalizeCH(stored) != "" && normalizeCH(current) != "" }
 
 	// If session HAS Hints, we enforce binding if the current request also HAS Hints.
 	// If the current request has NO hints but the session DOES, we fall back to UA matching

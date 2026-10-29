@@ -120,6 +120,24 @@ func TestHardwareBinding_Coverage(t *testing.T) {
 		assert.Equal(t, http.StatusUnauthorized, rec.Code)
 	})
 
+	t.Run("Binding Failure - Empty quoted hints are not a comparison", func(t *testing.T) {
+		// Desktop Chrome sends Sec-CH-UA-Model: "". Two empty models must not
+		// stand in for the device check.
+		cookie, _ := setupSession("", "", `""`)
+		e := echo.New()
+		req := httptest.NewRequest(http.MethodGet, "/rauthvalidate", nil)
+		req.Header.Set("User-Agent", "curl/8.0")
+		req.Header.Set("Sec-CH-UA-Model", `""`)
+		req.AddCookie(cookie)
+		req.RemoteAddr = "127.0.0.1:1234"
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := h.Validate(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	})
+
 	t.Run("Binding Success - Fallback if no request hints", func(t *testing.T) {
 		cookie, _ := setupSession("Android", "?1", "Pixel 6")
 		e := echo.New()
