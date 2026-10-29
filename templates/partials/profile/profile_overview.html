@@ -11,7 +11,7 @@
                 {{else if .isAdmin}}<span class="chip danger"><i class="bi bi-shield-fill"></i>Administrator</span>
                 {{else}}<span class="chip">User</span>{{end}}
                 {{if .groups}}<span class="chip info" title="Groups"><i class="bi bi-people"></i>{{.groups}}</span>{{end}}
-                {{if and .createdAt (ne .createdAt "0")}}<span class="chip"><i class="bi bi-calendar3"></i>Member since <time data-ts="{{.createdAt}}">{{formatTime .createdAt}}</time></span>{{end}}
+                {{if .createdAt}}<span class="chip"><i class="bi bi-calendar3"></i>Member since <time data-ts="{{.createdAt}}">{{formatTime .createdAt}}</time></span>{{end}}
             </div>
         </div>
         <div class="score">
