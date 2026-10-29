@@ -87,6 +87,30 @@ func TestManagementDeletionControls(t *testing.T) {
 	}
 }
 
+// The profile page gets createdAt as int64 (users.created_at); 0 means unknown.
+func TestProfileRendersCreatedAt(t *testing.T) {
+	for _, createdAt := range []int64{0, 1700000000} {
+		e := echo.New()
+		setupRenderer(e)
+		var page bytes.Buffer
+		err := e.Renderer.Render(&page, "profile.html", map[string]interface{}{
+			"username":  "alice",
+			"groups":    "default",
+			"createdAt": createdAt,
+			"sessions":  []map[string]string{{"token": "t", "is_current": "1", "created_at": "1700000000", "ttl": "60"}},
+			"logs":      []core.AuditLog{{Timestamp: 1700000000, Action: "LOGIN", Username: "alice"}},
+			"passkeys":  []core.StoredCredential{},
+			"csrf":      "test-csrf",
+		}, nil)
+		require.NoError(t, err)
+		if createdAt == 0 {
+			assert.NotContains(t, page.String(), "Member since")
+		} else {
+			assert.Contains(t, page.String(), `Member since <time data-ts="1700000000">`)
+		}
+	}
+}
+
 func TestSetupMiddleware(t *testing.T) {
 	e := echo.New()
 	// Should register middleware and error/not-found handlers without panicking.
