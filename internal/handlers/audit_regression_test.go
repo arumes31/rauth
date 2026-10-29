@@ -102,7 +102,7 @@ func TestRegression_CompleteSetupDoesNotOverwriteEnrolledTOTP(t *testing.T) {
 
 	require.NoError(t, core.CreateUser("alice", "Password123", "", false, ""))
 	setupToken := "stale-setup"
-	value, _ := core.PendingTokenValue("alice")
+	value := core.PendingTokenValue("alice", mustGen(t, "alice"))
 	core.TokenDB.Set(core.Ctx, "pending_setup:"+setupToken, value, 10*time.Minute)
 	attackerSecret := "JBSWY3DPEHPK3PXP"
 	core.TokenDB.Set(core.Ctx, "pending_setup_secret:"+setupToken, attackerSecret, 5*time.Minute)
@@ -226,7 +226,7 @@ func TestRegression_ResetUser2FAClearsPasskeys(t *testing.T) {
 	e := echo.New()
 	require.NoError(t, core.CreateUser("dave", "Password123", "", false, ""))
 	require.NoError(t, core.CreateUser("boss", "BossPassword1", "", true, ""))
-	require.NoError(t, core.SaveWebAuthnCredential("dave", &webauthn.Credential{ID: []byte("planted")}))
+	require.NoError(t, core.SaveWebAuthnCredential("dave", &webauthn.Credential{ID: []byte("planted")}, mustGen(t, "dave")))
 	require.NotEmpty(t, core.GetWebAuthnCredentials("dave"))
 
 	c, _ := createTestContext(e, http.MethodPost, "/rauthmgmt/user/reset-2fa", url.Values{"username": {"dave"}})

@@ -13,7 +13,7 @@ func BenchmarkGetStoredCredentials(b *testing.B) {
 		b.Fatal(err)
 	}
 	for i := 0; i < 100; i++ {
-		if err := SaveWebAuthnCredential("testuser", &webauthn.Credential{ID: []byte(fmt.Sprintf("id-%d", i))}); err != nil {
+		if err := SaveWebAuthnCredential("testuser", &webauthn.Credential{ID: []byte(fmt.Sprintf("id-%d", i))}, currentGen(b, "testuser")); err != nil {
 			b.Fatal(err)
 		}
 	}

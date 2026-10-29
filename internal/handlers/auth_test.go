@@ -383,7 +383,7 @@ func TestAuthHandler_CompleteSetup2FA(t *testing.T) {
 		// The account exists by the time setup completes (the user just passed the
 		// password step); keep any record a test created itself.
 		seedUserFields(t, username, nil)
-		value, _ := core.PendingTokenValue(username)
+		value := core.PendingTokenValue(username, mustGen(t, username))
 		core.TokenDB.Set(core.Ctx, "pending_setup:"+setupToken, value, 10*time.Minute)
 		core.TokenDB.Set(core.Ctx, "pending_setup_secret:"+setupToken, secret, 5*time.Minute)
 		return encryptedToken

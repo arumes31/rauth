@@ -81,6 +81,16 @@ func (r *mockRenderer) Render(w io.Writer, name string, data interface{}, c echo
 	return nil
 }
 
+// mustGen returns the user's current auth generation.
+func mustGen(t *testing.T, username string) string {
+	t.Helper()
+	gen, err := core.AuthGeneration(username)
+	if err != nil {
+		t.Fatalf("auth generation of %s: %v", username, err)
+	}
+	return gen
+}
+
 // seedAccount creates a minimal user record so sessions issued for username
 // pass core.SessionAuthorized (which rejects sessions of non-existent accounts).
 func seedAccount(t *testing.T, username string) {

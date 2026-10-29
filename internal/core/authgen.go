@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -39,21 +40,63 @@ func AuthGeneration(username string) (string, error) {
 // BumpAuthGeneration invalidates every session and pending token previously
 // issued to the user and returns the new generation.
 func BumpAuthGeneration(username string) (string, error) {
-	var n int64
-	err := PG.QueryRow(Ctx, `INSERT INTO auth_generations (username, gen) VALUES ($1, 1)
-		ON CONFLICT (username) DO UPDATE SET gen = auth_generations.gen + 1
-		RETURNING gen`, username).Scan(&n)
+	gen, err := RevokeAuth(username, nil)
 	if err != nil {
 		slog.Error("Failed to bump auth generation", "user", username, "error", err)
+	}
+	return gen, err
+}
+
+// RevokeAuth bumps the user's generation and applies a credential change
+// (change may be nil) in one transaction, returning the new generation.
+//
+// Authentication reads the generation before it reads credentials and stamps
+// that value into what it issues, so committing both together means proof
+// checked against the old credentials always carries the old generation.
+// The bump comes first so its row lock is held until commit: enrollment
+// writes that call lockAuthGeneration wait for the whole change, and a
+// factor deleted by change cannot be re-added by one already in flight.
+func RevokeAuth(username string, change func(tx pgx.Tx) error) (string, error) {
+	var n int64
+	err := pgx.BeginFunc(Ctx, PG, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(Ctx, `INSERT INTO auth_generations (username, gen) VALUES ($1, 1)
+			ON CONFLICT (username) DO UPDATE SET gen = auth_generations.gen + 1
+			RETURNING gen`, username).Scan(&n); err != nil {
+			return err
+		}
+		if change == nil {
+			return nil
+		}
+		return change(tx)
+	})
+	if err != nil {
 		return "", err
 	}
 	return strconv.FormatInt(n, 10), nil
 }
 
-// sessionGen returns the generation stamped into a session hash. Sessions that
+// lockAuthGeneration locks the user's generation row until tx ends and
+// reports whether it still equals want. Writes that add a factor on the
+// strength of an earlier check (enrollment, passkey registration) run under
+// it, so they either finish before a concurrent RevokeAuth (which then undoes
+// them) or see the new generation and stop.
+func lockAuthGeneration(tx pgx.Tx, username, want string) (bool, error) {
+	// The row must exist to be locked; gen 0 is what AuthGeneration reports
+	// for a missing row anyway. A concurrent first bump makes this wait.
+	if _, err := tx.Exec(Ctx, "INSERT INTO auth_generations (username, gen) VALUES ($1, 0) ON CONFLICT (username) DO NOTHING", username); err != nil {
+		return false, err
+	}
+	var gen int64
+	if err := tx.QueryRow(Ctx, "SELECT gen FROM auth_generations WHERE username = $1 FOR SHARE", username).Scan(&gen); err != nil {
+		return false, err
+	}
+	return strconv.FormatInt(gen, 10) == want, nil
+}
+
+// SessionGen returns the generation stamped into a session hash. Sessions that
 // predate generations carry none and are treated as generation "0", so they stay
 // valid until the user's first credential change.
-func sessionGen(data map[string]string) string {
+func SessionGen(data map[string]string) string {
 	if g := data["auth_gen"]; g != "" {
 		return g
 	}
@@ -75,7 +118,7 @@ func SessionAuthorized(data map[string]string) bool {
 		slog.Error("Failed to check session authorization", "user", username, "error", err)
 		return false
 	}
-	return exists && strconv.FormatInt(gen, 10) == sessionGen(data)
+	return exists && strconv.FormatInt(gen, 10) == SessionGen(data)
 }
 
 // restampScript sets auth_gen only on an existing session hash, so a session
@@ -120,25 +163,24 @@ func StoreSession(token, username, ip string, fields map[string]interface{}, val
 // so the last ':' separates the fields. Values without a generation predate
 // this format and are treated as generation "0".
 
-// PendingTokenValue encodes the value stored for a pending token.
-func PendingTokenValue(username string) (string, error) {
-	gen, err := AuthGeneration(username)
-	if err != nil {
-		return "", err
-	}
-	return username + ":" + gen, nil
+// PendingTokenValue encodes the value stored for a pending token. gen is the
+// generation read before the credentials were checked, never a fresh read: a
+// revocation in between must leave the token stale.
+func PendingTokenValue(username, gen string) string {
+	return username + ":" + gen
 }
 
-// ResolvePendingToken decodes a pending-token value and reports whether it is
-// still at the user's current generation.
-func ResolvePendingToken(value string) (string, bool) {
+// ResolvePendingToken decodes a pending-token value and returns the username
+// and generation, reporting whether that generation is still current. The
+// session issued at the end of the flow carries the returned generation.
+func ResolvePendingToken(value string) (string, string, bool) {
 	username, gen := value, "0"
 	if i := strings.LastIndex(value, ":"); i >= 0 {
 		username, gen = value[:i], value[i+1:]
 	}
 	current, err := AuthGeneration(username)
 	if err != nil {
-		return username, false
+		return username, gen, false
 	}
-	return username, current == gen
+	return username, gen, current == gen
 }

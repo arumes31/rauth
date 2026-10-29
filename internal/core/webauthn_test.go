@@ -117,8 +117,8 @@ func TestWebAuthnCredentialManagement(t *testing.T) {
 	c1 := &webauthn.Credential{ID: []byte("id1"), Authenticator: webauthn.Authenticator{SignCount: 1}}
 	c2 := &webauthn.Credential{ID: []byte("id2"), Authenticator: webauthn.Authenticator{SignCount: 2}}
 
-	assert.NoError(t, SaveWebAuthnCredential(username, c1))
-	assert.NoError(t, SaveWebAuthnCredential(username, c2))
+	assert.NoError(t, SaveWebAuthnCredential(username, c1, currentGen(t, username)))
+	assert.NoError(t, SaveWebAuthnCredential(username, c2, currentGen(t, username)))
 
 	creds := GetWebAuthnCredentials(username)
 	assert.Equal(t, 2, len(creds))
@@ -211,7 +211,7 @@ func TestUpdateWebAuthnSignCount(t *testing.T) {
 			SignCount: 10,
 		},
 	}
-	require.NoError(t, SaveWebAuthnCredential("testuser", &cred))
+	require.NoError(t, SaveWebAuthnCredential("testuser", &cred, currentGen(t, "testuser")))
 
 	require.NoError(t, UpdateWebAuthnSignCount("testuser", []byte("cred1"), 20))
 

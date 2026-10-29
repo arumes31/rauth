@@ -290,6 +290,16 @@ func (h *AuthHandler) Login(c echo.Context) error {
 		return err
 	}
 
+	// Read the generation before the credentials and carry it through the
+	// pending token into the session: a password reset or 2FA reset that
+	// commits in between leaves everything this login issues stale (see
+	// core.RevokeAuth), instead of re-stamping old proof with the new value.
+	authGen, err := core.AuthGeneration(username)
+	if err != nil {
+		slog.Error("Failed to read auth generation at login", "user", username, "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Internal Server Error")
+	}
+
 	password := c.FormValue("password")
 	userRecord, valid := h.verifyCredentials(username, password)
 
@@ -304,11 +314,11 @@ func (h *AuthHandler) Login(c echo.Context) error {
 
 	// Check if 2FA is enabled
 	if userRecord.TwoFactor != "" {
-		return h.initiate2FASession(c, username)
+		return h.initiate2FASession(c, username, authGen)
 	}
 
 	// Force 2FA Setup for new users (or users without 2FA)
-	return h.initiate2FASetupSession(c, username)
+	return h.initiate2FASetupSession(c, username, authGen)
 }
 
 // loginFailUserKey scopes the per-account password lockout to the client's IP
@@ -399,8 +409,8 @@ func (h *AuthHandler) logLoginFailed(username, clientIP string) {
 	core.LogAudit("LOGIN_FAILED", username, clientIP, nil)
 }
 
-func (h *AuthHandler) initiate2FASession(c echo.Context, username string) error {
-	tempToken := h.issueTempToken(username)
+func (h *AuthHandler) initiate2FASession(c echo.Context, username, authGen string) error {
+	tempToken := h.issueTempToken(username, authGen)
 	encrypted, _ := core.EncryptToken(tempToken, h.Cfg.ServerSecret)
 	cookie := &http.Cookie{
 		Name:     "rauth_2fa_pending",
@@ -420,8 +430,8 @@ func (h *AuthHandler) initiate2FASession(c echo.Context, username string) error 
 	})
 }
 
-func (h *AuthHandler) initiate2FASetupSession(c echo.Context, username string) error {
-	setupToken := h.issueSetupToken(username)
+func (h *AuthHandler) initiate2FASetupSession(c echo.Context, username, authGen string) error {
+	setupToken := h.issueSetupToken(username, authGen)
 	encrypted, _ := core.EncryptToken(setupToken, h.Cfg.ServerSecret)
 	c.SetCookie(&http.Cookie{
 		Name:     "rauth_setup_pending",
@@ -466,32 +476,34 @@ func (h *AuthHandler) checkLoginIPRateLimits(c echo.Context, clientIP, template 
 	return nil
 }
 
-func (h *AuthHandler) validatePendingToken(c echo.Context, cookieName, prefix string) (string, string, error) {
+// validatePendingToken resolves a pending 2FA/setup cookie to its username,
+// token and the auth generation the first factor was checked under.
+func (h *AuthHandler) validatePendingToken(c echo.Context, cookieName, prefix string) (string, string, string, error) {
 	cookie, err := c.Cookie(cookieName)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	token, err := core.DecryptToken(cookie.Value, h.Cfg.ServerSecret)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	value, err := core.TokenDB.Get(core.Ctx, prefix+":"+token).Result()
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	// A pending token issued before the user's last credential change (password
 	// change, 2FA reset, deletion) is dead even if its TTL has not run out.
-	username, current := core.ResolvePendingToken(value)
+	username, gen, current := core.ResolvePendingToken(value)
 	if !current {
 		core.TokenDB.Del(core.Ctx, prefix+":"+token, "pending_setup_secret:"+token)
-		return "", "", errStalePendingToken
+		return "", "", "", errStalePendingToken
 	}
-	return username, token, nil
+	return username, token, gen, nil
 }
 
 var errStalePendingToken = errors.New("pending token predates a credential change")
 
-func (h *AuthHandler) handle2FASuccess(c echo.Context, username, clientIP, pendingToken string, usedRecovery bool, userRecord *core.User) error {
+func (h *AuthHandler) handle2FASuccess(c echo.Context, username, clientIP, pendingToken, authGen string, usedRecovery bool, userRecord *core.User) error {
 	core.TokenDB.Del(core.Ctx, "pending_2fa:"+pendingToken)
 	c.SetCookie(&http.Cookie{
 		Name:     "rauth_2fa_pending",
@@ -519,7 +531,7 @@ func (h *AuthHandler) handle2FASuccess(c echo.Context, username, clientIP, pendi
 		}
 	}
 
-	return h.issueToken(c, username)
+	return h.issueToken(c, username, authGen)
 }
 
 // reserve2FAAttempt atomically counts a second-factor attempt against the
@@ -552,7 +564,7 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 	}
 
 	code := c.FormValue("totp_code")
-	username, pendingToken, err := h.validatePendingToken(c, "rauth_2fa_pending", "pending_2fa")
+	username, pendingToken, authGen, err := h.validatePendingToken(c, "rauth_2fa_pending", "pending_2fa")
 	if err != nil {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
@@ -587,14 +599,14 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 	}
 
 	if totpOK || usedRecovery {
-		return h.handle2FASuccess(c, username, clientIP, pendingToken, usedRecovery, &userRecord)
+		return h.handle2FASuccess(c, username, clientIP, pendingToken, authGen, usedRecovery, &userRecord)
 	}
 
 	return h.handle2FAFailure(c, username, clientIP)
 }
 
 func (h *AuthHandler) Setup2FA(c echo.Context) error {
-	username, setupToken, err := h.validatePendingToken(c, "rauth_setup_pending", "pending_setup")
+	username, setupToken, _, err := h.validatePendingToken(c, "rauth_setup_pending", "pending_setup")
 	if err != nil {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
@@ -626,7 +638,7 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 		return err
 	}
 
-	username, setupToken, err := h.validatePendingToken(c, "rauth_setup_pending", "pending_setup")
+	username, setupToken, authGen, err := h.validatePendingToken(c, "rauth_setup_pending", "pending_setup")
 	if err != nil {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
@@ -660,13 +672,14 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 			slog.Error("Failed to encrypt 2FA secret", "error", err)
 			return echo.NewHTTPError(http.StatusInternalServerError, "Internal Server Error")
 		}
-		stored, err := core.SetSecondFactorIfUnset(username, encryptedSecret)
+		stored, err := core.SetSecondFactorIfUnset(username, encryptedSecret, authGen)
 		if err != nil {
 			slog.Error("Failed to save 2FA secret", "error", err)
 			return echo.NewHTTPError(http.StatusInternalServerError, "Database Error")
 		}
 		if !stored {
-			// Lost a race with another enrollment, or the account vanished.
+			// Lost a race with another enrollment, the account vanished, or a
+			// credential reset revoked this enrollment while it ran.
 			core.TokenDB.Del(core.Ctx, "pending_setup:"+setupToken, "pending_setup_secret:"+setupToken)
 			return c.Redirect(http.StatusFound, "/rauthlogin")
 		}
@@ -696,7 +709,7 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 		core.ResetRateLimit(loginFailUserKey(username, clientIP))
 		core.ResetRateLimit("2fa_fail_user:" + username)
 		core.LogAudit("2FA_SETUP_SUCCESS", username, clientIP, nil)
-		return h.issueToken(c, username)
+		return h.issueToken(c, username, authGen)
 	}
 
 	// The failed attempt was already counted by reserve2FAAttempt.
@@ -712,39 +725,32 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 	})
 }
 
-func (h *AuthHandler) issueTempToken(username string) string {
+func (h *AuthHandler) issueTempToken(username, authGen string) string {
 	b := make([]byte, pendingTokenBytes)
 	if _, err := rand.Read(b); err != nil {
 		slog.Error("Failed to generate random temp token", "error", err)
 		return ""
 	}
 	token := hex.EncodeToString(b)
-	value, err := core.PendingTokenValue(username)
-	if err != nil {
-		slog.Error("Failed to read auth generation for temp token", "error", err)
-		return ""
-	}
-	core.TokenDB.Set(core.Ctx, "pending_2fa:"+token, value, 5*time.Minute)
+	core.TokenDB.Set(core.Ctx, "pending_2fa:"+token, core.PendingTokenValue(username, authGen), 5*time.Minute)
 	return token
 }
 
-func (h *AuthHandler) issueSetupToken(username string) string {
+func (h *AuthHandler) issueSetupToken(username, authGen string) string {
 	b := make([]byte, pendingTokenBytes)
 	if _, err := rand.Read(b); err != nil {
 		slog.Error("Failed to generate random setup token", "error", err)
 		return ""
 	}
 	token := hex.EncodeToString(b)
-	value, err := core.PendingTokenValue(username)
-	if err != nil {
-		slog.Error("Failed to read auth generation for setup token", "error", err)
-		return ""
-	}
-	core.TokenDB.Set(core.Ctx, "pending_setup:"+token, value, 10*time.Minute)
+	core.TokenDB.Set(core.Ctx, "pending_setup:"+token, core.PendingTokenValue(username, authGen), 10*time.Minute)
 	return token
 }
 
-func (h *AuthHandler) issueToken(c echo.Context, username string) error {
+// issueToken creates the authenticated session at the end of a login. authGen
+// is the generation the login's first factor was checked under; it is stamped
+// as is, so a revocation during the login leaves the session invalid.
+func (h *AuthHandler) issueToken(c echo.Context, username, authGen string) error {
 	tokenBytes := make([]byte, sessionTokenBytes)
 	if _, err := rand.Read(tokenBytes); err != nil {
 		slog.Error("Failed to generate random token", "error", err)
@@ -775,12 +781,6 @@ func (h *AuthHandler) issueToken(c echo.Context, username string) error {
 		// failure: that would silently downgrade the user's authorization. The
 		// caller has already authenticated, so fail closed.
 		slog.Error("Failed to load user record at token issue", "user", username, "error", err)
-		return echo.NewHTTPError(http.StatusInternalServerError, "Internal Server Error")
-	}
-
-	authGen, err := core.AuthGeneration(username)
-	if err != nil {
-		slog.Error("Failed to read auth generation at token issue", "user", username, "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Internal Server Error")
 	}
 

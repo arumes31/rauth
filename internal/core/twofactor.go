@@ -24,7 +24,11 @@ const totpReplayWindow = 90 * time.Second
 // true. On a Redis error it fails closed (reports reuse): replay protection
 // must not silently disappear during an outage, and the rate limiters already
 // fail closed under the same conditions.
+//
+// totp.Validate trims surrounding whitespace before comparing, so the replay
+// key uses the same trimmed form: " 123456" must count as "123456".
 func TOTPCodeReused(username, code string) bool {
+	code = strings.TrimSpace(code)
 	if code == "" {
 		return false
 	}
@@ -38,14 +42,56 @@ func TOTPCodeReused(username, code string) bool {
 }
 
 // SetSecondFactorIfUnset stores an encrypted TOTP secret only when the user
-// exists and has none, reporting whether it was stored. A stale enrollment can
-// therefore neither overwrite an enrolled TOTP nor resurrect a deleted account.
-func SetSecondFactorIfUnset(username, encryptedSecret string) (bool, error) {
-	tag, err := PG.Exec(Ctx, "UPDATE users SET totp_secret = $2 WHERE username = $1 AND totp_secret = ''", username, encryptedSecret)
-	if err != nil {
-		return false, err
-	}
-	return tag.RowsAffected() == 1, nil
+// exists, has none, and is still at generation gen (the one the enrollment was
+// authorized under), reporting whether it was stored. A stale enrollment can
+// therefore neither overwrite an enrolled TOTP, resurrect a deleted account,
+// nor land after a credential reset revoked it.
+func SetSecondFactorIfUnset(username, encryptedSecret, gen string) (bool, error) {
+	stored := false
+	err := pgx.BeginFunc(Ctx, PG, func(tx pgx.Tx) error {
+		current, err := lockAuthGeneration(tx, username, gen)
+		if err != nil || !current {
+			return err
+		}
+		tag, err := tx.Exec(Ctx, "UPDATE users SET totp_secret = $2 WHERE username = $1 AND totp_secret = ''", username, encryptedSecret)
+		if err != nil {
+			return err
+		}
+		stored = tag.RowsAffected() == 1
+		return nil
+	})
+	return stored && err == nil, err
+}
+
+// DisableTOTP removes a user's TOTP secret and recovery codes and revokes
+// every session and pending login in one transaction, returning the new
+// generation.
+func DisableTOTP(username string) (string, error) {
+	return RevokeAuth(username, func(tx pgx.Tx) error {
+		if err := updateExactlyOne(tx, "UPDATE users SET totp_secret = '' WHERE username = $1", username); err != nil {
+			return err
+		}
+		_, err := tx.Exec(Ctx, "DELETE FROM recovery_codes WHERE username = $1", username)
+		return err
+	})
+}
+
+// ResetSecondFactors removes every second factor of a user (TOTP, recovery
+// codes, passkeys) and revokes every session and pending login in one
+// transaction, returning the new generation. A passkey logs in without
+// password or TOTP, so one left in place would let whoever enrolled it (e.g.
+// an attacker being evicted) straight back in.
+func ResetSecondFactors(username string) (string, error) {
+	return RevokeAuth(username, func(tx pgx.Tx) error {
+		if err := updateExactlyOne(tx, "UPDATE users SET totp_secret = '' WHERE username = $1", username); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(Ctx, "DELETE FROM recovery_codes WHERE username = $1", username); err != nil {
+			return err
+		}
+		_, err := tx.Exec(Ctx, "DELETE FROM webauthn_credentials WHERE username = $1", username)
+		return err
+	})
 }
 
 // recoveryCodeCount is how many single-use recovery codes are issued per batch.

@@ -276,7 +276,7 @@ func TestWebAuthnHandlers(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
 
-		assert.NoError(t, h.issuePasskeyToken(c, "passkeyuser", &userRecord))
+		assert.NoError(t, h.issuePasskeyToken(c, "passkeyuser", &userRecord, mustGen(t, "passkeyuser")))
 
 		tokens, err := core.TokenDB.SMembers(core.Ctx, "ip_sessions:203.0.113.7").Result()
 		assert.NoError(t, err)

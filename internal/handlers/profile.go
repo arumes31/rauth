@@ -205,16 +205,15 @@ func (h *ProfileHandler) DisableTOTP(c echo.Context) error {
 		}
 	}
 
-	if err := core.UpdateUser(username, map[string]interface{}{"2fa_secret": ""}); err != nil {
+	// Recovery codes are tied to TOTP and go with it. Removing a factor is a
+	// security-relevant change: every other session and pending login ends in
+	// the same transaction, keeping only the one that made the change.
+	gen, err := core.DisableTOTP(username)
+	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to disable TOTP")
 	}
-	// Recovery codes are tied to TOTP; clear them so stale codes can't be used.
-	core.ClearRecoveryCodes(username)
-
-	// Removing a factor is a security-relevant change: end every other session
-	// and pending login, keeping only the one that made the change.
 	currentToken, _ := c.Get("token").(string)
-	revokeOtherAccess(username, currentToken)
+	keepOnlySession(username, currentToken, gen)
 
 	// Send notification email
 	if email != "" {
@@ -313,10 +312,18 @@ func (h *ProfileHandler) ChangePassword(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to update password")
 	}
 
-	if err := core.UpdateUser(username, map[string]interface{}{"password": hash}); err != nil {
+	// Security Hardening: the new password commits together with revoking all
+	// other sessions and pending logins, including a half-finished 2FA setup
+	// started with the old password. The current session stays alive so the
+	// success redirect to the profile page does not bounce the user straight
+	// back to the login form.
+	gen, err := core.SetPassword(username, hash)
+	if err != nil {
 		slog.Error("Failed to update user password", "user", username, "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to update password")
 	}
+	currentToken, _ := c.Get("token").(string)
+	keepOnlySession(username, currentToken, gen)
 
 	// Send notification email
 	if userData.Email != "" {
@@ -326,13 +333,6 @@ func (h *ProfileHandler) ChangePassword(c echo.Context) error {
 			c.Request().Header.Get("Sec-CH-UA-Model"))
 		go core.SendPasswordChangeNotification(userData.Email, username, c.RealIP(), device)
 	}
-
-	// Security Hardening: Invalidate all other sessions. The current session
-	// stays alive so the success redirect to the profile page does not bounce
-	// the user straight back to the login form.
-	// A half-finished 2FA setup started with the old password is revoked too.
-	currentToken, _ := c.Get("token").(string)
-	revokeOtherAccess(username, currentToken)
 
 	slog.Info("Password changed by user", "user", username)
 	core.LogAudit("USER_CHANGE_PASSWORD", username, c.RealIP(), nil)
@@ -371,7 +371,18 @@ func (h *ProfileHandler) validateTOTP(username, otpCode, encryptedSecret string)
 // revokeOtherAccess ends every session and pending login of the user except
 // the caller's current session, which is re-stamped to the new generation.
 func revokeOtherAccess(username, currentToken string) {
-	if gen, err := core.BumpAuthGeneration(username); err == nil && currentToken != "" {
+	gen, err := core.BumpAuthGeneration(username)
+	if err != nil {
+		gen = ""
+	}
+	keepOnlySession(username, currentToken, gen)
+}
+
+// keepOnlySession follows a revocation that produced generation gen: the
+// caller's session moves to gen and every other indexed session is deleted.
+// An empty gen (the bump failed) still sweeps the other sessions.
+func keepOnlySession(username, currentToken, gen string) {
+	if gen != "" && currentToken != "" {
 		core.RestampSession(currentToken, gen)
 	}
 	core.InvalidateOtherUserSessions(username, currentToken)
