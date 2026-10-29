@@ -135,21 +135,29 @@ func TestAdminHandler_BypassRules(t *testing.T) {
 	resetBypassRules(t)
 	hash, _ := core.HashPassword("AdminPass1!")
 	seedUserFields(t, "adminuser", map[string]interface{}{"username": "adminuser", "password": hash})
-	h := &AdminHandler{Cfg: &core.Config{RateLimitLoginFailUserMax: 1000, RateLimitLoginFailUserDecay: 60}}
+	cfg := &core.Config{RateLimitLoginFailUserMax: 1000, RateLimitLoginFailUserDecay: 60,
+		ServerSecret: "12345678901234567890123456789012", CookieDomains: []string{"example.com"}, TokenValidityMinutes: 60}
+	h := &AdminHandler{Cfg: cfg}
 	e := echo.New()
+	core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken=session-a", "status", "valid", "username", "adminuser", "ip", "127.0.0.1")
+	core.TokenDB.Expire(core.Ctx, "X-rauth-authtoken=session-a", time.Hour)
+	core.AddSessionIndex("adminuser", "session-a")
+	current := "session-a"
+	var lastCookies []*http.Cookie
 
 	postAs := func(token string, fn func(echo.Context) error, f url.Values) (int, string, error) {
 		c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/bypass", f)
 		c.Set("username", "adminuser")
 		c.Set("token", token)
 		err := fn(c)
+		lastCookies = rec.Result().Cookies()
 		if he, ok := err.(*echo.HTTPError); ok {
 			return he.Code, "", nil
 		}
 		return rec.Code, rec.Header().Get("Location"), err
 	}
 	post := func(fn func(echo.Context) error, f url.Values) (int, string, error) {
-		return postAs("session-a", fn, f)
+		return postAs(current, fn, f)
 	}
 
 	// Locked: every change is refused, even with a password in the form.
@@ -170,9 +178,21 @@ func TestAdminHandler_BypassRules(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusFound, code)
 	assert.Equal(t, "/rauthmgmt?success=bypass_unlocked#bypass", loc)
-	ttl := core.TokenDB.TTL(core.Ctx, "bypass_unlock:session-a").Val()
+	// The unlock moved the session to a new token, delivered only in this
+	// response. A copy of the old cookie is neither unlocked nor valid.
+	require.Len(t, lastCookies, 1)
+	current, err = core.DecryptToken(lastCookies[0].Value, cfg.ServerSecret)
+	require.NoError(t, err)
+	assert.NotEqual(t, "session-a", current)
+	assert.Zero(t, core.TokenDB.Exists(core.Ctx, "X-rauth-authtoken=session-a", "bypass_unlock:session-a").Val())
+	assert.Equal(t, "valid", core.TokenDB.HGet(core.Ctx, "X-rauth-authtoken="+current, "status").Val())
+	members, _ := core.TokenDB.SMembers(core.Ctx, "user_sessions:adminuser").Result()
+	assert.Equal(t, []string{current}, members)
+	ttl := core.TokenDB.TTL(core.Ctx, "bypass_unlock:"+current).Val()
 	assert.Greater(t, ttl, time.Duration(0))
 	assert.LessOrEqual(t, ttl, bypassUnlockTTL)
+	code, _, _ = postAs("session-a", h.AddBypassRule, url.Values{"rule": {"stolen.example.com"}})
+	assert.Equal(t, http.StatusForbidden, code, "a cookie copied before the step-up must not be unlocked")
 
 	// Unlocked: several changes without further step-up.
 	code, _, _ = post(h.AddBypassRule, url.Values{"rule": {"https://bad"}})

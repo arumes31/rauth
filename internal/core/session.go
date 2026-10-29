@@ -80,6 +80,7 @@ func sessionUAMatches(req *http.Request, token, redisKey string, data map[string
 
 	uaIsValid := true
 	useClientHints := false
+	comparable := func(stored, current string) bool { return stored != "" && current != "" }
 
 	// If session HAS Hints, we enforce binding if the current request also HAS Hints.
 	// If the current request has NO hints but the session DOES, we fall back to UA matching
@@ -93,18 +94,21 @@ func sessionUAMatches(req *http.Request, token, redisKey string, data map[string
 	// protected app, which usually does not request Client Hints. Treating the missing
 	// model hint as a mismatch invalidated every mobile session on the next validation
 	// (e.g. stored model "SM-S921B" vs an empty current model), causing a login loop.
-	if storedPlatform != "" || storedMobile != "" || storedModel != "" {
-		if chPlatform != "" || chMobile != "" || chModel != "" {
-			useClientHints = true
-			if storedPlatform != "" && chPlatform != "" && normalizeCH(storedPlatform) != normalizeCH(chPlatform) {
-				uaIsValid = false
-			}
-			if uaIsValid && storedMobile != "" && chMobile != "" && normalizeCH(storedMobile) != normalizeCH(chMobile) {
-				uaIsValid = false
-			}
-			if uaIsValid && storedModel != "" && chModel != "" && normalizeCH(storedModel) != normalizeCH(chModel) {
-				uaIsValid = false
-			}
+	//
+	// Client Hints replace the User-Agent check only when at least one hint is
+	// present on both sides. Otherwise (e.g. stored platform only, request
+	// sends model only) no comparison would run at all, so a request could
+	// skip the device check just by choosing which hints it sends.
+	if comparable(storedPlatform, chPlatform) || comparable(storedMobile, chMobile) || comparable(storedModel, chModel) {
+		useClientHints = true
+		if comparable(storedPlatform, chPlatform) && normalizeCH(storedPlatform) != normalizeCH(chPlatform) {
+			uaIsValid = false
+		}
+		if uaIsValid && comparable(storedMobile, chMobile) && normalizeCH(storedMobile) != normalizeCH(chMobile) {
+			uaIsValid = false
+		}
+		if uaIsValid && comparable(storedModel, chModel) && normalizeCH(storedModel) != normalizeCH(chModel) {
+			uaIsValid = false
 		}
 	}
 

@@ -140,6 +140,100 @@ func RestampSession(token, gen string) {
 	}
 }
 
+// rotateScript copies a live session to a new token and retires the old one
+// in one step: the successor gets the old hash's current fields, a fresh
+// created_at, the full TTL and both index entries; the old hash records its
+// successor and keeps only the grace period. It does nothing (returns 0) when
+// the old session is gone or already rotated, so a session terminated
+// meanwhile is never re-created and a lost race cannot fork a second
+// successor.
+//
+// KEYS: old hash, new hash, user index, IP index.
+// ARGV: new token, created_at, validity seconds, grace seconds.
+var rotateScript = redis.NewScript(`
+if redis.call("EXISTS", KEYS[1]) == 0 or redis.call("HEXISTS", KEYS[1], "rotated_to") == 1 then
+	return 0
+end
+redis.call("HSET", KEYS[2], unpack(redis.call("HGETALL", KEYS[1])))
+redis.call("HSET", KEYS[2], "created_at", ARGV[2])
+redis.call("EXPIRE", KEYS[2], ARGV[3])
+redis.call("SADD", KEYS[3], ARGV[1])
+redis.call("SADD", KEYS[4], ARGV[1])
+redis.call("HSET", KEYS[1], "rotated_to", ARGV[1])
+redis.call("EXPIRE", KEYS[1], ARGV[4])
+return 1
+`)
+
+// RotateSession moves the session oldToken to newToken (see rotateScript),
+// reporting whether it rotated. username and ip pick the index entries.
+func RotateSession(oldToken, newToken, username, ip string, createdAt int64, validity, grace time.Duration) (bool, error) {
+	n, err := rotateScript.Run(Ctx, TokenDB,
+		[]string{"X-rauth-authtoken=" + oldToken, "X-rauth-authtoken=" + newToken, "user_sessions:" + username, "ip_sessions:" + ip},
+		newToken, createdAt, int64(validity.Seconds()), int64(grace.Seconds())).Int()
+	return n == 1, err
+}
+
+// replaceScript moves a live session to a new token and deletes the old one
+// outright, keeping its fields and remaining TTL. Unlike rotation there is no
+// grace period: a copy of the old cookie must stop working at once.
+//
+// KEYS: old hash, new hash, user index, IP index of the old session.
+// ARGV: old token, new token.
+var replaceScript = redis.NewScript(`
+if redis.call("EXISTS", KEYS[1]) == 0 or redis.call("HEXISTS", KEYS[1], "rotated_to") == 1 then
+	return 0
+end
+local ttl = redis.call("PTTL", KEYS[1])
+redis.call("HSET", KEYS[2], unpack(redis.call("HGETALL", KEYS[1])))
+if ttl > 0 then
+	redis.call("PEXPIRE", KEYS[2], ttl)
+end
+redis.call("DEL", KEYS[1])
+redis.call("SREM", KEYS[3], ARGV[1])
+redis.call("SADD", KEYS[3], ARGV[2])
+redis.call("SREM", KEYS[4], ARGV[1])
+redis.call("SADD", KEYS[4], ARGV[2])
+return 1
+`)
+
+// ReplaceSession moves the session oldToken to newToken and invalidates
+// oldToken (see replaceScript), reporting whether it did. Used after a
+// step-up so the elevated session is bound to a token only the browser that
+// passed the step-up holds.
+func ReplaceSession(oldToken, newToken string) (bool, error) {
+	oldKey := "X-rauth-authtoken=" + oldToken
+	fields, err := TokenDB.HMGet(Ctx, oldKey, "username", "ip").Result()
+	if err != nil {
+		return false, err
+	}
+	username, _ := fields[0].(string)
+	ip, _ := fields[1].(string)
+	if username == "" {
+		return false, nil
+	}
+	n, err := replaceScript.Run(Ctx, TokenDB,
+		[]string{oldKey, "X-rauth-authtoken=" + newToken, "user_sessions:" + username, "ip_sessions:" + ip},
+		oldToken, newToken).Int()
+	return n == 1, err
+}
+
+// refreshScript extends a session's TTL unless it was rotated away: a retired
+// token keeps its short grace period even if a request that read it before
+// the rotation refreshes it afterwards.
+var refreshScript = redis.NewScript(`
+if redis.call("HEXISTS", KEYS[1], "rotated_to") == 1 then
+	return 0
+end
+return redis.call("EXPIRE", KEYS[1], ARGV[1])
+`)
+
+// RefreshSession extends the session's TTL to validity (see refreshScript).
+func RefreshSession(token string, validity time.Duration) {
+	if err := refreshScript.Run(Ctx, TokenDB, []string{"X-rauth-authtoken=" + token}, int64(validity.Seconds())).Err(); err != nil {
+		slog.Error("Failed to refresh session", "error", err)
+	}
+}
+
 // StoreSession atomically writes a session hash, its TTL and both revocation
 // indexes. A partial failure would leave a valid session that index-based
 // revocation cannot find, so callers must not issue a cookie on error.

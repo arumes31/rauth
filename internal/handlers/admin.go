@@ -138,6 +138,12 @@ func (h *AdminHandler) CreateUser(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
+	if isAdmin {
+		if herr := h.requireAdminStepUp(c); herr != nil {
+			return herr
+		}
+	}
+
 	if err := core.CreateUser(user, pass, email, isAdmin, ""); err != nil {
 		slog.Warn("Failed to create user", "user", user, "error", err)
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
@@ -198,7 +204,8 @@ func (h *AdminHandler) ResetUser2FA(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	if _, err := core.GetUser(target); err != nil {
+	targetRecord, err := core.GetUser(target)
+	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, "User not found")
 	}
 
@@ -209,6 +216,11 @@ func (h *AdminHandler) ResetUser2FA(c echo.Context) error {
 
 	if herr := h.guardRootAdmin(target, admin); herr != nil {
 		return herr
+	}
+	if targetRecord.IsAdmin == "1" {
+		if herr := h.requireAdminStepUp(c); herr != nil {
+			return herr
+		}
 	}
 
 	// Reset every second factor (TOTP, recovery codes, passkeys) and revoke
@@ -234,7 +246,8 @@ func (h *AdminHandler) ChangeUserPassword(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	if _, err := core.GetUser(target); err != nil {
+	targetRecord, err := core.GetUser(target)
+	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, "User not found")
 	}
 	newPass := c.FormValue("new_password")
@@ -252,6 +265,11 @@ func (h *AdminHandler) ChangeUserPassword(c echo.Context) error {
 
 	if err := core.ValidatePassword(newPass, h.Cfg); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	if targetRecord.IsAdmin == "1" {
+		if herr := h.requireAdminStepUp(c); herr != nil {
+			return herr
+		}
 	}
 
 	hash, err := core.HashPassword(newPass)
@@ -336,6 +354,17 @@ func (h *AdminHandler) InvalidateSession(c echo.Context) error {
 	}
 	core.LogAudit("ADMIN_INVALIDATE_SESSION", admin, c.RealIP(), map[string]interface{}{"token": logToken})
 	return c.Redirect(http.StatusFound, "/rauthmgmt?success=session_terminated")
+}
+
+// requireAdminStepUp re-authenticates the acting administrator (TOTP code, or
+// password without TOTP) before an action that hands out administrator
+// credentials: creating an administrator, or resetting another
+// administrator's password or 2FA. Otherwise a hijacked admin session could
+// mint an administrator whose credentials it controls and use them for
+// actions that demand fresh proof, such as unlocking Public Access.
+func (h *AdminHandler) requireAdminStepUp(c echo.Context) *echo.HTTPError {
+	admin := c.Get("username").(string)
+	return verifyStepUp(h.Cfg, admin, c.FormValue("otp_code"), c.FormValue("current_password"))
 }
 
 // guardRootAdmin stops other administrators from taking over the bootstrap

@@ -129,16 +129,21 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 		now := time.Now().Unix()
 		createdAt, _ := strconv.ParseInt(data["created_at"], 10, 64)
 		if h.Cfg.TokenRotationMinutes > 0 && now-createdAt > int64(h.Cfg.TokenRotationMinutes)*60 {
-			if newToken, ok := h.rotateSession(redisKey, data, clientIP, now, validity); ok {
-				if encrypted, err := core.EncryptToken(newToken, h.Cfg.ServerSecret); err == nil {
-					cookie.Value = encrypted
-					redisKey = "X-rauth-authtoken=" + newToken
-					slog.Debug("Session token rotated", "user", data["username"], "ip", clientIP)
-				}
+			newToken, ok := h.rotateSession(token, data["username"], clientIP, now, validity)
+			if !ok {
+				// Another request rotated it first, it was terminated meanwhile,
+				// or Redis failed: leave the old token as it is. Refreshing it
+				// would undo a retirement that happened after the read above.
+				return c.NoContent(http.StatusOK)
+			}
+			if encrypted, err := core.EncryptToken(newToken, h.Cfg.ServerSecret); err == nil {
+				cookie.Value = encrypted
+				token = newToken
+				slog.Debug("Session token rotated", "user", data["username"], "ip", clientIP)
 			}
 		}
 
-		core.TokenDB.Expire(core.Ctx, redisKey, validity)
+		core.RefreshSession(token, validity)
 		h.setSessionCookie(c, cookie.Value, validity)
 	}
 
@@ -151,43 +156,36 @@ const rotationGrace = 30 * time.Second
 
 // rotateSession copies the session to a new token and retires the old one: the
 // old hash records its successor (so it is never rotated or refreshed again)
-// and expires after rotationGrace. It reports the new token on success.
-func (h *AuthHandler) rotateSession(oldKey string, data map[string]string, clientIP string, now int64, validity time.Duration) (string, bool) {
+// and expires after rotationGrace. Both happen in one Redis script that also
+// requires the old session to still exist and not be rotated yet. It reports
+// the new token on success.
+func (h *AuthHandler) rotateSession(oldToken, username, clientIP string, now int64, validity time.Duration) (string, bool) {
 	newTokenBytes := make([]byte, sessionTokenBytes)
 	if _, err := rand.Read(newTokenBytes); err != nil {
 		return "", false
 	}
 	newToken := hex.EncodeToString(newTokenBytes)
 
-	// Claim the rotation atomically: only the first concurrent request rotates.
-	claimed, err := core.TokenDB.HSetNX(core.Ctx, oldKey, "rotated_to", newToken).Result()
-	if err != nil || !claimed {
+	rotated, err := core.RotateSession(oldToken, newToken, username, clientIP, now, validity, rotationGrace)
+	if err != nil {
+		slog.Error("Failed to rotate session", "user", username, "error", err)
 		return "", false
 	}
-
-	fields := make(map[string]interface{}, len(data))
-	for k, v := range data {
-		if k != "rotated_to" {
-			fields[k] = v
-		}
-	}
-	fields["created_at"] = fmt.Sprintf("%d", now)
-	if err := core.StoreSession(newToken, data["username"], clientIP, fields, validity); err != nil {
-		slog.Error("Failed to store rotated session", "user", data["username"], "error", err)
-		core.TokenDB.HDel(core.Ctx, oldKey, "rotated_to")
-		return "", false
-	}
-	core.TokenDB.Expire(core.Ctx, oldKey, rotationGrace)
-	return newToken, true
+	return newToken, rotated
 }
 
 // setSessionCookie writes the domain-wide session cookie.
 func (h *AuthHandler) setSessionCookie(c echo.Context, value string, validity time.Duration) {
+	writeSessionCookie(c, h.Cfg, value, validity)
+}
+
+// writeSessionCookie writes the domain-wide session cookie.
+func writeSessionCookie(c echo.Context, cfg *core.Config, value string, validity time.Duration) {
 	c.SetCookie(&http.Cookie{
 		Name:     "X-rauth-authtoken",
 		Value:    value,
 		Path:     "/",
-		Domain:   h.Cfg.CookieDomains[0],
+		Domain:   cfg.CookieDomains[0],
 		Expires:  time.Now().Add(validity),
 		HttpOnly: true,
 		Secure:   true,

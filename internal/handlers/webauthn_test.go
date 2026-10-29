@@ -11,9 +11,11 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/labstack/echo/v4"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestWebAuthnHandlers(t *testing.T) {
@@ -140,6 +142,32 @@ func TestWebAuthnHandlers(t *testing.T) {
 			}
 			assert.True(t, found)
 		}
+	})
+
+	// Unknown accounts, accounts without passkeys and enrolled accounts must
+	// all get a 200 with one allowed credential, so the response does not
+	// reveal which one a username is. The dummy credential is stable per name.
+	t.Run("BeginLogin_ByName_DoesNotRevealAccount", func(t *testing.T) {
+		seedUserFields(t, "nokeys", map[string]interface{}{"username": "nokeys"})
+		seedUserFields(t, "haskey", map[string]interface{}{"username": "haskey"})
+		require.NoError(t, core.SaveWebAuthnCredential("haskey", &webauthn.Credential{ID: []byte("real-key")}, mustGen(t, "haskey")))
+
+		allowed := func(name string) []interface{} {
+			req := httptest.NewRequest(http.MethodGet, "/webauthn/login/begin?username="+name, nil)
+			rec := httptest.NewRecorder()
+			require.NoError(t, h.BeginLogin(e.NewContext(req, rec)))
+			require.Equal(t, http.StatusOK, rec.Code, name)
+			var body struct {
+				AllowCredentials []interface{} `json:"allowCredentials"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			return body.AllowCredentials
+		}
+		for _, name := range []string{"ghost", "nokeys", "haskey"} {
+			assert.Len(t, allowed(name), 1, name)
+		}
+		assert.Equal(t, allowed("ghost"), allowed("ghost"), "the dummy credential must be stable")
+		assert.NotEqual(t, allowed("ghost"), allowed("nokeys"))
 	})
 
 	t.Run("FinishLogin_MissingSession", func(t *testing.T) {

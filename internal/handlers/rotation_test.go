@@ -89,3 +89,38 @@ func TestTokenRotation_Coverage(t *testing.T) {
 	ttl := core.TokenDB.TTL(core.Ctx, redisKey).Val()
 	assert.LessOrEqual(t, ttl.Seconds(), float64(30))
 }
+
+// Rotation and refresh must not resurrect or extend a session that changed
+// after Validate read it.
+func TestTokenRotation_RacesWithTermination(t *testing.T) {
+	s := miniredis.RunT(t)
+	core.TokenDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
+	usePG(t)
+	core.RateLimitDB = core.TokenDB
+	seedAccount(t, "alice")
+	h := &AuthHandler{Cfg: &core.Config{TokenValidityMinutes: 10, TokenRotationMinutes: 5}}
+	old := time.Now().Add(-6 * time.Minute).Unix()
+
+	t.Run("terminated session is not re-created", func(t *testing.T) {
+		// Validate read the session, then the owner terminated it.
+		newToken, ok := h.rotateSession("gone", "alice", "127.0.0.1", old, 10*time.Minute)
+		assert.False(t, ok)
+		assert.Zero(t, core.TokenDB.Exists(core.Ctx, "X-rauth-authtoken=gone", "X-rauth-authtoken="+newToken).Val())
+	})
+
+	t.Run("second rotation and refresh leave the retired token alone", func(t *testing.T) {
+		core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken=live", "status", "valid", "username", "alice", "created_at", old)
+		core.TokenDB.Expire(core.Ctx, "X-rauth-authtoken=live", 10*time.Minute)
+		first, ok := h.rotateSession("live", "alice", "127.0.0.1", time.Now().Unix(), 10*time.Minute)
+		require.True(t, ok)
+		assert.Equal(t, "valid", core.TokenDB.HGet(core.Ctx, "X-rauth-authtoken="+first, "status").Val())
+		assert.True(t, core.TokenDB.SIsMember(core.Ctx, "user_sessions:alice", first).Val())
+
+		// A concurrent request that read "live" before the rotation loses.
+		_, ok = h.rotateSession("live", "alice", "127.0.0.1", time.Now().Unix(), 10*time.Minute)
+		assert.False(t, ok)
+		core.RefreshSession("live", 10*time.Minute)
+		assert.LessOrEqual(t, core.TokenDB.TTL(core.Ctx, "X-rauth-authtoken=live").Val(), rotationGrace)
+		assert.Equal(t, first, core.TokenDB.HGet(core.Ctx, "X-rauth-authtoken=live", "rotated_to").Val())
+	})
+}
