@@ -143,7 +143,10 @@ jobs:
             # Only the default branch may move :latest, which deployments pull;
             # a manual dispatch on another branch gets just its branch/sha tags.
             type=raw,value=latest,enable={{is_default_branch}}
-            type=ref,event=branch
+            # Branch tags of other branches carry a prefix, so a branch named
+            # "latest" or "stable" cannot publish over those deployment tags.
+            type=ref,event=branch,enable={{is_default_branch}}
+            type=ref,event=branch,prefix=branch-,enable=${{ github.ref_name != github.event.repository.default_branch }}
             type=ref,event=pr
             type=semver,pattern={{version}}
             type=sha,format=long

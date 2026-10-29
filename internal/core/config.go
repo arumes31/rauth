@@ -55,6 +55,9 @@ type Config struct {
 	SMTPUser string
 	SMTPPass string
 	SMTPFrom string
+	// SMTPTLS is "tls", "starttls", "none" or empty (auto: tls on port 465,
+	// otherwise starttls). See SMTPTLSMode.
+	SMTPTLS string
 	// URLs
 	PublicURL            string
 	TokenRotationMinutes int
@@ -165,6 +168,7 @@ func LoadConfig() *Config {
 		SMTPUser: getEnv("SMTP_USER", ""),
 		SMTPPass: getEnv("SMTP_PASS", ""),
 		SMTPFrom: getEnv("SMTP_FROM", ""),
+		SMTPTLS:  strings.ToLower(strings.TrimSpace(getEnv("SMTP_TLS", ""))),
 		// URLs
 		PublicURL:            getEnv("PUBLIC_URL", "http://localhost:5980"),
 		TokenRotationMinutes: getEnvInt("TOKEN_ROTATION_MINUTES", 0),
@@ -387,6 +391,42 @@ func (c *Config) IsIPAllowed(ipStr string, allowedList []string) bool {
 		}
 	}
 	return false
+}
+
+// SMTPTLSMode returns how outgoing mail is encrypted: "tls" (implicit, the
+// default on port 465), "starttls" (required, the default otherwise) or
+// "none" (opportunistic STARTTLS, only for a trusted plain-text relay).
+// Unknown values fall back to the default rather than to plain text.
+func (c *Config) SMTPTLSMode() string {
+	switch c.SMTPTLS {
+	case "tls", "starttls", "none":
+		return c.SMTPTLS
+	}
+	if c.SMTPPort == 465 {
+		return "tls"
+	}
+	return "starttls"
+}
+
+// IsClientAllowed authorizes a request against an IP allowlist such as
+// METRICS_ALLOWED_IPS. clientIP is the address the IP extractor resolved and
+// remoteAddr the socket peer. With TRUSTED_PROXIES set, the extractor only
+// honours forwarding headers from those proxies, so clientIP is used as is.
+// In legacy mode any private peer may set forwarding headers, so a LAN client
+// could claim an allowed address; there both the peer and the resolved client
+// must be allowed (behind a proxy, list the proxy too or set TRUSTED_PROXIES).
+func (c *Config) IsClientAllowed(clientIP, remoteAddr string, allowedList []string) bool {
+	if !c.IsIPAllowed(clientIP, allowedList) {
+		return false
+	}
+	if len(c.TrustedProxies) > 0 {
+		return true
+	}
+	peer, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		peer = remoteAddr
+	}
+	return c.IsIPAllowed(peer, allowedList)
 }
 
 func normalizeHostname(h string) string {

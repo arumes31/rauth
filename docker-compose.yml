@@ -75,6 +75,7 @@ services:
       - SMTP_USER=${SMTP_USER}
       - SMTP_PASS=${SMTP_PASS}
       - SMTP_FROM=${SMTP_FROM}
+      - SMTP_TLS=${SMTP_TLS:-}
     depends_on:
       rauth-auth-redis:
         condition: service_started

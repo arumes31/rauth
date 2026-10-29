@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -59,12 +60,30 @@ func TestLogAudit(t *testing.T) {
 	t.Run("Recreated account does not inherit history", func(t *testing.T) {
 		_, err := PG.Exec(Ctx, "INSERT INTO audit_logs (ts, action, username) VALUES ($1, 'OLD', 'reborn')", time.Now().Add(-time.Hour).Unix())
 		require.NoError(t, err)
-		require.NoError(t, PutUser(User{Username: "reborn", CreatedAt: time.Now().Unix()}))
+		require.NoError(t, PutUser(User{Username: "reborn", UID: uuid.NewString(), CreatedAt: time.Now().Unix()}))
 		LogAudit("NEW", "reborn", "127.0.0.1", nil)
 		logs, err := UserAuditLogs("reborn", 100)
 		require.NoError(t, err)
 		require.Len(t, logs, 1)
 		assert.Equal(t, "NEW", logs[0].Action)
+	})
+
+	// Timestamps have one-second precision: an entry of the deleted account
+	// from the second the new one was created must still stay hidden.
+	t.Run("Same-second history stays with its account", func(t *testing.T) {
+		require.NoError(t, CreateUser("twin", "Password123", "", false, ""))
+		LogAudit("FIRST_OWNER", "twin", "198.51.100.1", nil)
+		require.NoError(t, DeleteUser("twin"))
+		require.NoError(t, CreateUser("twin", "Password123", "", false, ""))
+		LogAudit("SECOND_OWNER", "twin", "127.0.0.1", nil)
+		// Force the worst case: everything in the creation second.
+		_, err := PG.Exec(Ctx, "UPDATE audit_logs SET ts = (SELECT created_at FROM users WHERE username = 'twin') WHERE username = 'twin'")
+		require.NoError(t, err)
+
+		logs, err := UserAuditLogs("twin", 100)
+		require.NoError(t, err)
+		require.Len(t, logs, 1)
+		assert.Equal(t, "SECOND_OWNER", logs[0].Action)
 	})
 
 	t.Run("Prune by retention", func(t *testing.T) {

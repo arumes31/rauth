@@ -33,7 +33,7 @@ func (h *HealthHandler) Check(c echo.Context) error {
 	// /health is public. File paths and runtime details are only returned to
 	// clients inside METRICS_ALLOWED_IPS; everyone gets the status and
 	// per-check verdicts. Raw errors are logged, never returned.
-	detailed := h.Cfg.IsIPAllowed(c.RealIP(), h.Cfg.MetricsAllowedIPs)
+	detailed := h.Cfg.IsClientAllowed(c.RealIP(), c.Request().RemoteAddr, h.Cfg.MetricsAllowedIPs)
 	status := "OK"
 	checks := make(map[string]string, 4)
 

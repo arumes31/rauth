@@ -447,7 +447,7 @@ func setupRoutes(e *echo.Echo, cfg *core.Config) {
 
 	e.GET("/metrics", echo.WrapHandler(promhttp.Handler()), func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
-			if cfg.IsIPAllowed(c.RealIP(), cfg.MetricsAllowedIPs) {
+			if cfg.IsClientAllowed(c.RealIP(), c.Request().RemoteAddr, cfg.MetricsAllowedIPs) {
 				return next(c)
 			}
 			slog.Warn("Metrics access denied", "ip", c.RealIP())

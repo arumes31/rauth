@@ -270,7 +270,7 @@ func copyRedisData(ctx context.Context, tx pgx.Tx, userDB, auditDB *redis.Client
 	}
 	sort.SliceStable(entries, func(i, j int) bool { return entries[i].Timestamp < entries[j].Timestamp })
 	for _, l := range entries {
-		if err := insertAuditLog(ctx, tx, l); err != nil {
+		if err := insertAuditLog(ctx, tx, l, false); err != nil {
 			return stats, err
 		}
 		stats.AuditEntries++
