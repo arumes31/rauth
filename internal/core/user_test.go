@@ -58,7 +58,7 @@ func TestDeleteUserCleanup(t *testing.T) {
 	AddSessionIndex(username, "tok1")
 	_, err := GenerateRecoveryCodes(username)
 	require.NoError(t, err)
-	require.NoError(t, SaveWebAuthnCredential(username, &webauthn.Credential{ID: []byte("k1")}))
+	require.NoError(t, SaveWebAuthnCredential(username, &webauthn.Credential{ID: []byte("k1")}, currentGen(t, username)))
 
 	require.NoError(t, DeleteUser(username))
 

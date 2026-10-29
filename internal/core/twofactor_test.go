@@ -24,6 +24,12 @@ func TestTOTPCodeReused(t *testing.T) {
 
 	// Empty codes are never treated as reused.
 	require.False(t, TOTPCodeReused("alice", ""))
+
+	// totp.Validate accepts whitespace-padded codes, so padding must not mint
+	// a fresh replay record for an already used code.
+	require.False(t, TOTPCodeReused("carol", "111111"))
+	require.True(t, TOTPCodeReused("carol", " 111111"))
+	require.True(t, TOTPCodeReused("carol", "111111\t\n"))
 }
 
 func TestRecoveryCodes(t *testing.T) {

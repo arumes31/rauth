@@ -1,15 +1,94 @@
 package core
 
 import (
+	"crypto/tls"
+	"errors"
 	"fmt"
 	"html"
 	"log/slog"
+	"net"
 	"net/smtp"
 	"strings"
 	"time"
 )
 
-var sendMail = smtp.SendMail
+var sendMail = func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
+	return sendMailTLS(LoadConfig().SMTPTLSMode(), addr, a, from, to, msg)
+}
+
+// smtpTimeout bounds connecting to the SMTP server and each exchange.
+const smtpTimeout = 30 * time.Second
+
+// sendMailTLS is smtp.SendMail with a mandatory TLS policy. smtp.SendMail
+// only upgrades when the server advertises STARTTLS, so an active attacker
+// who strips that line gets the notification in clear text (with
+// credentials, PlainAuth refuses, but unauthenticated relays would send).
+//
+// mode "tls" uses implicit TLS (port 465), "starttls" requires a successful
+// STARTTLS before anything else is sent, and "none" keeps the old
+// opportunistic behaviour for plain-text relays on a trusted network.
+func sendMailTLS(mode, addr string, a smtp.Auth, from string, to []string, msg []byte) error {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return err
+	}
+	tlsConfig := &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}
+	dialer := &net.Dialer{Timeout: smtpTimeout}
+
+	var conn net.Conn
+	if mode == "tls" {
+		conn, err = tls.DialWithDialer(dialer, "tcp", addr, tlsConfig)
+	} else {
+		conn, err = dialer.Dial("tcp", addr)
+	}
+	if err != nil {
+		return err
+	}
+	_ = conn.SetDeadline(time.Now().Add(smtpTimeout))
+	c, err := smtp.NewClient(conn, host)
+	if err != nil {
+		_ = conn.Close()
+		return err
+	}
+	defer func() { _ = c.Close() }()
+
+	if mode != "tls" {
+		if ok, _ := c.Extension("STARTTLS"); ok {
+			if err := c.StartTLS(tlsConfig); err != nil {
+				return err
+			}
+		} else if mode != "none" {
+			return errors.New("smtp: server does not offer STARTTLS (set SMTP_TLS=none only for a trusted plain-text relay)")
+		}
+	}
+	if a != nil {
+		if ok, _ := c.Extension("AUTH"); !ok {
+			return errors.New("smtp: server doesn't support AUTH")
+		}
+		if err := c.Auth(a); err != nil {
+			return err
+		}
+	}
+	if err := c.Mail(from); err != nil {
+		return err
+	}
+	for _, rcpt := range to {
+		if err := c.Rcpt(rcpt); err != nil {
+			return err
+		}
+	}
+	w, err := c.Data()
+	if err != nil {
+		return err
+	}
+	if _, err := w.Write(msg); err != nil {
+		return err
+	}
+	if err := w.Close(); err != nil {
+		return err
+	}
+	return c.Quit()
+}
 
 const emailBaseTemplate = `
 <!DOCTYPE html>

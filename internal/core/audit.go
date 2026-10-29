@@ -44,7 +44,7 @@ func LogAudit(action, username, ip string, details map[string]interface{}) {
 	if PG == nil {
 		return
 	}
-	if err := insertAuditLog(Ctx, PG, entry); err != nil {
+	if err := insertAuditLog(Ctx, PG, entry, true); err != nil {
 		slog.Error("Failed to store audit log entry", "error", err)
 	}
 }
@@ -52,11 +52,16 @@ func LogAudit(action, username, ip string, details map[string]interface{}) {
 // insertAuditLog stores one entry. Audit fields can carry attacker input, and
 // Postgres text and jsonb values cannot hold NUL, so NULs are replaced with
 // U+FFFD instead of failing the insert (which would drop the entry).
+//
+// With linkOwner the entry records the UID of the account currently holding
+// the username, which UserAuditLogs selects by. The Redis import passes
+// false: its entries may belong to an earlier account with the same name.
 func insertAuditLog(ctx context.Context, db interface {
 	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
-}, l AuditLog) error {
-	_, err := db.Exec(ctx, "INSERT INTO audit_logs (ts, action, username, ip, details) VALUES ($1, $2, $3, $4, $5)",
-		l.Timestamp, stripNUL(l.Action), stripNUL(l.Username), stripNUL(l.IP), auditDetailsJSON(l.Details))
+}, l AuditLog, linkOwner bool) error {
+	_, err := db.Exec(ctx, `INSERT INTO audit_logs (ts, action, username, ip, details, user_uid)
+		VALUES ($1, $2, $3, $4, $5, CASE WHEN $6::boolean THEN (SELECT uid FROM users WHERE username = $3) END)`,
+		l.Timestamp, stripNUL(l.Action), stripNUL(l.Username), stripNUL(l.IP), auditDetailsJSON(l.Details), linkOwner && l.Username != "")
 	return err
 }
 
@@ -129,13 +134,18 @@ func RecentAuditLogs(limit int) ([]AuditLog, error) {
 	return queryAuditLogs("SELECT ts, action, username, ip, details FROM audit_logs ORDER BY id DESC LIMIT $1", limit)
 }
 
-// UserAuditLogs returns the newest entries owned by username. Entries older
-// than the account are left out, so a recreated account does not see the
-// history of a deleted one with the same name.
+// UserAuditLogs returns the newest entries owned by the account currently
+// named username, so a recreated account does not see the history of a
+// deleted one with the same name. Entries carry the owner's UID; older ones
+// without it are shown only when strictly newer than an account with a known
+// creation time (timestamps have one-second precision, so the creation second
+// itself is ambiguous, and created_at 0 gives no boundary at all).
 func UserAuditLogs(username string, limit int) ([]AuditLog, error) {
-	return queryAuditLogs(`SELECT ts, action, username, ip, details FROM audit_logs
-		WHERE username = $1 AND ts >= COALESCE((SELECT created_at FROM users WHERE username = $1), 0)
-		ORDER BY id DESC LIMIT $2`, username, limit)
+	return queryAuditLogs(`SELECT a.ts, a.action, a.username, a.ip, a.details
+		FROM audit_logs a LEFT JOIN users u ON u.username = $1
+		WHERE a.username = $1
+			AND (a.user_uid = u.uid OR (a.user_uid IS NULL AND u.created_at > 0 AND a.ts > u.created_at))
+		ORDER BY a.id DESC LIMIT $2`, username, limit)
 }
 
 // PruneAuditLogs deletes entries older than retentionDays (0 keeps everything).

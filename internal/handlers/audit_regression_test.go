@@ -102,7 +102,7 @@ func TestRegression_CompleteSetupDoesNotOverwriteEnrolledTOTP(t *testing.T) {
 
 	require.NoError(t, core.CreateUser("alice", "Password123", "", false, ""))
 	setupToken := "stale-setup"
-	value, _ := core.PendingTokenValue("alice")
+	value := core.PendingTokenValue("alice", mustGen(t, "alice"))
 	core.TokenDB.Set(core.Ctx, "pending_setup:"+setupToken, value, 10*time.Minute)
 	attackerSecret := "JBSWY3DPEHPK3PXP"
 	core.TokenDB.Set(core.Ctx, "pending_setup_secret:"+setupToken, attackerSecret, 5*time.Minute)
@@ -226,7 +226,7 @@ func TestRegression_ResetUser2FAClearsPasskeys(t *testing.T) {
 	e := echo.New()
 	require.NoError(t, core.CreateUser("dave", "Password123", "", false, ""))
 	require.NoError(t, core.CreateUser("boss", "BossPassword1", "", true, ""))
-	require.NoError(t, core.SaveWebAuthnCredential("dave", &webauthn.Credential{ID: []byte("planted")}))
+	require.NoError(t, core.SaveWebAuthnCredential("dave", &webauthn.Credential{ID: []byte("planted")}, mustGen(t, "dave")))
 	require.NotEmpty(t, core.GetWebAuthnCredentials("dave"))
 
 	c, _ := createTestContext(e, http.MethodPost, "/rauthmgmt/user/reset-2fa", url.Values{"username": {"dave"}})
@@ -251,4 +251,45 @@ func TestRegression_RootAdminGuard(t *testing.T) {
 	var he *echo.HTTPError
 	require.ErrorAs(t, err, &he)
 	assert.Equal(t, http.StatusForbidden, he.Code)
+}
+
+// Handing out administrator credentials needs the acting admin's step-up, so
+// a hijacked admin session cannot mint an admin it controls and then pass the
+// Public Access unlock with that admin's credentials.
+func TestRegression_AdminCredentialsNeedStepUp(t *testing.T) {
+	setupHandlersTest(t)
+	cfg := regressionConfig()
+	cfg.MinPasswordLength = 8
+	admin := &AdminHandler{Cfg: cfg}
+	e := echo.New()
+	require.NoError(t, core.CreateUser("boss", "BossPassword1", "", true, ""))
+	require.NoError(t, core.CreateUser("peer", "PeerPassword1", "", true, ""))
+	require.NoError(t, core.CreateUser("member", "MemberPassword1", "", false, ""))
+
+	run := func(fn func(echo.Context) error, path string, f url.Values) int {
+		c, rec := createTestContext(e, http.MethodPost, path, f)
+		c.Set("username", "boss")
+		if err := fn(c); err != nil {
+			var he *echo.HTTPError
+			require.ErrorAs(t, err, &he)
+			return he.Code
+		}
+		return rec.Code
+	}
+	newAdmin := url.Values{"new_username": {"mallory"}, "new_password": {"MalloryPass1"}, "is_admin": {"on"}}
+
+	assert.Equal(t, http.StatusBadRequest, run(admin.CreateUser, "/rauthmgmt/user/create", newAdmin))
+	exists, _ := core.UserExists("mallory")
+	assert.False(t, exists, "no administrator without the acting admin's step-up")
+	assert.Equal(t, http.StatusBadRequest, run(admin.ChangeUserPassword, "/rauthmgmt/user/change-password",
+		url.Values{"username": {"peer"}, "new_password": {"Hijacked123"}}))
+	assert.Equal(t, http.StatusBadRequest, run(admin.ResetUser2FA, "/rauthmgmt/user/reset-2fa", url.Values{"username": {"peer"}}))
+
+	// Non-admin targets need no step-up; admin targets pass with it.
+	assert.Equal(t, http.StatusFound, run(admin.ChangeUserPassword, "/rauthmgmt/user/change-password",
+		url.Values{"username": {"member"}, "new_password": {"NewMember123"}}))
+	newAdmin.Set("current_password", "BossPassword1")
+	assert.Equal(t, http.StatusFound, run(admin.CreateUser, "/rauthmgmt/user/create", newAdmin))
+	assert.Equal(t, http.StatusFound, run(admin.ResetUser2FA, "/rauthmgmt/user/reset-2fa",
+		url.Values{"username": {"peer"}, "current_password": {"BossPassword1"}}))
 }

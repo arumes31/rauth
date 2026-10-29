@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -93,7 +94,15 @@ func (h *WebAuthnHandler) FinishRegistration(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "Passkey registration failed")
 	}
 
-	if err := core.SaveWebAuthnCredential(username, credential); err != nil {
+	// Save only while the session that authorized this request is still
+	// current: a 2FA reset or account deletion that overtook the request must
+	// not get the passkey it removed back.
+	authGen, _ := c.Get("auth_gen").(string)
+	if err := core.SaveWebAuthnCredential(username, credential, authGen); err != nil {
+		if errors.Is(err, core.ErrStaleGeneration) {
+			slog.Warn("Passkey registration overtaken by a credential reset", "user", username)
+			return echo.NewHTTPError(http.StatusUnauthorized, "Session revoked during registration")
+		}
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to save credential")
 	}
 
@@ -123,18 +132,15 @@ func (h *WebAuthnHandler) BeginLogin(c echo.Context) error {
 	var err error
 
 	if username != "" {
-		userRecord, getErr := core.GetUser(username)
-		if getErr != nil {
-			// Dummy user to prevent enumeration
-			user := &core.WebAuthnUser{
-				ID:          []byte("dummy"),
-				DisplayName: username,
+		// Unknown accounts and accounts without passkeys get a dummy
+		// credential, so the response does not reveal which case applies.
+		user := core.DummyWebAuthnUser(username)
+		if userRecord, getErr := core.GetUser(username); getErr == nil {
+			if real := core.NewWebAuthnUser(userRecord); len(real.Credentials) > 0 {
+				user = real
 			}
-			options, sessionData, err = core.WebAuthnInstance.BeginLogin(user)
-		} else {
-			user := core.NewWebAuthnUser(userRecord)
-			options, sessionData, err = core.WebAuthnInstance.BeginLogin(user)
 		}
+		options, sessionData, err = core.WebAuthnInstance.BeginLogin(user)
 	} else {
 		// Nameless login
 		options, sessionData, err = core.WebAuthnInstance.BeginDiscoverableLogin()
@@ -189,6 +195,15 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 		return err
 	}
 
+	// Read the generation before the credentials and stamp exactly that into
+	// the session: a 2FA reset that deletes this passkey while the login runs
+	// leaves the session stale instead of granting it the post-reset value.
+	authGen, err := core.AuthGeneration(username)
+	if err != nil {
+		slog.Error("Failed to read auth generation at passkey login", "user", username, "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to create session")
+	}
+
 	// Create user object for validation.
 	// CRITICAL: The ID must match what the authenticator thinks it is (userID)
 	user := &core.WebAuthnUser{
@@ -201,17 +216,24 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 	// This prevents "ID mismatch for User and Session".
 	sessionData.UserID = userID
 
+	// With WEBAUTHN_USER_VERIFICATION=required a passkey login must prove user
+	// verification (PIN/biometric), not just presence. A ceremony begun under
+	// an older "preferred" configuration is upgraded so the library enforces
+	// it on this assertion.
+	if h.Cfg.WebAuthnRequireUserVerification {
+		sessionData.UserVerification = protocol.VerificationRequired
+	}
+
 	credential, err := core.WebAuthnInstance.ValidateLogin(user, *sessionData, parsedResponse)
 	if err != nil {
 		slog.Error("WebAuthn validation failed", "error", err, "username", username)
 		return echo.NewHTTPError(http.StatusUnauthorized, "Passkey validation failed")
 	}
 
-	// With WEBAUTHN_USER_VERIFICATION=required a passkey login must prove user
-	// verification (PIN/biometric), not just presence. The library enforces
-	// this when the session requires it; check again here so a session begun
-	// under an older configuration can never downgrade the assurance.
-	if h.Cfg.WebAuthnRequireUserVerification && !credential.Flags.UserVerified {
+	// Check the UV flag of this assertion's signed authenticator data, not
+	// credential.Flags.UserVerified: the library latches that flag once any
+	// earlier login verified the user.
+	if h.Cfg.WebAuthnRequireUserVerification && !parsedResponse.Response.AuthenticatorData.Flags.HasUserVerified() {
 		slog.Warn("WebAuthn assertion without user verification rejected", "username", username)
 		core.LogAudit("PASSKEY_UV_MISSING", username, clientIP, nil)
 		return echo.NewHTTPError(http.StatusUnauthorized, "Passkey validation failed: user verification (PIN or biometric) is required")
@@ -225,12 +247,20 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusUnauthorized, "Passkey validation failed: possible cloned authenticator")
 	}
 
-	// Update credential sign count
+	// Update the sign count. A credential that vanished during the login (a
+	// revocation or 2FA reset) fails the login, as does a write error: the
+	// clone check above relies on the stored count.
 	if err := core.UpdateWebAuthnSignCount(username, credential.ID, credential.Authenticator.SignCount); err != nil {
+		if errors.Is(err, core.ErrCredentialGone) {
+			slog.Warn("Passkey removed during login, rejecting", "username", username)
+			core.LogAudit("PASSKEY_REVOKED_DURING_LOGIN", username, clientIP, nil)
+			return echo.NewHTTPError(http.StatusUnauthorized, "Passkey validation failed")
+		}
 		slog.Error("Failed to update WebAuthn sign count", "error", err, "username", username)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to create session")
 	}
 
-	if err := h.issuePasskeyToken(c, username, userRecord); err != nil {
+	if err := h.issuePasskeyToken(c, username, userRecord, authGen); err != nil {
 		return err
 	}
 
@@ -319,7 +349,9 @@ func (h *WebAuthnHandler) identifyWebAuthnUser(c echo.Context, parsedResponse *p
 	return username, userID, &userRecord, nil
 }
 
-func (h *WebAuthnHandler) issuePasskeyToken(c echo.Context, username string, userRecord *core.User) error {
+// issuePasskeyToken creates the session for a verified passkey login. authGen
+// is the generation read before the credentials were loaded.
+func (h *WebAuthnHandler) issuePasskeyToken(c echo.Context, username string, userRecord *core.User, authGen string) error {
 	clientIP := c.RealIP()
 	ua := c.Request().UserAgent()
 	token := core.GenerateRandomString(32)
@@ -338,12 +370,6 @@ func (h *WebAuthnHandler) issuePasskeyToken(c echo.Context, username string, use
 		slog.Warn("Passkey login attempt from blocked country", "country", countryCode, "ip", clientIP, "user", username)
 		core.LogAudit("BLOCKED_COUNTRY_PASSKEY_LOGIN_ATTEMPT", username, clientIP, map[string]interface{}{"country": countryCode})
 		return echo.NewHTTPError(http.StatusForbidden, "Access from your location is restricted")
-	}
-
-	authGen, err := core.AuthGeneration(username)
-	if err != nil {
-		slog.Error("Failed to read auth generation at passkey login", "user", username, "error", err)
-		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to create session")
 	}
 
 	// Stamp groups/is_admin, the auth generation and Client Hints into the

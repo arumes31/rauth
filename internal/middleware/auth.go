@@ -58,6 +58,9 @@ func AuthMiddleware(cfg *core.Config) echo.MiddlewareFunc {
 
 			c.Set("username", username)
 			c.Set("token", token)
+			// The generation this request was authorized under, for writes that
+			// must not land after a concurrent revocation (passkey registration).
+			c.Set("auth_gen", core.SessionGen(data))
 
 			// is_admin is stamped into the token at issue time. Fall back to a
 			// single-field user lookup only for legacy sessions that predate it.

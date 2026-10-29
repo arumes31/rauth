@@ -172,39 +172,57 @@ func CreateUser(username, password, email string, isAdmin bool, twoFactor string
 
 	// The primary key makes the insert the atomic claim on the name. Recovery
 	// codes and passkeys cascade with the account row, so a recreated name
-	// cannot inherit them.
-	_, err = PG.Exec(Ctx, `INSERT INTO users (username, password, email, groups, is_admin, totp_secret, uid, created_at)
-		VALUES ($1, $2, $3, 'default', $4, $5, $6, $7)`,
-		username, hash, email, isAdmin, encryptedSecret, uuid.New(), time.Now().Unix())
+	// cannot inherit them. The generation bump in the same transaction keeps
+	// sessions and pending tokens of an earlier account with this name dead.
+	_, err = RevokeAuth(username, func(tx pgx.Tx) error {
+		_, err := tx.Exec(Ctx, `INSERT INTO users (username, password, email, groups, is_admin, totp_secret, uid, created_at)
+			VALUES ($1, $2, $3, 'default', $4, $5, $6, $7)`,
+			username, hash, email, isAdmin, encryptedSecret, uuid.New(), time.Now().Unix())
+		return err
+	})
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 		return errUserExists
 	}
-	if err != nil {
-		return err
-	}
-
-	// Sessions and pending tokens issued to an earlier account with this name
-	// must not carry over.
-	if _, err := BumpAuthGeneration(username); err != nil {
-		_, _ = PG.Exec(Ctx, "DELETE FROM users WHERE username = $1", username)
-		return err
-	}
-	return nil
+	return err
 }
 
 func DeleteUser(username string) error {
-	// Invalidate every session and pending token first, including ones the
-	// session index does not know about or that are being minted concurrently.
-	if _, err := BumpAuthGeneration(username); err != nil {
+	// The generation bump commits with the delete, invalidating every session
+	// and pending token, including ones the session index does not know about
+	// or that are being minted concurrently. Recovery codes and passkeys are
+	// removed by ON DELETE CASCADE. Audit entries are kept; profile views only
+	// show entries of the current account.
+	if _, err := RevokeAuth(username, func(tx pgx.Tx) error {
+		_, err := tx.Exec(Ctx, "DELETE FROM users WHERE username = $1", username)
+		return err
+	}); err != nil {
 		return err
 	}
 	// A deleted user must not retain a usable session until token expiry.
 	_ = InvalidateUserSessions(username)
-	// Recovery codes and passkeys are removed by ON DELETE CASCADE. Audit
-	// entries are kept; profile views only show entries newer than the account.
-	_, err := PG.Exec(Ctx, "DELETE FROM users WHERE username = $1", username)
-	return err
+	return nil
+}
+
+// SetPassword replaces a user's password hash and revokes every session and
+// pending login in the same transaction, returning the new generation.
+func SetPassword(username, hash string) (string, error) {
+	return RevokeAuth(username, func(tx pgx.Tx) error {
+		return updateExactlyOne(tx, "UPDATE users SET password = $2 WHERE username = $1", username, hash)
+	})
+}
+
+// updateExactlyOne runs an UPDATE of one users row, reporting ErrUserNotFound
+// when the account is gone.
+func updateExactlyOne(tx pgx.Tx, sql string, args ...any) error {
+	tag, err := tx.Exec(Ctx, sql, args...)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrUserNotFound
+	}
+	return nil
 }
 
 // userUpdateColumns maps the field names callers use to their columns.

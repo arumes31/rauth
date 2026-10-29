@@ -3,6 +3,8 @@ package core
 import (
 	"bytes"
 	"cmp"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -157,18 +159,51 @@ func InitWebAuthn(cfg *Config) error {
 	return err
 }
 
-func SaveWebAuthnCredential(username string, cred *webauthn.Credential) error {
+// ErrStaleGeneration reports that a credential change was authorized under a
+// generation that a revocation has since replaced.
+var ErrStaleGeneration = errors.New("authorization was revoked during the request")
+
+// SaveWebAuthnCredential stores a newly registered passkey, provided the user
+// is still at generation gen (the one the registration was authorized under).
+// A registration that a 2FA reset or account deletion overtook is rejected
+// with ErrStaleGeneration instead of re-adding a factor the reset removed.
+func SaveWebAuthnCredential(username string, cred *webauthn.Credential, gen string) error {
 	stored := StoredCredential{
 		Credential: *cred,
 		Nickname:   fmt.Sprintf("Key %d", len(GetWebAuthnCredentials(username))+1),
 		CreatedAt:  time.Now().Unix(),
 	}
 	data, _ := json.Marshal(stored)
-	// The foreign key rejects a credential for an account deleted meanwhile.
-	_, err := PG.Exec(Ctx, `INSERT INTO webauthn_credentials (username, cred_id, data, created_at) VALUES ($1, $2, $3, $4)
-		ON CONFLICT (username, cred_id) DO UPDATE SET data = EXCLUDED.data`,
-		username, fmt.Sprintf("%x", cred.ID), data, stored.CreatedAt)
-	return err
+	return pgx.BeginFunc(Ctx, PG, func(tx pgx.Tx) error {
+		current, err := lockAuthGeneration(tx, username, gen)
+		if err != nil {
+			return err
+		}
+		if !current {
+			return ErrStaleGeneration
+		}
+		// The foreign key rejects a credential for an account deleted meanwhile.
+		_, err = tx.Exec(Ctx, `INSERT INTO webauthn_credentials (username, cred_id, data, created_at) VALUES ($1, $2, $3, $4)
+			ON CONFLICT (username, cred_id) DO UPDATE SET data = EXCLUDED.data`,
+			username, fmt.Sprintf("%x", cred.ID), data, stored.CreatedAt)
+		return err
+	})
+}
+
+// DummyWebAuthnUser stands in for an unknown account, or one without
+// passkeys, when a username-first passkey login starts. It carries one
+// credential whose ID is derived from SERVER_SECRET and the name, so the
+// options look like an enrolled account's and stay stable across requests,
+// instead of an error that reveals the account does not exist.
+func DummyWebAuthnUser(username string) *WebAuthnUser {
+	mac := hmac.New(sha256.New, deriveKey("rauth-webauthn-dummy"))
+	mac.Write([]byte(username))
+	id := mac.Sum(nil)
+	return &WebAuthnUser{
+		ID:          id[:16],
+		DisplayName: username,
+		Credentials: []webauthn.Credential{{ID: id, Transport: []protocol.AuthenticatorTransport{protocol.Internal, protocol.Hybrid}}},
+	}
 }
 
 func GetWebAuthnCredentials(username string) []webauthn.Credential {
@@ -208,9 +243,9 @@ func GetStoredCredentials(username string) []StoredCredential {
 	return creds
 }
 
-// errCredentialGone reports that a credential (or its account) was removed
+// ErrCredentialGone reports that a credential (or its account) was removed
 // while it was being updated.
-var errCredentialGone = errors.New("credential or account no longer exists")
+var ErrCredentialGone = errors.New("credential or account no longer exists")
 
 // updateStoredCredential applies mutate to a stored credential. The row is
 // locked for the read-modify-write, so concurrent updates (sign count,
@@ -221,7 +256,7 @@ func updateStoredCredential(username, credID string, mutate func(*StoredCredenti
 		var raw []byte
 		err := tx.QueryRow(Ctx, "SELECT data FROM webauthn_credentials WHERE username = $1 AND cred_id = $2 FOR UPDATE", username, credID).Scan(&raw)
 		if isNoRows(err) {
-			return errCredentialGone
+			return ErrCredentialGone
 		}
 		if err != nil {
 			return err

@@ -222,6 +222,32 @@ func TestIsIPAllowed(t *testing.T) {
 	}
 }
 
+func TestIsClientAllowed(t *testing.T) {
+	allowed := []string{"10.0.0.5"}
+	legacy := &Config{}
+	explicit := &Config{TrustedProxies: []string{"172.27.0.0/16"}}
+	tests := []struct {
+		name               string
+		cfg                *Config
+		clientIP, peerAddr string
+		want               bool
+	}{
+		{"legacy: direct allowed client", legacy, "10.0.0.5", "10.0.0.5:4000", true},
+		// A LAN client claims the allowed address through X-Forwarded-For.
+		{"legacy: forged forwarded address", legacy, "10.0.0.5", "192.168.1.9:4000", false},
+		{"legacy: disallowed client", legacy, "192.168.1.9", "192.168.1.9:4000", false},
+		{"explicit: allowed client via trusted proxy", explicit, "10.0.0.5", "172.27.0.2:4000", true},
+		{"explicit: disallowed client via trusted proxy", explicit, "203.0.113.7", "172.27.0.2:4000", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.cfg.IsClientAllowed(tt.clientIP, tt.peerAddr, allowed); got != tt.want {
+				t.Errorf("IsClientAllowed() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestNormalizeHostname(t *testing.T) {
 	tests := []struct {
 		input    string

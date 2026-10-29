@@ -31,6 +31,8 @@
                         <input class="form-check-input" type="checkbox" name="is_admin" id="isAdminCheck">
                         <label class="form-check-label" for="isAdminCheck">Administrator <span class="text-muted small">(full access to this console)</span></label>
                     </div>
+                    {{template "admin_stepup_input" .}}
+                    <div class="form-text">Required to create an administrator.</div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-ghost" data-bs-dismiss="modal">Cancel</button>
@@ -84,6 +86,8 @@
                                 <button type="button" class="btn btn-secondary" data-generate="#adminNewPassword" title="Generate a strong password"><i class="bi bi-magic"></i></button>
                                 <button class="btn btn-primary" type="submit">Update</button>
                             </div>
+                            {{template "admin_stepup_input" .}}
+                            <div class="form-text">Required when the user is an administrator.</div>
                         </form>
                     </div>
                     <div class="tab-pane fade" id="editTabSecurity" role="tabpanel">
@@ -95,6 +99,8 @@
                             <form method="POST" action="/rauthmgmt/user/reset-2fa" data-confirm="This clears the user's TOTP secret and recovery codes. They will set up 2FA again at their next sign-in." data-confirm-title="Reset 2FA" data-confirm-icon="bi-shield-exclamation" data-confirm-variant="warning" data-confirm-btn="Reset 2FA">
                                 <input type="hidden" name="csrf" value="{{.csrf}}">
                                 <input type="hidden" name="username" id="reset2faUsernameInput">
+                                {{template "admin_stepup_input" .}}
+                                <div class="form-text mb-2">Required when the user is an administrator.</div>
                                 <button type="submit" class="btn btn-outline-danger btn-sm" id="reset2faBtn">Reset 2FA</button>
                             </form>
                         </div>
@@ -104,4 +110,18 @@
         </div>
     </div>
 </div>
+{{end}}
+
+{{/* Step-up of the acting admin for actions that hand out administrator
+     credentials. Not marked required: the server only asks for it when the
+     action creates or resets an administrator. */}}
+{{define "admin_stepup_input"}}
+<label class="form-label small mt-3 mb-0 w-100">
+    {{if .admin_has_2fa}}Your 2FA code{{else}}Your password{{end}}
+    {{if .admin_has_2fa}}
+    <input type="text" name="otp_code" class="form-control otp-input mt-1" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000">
+    {{else}}
+    <input type="password" name="current_password" class="form-control mt-1" autocomplete="current-password">
+    {{end}}
+</label>
 {{end}}

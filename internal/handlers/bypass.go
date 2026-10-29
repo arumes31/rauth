@@ -80,6 +80,27 @@ func (h *AdminHandler) UnlockBypass(c echo.Context) error {
 	if herr := verifyStepUp(h.Cfg, admin, c.FormValue("otp_code"), c.FormValue("current_password")); herr != nil {
 		return herr
 	}
+
+	// Bind the unlock to a fresh session token that only this browser
+	// receives. Marking the existing token would elevate every copy of the
+	// cookie taken before the step-up as well.
+	newToken := core.GenerateRandomString(sessionTokenBytes)
+	if newToken == "" {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to unlock")
+	}
+	encrypted, err := core.EncryptToken(newToken, h.Cfg.ServerSecret)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to unlock")
+	}
+	replaced, err := core.ReplaceSession(token, newToken)
+	if err != nil || !replaced {
+		slog.Error("Failed to replace session for bypass unlock", "admin", admin, "error", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to unlock")
+	}
+	core.TokenDB.Del(core.Ctx, bypassUnlockKey(token))
+	writeSessionCookie(c, h.Cfg, encrypted, time.Duration(h.Cfg.TokenValidityMinutes)*time.Minute)
+	token = newToken
+
 	if err := core.TokenDB.Set(core.Ctx, bypassUnlockKey(token), admin, bypassUnlockTTL).Err(); err != nil {
 		slog.Error("Failed to store bypass unlock", "admin", admin, "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to unlock")

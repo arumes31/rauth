@@ -417,7 +417,7 @@ RAuth is configured via Environment Variables.
 | **Policy** | `PWD_REQUIRE_LOWER` | Require lowercase in passwords | `true` |
 | **Policy** | `PWD_REQUIRE_NUMBER` | Require numbers in passwords | `true` |
 | **Policy** | `PWD_REQUIRE_SPECIAL`| Require special chars in passwords | `true` |
-| **Security**| `METRICS_ALLOWED_IPS`| CIDR list for `/metrics` access | (Private + Tailscale) |
+| **Security**| `METRICS_ALLOWED_IPS`| CIDR list for `/metrics` and detailed `/health` access. Without `TRUSTED_PROXIES`, both the direct peer and the forwarded client address must match, so behind a proxy either set `TRUSTED_PROXIES` or list the proxy too | (Private + Tailscale) |
 | **Geo-IP** | `MAXMIND_ACCOUNT_ID` | Your Account ID for Geo-IP updates | **REQUIRED** |
 | **Geo-IP** | `MAXMIND_LICENSE_KEY` | Your License Key for Geo-IP updates | **REQUIRED** |
 | **Geo-IP** | `GEOIP_EDITION_IDS` | Databases to download | `GeoLite2-Country` |
@@ -429,6 +429,7 @@ RAuth is configured via Environment Variables.
 | **Email**  | `SMTP_USER` | SMTP username | (None) |
 | **Email**  | `SMTP_PASS` | SMTP password | (None) |
 | **Email**  | `SMTP_FROM` | Sender email address | (None) |
+| **Email**  | `SMTP_TLS` | `tls` (implicit TLS), `starttls` (STARTTLS required; mail is not sent without it) or `none` (opportunistic, only for a trusted plain-text relay) | `tls` on port 465, otherwise `starttls` |
 | **Throttle**| `RATE_LIMIT_LOGIN_MAX`| Max authentication attempts per IP | `30` |
 | **Throttle**| `RATE_LIMIT_LOGIN_DECAY`| Reset window for auth (seconds) | `300` |
 | **Throttle**| `RATE_LIMIT_REG_MAX`| Max registrations per IP | `10` |
@@ -571,6 +572,7 @@ services:
       - SMTP_USER=${SMTP_USER}
       - SMTP_PASS=${SMTP_PASS}
       - SMTP_FROM=${SMTP_FROM}
+      - SMTP_TLS=${SMTP_TLS:-}
     depends_on:
       rauth-auth-redis:
         condition: service_started
@@ -725,7 +727,7 @@ A: Ensure RAuth's container can reach the SMTP host (check DNS and outbound fire
 
 ### 🔑 Recovery, Metrics, & Local Testing
 **Q: How do I recover if the administrator loses their 2FA / TOTP key or gets locked out?**  
-A: Another administrator can use **Reset 2FA** on any non-root account. The root administrator (`INITIAL_USER`) can only be changed by itself, so other admins cannot take it over. `INITIAL_USER`/`INITIAL_PASSWORD` only create the account when it does not exist yet; they never overwrite an existing one. With database access you can reset the root admin's second factors manually, then log in with the password and enroll a new TOTP. Replace `admin` with your configured `INITIAL_USER`:
+A: Another administrator can use **Reset 2FA** on any non-root account. Resetting another administrator's password or 2FA, and creating an administrator, asks for the acting admin's own 2FA code (or password without TOTP). The root administrator (`INITIAL_USER`) can only be changed by itself, so other admins cannot take it over. `INITIAL_USER`/`INITIAL_PASSWORD` only create the account when it does not exist yet; they never overwrite an existing one. With database access you can reset the root admin's second factors manually, then log in with the password and enroll a new TOTP. Replace `admin` with your configured `INITIAL_USER`:
 ```bash
 docker exec -i rauth-auth-postgres sh -c 'psql -U "$POSTGRES_USER" "$POSTGRES_DB"' <<'SQL'
 UPDATE users SET totp_secret = '' WHERE username = 'admin';
