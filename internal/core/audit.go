@@ -1,9 +1,14 @@
 package core
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"log/slog"
+	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type AuditLog struct {
@@ -39,11 +44,65 @@ func LogAudit(action, username, ip string, details map[string]interface{}) {
 	if PG == nil {
 		return
 	}
-	detailsJSON, _ := json.Marshal(entry.Details)
-	if _, err := PG.Exec(Ctx, "INSERT INTO audit_logs (ts, action, username, ip, details) VALUES ($1, $2, $3, $4, $5)",
-		entry.Timestamp, entry.Action, entry.Username, entry.IP, detailsJSON); err != nil {
+	if err := insertAuditLog(Ctx, PG, entry); err != nil {
 		slog.Error("Failed to store audit log entry", "error", err)
 	}
+}
+
+// insertAuditLog stores one entry. Audit fields can carry attacker input, and
+// Postgres text and jsonb values cannot hold NUL, so NULs are replaced with
+// U+FFFD instead of failing the insert (which would drop the entry).
+func insertAuditLog(ctx context.Context, db interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+}, l AuditLog) error {
+	_, err := db.Exec(ctx, "INSERT INTO audit_logs (ts, action, username, ip, details) VALUES ($1, $2, $3, $4, $5)",
+		l.Timestamp, stripNUL(l.Action), stripNUL(l.Username), stripNUL(l.IP), auditDetailsJSON(l.Details))
+	return err
+}
+
+func stripNUL(s string) string {
+	return strings.ReplaceAll(s, "\x00", "�")
+}
+
+// auditDetailsJSON encodes details for the jsonb column, which rejects the
+// \u0000 escape. Only payloads containing it take the slower rewrite path.
+func auditDetailsJSON(details map[string]interface{}) []byte {
+	if details == nil {
+		return []byte("{}")
+	}
+	b, err := json.Marshal(details)
+	if err != nil {
+		return []byte("{}")
+	}
+	if !bytes.Contains(b, []byte(`\u0000`)) {
+		return b
+	}
+	var v any
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
+	if dec.Decode(&v) != nil {
+		return []byte("{}")
+	}
+	b, _ = json.Marshal(stripNULDeep(v))
+	return b
+}
+
+func stripNULDeep(v any) any {
+	switch t := v.(type) {
+	case string:
+		return stripNUL(t)
+	case []any:
+		for i := range t {
+			t[i] = stripNULDeep(t[i])
+		}
+	case map[string]any:
+		m := make(map[string]any, len(t))
+		for k, x := range t {
+			m[stripNUL(k)] = stripNULDeep(x)
+		}
+		return m
+	}
+	return v
 }
 
 func queryAuditLogs(sql string, args ...any) ([]AuditLog, error) {

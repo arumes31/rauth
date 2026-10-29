@@ -45,7 +45,9 @@ func TestImportFromRedis(t *testing.T) {
 	e1, _ := json.Marshal(AuditLog{Timestamp: 10, Action: "LOGIN", Username: "alice", IP: "1.1.1.1", Details: map[string]interface{}{"k": "v"}})
 	e2, _ := json.Marshal(AuditLog{Timestamp: 20, Action: "LOGIN_FAILED", IP: "2.2.2.2"})
 	e0, _ := json.Marshal(AuditLog{Timestamp: 5, Action: "OLD", Username: "alice"})
-	auditDB.LPush(Ctx, "audit_logs", string(e1), string(e2))
+	// A probe from before usernames were validated: NUL cannot go into Postgres.
+	eNUL := `{"timestamp":1,"action":"LOGIN_FAILED","username":"admin\u0000zzz","ip":"3.3.3.3","details":{"a\u0000":"b\u0000"}}`
+	auditDB.LPush(Ctx, "audit_logs", string(e1), string(e2), eNUL)
 	auditDB.LPush(Ctx, "user_audit_logs:alice", string(e0), string(e1))
 
 	require.NoError(t, importFromRedis(Ctx, userDB, auditDB))
@@ -96,9 +98,11 @@ func TestImportFromRedis(t *testing.T) {
 	// Global and per-user lists are merged without duplicates, oldest first.
 	logs, err := RecentAuditLogs(10)
 	require.NoError(t, err)
-	require.Len(t, logs, 3)
-	assert.Equal(t, []string{"LOGIN_FAILED", "LOGIN", "OLD"}, []string{logs[0].Action, logs[1].Action, logs[2].Action})
+	require.Len(t, logs, 4)
+	assert.Equal(t, []string{"LOGIN_FAILED", "LOGIN", "OLD", "LOGIN_FAILED"}, []string{logs[0].Action, logs[1].Action, logs[2].Action, logs[3].Action})
 	assert.Equal(t, "v", logs[1].Details["k"])
+	assert.Equal(t, "admin�zzz", logs[3].Username)
+	assert.Equal(t, "b�", logs[3].Details["a�"])
 
 	// The import runs once: a second call changes nothing.
 	userDB.HSet(Ctx, "user:carol", "username", "carol")

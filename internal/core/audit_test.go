@@ -24,6 +24,17 @@ func TestLogAudit(t *testing.T) {
 		assert.Equal(t, "bar", logs[0].Details["foo"])
 	})
 
+	t.Run("NUL bytes are replaced, not dropped", func(t *testing.T) {
+		LogAudit("NUL_TEST", "x\x00y", "1.2.3.4", map[string]interface{}{"k\x00": []interface{}{"v\x00", 12345678901234567}})
+
+		logs, err := RecentAuditLogs(1)
+		require.NoError(t, err)
+		require.Len(t, logs, 1)
+		assert.Equal(t, "NUL_TEST", logs[0].Action)
+		assert.Equal(t, "x�y", logs[0].Username)
+		assert.Equal(t, []interface{}{"v�", 12345678901234567.0}, logs[0].Details["k�"])
+	})
+
 	t.Run("Newest first and limited", func(t *testing.T) {
 		for i := 0; i < 105; i++ {
 			LogAudit("FILL", "user", "127.0.0.1", map[string]interface{}{"i": i})

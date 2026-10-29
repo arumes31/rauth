@@ -270,12 +270,7 @@ func copyRedisData(ctx context.Context, tx pgx.Tx, userDB, auditDB *redis.Client
 	}
 	sort.SliceStable(entries, func(i, j int) bool { return entries[i].Timestamp < entries[j].Timestamp })
 	for _, l := range entries {
-		details, _ := json.Marshal(l.Details)
-		if l.Details == nil {
-			details = []byte("{}")
-		}
-		if _, err := tx.Exec(ctx, "INSERT INTO audit_logs (ts, action, username, ip, details) VALUES ($1, $2, $3, $4, $5)",
-			l.Timestamp, l.Action, l.Username, l.IP, details); err != nil {
+		if err := insertAuditLog(ctx, tx, l); err != nil {
 			return stats, err
 		}
 		stats.AuditEntries++
