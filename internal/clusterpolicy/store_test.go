@@ -534,3 +534,81 @@ func TestCacheSuccessfulPrestageCleanupClearsResolvedHealth(t *testing.T) {
 	require.NoError(t, err)
 	assert.EqualValues(t, 2, state.Active.Revision, "no new activation was needed to clear cleanup health")
 }
+
+func TestCacheValidatesOpenedRootIdentityAndPermissions(t *testing.T) {
+	first, _ := cacheFixture(t)
+	second, _ := cacheFixture(t)
+	opened, err := os.OpenRoot(first)
+	require.NoError(t, err)
+	defer func() { _ = opened.Close() }()
+	wrong, err := os.Lstat(second)
+	require.NoError(t, err)
+	require.ErrorIs(t, validateOpenedStoreRoot(opened, wrong), ErrInvalid)
+	right, err := os.Lstat(first)
+	require.NoError(t, err)
+	require.NoError(t, validateOpenedStoreRoot(opened, right))
+	require.NoError(t, os.Chmod(first, 0o755))
+	require.ErrorIs(t, validateOpenedStoreRoot(opened, right), ErrInvalid)
+	require.NoError(t, os.Chmod(first, 0o700))
+}
+func TestCacheRepairsReferencedBlobsWithoutDeletingThemOnStageFailure(t *testing.T) {
+	for _, missing := range []bool{false, true} {
+		for _, fail := range []bool{false, true} {
+			t.Run(fmt.Sprintf("missing=%t/fail=%t", missing, fail), func(t *testing.T) {
+				root, v := cacheFixture(t)
+				s, err := OpenStore(root, v)
+				require.NoError(t, err)
+				defer func() { _ = s.Close() }()
+				raw, head, content := cacheGeneration(t, v, 1)
+				require.NoError(t, s.RecordHead(head))
+				bundle, err := s.Stage(context.Background(), raw, cacheFetcher(content), cacheValidator)
+				require.NoError(t, err)
+				require.NoError(t, s.Activate(bundle))
+				blob := head.Manifest().Blobs[1]
+				target := filepath.Join(root, "blobs", blob.SHA256)
+				if missing {
+					require.NoError(t, os.Remove(target))
+				} else {
+					require.NoError(t, os.WriteFile(target, []byte("corrupt"), 0o600))
+				}
+				m := head.Manifest()
+				m.Revision = 2
+				raw, err = Sign(m, "one", testKey("one"))
+				require.NoError(t, err)
+				next, err := v.Verify(raw)
+				require.NoError(t, err)
+				require.NoError(t, s.RecordHead(next))
+				validator := cacheValidator
+				if fail {
+					validator = func(Blob, io.Reader) error { return errors.New("later semantic failure") }
+				}
+				_, err = s.Stage(context.Background(), raw, cacheFetcher(content), validator)
+				if fail {
+					require.Error(t, err)
+				} else {
+					require.NoError(t, err)
+				}
+				repaired, err := os.ReadFile(target)
+				require.NoError(t, err, "shared repaired content must survive unrelated stage failure")
+				assert.Equal(t, content[blob.SHA256], string(repaired))
+				_, err = s.LoadActive(cacheValidator)
+				require.NoError(t, err)
+			})
+		}
+	}
+}
+func TestCacheRepairsCorruptStagedContentWhileRetainingItsJournal(t *testing.T) {
+	root, v := cacheFixture(t)
+	s, err := OpenStore(root, v)
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+	raw, head, content := cacheGeneration(t, v, 1)
+	require.NoError(t, s.RecordHead(head))
+	_, err = s.Stage(context.Background(), raw, cacheFetcher(content), cacheValidator)
+	require.NoError(t, err)
+	blob := head.Manifest().Blobs[1]
+	require.NoError(t, os.WriteFile(filepath.Join(root, "blobs", blob.SHA256), []byte("corrupt"), 0o600))
+	bundle, err := s.Stage(context.Background(), raw, cacheFetcher(content), cacheValidator)
+	require.NoError(t, err)
+	require.NoError(t, s.Activate(bundle))
+}

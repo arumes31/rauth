@@ -1,6 +1,7 @@
 package clusterpolicy
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -67,6 +68,10 @@ func OpenStore(path string, v *Verifier) (*Store, error) {
 	}
 	root, err := os.OpenRoot(path)
 	if err != nil {
+		return nil, err
+	}
+	if err = validateOpenedStoreRoot(root, st); err != nil {
+		_ = root.Close()
 		return nil, err
 	}
 	s := &Store{root: root, verifier: v}
@@ -142,6 +147,17 @@ func OpenStore(path string, v *Verifier) (*Store, error) {
 	}
 	return s, nil
 }
+func validateOpenedStoreRoot(root *os.Root, checked os.FileInfo) error {
+	opened, err := root.Stat(".")
+	if err != nil {
+		return err
+	}
+	if !opened.IsDir() || !os.SameFile(checked, opened) || opened.Mode().Perm()&0o027 != 0 {
+		return ErrInvalid
+	}
+	return nil
+}
+
 func (s *Store) validState(st CacheState) bool {
 	if st.Schema != 1 || st.ClusterID != s.verifier.cluster {
 		return false
@@ -362,6 +378,7 @@ func (r contextReader) Read(p []byte) (int, error) {
 }
 func (s *Store) stageBlob(ctx context.Context, b Blob, fetch func(context.Context, Blob) (io.ReadCloser, error)) (bool, error) {
 	target := "blobs/" + b.SHA256
+	existed := false
 	if st, err := s.root.Lstat(target); err == nil {
 		if !st.Mode().IsRegular() || st.Mode()&os.ModeSymlink != 0 {
 			return false, ErrStoreCorrupt
@@ -370,8 +387,20 @@ func (s *Store) stageBlob(ctx context.Context, b Blob, fetch func(context.Contex
 		if err != nil {
 			return false, err
 		}
-		defer func() { _ = f.Close() }()
-		return false, VerifyBlob(b, contextReader{ctx: ctx, r: f})
+		existed = true
+		verifyErr := VerifyBlob(b, contextReader{ctx: ctx, r: f})
+		closeErr := f.Close()
+		if verifyErr == nil {
+			return false, closeErr
+		}
+		if !errors.Is(verifyErr, ErrInvalid) {
+			return false, verifyErr
+		}
+		if closeErr != nil {
+			return false, closeErr
+		}
+		// A verified identical replacement is safe for every referencing head.
+
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return false, err
 	}
@@ -413,9 +442,9 @@ func (s *Store) stageBlob(ctx context.Context, b Blob, fetch func(context.Contex
 		return false, err
 	}
 	if err = s.syncDir("blobs"); err != nil {
-		return true, err
+		return !existed, err
 	}
-	return true, nil
+	return !existed, nil
 }
 
 // Stage retains at most one staging generation beside active/previous. Fetch
@@ -424,6 +453,10 @@ func (s *Store) stageBlob(ctx context.Context, b Blob, fetch func(context.Contex
 func (s *Store) Stage(ctx context.Context, raw []byte, fetch func(context.Context, Blob) (io.ReadCloser, error), validate func(Blob, io.Reader) error) (VerifiedBundle, error) {
 	s.stageMu.Lock()
 	defer s.stageMu.Unlock()
+	if len(raw) > MaxEnvelopeBytes {
+		return VerifiedBundle{}, ErrInvalid
+	}
+	raw = bytes.Clone(raw)
 	head, err := s.verifier.Verify(raw)
 	if err != nil || fetch == nil || validate == nil {
 		return VerifiedBundle{}, ErrInvalid
@@ -442,6 +475,13 @@ func (s *Store) Stage(ctx context.Context, raw []byte, fetch func(context.Contex
 		cached, err := s.loadManifest(head.Identity())
 		if err != nil {
 			return VerifiedBundle{}, err
+		}
+		// Keep the staged journal reference while repairing damaged content.
+		// Valid staged bytes require no network access.
+		for _, blob := range cached.manifest.Blobs {
+			if _, e := s.stageBlob(ctx, blob, fetch); e != nil {
+				return VerifiedBundle{}, e
+			}
 		}
 		bundle, err := VerifyBundle(cached, s.openBlob, validate)
 		if err != nil {
@@ -470,6 +510,19 @@ func (s *Store) Stage(ctx context.Context, raw []byte, fetch func(context.Contex
 	if err != nil {
 		return VerifiedBundle{}, err
 	}
+	protected := map[string]bool{}
+	for _, id := range []Identity{next.Active, next.Previous} {
+		if id == (Identity{}) {
+			continue
+		}
+		retained, e := s.loadManifest(id)
+		if e != nil {
+			return VerifiedBundle{}, e
+		}
+		for _, blob := range retained.manifest.Blobs {
+			protected[blob.SHA256] = true
+		}
+	}
 	created := []string{}
 	keep := false
 	defer func() {
@@ -483,7 +536,7 @@ func (s *Store) Stage(ctx context.Context, raw []byte, fetch func(context.Contex
 	}()
 	for _, blob := range head.manifest.Blobs {
 		made, err := s.stageBlob(ctx, blob, fetch)
-		if made {
+		if made && !protected[blob.SHA256] {
 			created = append(created, "blobs/"+blob.SHA256)
 		}
 		if err != nil {
