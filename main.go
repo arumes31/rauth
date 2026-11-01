@@ -492,9 +492,10 @@ func setupRoutes(e *echo.Echo, cfg *core.Config) {
 			SameSite: http.SameSiteLaxMode,
 		}
 		if cfg.SSOCanonicalOrigin != "" && len(cfg.CookieDomains) > 0 {
-			legacy := *cookie
-			legacy.Domain = cfg.CookieDomains[0]
-			c.SetCookie(&legacy)
+			c.SetCookie(&http.Cookie{
+				Name: "X-rauth-authtoken", Value: "", Path: "/", Domain: cfg.CookieDomains[0],
+				Expires: time.Unix(0, 0), MaxAge: -1, HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
+			})
 		}
 		c.SetCookie(cookie)
 		return c.Redirect(http.StatusFound, "/rauthlogin")
