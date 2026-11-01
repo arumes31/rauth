@@ -439,6 +439,7 @@ func setupRoutes(e *echo.Echo, cfg *core.Config) {
 	e.GET("/_rauth/start", authHandler.SSOStart)
 	e.GET("/_rauth/authorize", authHandler.SSOAuthorize)
 	e.GET("/_rauth/callback", authHandler.SSOCallback)
+	e.GET("/_rauth/logout", authHandler.SSOLogoutPage)
 	e.POST("/_rauth/logout", authHandler.SSOSignOut)
 	e.GET("/rauthlogin", authHandler.Login)
 	e.POST("/rauthlogin", authHandler.Login)
@@ -481,7 +482,7 @@ func setupRoutes(e *echo.Echo, cfg *core.Config) {
 		}
 
 		cookie := &http.Cookie{
-			Name:     "X-rauth-authtoken",
+			Name:     cfg.SessionCookieName(),
 			Value:    "",
 			Path:     "/",
 			Domain:   cfg.SessionCookieDomain(),

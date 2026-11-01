@@ -43,7 +43,7 @@ func getRD(c echo.Context) string {
 }
 
 func (h *AuthHandler) Root(c echo.Context) error {
-	cookie, err := c.Cookie("X-rauth-authtoken")
+	cookie, err := c.Cookie(h.Cfg.SessionCookieName())
 	if err != nil {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
@@ -218,12 +218,12 @@ func writeSessionCookie(c echo.Context, cfg *core.Config, value string, validity
 		return
 	}
 	if cfg.SSOCanonicalOrigin != "" && len(cfg.CookieDomains) > 0 {
-		// Clear the old broad cookie before setting its host-only successor. Both
-		// may have the same name but browsers distinguish their domain scopes.
+		// Clear the old broad cookie before setting the prefixed, host-only
+		// successor. SSO reads only the protected name, never a legacy fallback.
 		c.SetCookie(&http.Cookie{Name: "X-rauth-authtoken", Value: "", Path: "/", Domain: cfg.CookieDomains[0], MaxAge: -1, Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
 	}
 	c.SetCookie(&http.Cookie{
-		Name:     "X-rauth-authtoken",
+		Name:     cfg.SessionCookieName(),
 		Value:    value,
 		Path:     "/",
 		Domain:   cfg.SessionCookieDomain(),

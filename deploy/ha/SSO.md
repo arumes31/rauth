@@ -57,13 +57,21 @@ SSO-compatible binary/security authority. Never restore old Redis authorizations
    application host. It cannot authorize another site, canonical profile/admin,
    passkey enrollment, or a new SSO grant, even if copied/renamed. A broad central
    cookie does not authorize enrolled applications directly.
-6. Canonical logout or POST /_rauth/logout on an app revokes the common family,
+6. GET /_rauth/logout on an app renders a same-origin confirmation form with
+   the global middleware CSRF token. GET never revokes a session. Its POST, or
+   canonical logout, revokes the common family,
    including other domains and rotation aliases. Clearing unrelated browser
    cookies is unnecessary for revocation. Credential generation changes also
    invalidate outstanding codes; retaining the caller never revives old codes.
 
-With SSO enabled, new canonical cookies are host-only too. Cookie writes clear
-an older COOKIE_DOMAIN-scoped cookie before setting the host-only successor.
+With SSO enabled, the canonical cookie is Secure/HttpOnly/Path=/ and named
+__Host-rauth-auth. It has no Domain attribute. SSO reads only this full name and
+never falls back to X-rauth-authtoken, which a sibling could plant using a broad
+Domain attribute. Cookie writes clear the older COOKIE_DOMAIN-scoped name before
+setting the prefixed successor. Enabling SSO therefore requires a fresh canonical
+login; combine this with the already planned SQL authority re-login window.
+[Browser cookie-prefix rules](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Set-Cookie)
+
 Pending login and WebAuthn ceremony cookies retain their existing host scope;
 WebAuthn RP identity stays unchanged. With SSO disabled, legacy cookie behavior
 and existing integrations remain unchanged. All nodes must agree on the mode.
@@ -106,7 +114,9 @@ logs, tracing or analytics. RAuth redacts those query keys (and nested rd), send
 no-store/no-referrer, and keeps query strings out of its request feed. The feed
 observes /rauthvalidate decisions only; it does not read NPM logs. The callback
 must redirect immediately and must not serve third-party content or assets.
-POST logout uses the normal CSRF and cross-origin protection; do not exempt it.
+GET /_rauth/logout must be proxied too: its confirmation form supplies the CSRF
+token for browsers/clients without Fetch Metadata. POST logout uses the normal
+CSRF and cross-origin protection; do not exempt it.
 
 ## Validation performed / still required
 
