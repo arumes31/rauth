@@ -52,7 +52,7 @@ func TestSQLAuthStateCutoverIsExplicitAtomicAndIdempotent(t *testing.T) {
 	for _, err := range failures {
 		require.NoError(t, err)
 	}
-	assert.Equal(t, deadlines[0], deadlines[1])
+	assert.True(t, deadlines[0].Equal(deadlines[1]), "cutover deadlines must represent the same instant")
 	require.ErrorIs(t, InitAuthenticationState(cfg), ErrAuthStateQuarantine)
 	assert.False(t, SQLAuthenticationEnabled())
 	legacy := *cfg
@@ -90,7 +90,7 @@ func TestSQLAuthStateCutoverIsExplicitAtomicAndIdempotent(t *testing.T) {
 	require.NoError(t, StoreSession(token, "cutover-user", "203.0.113.1", map[string]interface{}{"auth_gen": after}, time.Minute))
 	deadline, err := CommitSQLAuthenticationCutover(Ctx, cfg)
 	require.NoError(t, err)
-	assert.Equal(t, record.ReadyAfter, deadline)
+	assert.True(t, record.ReadyAfter.Equal(deadline), "idempotent cutover preserves the activation instant")
 	assert.Equal(t, after, currentGen(t, "cutover-user"))
 	_, err = ReadAuthSession(Ctx, token)
 	require.NoError(t, err)
