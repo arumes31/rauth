@@ -343,6 +343,12 @@ func (c *WorkerPolicyCompiler) finishManifest(ctx context.Context, identity clus
 		if err != nil {
 			return nil, err
 		}
+		// A managed-default bundle must distinguish inherited selection from
+		// an explicit administrator opt-out. Missing declaration is incomplete;
+		// an explicit choice may intentionally omit the managed feed.
+		if doc.DefaultFeedConfigured && r.Allows() && !normalized.DefaultFeedConfigured {
+			return nil, errors.New("public rule lacks a managed-default selection declaration")
+		}
 		r.RulePolicy = normalized
 		if seen[r.Source+":"+r.Rule] {
 			return nil, errors.New("duplicate worker rule")
