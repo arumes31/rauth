@@ -243,3 +243,40 @@ func TestWorkerPolicyCompilerAcceptsManagedDefaultFeed(t *testing.T) {
 	assert.Equal(t, DefaultIPFeedID, decision.FeedID)
 	assert.True(t, snapshot.Evaluate(rule.RulePolicy, "203.0.113.43").Allowed)
 }
+
+func TestWorkerPolicyCompilerRequiresDeclaredDefaultSelectionAndPreservesOptOut(t *testing.T) {
+	base := snapshotDocument()
+	base.DefaultFeedConfigured = true
+	base.Feeds[0].ID = DefaultIPFeedID
+	body := map[string][]byte{DefaultIPFeedID: []byte("203.0.113.42/32")}
+	for _, ids := range [][]string{nil, {DefaultIPFeedID}} {
+		doc := base
+		doc.Rules = append([]WorkerPolicyRule(nil), base.Rules...)
+		doc.Rules[0].Policy.BlockedFeedIDs = ids
+		doc.Rules[0].Policy.DefaultFeedConfigured = false
+		snapshot, err := compileSnapshot(t, doc, body, nil, nil)
+		if snapshot != nil {
+			_ = snapshot.Close()
+		}
+		require.Error(t, err, "a ready default payload must not hide an undeclared public selection")
+	}
+	explicit := base
+	explicit.Rules = append([]WorkerPolicyRule(nil), base.Rules...)
+	explicit.Rules[0].Policy.BlockedFeedIDs = nil
+	explicit.Rules[0].Policy.DefaultFeedConfigured = true
+	snapshot, err := compileSnapshot(t, explicit, body, nil, nil)
+	require.NoError(t, err)
+	rule, found, err := snapshot.SelectRule("cloud.example.test", "/")
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.True(t, snapshot.Evaluate(rule.RulePolicy, "203.0.113.42").Allowed, "explicit administrator opt-out must remain effective")
+	require.NoError(t, snapshot.Close())
+	private := base
+	private.Rules = append([]WorkerPolicyRule(nil), base.Rules...)
+	private.Rules[0].Action = BypassDeny
+	private.Rules[0].Policy.BlockedFeedIDs = nil
+	private.Rules[0].Policy.DefaultFeedConfigured = false
+	snapshot, err = compileSnapshot(t, private, body, nil, nil)
+	require.NoError(t, err)
+	require.NoError(t, snapshot.Close())
+}
