@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"rauth/internal/core"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -306,6 +307,8 @@ func TestProfileHandler_TerminateAllOtherSessions(t *testing.T) {
 		seedUserFields(t, "profileuser", map[string]interface{}{"password": string(hashedPwd)})
 		core.TokenDB.SAdd(core.Ctx, "user_sessions:profileuser", "currenttoken", "othertoken")
 		core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken=othertoken", "status", "valid")
+		core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken=currenttoken", "status", "valid", "username", "profileuser", "auth_gen", mustGen(t, "profileuser"))
+		core.TokenDB.Expire(core.Ctx, "X-rauth-authtoken=currenttoken", time.Hour)
 
 		err := h.TerminateAllOtherSessions(c)
 		assert.NoError(t, err)

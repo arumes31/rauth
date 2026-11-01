@@ -17,6 +17,16 @@ import (
 
 func newRegressionRedis(t *testing.T) {
 	t.Helper()
+	securityArtifacts = nil
+	securitySessions = nil
+	securitySessionAbsoluteTTL = 0
+	securityCounters = nil
+	t.Cleanup(func() {
+		securityArtifacts = nil
+		securityCounters = nil
+		securitySessions = nil
+		securitySessionAbsoluteTTL = 0
+	})
 	defaultIPFeedInstalled.Store(false)
 	t.Cleanup(func() { defaultIPFeedInstalled.Store(false) })
 	s := miniredis.RunT(t)
@@ -225,11 +235,11 @@ func TestRegression_SetSecondFactorIfUnset(t *testing.T) {
 // Restamping a session that no longer exists must not create a TTL-less hash.
 func TestRegression_RestampOnlyExistingSession(t *testing.T) {
 	newRegressionRedis(t)
-	RestampSession("gone", "5")
+	require.Error(t, RestampSession("gone", "5"))
 	exists, _ := TokenDB.Exists(Ctx, "X-rauth-authtoken=gone").Result()
 	assert.Equal(t, int64(0), exists)
 
 	TokenDB.HSet(Ctx, "X-rauth-authtoken=live", "status", "valid")
-	RestampSession("live", "5")
+	require.NoError(t, RestampSession("live", "5"))
 	assert.Equal(t, "5", TokenDB.HGet(Ctx, "X-rauth-authtoken=live", "auth_gen").Val())
 }

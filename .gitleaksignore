@@ -20,3 +20,6 @@ ac8f3e99dcee866ef6c6ecc69c77a05268a738f0:example.env:maxmind-license-key:29
 25710f31549dbe6c6d1e2a0d9f2cefd7cdb3a9b5:docker-compose.yml:maxmind-license-key:39
 25710f31549dbe6c6d1e2a0d9f2cefd7cdb3a9b5:docker-compose.yml:generic-api-key:14
 25710f31549dbe6c6d1e2a0d9f2cefd7cdb3a9b5:docker-compose.yml:generic-api-key:20
+
+# Sequential dummy SERVER_SECRET in the startup TLS-rejection test; never a deployment credential.
+f46c789b7db335687c5e64d31c69e3274e44b512:main_test.go:generic-api-key:417

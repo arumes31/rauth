@@ -47,8 +47,8 @@ func TestProfileTemplateRenders(t *testing.T) {
 			"has2FA":        has2FA,
 			"recoveryCount": int64(2),
 			"sessions": []map[string]string{
-				{"token": "t1", "is_current": "1", "friendly_ua": "Firefox", "device_icon": "bi-laptop", "ip": "10.0.0.1", "country": "AT", "created_at": "1700000000", "ttl": "3600"},
-				{"token": "t2", "is_current": "0", "friendly_ua": "Safari", "device_icon": "bi-phone", "ip": "10.0.0.2", "country": "Tailscale", "created_at": "1700000100", "ttl": "60"},
+				{"handle": "h1", "token": "PROFILE_BEARER_ONE", "is_current": "1", "friendly_ua": "Firefox", "device_icon": "bi-laptop", "ip": "10.0.0.1", "country": "AT", "created_at": "1700000000", "ttl": "3600"},
+				{"handle": "h2", "token": "PROFILE_BEARER_TWO", "is_current": "0", "friendly_ua": "Safari", "device_icon": "bi-phone", "ip": "10.0.0.2", "country": "Tailscale", "created_at": "1700000100", "ttl": "60"},
 			},
 			"logs":     []core.AuditLog{{Timestamp: 1700000000, Action: "LOGIN_FAILED", Username: "alice", IP: "10.0.0.1", Details: map[string]interface{}{"country": "AT"}}},
 			"passkeys": []core.StoredCredential{{Nickname: "YubiKey", CreatedAt: 1700000000}},
@@ -60,10 +60,11 @@ func TestProfileTemplateRenders(t *testing.T) {
 		assert.Contains(t, body, `/static/js/profile.js`)
 		assert.Contains(t, body, "YubiKey")
 		assert.Contains(t, body, "This device")
+		assert.NotContains(t, body, "PROFILE_BEARER_")
 		assert.Contains(t, body, `href="/rauthmgmt"`)
 		// Only the other session can be signed out from the list.
-		assert.Contains(t, body, `name="token" value="t2"`)
-		assert.NotContains(t, body, `name="token" value="t1"`)
+		assert.Contains(t, body, `name="token" value="h2"`)
+		assert.NotContains(t, body, `name="token" value="h1"`)
 		if has2FA {
 			assert.Contains(t, body, "/rauthprofile/disable-totp")
 			assert.Contains(t, body, `name="otp_code"`)
@@ -84,7 +85,7 @@ func TestManagementTemplateNeverRendersSecrets(t *testing.T) {
 		"csrf":      "test-csrf",
 		"users":     []handlers.AdminUserView{{Username: "boss", IsAdmin: "1", Has2FA: true, Sessions: 2}},
 		"stats":     handlers.AdminStats{Users: 1, Admins: 1, With2FA: 1, Sessions: 2, FailedLogins: 1},
-		"sessions":  []map[string]string{{"username": "boss", "token": "tok", "ttl": "90000", "created_at": "1700000000"}},
+		"sessions":  []map[string]string{{"username": "boss", "handle": "admin-handle", "token": "ADMIN_BEARER_SECRET", "ttl": "90000", "created_at": "1700000000"}},
 		"logs":      []core.AuditLog{{Action: "ADMIN_RESET_2FA", Username: "boss", Details: map[string]interface{}{"target": "x"}}},
 		"bypass_rules": []handlers.BypassRuleView{
 			{BypassRule: core.BypassRule{Rule: "app.example.com/", Action: core.BypassAllow, Source: "env"}, Scope: "Only the root page"},
@@ -95,6 +96,8 @@ func TestManagementTemplateNeverRendersSecrets(t *testing.T) {
 	assert.Contains(t, body, "/static/js/management.js")
 	assert.Contains(t, body, "1d 1h", "session TTL is humanised")
 	assert.Contains(t, body, "Admin reset 2FA")
+	assert.NotContains(t, body, "ADMIN_BEARER_SECRET")
+	assert.Contains(t, body, `name="token" value="admin-handle"`)
 	assert.Contains(t, body, `data-kind="admin"`)
 	assert.Contains(t, body, "app.example.com/")
 }

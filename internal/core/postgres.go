@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"crypto/tls"
 	"embed"
 	"errors"
 	"fmt"
@@ -32,6 +33,9 @@ func InitPostgres(cfg *Config) error {
 	poolCfg, err := pgxpool.ParseConfig(cfg.PostgresURL)
 	if err != nil {
 		return fmt.Errorf("invalid Postgres connection settings: %w", err)
+	}
+	if err := configureAuthStateDatabase(cfg, poolCfg); err != nil {
+		return err
 	}
 	poolCfg.MaxConns = redisPoolSize
 	poolCfg.ConnConfig.ConnectTimeout = 5 * time.Second
@@ -128,4 +132,39 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 // isNoRows reports whether err means the queried row does not exist.
 func isNoRows(err error) bool {
 	return errors.Is(err, pgx.ErrNoRows)
+}
+
+// SQL authentication may only use verified TLS and writable-primary connections.
+// Deployment additionally routes through fenced, leader-aware endpoints that
+// terminate existing connections when a leader is withdrawn.
+func configureAuthStateDatabase(cfg *Config, poolCfg *pgxpool.Config) error {
+	mode, err := configuredAuthStateMode(cfg)
+	if err != nil {
+		return err
+	}
+	if mode != "postgres" {
+		return nil
+	}
+	verified := func(config *tls.Config) bool {
+		return config != nil && !config.InsecureSkipVerify && config.ServerName != ""
+	}
+	if !verified(poolCfg.ConnConfig.TLSConfig) {
+		return errors.New("SQL authentication requires PostgreSQL TLS hostname verification (sslmode=verify-full)")
+	}
+	for _, fallback := range poolCfg.ConnConfig.Fallbacks {
+		if !verified(fallback.TLSConfig) {
+			return errors.New("SQL authentication prohibits unverified PostgreSQL fallback connections")
+		}
+	}
+	poolCfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		var writable bool
+		if err := conn.QueryRow(ctx, "SELECT NOT pg_is_in_recovery() AND current_setting('transaction_read_only')='off'").Scan(&writable); err != nil {
+			return err
+		}
+		if !writable {
+			return errors.New("SQL authentication connection is not a writable primary")
+		}
+		return nil
+	}
+	return nil
 }

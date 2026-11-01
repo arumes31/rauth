@@ -5,7 +5,7 @@
         <div class="panel-header">
             <div>
                 <h2>Active sessions</h2>
-                <div class="sub"><span data-filter-count="#sessionsTable">{{len .sessions}}</span> of {{len .sessions}} sessions, newest first</div>
+                <div class="sub"><span data-filter-count="#sessionsTable">{{len .sessions}}</span> of {{len .sessions}} sessions on this page, newest first</div>
             </div>
             <div class="tools">
                 <div class="search">
@@ -54,7 +54,7 @@
                         <td class="actions-cell">
                             <form method="POST" action="/rauthmgmt/session/invalidate" data-confirm="End this session for {{index . "username"}}? They will have to sign in again on that device." data-confirm-title="End session" data-confirm-icon="bi-plug" data-confirm-btn="End session">
                                 <input type="hidden" name="csrf" value="{{$.csrf}}">
-                                <input type="hidden" name="token" value="{{index . "token"}}">
+                                <input type="hidden" name="token" value="{{index . "handle"}}">
                                 <button type="submit" class="btn-icon danger" title="End session" aria-label="End session"><i class="bi bi-x-circle"></i></button>
                             </form>
                         </td>
@@ -64,6 +64,7 @@
                 </tbody>
             </table>
         </div>
+        {{if .session_paged}}<div class="panel-footer">Session counts and user session indicators refer to the current page. <a href="?session_cursor=#sessions">First page</a>{{if .session_next}} · <a href="?session_cursor={{.session_next}}#sessions">Next page</a>{{end}}</div>{{end}}
     </div>
 </section>
 {{end}}

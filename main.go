@@ -61,20 +61,12 @@ func main() {
 	// Load the common-password blocklist if enabled (PWD_CHECK_COMMON).
 	core.InitCommonPasswords(cfg.CheckCommonPasswords)
 
-	if err := core.InitRedis(cfg); err != nil {
-		slog.Error("Redis initialization failed", "error", err)
-		os.Exit(1)
-	}
-
 	if err := core.InitPostgres(cfg); err != nil {
 		slog.Error("Postgres initialization failed", "error", err)
 		os.Exit(1)
 	}
-
-	// Move durable data from Redis on the first start with Postgres. Starting
-	// without it would present an empty user database, so a failure is fatal.
-	if err := core.ImportFromRedis(cfg); err != nil {
-		slog.Error("Importing data from Redis failed", "error", err)
+	if err := core.InitAuthenticationState(cfg); err != nil {
+		slog.Error("Authentication authority initialization failed", "error", err)
 		os.Exit(1)
 	}
 	if err := core.EnsureDefaultIPFeed(core.Ctx); err != nil {
@@ -474,10 +466,9 @@ func setupRoutes(e *echo.Echo, cfg *core.Config) {
 	protected.POST("/logout", func(c echo.Context) error {
 		// Get token from context (set by AuthMiddleware)
 		if token, ok := c.Get("token").(string); ok {
-			if username, ok := c.Get("username").(string); ok {
-				core.RemoveSessionIndex(username, token)
+			if err := core.RevokeAuthSession(c.Request().Context(), token); err != nil {
+				return echo.NewHTTPError(http.StatusServiceUnavailable, "Logout could not be completed; retry")
 			}
-			core.TokenDB.Del(core.Ctx, "X-rauth-authtoken="+token)
 		}
 
 		cookie := &http.Cookie{
@@ -604,6 +595,9 @@ func initializeSystem(cfg *core.Config) func() {
 		defer ticker.Stop()
 		var lastPrune time.Time
 		for {
+			if err := core.CleanupAuthenticationState(ctx); err != nil && ctx.Err() == nil {
+				slog.Error("Authentication state cleanup failed", "error", err)
+			}
 			count := core.SyncSessionIndexes()
 			core.ActiveSessionsGauge.Set(float64(count))
 			if time.Since(lastPrune) >= auditPruneInterval {

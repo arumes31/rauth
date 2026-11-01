@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -409,12 +410,29 @@ func TestMainFailFast(t *testing.T) {
 				"REDIS_HOST":    "127.0.0.1",
 				"REDIS_PORT":    "0",
 			},
-			wantLog: "Redis initialization failed",
+			wantLog: "Authentication authority initialization failed",
+		},
+		{
+			name:        "SQL authority rejects unverified database TLS",
+			environment: map[string]string{"SERVER_SECRET": "0123456789abcdef", "COOKIE_DOMAIN": "example.com", "AUTH_STATE_MODE": "postgres", "DATABASE_URL": "postgres://127.0.0.1:1/test?sslmode=disable"},
+			wantLog:     "SQL authentication requires PostgreSQL TLS hostname verification",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.name == "redis is unavailable" {
+				pool := pgtest.Open(t, core.Migrate)
+				var schema string
+				require.NoError(t, pool.QueryRow(t.Context(), "SELECT current_schema()").Scan(&schema))
+				database, err := url.Parse(os.Getenv(pgtest.EnvURL))
+				require.NoError(t, err)
+				query := database.Query()
+				query.Set("search_path", schema)
+				database.RawQuery = query.Encode()
+				tt.environment["DATABASE_URL"] = database.String()
+				tt.environment["AUTH_STATE_MODE"] = "redis"
+			}
 			tt.environment["RAUTH_RUN_MAIN_TEST"] = "1"
 			cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestMainFailFast$")
 			cmd.Env = environmentWithOverrides(tt.environment)

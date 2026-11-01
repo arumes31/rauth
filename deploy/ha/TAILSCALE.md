@@ -36,6 +36,15 @@ Set RAUTH_DOCKER_SUBNET only after checking host routes and Docker IPAM for over
 Auth-key expiry and node-key expiry are different: expiration of the enrollment
 key does not itself remove an enrolled node. Tagged devices normally enroll
 with node-key expiry disabled; verify the device policy rather than assuming it.
+If ordinary status omits the field, inspect the live control-map SelfNode with an
+in-memory parser and verify its representation against the pinned client schema.
+For the validated client, [Node.KeyExpiry](https://github.com/tailscale/tailscale/blob/27047635f237d1f3e0b08c0f487674757f30d2f7/tailcfg/tailcfg.go#L389)
+is a zero-omitted time whose zero value explicitly means no expiry. Require the
+matching stable node ID, an authorized non-cached control map, and the expected
+tags. Record only filtered expiry evidence; never persist the complete netmap,
+node keys or peer profiles. This is stronger evidence than an absent field in
+the optional status PeerStatus object. Revalidate schema/serialization when
+changing the image digest.
 See [Tailscale key expiry](https://tailscale.com/docs/features/access-control/key-expiry)
 and [auth keys](https://tailscale.com/docs/features/access-control/auth-keys).
 
@@ -67,3 +76,20 @@ The worker exposes only auth routes there and rejects admin mutations. Private
 cluster/state ports have no host publication. Verify every listener, route,
 source restriction, peer ACL, shared-namespace restart and health path before
 using the service addresses; a bridge by itself creates no forwarding path.
+
+
+## Firewall backend compatibility
+
+Keep netfilter enabled. A kernel that supports only nftables can report a
+legacy-iptables initialization warning even while the tailnet identity is
+Running. Set `RAUTH_TAILSCALE_FIREWALL_MODE=nftables` for that node, recreate the
+key-free service, verify the same identity, empty health warnings and actual
+peer connectivity. The default remains iptables for existing compatible nodes.
+This selects the backend inside the dedicated container namespace; it does not
+change Docker's or the host's firewall configuration.
+
+The official [Tailscale firewall-mode documentation](https://tailscale.com/docs/features/firewall-mode)
+identifies `TS_DEBUG_FIREWALL_MODE` as a temporary interface. Keep the image pinned
+and revalidate the setting, rules and health before changing the image digest.
+Do not silence this warning by disabling netfilter or granting host-network or
+host-module privileges to the service.

@@ -5,7 +5,7 @@
         <div class="panel-header">
             <div>
                 <h2>Signed-in devices</h2>
-                <div class="sub">{{len .sessions}} active session(s). End any you do not recognise.</div>
+                <div class="sub">{{len .sessions}} session(s) shown. End any you do not recognise.</div>
             </div>
             <div class="tools">
                 <form method="POST" action="/rauthprofile/session/terminate-others" data-confirm="Every other device will be signed out immediately and has to sign in again." data-confirm-title="Sign out other devices?" data-confirm-icon="bi-shield-slash" data-confirm-btn="Sign out others">
@@ -48,7 +48,7 @@
                             {{if ne .is_current "1"}}
                             <form method="POST" action="/rauthprofile/session/terminate" data-confirm="Sign out {{.friendly_ua}}? It will have to sign in again." data-confirm-title="Sign out device" data-confirm-icon="bi-laptop" data-confirm-btn="Sign out">
                                 <input type="hidden" name="csrf" value="{{$.csrf}}">
-                                <input type="hidden" name="token" value="{{.token}}">
+                                <input type="hidden" name="token" value="{{.handle}}">
                                 <button type="submit" class="btn-icon danger" title="Sign out this device" aria-label="Sign out this device"><i class="bi bi-x-circle"></i></button>
                             </form>
                             {{end}}
@@ -60,6 +60,7 @@
                 </tbody>
             </table>
         </div>
+        {{if .session_paged}}<div class="panel-footer">Session counts and user session indicators refer to the current page. <a href="?session_cursor=#sessions">First page</a>{{if .session_next}} · <a href="?session_cursor={{.session_next}}#sessions">Next page</a>{{end}}</div>{{end}}
     </div>
 </section>
 {{end}}

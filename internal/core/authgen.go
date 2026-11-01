@@ -1,7 +1,10 @@
 package core
 
 import (
+	"context"
+	"errors"
 	"log/slog"
+	"rauth/internal/authstate"
 	"strconv"
 	"strings"
 	"time"
@@ -26,8 +29,10 @@ import (
 
 // AuthGeneration returns the user's current auth generation ("0" if never bumped).
 func AuthGeneration(username string) (string, error) {
+	ctx, cancel := context.WithTimeout(Ctx, 3*time.Second)
+	defer cancel()
 	var gen int64
-	err := PG.QueryRow(Ctx, "SELECT gen FROM auth_generations WHERE username = $1", username).Scan(&gen)
+	err := PG.QueryRow(ctx, "SELECT gen FROM auth_generations WHERE username = $1", username).Scan(&gen)
 	if isNoRows(err) {
 		return "0", nil
 	}
@@ -81,13 +86,17 @@ func RevokeAuth(username string, change func(tx pgx.Tx) error) (string, error) {
 // it, so they either finish before a concurrent RevokeAuth (which then undoes
 // them) or see the new generation and stop.
 func lockAuthGeneration(tx pgx.Tx, username, want string) (bool, error) {
+	return lockAuthGenerationContext(Ctx, tx, username, want)
+}
+
+func lockAuthGenerationContext(ctx context.Context, tx pgx.Tx, username, want string) (bool, error) {
 	// The row must exist to be locked; gen 0 is what AuthGeneration reports
 	// for a missing row anyway. A concurrent first bump makes this wait.
-	if _, err := tx.Exec(Ctx, "INSERT INTO auth_generations (username, gen) VALUES ($1, 0) ON CONFLICT (username) DO NOTHING", username); err != nil {
+	if _, err := tx.Exec(ctx, "INSERT INTO auth_generations (username, gen) VALUES ($1, 0) ON CONFLICT (username) DO NOTHING", username); err != nil {
 		return false, err
 	}
 	var gen int64
-	if err := tx.QueryRow(Ctx, "SELECT gen FROM auth_generations WHERE username = $1 FOR SHARE", username).Scan(&gen); err != nil {
+	if err := tx.QueryRow(ctx, "SELECT gen FROM auth_generations WHERE username = $1 FOR SHARE", username).Scan(&gen); err != nil {
 		return false, err
 	}
 	return strconv.FormatInt(gen, 10) == want, nil
@@ -106,19 +115,29 @@ func SessionGen(data map[string]string) string {
 // SessionAuthorized reports whether a session hash still belongs to a live
 // account at the current auth generation. It fails closed on database errors.
 func SessionAuthorized(data map[string]string) bool {
+	valid, err := SessionAuthorization(Ctx, data)
+	if err != nil {
+		slog.Error("Failed to check session authorization", "user", data["username"], "error", err)
+	}
+	return valid && err == nil
+}
+
+// SessionAuthorization distinguishes revoked/missing accounts from an
+// unavailable authority so private requests receive 503 instead of a login loop.
+func SessionAuthorization(ctx context.Context, data map[string]string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
 	username := data["username"]
 	if username == "" {
-		return false
+		return false, nil
+	}
+	if PG == nil {
+		return false, errors.New("authentication database is unavailable")
 	}
 	var exists bool
 	var gen int64
-	err := PG.QueryRow(Ctx, `SELECT EXISTS (SELECT 1 FROM users WHERE username = $1),
-		COALESCE((SELECT gen FROM auth_generations WHERE username = $1), 0)`, username).Scan(&exists, &gen)
-	if err != nil {
-		slog.Error("Failed to check session authorization", "user", username, "error", err)
-		return false
-	}
-	return exists && strconv.FormatInt(gen, 10) == SessionGen(data)
+	err := PG.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE username=$1),COALESCE((SELECT gen FROM auth_generations WHERE username=$1),0)`, username).Scan(&exists, &gen)
+	return exists && strconv.FormatInt(gen, 10) == SessionGen(data), err
 }
 
 // restampScript sets auth_gen only on an existing session hash, so a session
@@ -134,10 +153,32 @@ return 0
 // RestampSession moves a surviving session to generation gen (the value
 // returned by BumpAuthGeneration), used after a self-service credential change
 // keeps the caller signed in.
-func RestampSession(token, gen string) {
-	if err := restampScript.Run(Ctx, TokenDB, []string{"X-rauth-authtoken=" + token}, gen).Err(); err != nil {
-		slog.Error("Failed to restamp session generation", "error", err)
+func RestampSession(token, gen string) error {
+	next, err := strconv.ParseInt(gen, 10, 64)
+	if err != nil || next < 1 {
+		return errors.New("invalid session generation")
 	}
+	if securitySessions != nil {
+		changed, err := securitySessions.Restamp(Ctx, token, next-1, next)
+		if err != nil {
+			return err
+		}
+		if !changed {
+			return authstate.ErrNotFound
+		}
+		return nil
+	}
+	if TokenDB == nil {
+		return errors.New("session authority unavailable")
+	}
+	changed, err := restampScript.Run(Ctx, TokenDB, []string{"X-rauth-authtoken=" + token}, gen).Int()
+	if err != nil {
+		return err
+	}
+	if changed == 0 {
+		return authstate.ErrNotFound
+	}
+	return nil
 }
 
 // rotateScript copies a live session to a new token and retires the old one
@@ -149,11 +190,12 @@ func RestampSession(token, gen string) {
 // successor.
 //
 // KEYS: old hash, new hash, user index, IP index.
-// ARGV: new token, created_at, validity seconds, grace seconds.
+// ARGV: new token, created_at, validity seconds, grace seconds, browser identity.
 var rotateScript = redis.NewScript(`
 if redis.call("EXISTS", KEYS[1]) == 0 or redis.call("HEXISTS", KEYS[1], "rotated_to") == 1 then
 	return 0
 end
+redis.call("HSETNX", KEYS[1], "session_family", ARGV[5])
 redis.call("HSET", KEYS[2], unpack(redis.call("HGETALL", KEYS[1])))
 redis.call("HSET", KEYS[2], "created_at", ARGV[2])
 redis.call("EXPIRE", KEYS[2], ARGV[3])
@@ -167,9 +209,12 @@ return 1
 // RotateSession moves the session oldToken to newToken (see rotateScript),
 // reporting whether it rotated. username and ip pick the index entries.
 func RotateSession(oldToken, newToken, username, ip string, createdAt int64, validity, grace time.Duration) (bool, error) {
+	if securitySessions != nil {
+		return securitySessions.Rotate(Ctx, oldToken, newToken, validity, grace)
+	}
 	n, err := rotateScript.Run(Ctx, TokenDB,
 		[]string{"X-rauth-authtoken=" + oldToken, "X-rauth-authtoken=" + newToken, "user_sessions:" + username, "ip_sessions:" + ip},
-		newToken, createdAt, int64(validity.Seconds()), int64(grace.Seconds())).Int()
+		newToken, createdAt, int64(validity.Seconds()), int64(grace.Seconds()), legacyManagedHandle(oldToken)).Int()
 	return n == 1, err
 }
 
@@ -178,12 +223,13 @@ func RotateSession(oldToken, newToken, username, ip string, createdAt int64, val
 // grace period: a copy of the old cookie must stop working at once.
 //
 // KEYS: old hash, new hash, user index, IP index of the old session.
-// ARGV: old token, new token.
+// ARGV: old token, new token, browser identity.
 var replaceScript = redis.NewScript(`
 if redis.call("EXISTS", KEYS[1]) == 0 or redis.call("HEXISTS", KEYS[1], "rotated_to") == 1 then
 	return 0
 end
 local ttl = redis.call("PTTL", KEYS[1])
+redis.call("HSETNX", KEYS[1], "session_family", ARGV[3])
 redis.call("HSET", KEYS[2], unpack(redis.call("HGETALL", KEYS[1])))
 if ttl > 0 then
 	redis.call("PEXPIRE", KEYS[2], ttl)
@@ -201,6 +247,9 @@ return 1
 // step-up so the elevated session is bound to a token only the browser that
 // passed the step-up holds.
 func ReplaceSession(oldToken, newToken string) (bool, error) {
+	if securitySessions != nil {
+		return securitySessions.Replace(Ctx, oldToken, newToken)
+	}
 	oldKey := "X-rauth-authtoken=" + oldToken
 	fields, err := TokenDB.HMGet(Ctx, oldKey, "username", "ip").Result()
 	if err != nil {
@@ -213,7 +262,7 @@ func ReplaceSession(oldToken, newToken string) (bool, error) {
 	}
 	n, err := replaceScript.Run(Ctx, TokenDB,
 		[]string{oldKey, "X-rauth-authtoken=" + newToken, "user_sessions:" + username, "ip_sessions:" + ip},
-		oldToken, newToken).Int()
+		oldToken, newToken, legacyManagedHandle(oldToken)).Int()
 	return n == 1, err
 }
 
@@ -229,6 +278,12 @@ return redis.call("EXPIRE", KEYS[1], ARGV[1])
 
 // RefreshSession extends the session's TTL to validity (see refreshScript).
 func RefreshSession(token string, validity time.Duration) {
+	if securitySessions != nil {
+		if _, err := securitySessions.Refresh(Ctx, token, validity); err != nil {
+			slog.Error("Failed to refresh session", "error", err)
+		}
+		return
+	}
 	if err := refreshScript.Run(Ctx, TokenDB, []string{"X-rauth-authtoken=" + token}, int64(validity.Seconds())).Err(); err != nil {
 		slog.Error("Failed to refresh session", "error", err)
 	}
@@ -238,9 +293,18 @@ func RefreshSession(token string, validity time.Duration) {
 // indexes. A partial failure would leave a valid session that index-based
 // revocation cannot find, so callers must not issue a cookie on error.
 func StoreSession(token, username, ip string, fields map[string]interface{}, validity time.Duration) error {
+	if securitySessions != nil {
+		return storeSQLSession(token, username, ip, fields, validity)
+	}
+	// Ignore a custom family value; only the authority creates browser identity.
+	stored := make(map[string]interface{}, len(fields)+1)
+	for key, value := range fields {
+		stored[key] = value
+	}
+	stored["session_family"] = legacyManagedHandle(token)
 	redisKey := "X-rauth-authtoken=" + token
 	pipe := TokenDB.TxPipeline()
-	pipe.HSet(Ctx, redisKey, fields)
+	pipe.HSet(Ctx, redisKey, stored)
 	pipe.Expire(Ctx, redisKey, validity)
 	pipe.SAdd(Ctx, "user_sessions:"+username, token)
 	pipe.SAdd(Ctx, "ip_sessions:"+ip, token)

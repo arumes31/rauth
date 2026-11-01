@@ -32,6 +32,14 @@ func TOTPCodeReused(username, code string) bool {
 	if code == "" {
 		return false
 	}
+	if securityCounters != nil {
+		first, err := securityCounters.MarkTOTP(Ctx, username, code, totpReplayWindow)
+		if err != nil {
+			slog.Error("SQL TOTP replay check failed, failing closed", "user", username, "error", err)
+			return true
+		}
+		return !first
+	}
 	key := "2fa_used:" + username + ":" + code
 	ok, err := TokenDB.SetNX(Ctx, key, "1", totpReplayWindow).Result()
 	if err != nil {

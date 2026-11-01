@@ -1,14 +1,12 @@
 package handlers
 
 import (
-	"fmt"
 	"log/slog"
 	"net/http"
 	"rauth/internal/core"
 	"strings"
 
 	"github.com/labstack/echo/v4"
-	"github.com/redis/go-redis/v9"
 )
 
 type AdminHandler struct {
@@ -21,60 +19,12 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 		slog.Error("Failed to list users", "error", err)
 	}
 
-	// Fetch sessions using Pipeline to avoid N+1 queries
-	var sessions []map[string]string
-	var keys []string
-	var cursor uint64
-	for {
-		var keysChunk []string
-		var err error
-		keysChunk, cursor, err = core.TokenDB.Scan(core.Ctx, cursor, "X-rauth-authtoken=*", 1000).Result()
-		if err != nil {
-			slog.Error("Failed to scan sessions from Redis", "error", err)
-			break
-		}
-		keys = append(keys, keysChunk...)
-		if cursor == 0 {
-			break
-		}
+	sessionPage, err := core.ListManagedSessions(c.Request().Context(), "", "", c.QueryParam("session_cursor"), 200)
+	if err != nil {
+		return sessionManagementError(err)
 	}
-
-	if len(keys) > 0 {
-		pipe := core.TokenDB.Pipeline()
-		hGetAllCmds := make([]*redis.MapStringStringCmd, len(keys))
-		ttlCmds := make([]*redis.DurationCmd, len(keys))
-
-		for i, k := range keys {
-			hGetAllCmds[i] = pipe.HGetAll(core.Ctx, k)
-			ttlCmds[i] = pipe.TTL(core.Ctx, k)
-		}
-
-		_, err := pipe.Exec(core.Ctx)
-		if err != nil && err != redis.Nil {
-			slog.Error("Pipeline execution failed", "error", err)
-		}
-
-		for i, k := range keys {
-			data, err := hGetAllCmds[i].Result()
-			if err != nil {
-				continue
-			}
-			if len(data) == 0 {
-				continue
-			}
-			data["token"] = strings.TrimPrefix(k, "X-rauth-authtoken=")
-			if data["token"] == k {
-				slog.Warn("AdminDashboard: token key missing expected prefix", "key", k)
-			}
-			data["ttl"] = fmt.Sprintf("%d", int(ttlCmds[i].Val().Seconds()))
-
-			// Use Client Hints if available to enhance the friendly UA
-			ua := data["user_agent"]
-			data["friendly_ua"] = core.FormatDevice(ua, "", data["ua_ch_mobile"], data["ua_ch_model"])
-			data["device_icon"] = core.GetDeviceIcon(ua)
-			sessions = append(sessions, data)
-		}
-	}
+	sessions := sessionPage.Sessions
+	prepareSessionViews(sessions)
 
 	// Fetch Audit Logs
 	logs, err := core.RecentAuditLogs(100)
@@ -104,6 +54,8 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 		"users":            userViews,
 		"stats":            stats,
 		"sessions":         sessions,
+		"session_next":     sessionPage.Next,
+		"session_paged":    sessionPage.Next != "" || c.QueryParam("session_cursor") != "",
 		"logs":             logs,
 		"csrf":             c.Get("csrf"),
 		"bypass_rules":     rules,
@@ -341,24 +293,12 @@ func (h *AdminHandler) InvalidateSession(c echo.Context) error {
 	}
 	admin := c.Get("username").(string)
 
-	redisKey := "X-rauth-authtoken=" + token
-	// ⚡ Bolt optimization: Use HGet instead of HGetAll since we only need the username
-	username, err := core.TokenDB.HGet(core.Ctx, redisKey, "username").Result()
-	if err == nil && username != "" {
-		core.RemoveSessionIndex(username, token)
+	if _, err := core.RevokeManagedSession(c.Request().Context(), token, ""); err != nil {
+		return sessionManagementError(err)
 	}
-
-	if err := core.TokenDB.Del(core.Ctx, redisKey).Err(); err != nil {
-		slog.Error("Failed to invalidate session", "error", err)
-		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to invalidate session")
-	}
-
 	slog.Info("Session invalidated by admin", "admin", admin)
-	logToken := token
-	if len(token) > 8 {
-		logToken = token[:8] + "..."
-	}
-	core.LogAudit("ADMIN_INVALIDATE_SESSION", admin, c.RealIP(), map[string]interface{}{"token": logToken})
+	core.LogAudit("ADMIN_INVALIDATE_SESSION", admin, c.RealIP(), nil)
+
 	return c.Redirect(http.StatusFound, "/rauthmgmt?success=session_terminated")
 }
 

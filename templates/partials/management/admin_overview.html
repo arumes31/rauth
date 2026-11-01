@@ -9,9 +9,9 @@
             <span class="hint">{{.Admins}} administrator(s)</span>
         </a>
         <a href="#sessions" class="stat" data-goto="sessions">
-            <span class="label"><i class="bi bi-broadcast"></i>Active sessions</span>
+            <span class="label"><i class="bi bi-broadcast"></i>{{if $.session_paged}}Sessions on this page{{else}}Active sessions{{end}}</span>
             <span class="value">{{.Sessions}}</span>
-            <span class="hint">{{.OnlineUsers}} user(s) signed in</span>
+            <span class="hint">{{.OnlineUsers}} user(s){{if $.session_paged}} on this page{{else}} signed in{{end}}</span>
         </a>
         <a href="#users" class="stat {{if lt .With2FA .Users}}warn{{else}}ok{{end}}" data-goto="users">
             <span class="label"><i class="bi bi-shield-check"></i>Two-factor coverage</span>

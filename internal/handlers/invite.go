@@ -3,54 +3,15 @@ package handlers
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"rauth/internal/core"
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"github.com/redis/go-redis/v9"
 	"strings"
 )
-
-// consumeInviteScript atomically reads and deletes an invite, returning its
-// email and remaining TTL in milliseconds so the invite can be restored with
-// its original expiry if account creation fails.
-var consumeInviteScript = redis.NewScript(`
-local email = redis.call("GET", KEYS[1])
-if not email then
-	return false
-end
-local ttl = redis.call("PTTL", KEYS[1])
-redis.call("DEL", KEYS[1])
-return {email, ttl}
-`)
-
-// consumeInvite atomically claims an invite token so concurrent redemptions
-// of the same token cannot each create an account.
-func consumeInvite(token string) (string, time.Duration, error) {
-	res, err := consumeInviteScript.Run(core.Ctx, core.InviteDB, []string{"invite:" + token}).Slice()
-	if err != nil {
-		return "", 0, err
-	}
-	if len(res) != 2 {
-		return "", 0, redis.Nil
-	}
-	email, _ := res[0].(string)
-	ttlMs, _ := res[1].(int64)
-	if email == "" {
-		return "", 0, redis.Nil
-	}
-	return email, time.Duration(ttlMs) * time.Millisecond, nil
-}
-
-// restoreInvite puts a claimed invite back after an internal failure.
-func restoreInvite(token, email string, ttl time.Duration) {
-	if ttl <= 0 {
-		ttl = 24 * time.Hour
-	}
-	core.InviteDB.Set(core.Ctx, "invite:"+token, email, ttl)
-}
 
 type InviteHandler struct {
 	Cfg *core.Config
@@ -70,7 +31,9 @@ func (h *InviteHandler) Create(c echo.Context) error {
 	token := hex.EncodeToString(b)
 
 	// Store token with email (24h expiry)
-	core.InviteDB.Set(core.Ctx, "invite:"+token, email, 24*time.Hour)
+	if err := core.StoreAuthArtifact(core.Invitation, token, []byte(email), "", "", 24*time.Hour); err != nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "Failed to create invitation")
+	}
 
 	inviteURL := h.Cfg.PublicURL + "/rauthredeem?token=" + token
 
@@ -88,7 +51,8 @@ func (h *InviteHandler) RedeemPage(c echo.Context) error {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
 
-	email, err := core.InviteDB.Get(core.Ctx, "invite:"+token).Result()
+	emailBytes, err := core.GetAuthArtifact(core.Invitation, token)
+	email := string(emailBytes)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, "Invalid or expired invitation")
 	}
@@ -113,7 +77,8 @@ func (h *InviteHandler) Redeem(c echo.Context) error {
 	username := c.FormValue("username")
 	password := c.FormValue("password")
 
-	email, err := core.InviteDB.Get(core.Ctx, "invite:"+token).Result()
+	emailBytes, err := core.GetAuthArtifact(core.Invitation, token)
+	email := string(emailBytes)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, "Invalid or expired invitation")
 	}
@@ -125,23 +90,14 @@ func (h *InviteHandler) Redeem(c echo.Context) error {
 		return h.renderRedeemError(c, http.StatusBadRequest, token, email, err.Error())
 	}
 
-	// Claim the invite atomically before creating the user, so a token can
-	// only ever be redeemed once even under concurrent requests.
-	email, ttl, err := consumeInvite(token)
+	err = core.RedeemInvitation(token, username, password)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, "Invalid or expired invitation")
-	}
-
-	// Create User
-	err = core.CreateUser(username, password, email, false, "")
-	if err != nil {
-		// Keep the invite usable so the user can retry.
-		restoreInvite(token, email, ttl)
 		if strings.Contains(err.Error(), "already exists") {
 			return h.renderRedeemError(c, http.StatusConflict, token, email, "Username already taken")
 		}
-		// Internal failure (e.g. storage error): keep the invite usable and
-		// report it as such instead of a misleading conflict.
+		if errors.Is(err, core.ErrAuthArtifactMissing) {
+			return echo.NewHTTPError(http.StatusNotFound, "Invalid or expired invitation")
+		}
 		return h.renderRedeemError(c, http.StatusInternalServerError, token, email, "Failed to create account. Please try again.")
 	}
 

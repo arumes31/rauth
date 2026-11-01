@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"rauth/internal/core"
+	"strings"
 	"testing"
 	"time"
 
@@ -70,14 +71,15 @@ func TestWebAuthnHandlers(t *testing.T) {
 				assert.Equal(t, http.StatusBadRequest, he.Code)
 			}
 		}
-		_, err := core.TokenDB.Get(core.Ctx, "webauthn_reg:testuser").Result()
-		assert.Error(t, err, "no registration challenge may be issued without step-up")
+		keys, err := core.TokenDB.Keys(core.Ctx, "webauthn_reg:*").Result()
+		require.NoError(t, err)
+		assert.Empty(t, keys, "no registration challenge may be issued without step-up")
 	})
 
 	t.Run("BeginRegistration_Success", func(t *testing.T) {
 		_ = core.CreateUser("testuser", "password123", "test@example.com", false, "")
 		c, rec := createTestContext(e, http.MethodPost, "/webauthn/register/begin", url.Values{"current_password": {"password123"}})
-		c.Set("username", "testuser")
+		setRegistrationIdentity(t, c, "testuser")
 
 		if assert.NoError(t, h.BeginRegistration(c)) {
 			assert.Equal(t, http.StatusOK, rec.Code)
@@ -114,7 +116,7 @@ func TestWebAuthnHandlers(t *testing.T) {
 		}()
 
 		c, _ := createTestContext(e, http.MethodPost, "/webauthn/register/begin", url.Values{"current_password": {"password123"}})
-		c.Set("username", "testuser_weberr")
+		setRegistrationIdentity(t, c, "testuser_weberr")
 
 		err := h.BeginRegistration(c)
 		if assert.Error(t, err) {
@@ -254,12 +256,12 @@ func TestWebAuthnHandlers(t *testing.T) {
 
 		// Valid JSON, but not matching what the webauthn library expects to correctly verify an empty request
 		sessionJSON := `{"challenge":"aGVsbG8=","user_id":"dGVzdHVzZXI0","allowed_credentials":[],"userVerification":"preferred"}`
-		core.TokenDB.Set(core.Ctx, "webauthn_reg:testuser4", sessionJSON, 5*time.Minute)
 
 		req := httptest.NewRequest(http.MethodPost, "/webauthn/register/finish", nil)
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
-		c.Set("username", "testuser4")
+		setRegistrationIdentity(t, c, "testuser4")
+		seedRegistrationProof(t, c, cfg, "testuser4", sessionJSON, false)
 
 		err := h.FinishRegistration(c)
 		if assert.Error(t, err) {
@@ -271,11 +273,12 @@ func TestWebAuthnHandlers(t *testing.T) {
 
 	t.Run("FinishRegistration_InvalidSessionData", func(t *testing.T) {
 		_ = core.CreateUser("testuser3", "password123", "test3@example.com", false, "")
-		core.TokenDB.Set(core.Ctx, "webauthn_reg:testuser3", "invalid json", 0)
+
 		req := httptest.NewRequest(http.MethodPost, "/webauthn/register/finish", nil)
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
-		c.Set("username", "testuser3")
+		setRegistrationIdentity(t, c, "testuser3")
+		seedRegistrationProof(t, c, cfg, "testuser3", "", true)
 
 		err := h.FinishRegistration(c)
 		if assert.Error(t, err) {
@@ -353,4 +356,102 @@ func TestWebAuthnHandler_identifyWebAuthnUser(t *testing.T) {
 		assert.Equal(t, []byte("0f8e2c1a-3b4d-4e5f-8a6b-7c9d0e1f2a3b"), userID)
 		assert.NotNil(t, userRec)
 	})
+}
+
+func setRegistrationIdentity(t *testing.T, c echo.Context, user string) {
+	t.Helper()
+	gen, err := core.AuthGeneration(user)
+	require.NoError(t, err)
+	c.Set("username", user)
+	c.Set("auth_gen", gen)
+	c.Set("token", strings.Repeat("browser-token-", 4))
+	token := c.Get("token").(string)
+	require.NoError(t, core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken="+token, "username", user, "status", "valid", "auth_gen", gen).Err())
+	require.NoError(t, core.TokenDB.Expire(core.Ctx, "X-rauth-authtoken="+token, time.Hour).Err())
+}
+func seedRegistrationProof(t *testing.T, c echo.Context, cfg *core.Config, user, sessionJSON string, corrupt bool) string {
+	t.Helper()
+	gen, _ := c.Get("auth_gen").(string)
+	tok, _ := c.Get("token").(string)
+	id := core.GenerateRandomString(32)
+	body := []byte("invalid json")
+	if !corrupt {
+		var session webauthn.SessionData
+		require.NoError(t, json.Unmarshal([]byte(sessionJSON), &session))
+		var err error
+		binding, bindingErr := core.RegistrationSessionBinding(c.Request().Context(), tok, cfg.ServerSecret)
+		require.NoError(t, bindingErr)
+		body, err = json.Marshal(registrationProof{Session: session, Username: user, Generation: gen, BrowserBinding: binding})
+		require.NoError(t, err)
+	}
+	require.NoError(t, core.StoreAuthArtifact(core.PasskeyRegistration, id, body, user, gen, 5*time.Minute))
+	c.Request().AddCookie(&http.Cookie{Name: registrationCookie, Value: id})
+	return id
+}
+func TestRegistrationProofBoundToBrowserAndGeneration(t *testing.T) {
+	s := miniredis.RunT(t)
+	core.TokenDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
+	core.RateLimitDB = core.TokenDB
+	usePG(t)
+	require.NoError(t, core.CreateUser("proof-user", "Password123", "", false, ""))
+	cfg := &core.Config{ServerSecret: strings.Repeat("s", 32), RateLimitRegistrationMax: 100, RateLimitRegistrationDecay: 60}
+	h := &WebAuthnHandler{Cfg: cfg}
+	e := echo.New()
+	c, _ := createTestContext(e, http.MethodPost, "/webauthn/register/finish", nil)
+	setRegistrationIdentity(t, c, "proof-user")
+	id := seedRegistrationProof(t, c, cfg, "proof-user", `{"challenge":"aGVsbG8=","user_id":"dGVzdA=="}`, false)
+	wrong, _ := createTestContext(e, http.MethodPost, "/webauthn/register/finish", nil)
+	setRegistrationIdentity(t, wrong, "proof-user")
+	wrong.Set("token", strings.Repeat("other-browser", 4))
+	wrong.Request().AddCookie(&http.Cookie{Name: registrationCookie, Value: id})
+	err := h.FinishRegistration(wrong)
+	require.Error(t, err)
+	assert.Equal(t, http.StatusBadRequest, err.(*echo.HTTPError).Code)
+	_, err = core.GetAuthArtifact(core.PasskeyRegistration, id)
+	require.NoError(t, err, "a different browser cannot consume this proof")
+	_, err = core.BumpAuthGeneration("proof-user")
+	require.NoError(t, err)
+	setRegistrationIdentity(t, c, "proof-user")
+	err = h.FinishRegistration(c)
+	require.Error(t, err)
+	assert.Equal(t, http.StatusBadRequest, err.(*echo.HTTPError).Code, "an old step-up cannot register a factor after credential reset")
+}
+
+func TestRegistrationProofSurvivesNormalSessionRotation(t *testing.T) {
+	setupHandlersTest(t)
+	core.SetBcryptCost(4)
+	t.Cleanup(func() { core.SetBcryptCost(12) })
+	user := "rotation-proof-user"
+	require.NoError(t, core.CreateUser(user, "Password123!", "", false, ""))
+	cfg := &core.Config{ServerSecret: strings.Repeat("s", 32), CookieDomains: []string{"localhost"}, RateLimitRegistrationMax: 100, RateLimitRegistrationDecay: 60}
+	require.NoError(t, core.InitWebAuthn(cfg))
+	h := &WebAuthnHandler{Cfg: cfg}
+	e := echo.New()
+	begin, rec := createTestContext(e, http.MethodPost, "/webauthn/register/begin", url.Values{"current_password": {"Password123!"}})
+	setRegistrationIdentity(t, begin, user)
+	old := begin.Get("token").(string)
+	require.NoError(t, core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken="+old, "username", user, "status", "valid", "auth_gen", begin.Get("auth_gen")).Err())
+	require.NoError(t, core.TokenDB.Expire(core.Ctx, "X-rauth-authtoken="+old, time.Hour).Err())
+	require.NoError(t, h.BeginRegistration(begin))
+	var challenge *http.Cookie
+	for _, cookie := range rec.Result().Cookies() {
+		if cookie.Name == registrationCookie {
+			challenge = cookie
+		}
+	}
+	require.NotNil(t, challenge)
+	next := strings.Repeat("rotated-browser-", 4)
+	changed, err := core.RotateSession(old, next, user, "127.0.0.1", time.Now().Unix(), time.Hour, 30*time.Second)
+	require.NoError(t, err)
+	require.True(t, changed)
+	finish, _ := createTestContext(e, http.MethodPost, "/webauthn/register/finish", nil)
+	finish.Set("username", user)
+	finish.Set("auth_gen", begin.Get("auth_gen"))
+	finish.Set("token", next)
+	finish.Request().AddCookie(challenge)
+	// An invalid attestation still claims the matching one-use proof. A normal
+	// cookie rotation must not strand the real browser before that stage.
+	require.Error(t, h.FinishRegistration(finish))
+	_, err = core.GetAuthArtifact(core.PasskeyRegistration, challenge.Value)
+	require.ErrorIs(t, err, core.ErrAuthArtifactMissing, "normal session rotation must preserve this browser's registration binding")
 }

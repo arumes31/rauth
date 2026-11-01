@@ -15,6 +15,7 @@ services:
       - /tmp:rw,noexec,nosuid,nodev,size=32m
       - /run:rw,noexec,nosuid,nodev,size=8m
     environment:
+      TS_DEBUG_FIREWALL_MODE: ${RAUTH_TAILSCALE_FIREWALL_MODE:-iptables}
       TS_HOSTNAME: ${RAUTH_NODE_NAME}
       TS_STATE_DIR: /var/lib/tailscale
       TS_SOCKET: /tmp/tailscaled.sock

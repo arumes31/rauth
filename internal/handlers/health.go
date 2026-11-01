@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -26,7 +27,14 @@ type HealthStatus struct {
 }
 
 func redisPing(client *redis.Client) func() error {
-	return func() error { return client.Ping(core.Ctx).Err() }
+	return func() error {
+		if client == nil {
+			return errors.New("redis authority is not initialized")
+		}
+		ctx, cancel := context.WithTimeout(core.Ctx, 3*time.Second)
+		defer cancel()
+		return client.Ping(ctx).Err()
+	}
 }
 
 func (h *HealthHandler) Check(c echo.Context) error {
@@ -47,10 +55,27 @@ func (h *HealthHandler) Check(c echo.Context) error {
 			if core.PG == nil {
 				return errors.New("postgres not initialized")
 			}
-			return core.PG.Ping(core.Ctx)
+			ctx, cancel := context.WithTimeout(c.Request().Context(), 3*time.Second)
+			defer cancel()
+			return core.PG.Ping(ctx)
 		}},
-		{"redis_token", redisPing(core.TokenDB)},
-		{"redis_rate", redisPing(core.RateLimitDB)},
+	}
+	if core.SQLAuthenticationEnabled() {
+		checkFuncs = append(checkFuncs, struct {
+			name string
+			ping func() error
+		}{"auth_state", func() error { return core.CheckAuthenticationAuthority(c.Request().Context()) }})
+	} else {
+		checkFuncs = append(checkFuncs, struct {
+			name string
+			ping func() error
+		}{"redis_token", redisPing(core.TokenDB)}, struct {
+			name string
+			ping func() error
+		}{"redis_rate", redisPing(core.RateLimitDB)}, struct {
+			name string
+			ping func() error
+		}{"redis_invite", redisPing(core.InviteDB)})
 	}
 
 	var wg sync.WaitGroup

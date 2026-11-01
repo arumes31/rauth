@@ -84,7 +84,7 @@ func TestSessionManagement(t *testing.T) {
 		TokenDB.HSet(Ctx, "X-rauth-authtoken=token_keep", "data", "val")
 		TokenDB.HSet(Ctx, "X-rauth-authtoken=token_drop", "data", "val")
 
-		InvalidateOtherUserSessions("testuser3", "token_keep")
+		require.NoError(t, InvalidateOtherUserSessions("testuser3", "token_keep"))
 
 		members, err := TokenDB.SMembers(Ctx, "user_sessions:testuser3").Result()
 		require.NoError(t, err)
@@ -106,7 +106,7 @@ func TestSessionManagement(t *testing.T) {
 		TokenDB.HSet(Ctx, "X-rauth-authtoken=token_drop1", "data", "val")
 		TokenDB.HSet(Ctx, "X-rauth-authtoken=token_drop2", "data", "val")
 
-		InvalidateOtherUserSessions("testuser_multi", "token_keep")
+		require.NoError(t, InvalidateOtherUserSessions("testuser_multi", "token_keep"))
 
 		members, err := TokenDB.SMembers(Ctx, "user_sessions:testuser_multi").Result()
 		require.NoError(t, err)
@@ -125,7 +125,7 @@ func TestSessionManagement(t *testing.T) {
 		defer func() { TokenDB = oldTokenDB }()
 
 		// Should not panic, but return early
-		InvalidateOtherUserSessions("testuser_err", "token_keep")
+		require.Error(t, InvalidateOtherUserSessions("testuser_err", "token_keep"))
 	})
 
 	t.Run("InvalidateOtherUserSessions_PipelineError", func(t *testing.T) {
@@ -142,13 +142,13 @@ func TestSessionManagement(t *testing.T) {
 		// SMembers will fail due to context cancellation, returning early.
 		// But we still hit the SMembers error path again.
 
-		InvalidateOtherUserSessions("testuser_pipe", "token_1")
+		require.Error(t, InvalidateOtherUserSessions("testuser_pipe", "token_1"))
 	})
 
 	t.Run("InvalidateOtherUserSessions_NoOtherSessions", func(t *testing.T) {
 		AddSessionIndex("testuser_alone", "token_alone")
 
-		InvalidateOtherUserSessions("testuser_alone", "token_alone")
+		require.NoError(t, InvalidateOtherUserSessions("testuser_alone", "token_alone"))
 
 		// Verify the session wasn't removed since it's the only one
 		members, err := TokenDB.SMembers(Ctx, "user_sessions:testuser_alone").Result()

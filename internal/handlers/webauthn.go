@@ -1,11 +1,14 @@
 package handlers
 
 import (
+	"bytes"
+	"crypto/hmac"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"rauth/internal/authstate"
 	"rauth/internal/core"
 	"time"
 
@@ -16,6 +19,15 @@ import (
 
 type WebAuthnHandler struct {
 	Cfg *core.Config
+}
+
+const registrationCookie = "rauth_webauthn_registration"
+
+type registrationProof struct {
+	Session        webauthn.SessionData
+	Username       string
+	Generation     string
+	BrowserBinding string
 }
 
 func (h *WebAuthnHandler) BeginRegistration(c echo.Context) error {
@@ -50,9 +62,30 @@ func (h *WebAuthnHandler) BeginRegistration(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to start passkey registration")
 	}
 
-	// Store session data in Redis temporarily (5 minutes)
-	sessionJSON, _ := json.Marshal(sessionData)
-	core.TokenDB.Set(core.Ctx, "webauthn_reg:"+username, sessionJSON, 5*time.Minute)
+	token, _ := c.Get("token").(string)
+	gen, _ := c.Get("auth_gen").(string)
+	if token == "" || gen == "" {
+		return echo.NewHTTPError(http.StatusUnauthorized, "Authenticated session required")
+	}
+	id := core.GenerateRandomString(32)
+	if id == "" {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to generate registration challenge")
+	}
+	binding, err := core.RegistrationSessionBinding(c.Request().Context(), token, h.Cfg.ServerSecret)
+	if errors.Is(err, authstate.ErrNotFound) {
+		return echo.NewHTTPError(http.StatusUnauthorized, "Authenticated session required")
+	}
+	if err != nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "Session service is temporarily unavailable")
+	}
+	body, err := json.Marshal(registrationProof{Session: *sessionData, Username: username, Generation: gen, BrowserBinding: binding})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to store registration challenge")
+	}
+	if err := core.StoreAuthArtifact(core.PasskeyRegistration, id, body, username, gen, 5*time.Minute); err != nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "Failed to store registration challenge")
+	}
+	c.SetCookie(&http.Cookie{Name: registrationCookie, Value: id, Path: "/", HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode, Expires: time.Now().Add(5 * time.Minute)})
 
 	return c.JSON(http.StatusOK, options.Response)
 }
@@ -75,18 +108,39 @@ func (h *WebAuthnHandler) FinishRegistration(c echo.Context) error {
 
 	user := core.NewWebAuthnUser(userRecord)
 
-	redisKey := "webauthn_reg:" + username
-	sessionJSON, err := core.TokenDB.Get(core.Ctx, redisKey).Result()
+	cookie, err := c.Cookie(registrationCookie)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "Session expired")
 	}
-	// Delete immediately to prevent replay
-	core.TokenDB.Del(core.Ctx, redisKey)
-
-	var sessionData webauthn.SessionData
-	if err := json.Unmarshal([]byte(sessionJSON), &sessionData); err != nil {
+	body, err := core.GetAuthArtifact(core.PasskeyRegistration, cookie.Value)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "Session expired")
+	}
+	var proof registrationProof
+	if err := json.Unmarshal(body, &proof); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to parse session data")
 	}
+	token, _ := c.Get("token").(string)
+	generation, _ := c.Get("auth_gen").(string)
+	if token == "" || generation == "" || proof.Username != username || proof.Generation != generation {
+		return echo.NewHTTPError(http.StatusBadRequest, "Session expired")
+	}
+	expected, err := core.RegistrationSessionBinding(c.Request().Context(), token, h.Cfg.ServerSecret)
+	if errors.Is(err, authstate.ErrNotFound) {
+		return echo.NewHTTPError(http.StatusBadRequest, "Session expired")
+	}
+	if err != nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "Session service is temporarily unavailable")
+	}
+	if !hmac.Equal([]byte(proof.BrowserBinding), []byte(expected)) {
+		return echo.NewHTTPError(http.StatusBadRequest, "Session expired")
+	}
+	claimed, err := core.TakeAuthArtifact(core.PasskeyRegistration, cookie.Value)
+	if err != nil || !bytes.Equal(claimed, body) {
+		return echo.NewHTTPError(http.StatusBadRequest, "Session expired")
+	}
+	c.SetCookie(&http.Cookie{Name: registrationCookie, Value: "", Path: "/", HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode, MaxAge: -1, Expires: time.Unix(0, 0)})
+	sessionData := proof.Session
 
 	credential, err := core.WebAuthnInstance.FinishRegistration(user, sessionData, c.Request())
 	if err != nil {
@@ -97,16 +151,13 @@ func (h *WebAuthnHandler) FinishRegistration(c echo.Context) error {
 	// Save only while the session that authorized this request is still
 	// current: a 2FA reset or account deletion that overtook the request must
 	// not get the passkey it removed back.
-	authGen, _ := c.Get("auth_gen").(string)
-	if err := core.SaveWebAuthnCredential(username, credential, authGen); err != nil {
+	if err := core.SaveWebAuthnCredential(username, credential, proof.Generation); err != nil {
 		if errors.Is(err, core.ErrStaleGeneration) {
 			slog.Warn("Passkey registration overtaken by a credential reset", "user", username)
 			return echo.NewHTTPError(http.StatusUnauthorized, "Session revoked during registration")
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to save credential")
 	}
-
-	core.TokenDB.Del(core.Ctx, "webauthn_reg:"+username)
 
 	core.LogAudit("PASSKEY_REGISTER", username, clientIP, nil)
 	if userRecord.Email != "" {
@@ -151,14 +202,18 @@ func (h *WebAuthnHandler) BeginLogin(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to start passkey login")
 	}
 
-	sessionJSON, _ := json.Marshal(sessionData)
+	sessionJSON, err := json.Marshal(sessionData)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to store passkey challenge")
+	}
 
 	sessionID := core.GenerateRandomString(32)
 	if sessionID == "" {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to generate session")
 	}
-	redisKey := "webauthn_login_session:" + sessionID
-	core.TokenDB.Set(core.Ctx, redisKey, sessionJSON, 5*time.Minute)
+	if err := core.StoreAuthArtifact(core.PasskeyLogin, sessionID, sessionJSON, "", "", 5*time.Minute); err != nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "Failed to store passkey challenge")
+	}
 
 	cookie := &http.Cookie{
 		Name:     "rauth_webauthn_session",
@@ -275,18 +330,13 @@ func (h *WebAuthnHandler) getWebAuthnLoginSession(c echo.Context) (*webauthn.Ses
 		return nil, echo.NewHTTPError(http.StatusBadRequest, "Session expired or invalid")
 	}
 	sessionID := cookie.Value
-	redisKey := "webauthn_login_session:" + sessionID
-
-	sessionJSON, err := core.TokenDB.Get(core.Ctx, redisKey).Result()
+	sessionJSON, err := core.TakeAuthArtifact(core.PasskeyLogin, sessionID)
 	if err != nil {
 		return nil, echo.NewHTTPError(http.StatusBadRequest, "Session expired or invalid")
 	}
 
-	// Clean up session immediately after retrieval (one-time use)
-	core.TokenDB.Del(core.Ctx, redisKey)
-
 	var sessionData webauthn.SessionData
-	if err := json.Unmarshal([]byte(sessionJSON), &sessionData); err != nil {
+	if err := json.Unmarshal(sessionJSON, &sessionData); err != nil {
 		return nil, echo.NewHTTPError(http.StatusInternalServerError, "Failed to parse session data")
 	}
 	return &sessionData, nil
