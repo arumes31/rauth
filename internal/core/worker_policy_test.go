@@ -2,6 +2,7 @@ package core
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
@@ -69,11 +70,11 @@ func compileSnapshot(t *testing.T, document WorkerPolicyDocument, contents map[s
 	}
 	bundle, err := clusterpolicy.VerifyBundle(head, func(b clusterpolicy.Blob) (io.ReadCloser, error) {
 		return io.NopCloser(bytes.NewReader(bodies[b.SHA256])), nil
-	}, compiler.Validate)
+	}, func(b clusterpolicy.Blob, r io.Reader) error { return compiler.Validate(context.Background(), b, r) })
 	if err != nil {
 		return nil, err
 	}
-	return compiler.Finish(bundle)
+	return compiler.Finish(context.Background(), bundle)
 }
 func TestWorkerPolicySnapshotKeepsRulesAndFeedsIndependentOfGlobals(t *testing.T) {
 	doc := snapshotDocument()

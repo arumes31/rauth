@@ -2,6 +2,7 @@ package core
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -189,10 +190,14 @@ func policyBytes(b clusterpolicy.Blob, r io.Reader, limit int64) ([]byte, error)
 	}
 	return body, nil
 }
-func (c *WorkerPolicyCompiler) Validate(b clusterpolicy.Blob, r io.Reader) error {
+func (c *WorkerPolicyCompiler) Validate(ctx context.Context, b clusterpolicy.Blob, r io.Reader) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if c.closed || c.finished || r == nil {
 		return clusterpolicy.ErrInvalid
 	}
+	r = policyCompileReader{ctx: ctx, r: r}
 	name := b.Kind + ":" + b.ID
 	if _, duplicate := c.payloads[name]; duplicate {
 		return clusterpolicy.ErrInvalid
@@ -254,8 +259,18 @@ func (c *WorkerPolicyCompiler) Validate(b clusterpolicy.Blob, r io.Reader) error
 	c.payloads[name] = b
 	return nil
 }
-func (c *WorkerPolicyCompiler) Finish(bundle clusterpolicy.VerifiedBundle) (*PolicySnapshot, error) {
-	if c.closed || c.finished || c.document == nil || bundle.Identity().Revision <= 0 {
+func (c *WorkerPolicyCompiler) Finish(ctx context.Context, bundle clusterpolicy.VerifiedBundle) (*PolicySnapshot, error) {
+	return c.finishManifest(ctx, bundle.Identity(), bundle.Manifest())
+}
+
+// finishManifest is also used by the controller after every dependency has
+// independently passed Validate's exact size/hash check, before the SQL head
+// commit. It remains private: callers must hold verified signed-head evidence.
+func (c *WorkerPolicyCompiler) finishManifest(ctx context.Context, identity clusterpolicy.Identity, manifest clusterpolicy.Manifest) (*PolicySnapshot, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if c.closed || c.finished || c.document == nil || identity.Revision <= 0 || identity.Revision != manifest.Revision || !policyHash(identity.SHA256) {
 		return nil, clusterpolicy.ErrInvalid
 	}
 	doc := c.document
@@ -270,7 +285,7 @@ func (c *WorkerPolicyCompiler) Finish(bundle clusterpolicy.VerifiedBundle) (*Pol
 	if doc.NodeProfiles[c.options.NodeID] != c.options.SecurityFingerprint {
 		return nil, errors.New("worker security configuration does not match signed policy")
 	}
-	blobs := bundle.Manifest().Blobs
+	blobs := manifest.Blobs
 	if len(blobs) != len(c.payloads) {
 		return nil, clusterpolicy.ErrInvalid
 	}
@@ -279,9 +294,12 @@ func (c *WorkerPolicyCompiler) Finish(bundle clusterpolicy.VerifiedBundle) (*Pol
 			return nil, clusterpolicy.ErrInvalid
 		}
 	}
-	snapshot := &PolicySnapshot{identity: bundle.Identity(), feeds: feedSnapshot{indexes: map[string]*compiledIPFeed{}, versions: map[string]int64{}, defaultConfigured: doc.DefaultFeedConfigured}, countries: NewGeoLRUCache(geoCacheCapacity)}
+	snapshot := &PolicySnapshot{identity: identity, feeds: feedSnapshot{indexes: map[string]*compiledIPFeed{}, versions: map[string]int64{}, defaultConfigured: doc.DefaultFeedConfigured}, countries: NewGeoLRUCache(geoCacheCapacity)}
 	total := 0
 	for _, feed := range doc.Feeds {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		index, ok := c.indexes[feed.ID]
 		if !policyUUID(feed.ID) || feed.Version < 1 || !ok || snapshot.feeds.versions[feed.ID] != 0 {
 			return nil, clusterpolicy.ErrInvalid
@@ -305,6 +323,9 @@ func (c *WorkerPolicyCompiler) Finish(bundle clusterpolicy.VerifiedBundle) (*Pol
 	requireGeo := doc.RequireGeoIP || c.options.RequireGeoIP
 	seen := map[string]bool{}
 	for _, input := range doc.Rules {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		r, err := ParseBypassRule(input.Rule)
 		if err != nil || r.Rule != input.Rule {
 			return nil, clusterpolicy.ErrInvalid
@@ -360,4 +381,16 @@ func (c *WorkerPolicyCompiler) Close() error {
 		return err
 	}
 	return nil
+}
+
+type policyCompileReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (r policyCompileReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.r.Read(p)
 }
