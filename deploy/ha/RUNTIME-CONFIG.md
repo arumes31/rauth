@@ -11,7 +11,10 @@ keys, separate database URL files, and the controller's enrolled identity,
 literal service endpoint and one or two SPKI pins. Control nodes additionally
 need a policy signer and desired profiles; workers reject these capabilities.
 All file/cache paths must be distinct and below the data root. The node document
-itself must also be below that root.
+itself must also be below that root. The entire cache subtree is reserved for
+policy-store data: protected files and the node document cannot be inside it or
+be an ancestor of it. This prevents cache journal writes or garbage collection
+from colliding with configuration or keys.
 
 Load requires an existing private Linux bind mount matching the configured
 major:minor device and ext4/xfs/btrfs/zfs filesystem, writable at both mount and

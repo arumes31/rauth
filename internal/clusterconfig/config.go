@@ -105,7 +105,7 @@ func (c Config) Validate() error {
 	}
 	seen := map[string]bool{c.CacheRoot: true}
 	for _, filename := range paths {
-		if !inside(c.DataRoot, filename) || seen[filename] {
+		if !inside(c.DataRoot, filename) || seen[filename] || inside(c.CacheRoot, filename) || inside(filename, c.CacheRoot) {
 			return ErrInvalid
 		}
 		seen[filename] = true

@@ -70,7 +70,7 @@ func load(filename string, checkMount func(Config) error) (*Loaded, error) {
 		return nil, err
 	}
 	c, err := Parse(raw)
-	if err != nil || !inside(c.DataRoot, filename) {
+	if err != nil || !inside(c.DataRoot, filename) || filename == c.CacheRoot || inside(c.CacheRoot, filename) || inside(filename, c.CacheRoot) {
 		return nil, ErrInvalid
 	}
 	if err = checkMount(c); err != nil {
