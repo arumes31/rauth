@@ -116,6 +116,9 @@ type Config struct {
 	// reverse proxy must set (overwrite) them.
 	AuthBypassHostHeader string
 	AuthBypassURIHeader  string
+	// RequestFeedIPHeader is optional, trusted-proxy-only telemetry metadata.
+	// It never changes the IP used for authentication or session binding.
+	RequestFeedIPHeader string
 }
 
 // DefaultCloudflareIPRanges is Cloudflare's published edge list
@@ -205,6 +208,7 @@ func LoadConfig() *Config {
 		AuthBypassRules:      getEnvSlice("AUTH_BYPASS_RULES", []string{}),
 		AuthBypassHostHeader: getEnv("AUTH_BYPASS_HOST_HEADER", "X-Forwarded-Host"),
 		AuthBypassURIHeader:  getEnv("AUTH_BYPASS_URI_HEADER", "X-Forwarded-Uri"),
+		RequestFeedIPHeader:  strings.TrimSpace(getEnv("REQUEST_FEED_IP_HEADER", "")),
 	}
 }
 

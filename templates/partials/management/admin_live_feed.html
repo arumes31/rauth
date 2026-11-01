@@ -1,0 +1,40 @@
+{{define "admin_live_feed"}}
+<section data-panel="live-feed" data-title="Live Feed" hidden>
+    <div class="panel">
+        <div class="panel-header live-feed-header">
+            <div>
+                <h2>Live request feed</h2>
+                <div class="sub">Forward-auth decisions as they happen. <span id="liveFeedCount">0 recent decisions</span>.</div>
+            </div>
+            <div class="tools">
+                <span id="liveFeedStatus" class="chip info" role="status" aria-live="polite">Connecting</span>
+                <button id="liveFeedPause" type="button" class="btn btn-outline-secondary btn-sm" aria-pressed="false">Pause</button>
+            </div>
+        </div>
+        <div class="live-feed-tools">
+            <div class="search">
+                <i class="bi bi-search"></i>
+                <input id="liveFeedSearch" type="search" class="form-control" placeholder="URL, source IP or country" aria-label="Search live requests">
+            </div>
+            <select id="liveFeedAction" class="form-select" aria-label="Filter request actions">
+                <option value="">All actions</option>
+                <option value="authenticated">Allowed</option>
+                <option value="bypass">Bypass</option>
+                <option value="login_required">Login required</option>
+                <option value="blocked">Blocked</option>
+                <option value="rate_limited">Rate limited</option>
+                <option value="error">Error</option>
+            </select>
+        </div>
+        <div id="liveFeedNotice" class="live-feed-notice text-muted small" role="status" hidden></div>
+        <div class="table-wrap live-feed-wrap">
+            <table class="data-table live-feed-table" aria-label="Live forward-auth requests">
+                <thead><tr><th>Time</th><th>URL</th><th>Source IP</th><th>Country</th><th>Action</th></tr></thead>
+                <tbody id="liveFeedRows"></tbody>
+            </table>
+        </div>
+        <div id="liveFeedEmpty" class="empty"><i class="bi bi-broadcast"></i>Waiting for requests</div>
+        <div class="live-feed-footnote text-muted small">Latest 300 decisions shown. URL query strings are omitted. This feed resets when RAuth restarts.</div>
+    </div>
+</section>
+{{end}}

@@ -177,10 +177,13 @@ func parseLogLevel(level string) slog.Level {
 }
 
 func setupMiddleware(e *echo.Echo, cfg *core.Config) {
-	// Order matters: Secure headers and BodyLimit run first, then Client Hints
+	// The bounded request-feed observer wraps the security chain so rejected
+	// forward-auth requests are visible too. Secure headers and BodyLimit then
+	// run first, followed by Client Hints
 	// and the request logger, then Recover and CSRF last. Keeping the logger
 	// ahead of Recover/CSRF ensures every request — including CSRF rejections —
 	// is logged.
+	e.Use(middleware.RequestFeed(cfg))
 	setupSecurityMiddleware(e, cfg)
 	setupClientHintsMiddleware(e)
 	setupLoggingMiddleware(e)
@@ -501,6 +504,7 @@ func setupRoutes(e *echo.Echo, cfg *core.Config) {
 	admin := protected.Group("/rauthmgmt")
 	admin.Use(middleware.AdminMiddleware)
 	admin.GET("", adminHandler.Dashboard)
+	admin.GET("/live-feed", adminHandler.LiveFeed)
 	admin.POST("/user/create", adminHandler.CreateUser)
 	admin.POST("/user/delete", adminHandler.DeleteUser)
 	admin.POST("/user/reset-2fa", adminHandler.ResetUser2FA)

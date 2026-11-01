@@ -179,6 +179,7 @@ func TestSetupRoutes(t *testing.T) {
 	assert.True(t, paths["POST /rauthlogin"], "login POST route registered")
 	assert.True(t, paths["GET /rauthvalidate"], "validate route registered")
 	assert.True(t, paths["GET /health"], "health route registered")
+	assert.True(t, paths["GET /rauthmgmt/live-feed"], "admin live-feed route registered")
 	assert.True(t, paths["POST /rauthmgmt/user/create"], "admin create-user route registered")
 }
 

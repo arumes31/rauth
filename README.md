@@ -335,6 +335,16 @@ The host and URI come from `X-Forwarded-Host` and `X-Forwarded-Uri` on the auth 
 > [!WARNING]
 > These headers decide who skips authentication. Your proxy must overwrite them (Traefik: keep `trustForwardHeader` off), and RAuth must only be reachable through the proxy. Set `TRUSTED_PROXIES`: once it is set, RAuth honours the bypass headers only from those peers. Without it, they are honoured only from private or loopback addresses.
 
+### Live request feed
+
+The administration console's **Live Feed** streams forward-auth decisions instantly over server-sent events. It shows the protected URL, original source IP, country, and labeled action colors for authenticated access, anonymous bypass, login required, blocked, rate limited, and errors. Search, action filters, pause/resume, reconnect state, and a mobile card layout are built in.
+
+The latest 1,000 decisions are retained in memory per instance; the browser displays up to 300. Reconnects resume from an event cursor and report expired history or restarts. The feed is operational telemetry, not a durable replacement for the audit log. It sees requests reaching `/rauthvalidate`; nginx redirects or IP denials occurring before forward-auth are outside this feed.
+
+The stream requires a current administrator session, rechecks session/account/admin status every five seconds, and closes on revocation or demotion. Per-admin/global stream limits and write deadlines prevent slow viewers from holding up authentication. URL userinfo, query strings, fragments, cookies, tokens and request bodies are not captured.
+
+By default, source IP/country use RAuth's configured client-IP extraction. If the proxy can provide a more accurate address without changing authentication behavior, set `REQUEST_FEED_IP_HEADER` to a dedicated header such as `X-RAuth-Observed-IP`. **Every trusted proxy must overwrite that header**; never forward a client-supplied value. For Cloudflare, accept `CF-Connecting-IP` only from verified Cloudflare socket peers. This optional header affects only feed metadata, never auth, geo-fencing or session binding.
+
 ---
 
 ## 📊 Monitoring & Observability
@@ -411,6 +421,7 @@ RAuth is configured via Environment Variables.
 | **Proxy**  | `CLOUDFLARE_IP_RANGES` | Cloudflare edge CIDRs used for that check (comma separated) | Built-in list |
 | **Proxy**  | `CLOUDFLARE_IP_AUTO_UPDATE` | Refresh the edge list from `cloudflare.com/ips-v4` / `ips-v6` at startup and daily (keeps the current list on failure). Only active with `TRUST_CLOUDFLARE_IP=true` | `true` |
 | **Proxy**  | `AUTH_BYPASS_RULES` | Comma-separated hosts, `*.domain` wildcards or `host/path` prefixes that pass forward-auth without a login (see [Public Access / Auth Bypass Rules](#-public-access--auth-bypass-rules)). Additional rules can be managed in the admin UI | (Empty) |
+| **Proxy**  | `REQUEST_FEED_IP_HEADER` | Optional original-client-IP header for the admin live feed only; accepted exclusively from trusted proxy peers. The proxy must overwrite it on every request. Empty uses the normal resolved client IP; authentication/session binding are unaffected | (Empty) |
 | **Proxy**  | `AUTH_BYPASS_HOST_HEADER` | Header carrying the original host on the auth subrequest | `X-Forwarded-Host` |
 | **Proxy**  | `AUTH_BYPASS_URI_HEADER` | Header carrying the original request URI on the auth subrequest | `X-Forwarded-Uri` |
 | **Policy** | `PWD_MIN_LENGTH` | Minimum required password length | `8` |
