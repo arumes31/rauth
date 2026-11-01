@@ -30,10 +30,11 @@ type WorkerPolicyCaptureOptions struct {
 // CapturedWorkerPolicy owns immutable public payloads. Source URLs, credentials,
 // audit identities and key material are never included. It is not an HA head.
 type CapturedWorkerPolicy struct {
-	document WorkerPolicyDocument
-	blobs    []clusterpolicy.Blob
-	bodies   map[string][]byte
-	digest   string
+	document       WorkerPolicyDocument
+	blobs          []clusterpolicy.Blob
+	bodies         map[string][]byte
+	digest         string
+	sourceRevision int64
 }
 
 func (s *CapturedWorkerPolicy) Digest() string { return s.digest }
@@ -99,6 +100,9 @@ func CaptureWorkerPolicy(parent context.Context, pool *pgxpool.Pool, options Wor
 		return nil, errors.New("policy source is not the primary")
 	}
 	source := &CapturedWorkerPolicy{document: WorkerPolicyDocument{Schema: 1, NodeProfiles: profiles, RequireGeoIP: requireGeo, DefaultFeedConfigured: true}, bodies: map[string][]byte{}}
+	if err = tx.QueryRow(ctx, "SELECT revision FROM cluster_policy_source_state WHERE singleton").Scan(&source.sourceRevision); err != nil {
+		return nil, err
+	}
 	// Environmental allow rules inherit the managed default just as in legacy mode.
 	envRules := map[string]BypassRule{}
 	for _, raw := range options.Config.AuthBypassRules {

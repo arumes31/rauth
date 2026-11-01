@@ -88,7 +88,7 @@ func Open(t testing.TB, migrate func(context.Context, *pgxpool.Pool) error) *pgx
 	return pool
 }
 
-// Reset empties every table except the migration bookkeeping.
+// Reset empties application tables and restores required singleton seed rows.
 func Reset(t testing.TB, p *pgxpool.Pool) {
 	t.Helper()
 	ctx := context.Background()
@@ -98,10 +98,14 @@ func Reset(t testing.TB, p *pgxpool.Pool) {
 		t.Fatalf("list tables: %v", err)
 	}
 	var tables []string
+	policySourceSeed := false
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err == nil {
 			tables = append(tables, pgx.Identifier{name}.Sanitize())
+			if name == "cluster_policy_source_state" {
+				policySourceSeed = true
+			}
 		}
 	}
 	rows.Close()
@@ -110,5 +114,10 @@ func Reset(t testing.TB, p *pgxpool.Pool) {
 	}
 	if _, err := p.Exec(ctx, "TRUNCATE "+strings.Join(tables, ", ")+" RESTART IDENTITY CASCADE"); err != nil {
 		t.Fatalf("truncate: %v", err)
+	}
+	if policySourceSeed {
+		if _, err := p.Exec(ctx, "INSERT INTO cluster_policy_source_state(singleton,revision) VALUES(true,0)"); err != nil {
+			t.Fatalf("restore policy source seed: %v", err)
+		}
 	}
 }

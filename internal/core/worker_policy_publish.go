@@ -33,9 +33,10 @@ type ControllerPolicyPublisher struct {
 	compiler   WorkerPolicyOptions
 }
 type PolicyPublication struct {
-	Identity     clusterpolicy.Identity
-	SourceSHA256 string
-	Changed      bool
+	Identity       clusterpolicy.Identity
+	SourceSHA256   string
+	SourceRevision int64
+	Changed        bool
 }
 
 func NewControllerPolicyPublisher(writePool, sourcePool, headPool, blobPool *pgxpool.Pool, v *clusterpolicy.Verifier, keyID string, key ed25519.PrivateKey, capture WorkerPolicyCaptureOptions) (*ControllerPolicyPublisher, error) {
@@ -123,7 +124,7 @@ func (p *ControllerPolicyPublisher) Reconcile(parent context.Context) (PolicyPub
 	if err != nil {
 		return PolicyPublication{}, err
 	}
-	result := PolicyPublication{Identity: base, SourceSHA256: source.digest}
+	result := PolicyPublication{Identity: base, SourceSHA256: source.digest, SourceRevision: source.sourceRevision}
 	if base.Revision > 0 && slices.Equal(current.Verified.Manifest().Blobs, source.blobs) {
 		var envelope struct {
 			KeyID string `json:"key_id"`

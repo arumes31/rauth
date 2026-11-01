@@ -1,0 +1,14 @@
+{{define "admin_policy_sync"}}
+<section data-panel="policy-sync" data-title="Policy Sync" data-policy-sync hidden>
+ <p class="section-intro">See which nodes have confirmed the published rules, feeds and country database. These are each node’s last reports; saved changes may still be waiting for publication or confirmation.</p>
+ <div class="panel mb-4">
+  <div class="panel-header flex-wrap gap-2"><div><h2>Policy confirmations</h2><div class="sub" data-policy-summary role="status" aria-live="polite">Loading confirmations…</div></div><button type="button" class="btn btn-sm btn-outline-secondary" data-policy-refresh>Refresh</button></div>
+  <div class="panel-body row g-3">
+   <div class="col-sm-4"><div class="small text-muted">Saved source</div><strong data-policy-source>—</strong></div>
+   <div class="col-sm-4"><div class="small text-muted">Published policy</div><strong data-policy-published>—</strong></div>
+   <div class="col-sm-4"><div class="small text-muted">Node confirmations</div><strong data-policy-confirmed>—</strong></div>
+  </div>
+  <div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th scope="col">Node</th><th scope="col">Applied</th><th scope="col">Desired</th><th scope="col">Last report</th><th scope="col">Confirmation</th></tr></thead><tbody data-policy-nodes><tr><td colspan="5">Loading…</td></tr></tbody></table></div>
+ </div>
+</section>
+{{end}}

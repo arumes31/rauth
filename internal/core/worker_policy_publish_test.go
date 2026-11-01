@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"errors"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
@@ -257,4 +258,23 @@ func TestWorkerPolicyCapturePreservesAcceptedCommentOnlyEmptyRefresh(t *testing.
 	result, err := f.publisher.Reconcile(context.Background())
 	require.NoError(t, err)
 	assert.True(t, result.Changed)
+}
+
+func TestPolicySourceRevisionCapturesSavedChangesWithoutUnneededHead(t *testing.T) {
+	f := newPublisherFixture(t)
+	first, err := f.publisher.Reconcile(context.Background())
+	require.NoError(t, err)
+	require.NoError(t, policyMutation(context.Background(), func(pgx.Tx) error { return nil }))
+	next, err := f.publisher.Reconcile(context.Background())
+	require.NoError(t, err)
+	assert.Greater(t, next.SourceRevision, first.SourceRevision)
+	assert.Equal(t, first.Identity, next.Identity)
+	assert.False(t, next.Changed)
+	before := next.SourceRevision
+	expected := errors.New("rollback source edit")
+	err = policyMutation(context.Background(), func(pgx.Tx) error { return expected })
+	require.ErrorIs(t, err, expected)
+	after, err := f.publisher.Reconcile(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, before, after.SourceRevision)
 }

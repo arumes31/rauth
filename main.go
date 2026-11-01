@@ -134,7 +134,11 @@ func main() {
 		setupMiddlewarePolicy(e, cfg, cluster.worker)
 	}
 	setupRenderer(e)
-	setupRoutesRole(e, cfg, cluster != nil && cluster.spec.Role == clusterconfig.Worker)
+	var policyStatus func(context.Context) (any, error)
+	if cluster != nil && cluster.policyState != nil {
+		policyStatus = cluster.policyState.overview
+	}
+	setupRoutesWithPolicyStatus(e, cfg, cluster != nil && cluster.spec.Role == clusterconfig.Worker, policyStatus)
 	if cluster != nil {
 		e.GET("/health", cluster.Health)
 		e.GET("/livez", func(c echo.Context) error { return c.NoContent(http.StatusOK) })
@@ -503,10 +507,13 @@ func wantsJSON(r *http.Request) bool {
 
 func setupRoutes(e *echo.Echo, cfg *core.Config) { setupRoutesRole(e, cfg, false) }
 func setupRoutesRole(e *echo.Echo, cfg *core.Config, worker bool) {
+	setupRoutesWithPolicyStatus(e, cfg, worker, nil)
+}
+func setupRoutesWithPolicyStatus(e *echo.Echo, cfg *core.Config, worker bool, readStatus func(context.Context) (any, error)) {
 	e.GET("/static/*", echo.WrapHandler(http.FileServer(http.FS(noDirListingFS{staticFS}))))
 
 	authHandler := &handlers.AuthHandler{Cfg: cfg}
-	adminHandler := &handlers.AdminHandler{Cfg: cfg}
+	adminHandler := &handlers.AdminHandler{Cfg: cfg, ReadPolicyStatus: readStatus}
 	profileHandler := &handlers.ProfileHandler{Cfg: cfg}
 	webauthnHandler := &handlers.WebAuthnHandler{Cfg: cfg}
 	healthHandler := &handlers.HealthHandler{Cfg: cfg}
@@ -596,6 +603,9 @@ func setupRoutesRole(e *echo.Echo, cfg *core.Config, worker bool) {
 		admin := protected.Group("/rauthmgmt")
 		admin.Use(middleware.AdminMiddleware)
 		admin.GET("", adminHandler.Dashboard)
+		if readStatus != nil {
+			admin.GET("/policy-status", adminHandler.PolicyStatus)
+		}
 		admin.GET("/live-feed", adminHandler.LiveFeed)
 		admin.POST("/policy/preview", adminHandler.PreviewPolicy)
 		admin.POST("/user/create", adminHandler.CreateUser)

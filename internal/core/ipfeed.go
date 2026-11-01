@@ -60,7 +60,14 @@ func policyMutation(ctx context.Context, fn func(pgx.Tx) error) error {
 		if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", policyMutationLockID); err != nil {
 			return err
 		}
-		return fn(tx)
+		if err := fn(tx); err != nil {
+			return err
+		}
+		tag, err := tx.Exec(ctx, "UPDATE cluster_policy_source_state SET revision=revision+1 WHERE singleton")
+		if err == nil && tag.RowsAffected() != 1 {
+			return errors.New("policy source revision is unavailable")
+		}
+		return err
 	})
 }
 

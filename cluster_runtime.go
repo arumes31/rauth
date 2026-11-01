@@ -17,6 +17,7 @@ import (
 	"rauth/internal/clusterpolicy"
 	"rauth/internal/clusterregistry"
 	"rauth/internal/clusterstate"
+	"rauth/internal/clusterstatus"
 	"rauth/internal/clustertransport"
 	"rauth/internal/clusterworker"
 	"rauth/internal/core"
@@ -45,6 +46,8 @@ type clusterRuntime struct {
 	cancel       context.CancelFunc
 	wg           sync.WaitGroup
 	closeOnce    sync.Once
+	notices      *policyNoticeHub
+	policyState  *clusterPolicyState
 }
 
 // loadClusterBootstrap runs before database/authority initialization. Legacy
@@ -65,7 +68,7 @@ func newClusterRuntime(parent context.Context, cfg *core.Config, material *clust
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(parent)
-	r := &clusterRuntime{publicConfig: cfg, material: material, spec: spec, ctx: ctx, cancel: cancel}
+	r := &clusterRuntime{publicConfig: cfg, material: material, spec: spec, ctx: ctx, cancel: cancel, notices: newPolicyNoticeHub()}
 	ok := false
 	defer func() {
 		if !ok {
@@ -151,6 +154,19 @@ func newClusterRuntime(parent context.Context, cfg *core.Config, material *clust
 		if e != nil {
 			return nil, e
 		}
+		statusPool, e := openPool("publisher", 1)
+		if e != nil {
+			return nil, e
+		}
+		receipts, e := clusterstatus.New(statusPool, spec.ClusterID)
+		if e != nil {
+			return nil, errClusterRuntime
+		}
+		assigned := []string{}
+		for id := range profiles {
+			assigned = append(assigned, id)
+		}
+		r.policyState = &clusterPolicyState{store: receipts, assigned: assigned}
 		keyID, key := material.Signer()
 		var geo func(context.Context) (io.ReadCloser, error)
 		if spec.GeoIPFile != "" {
@@ -166,19 +182,28 @@ func newClusterRuntime(parent context.Context, cfg *core.Config, material *clust
 }
 func (r *clusterRuntime) Start() {
 	r.wg.Go(func() { _ = r.worker.Run(r.ctx) })
+	r.wg.Go(r.reportPolicyStatus)
+	if r.publisher == nil {
+		r.wg.Go(r.followPolicyNotices)
+	}
 	if r.publisher != nil {
 		r.wg.Go(func() {
 			tick := time.NewTicker(2 * time.Second)
 			defer tick.Stop()
 			warned := false
 			for {
-				_, err := r.publisher.Reconcile(r.ctx)
+				publication, err := r.publisher.Reconcile(r.ctx)
+				r.policyState.observed(publication, err)
 				if err != nil && r.ctx.Err() == nil && !warned {
 					slog.Warn("Cluster policy publication is unavailable")
 					warned = true
 				}
 				if err == nil {
 					warned = false
+					r.notices.publish(publication.Identity)
+					if publication.Changed {
+						r.worker.Notify()
+					}
 				}
 				select {
 				case <-r.ctx.Done():
@@ -234,6 +259,20 @@ func (r *clusterRuntime) PrivateServer(public http.Handler) (*http.Server, error
 	}))
 	mux.Handle("GET /v1/status", status)
 	if r.spec.Role == clusterconfig.Control {
+		assigned := map[string]bool{}
+		for id := range r.material.Profiles() {
+			assigned[id] = true
+		}
+		notices, noticeErr := gate.Protect(clustertransport.PolicyRead, policyNoticeHandler(r.notices, r.registry.Authorize, assigned))
+		if noticeErr != nil {
+			return nil, noticeErr
+		}
+		mux.Handle("GET /v1/policy-notices", notices)
+		receipt, receiptErr := gate.Protect(clustertransport.PolicyRead, receiptHandler(r.policyState))
+		if receiptErr != nil {
+			return nil, receiptErr
+		}
+		mux.Handle("POST /v1/policy-receipt", receipt)
 		relay, e := gate.Protect(clustertransport.AdminRelay, r.receiveAdminRelay(public))
 		if e != nil {
 			return nil, e

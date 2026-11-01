@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"rauth/internal/core"
@@ -10,7 +11,8 @@ import (
 )
 
 type AdminHandler struct {
-	Cfg *core.Config
+	Cfg              *core.Config
+	ReadPolicyStatus func(context.Context) (any, error)
 }
 
 func (h *AdminHandler) Dashboard(c echo.Context) error {
@@ -50,6 +52,7 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 
 	return c.Render(http.StatusOK, "management.html", map[string]interface{}{
 		"username":         c.Get("username"),
+		"cluster_enabled":  h.ReadPolicyStatus != nil,
 		"root_user":        h.Cfg.InitialUser,
 		"users":            userViews,
 		"stats":            stats,
@@ -331,4 +334,16 @@ func sweepUserSessions(username string) {
 	if err := core.InvalidateUserSessions(username); err != nil {
 		slog.Warn("Session index sweep failed", "user", username, "error", err)
 	}
+}
+
+func (h *AdminHandler) PolicyStatus(c echo.Context) error {
+	c.Response().Header().Set("Cache-Control", "no-store")
+	if h.ReadPolicyStatus == nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "Policy confirmations unavailable")
+	}
+	status, err := h.ReadPolicyStatus(c.Request().Context())
+	if err != nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "Policy confirmations unavailable")
+	}
+	return c.JSON(http.StatusOK, status)
 }

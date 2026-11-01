@@ -332,3 +332,14 @@ func TestCountryLookupDatabaseOnlyWithoutHTTPFallback(t *testing.T) {
 		})
 	}
 }
+
+func TestGeoMetadataReportsOpenedMasterPath(t *testing.T) {
+	t.Setenv("MAXMIND_DB_PATH", "environment-default.mmdb")
+	geoLock.Lock()
+	previous, path := geoReader, geoReaderPath
+	geoReader = &mockGeoReader{}
+	geoReaderPath = "/master/source/GeoLite2-Country.mmdb"
+	geoLock.Unlock()
+	t.Cleanup(func() { geoLock.Lock(); geoReader, geoReaderPath = previous, path; geoLock.Unlock() })
+	assert.Equal(t, "/master/source/GeoLite2-Country.mmdb", GetGeoMetadata()["path"])
+}
