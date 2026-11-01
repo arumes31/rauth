@@ -67,8 +67,40 @@ makes control-source lookups and metadata use the configured file.
 This test stops the control application, not Hodus itself: its SQL database and
 TCP transport remain on Hodus. It does not prove SQL leader/quorum failover,
 watchdog fencing, partitions, backup/PITR restoration or real host loss. The
-three-host infrastructure, durable request-event delivery, fleet acknowledgments
-and source/applied UI, remaining NPM workers/routes and canonical auth ingress
+three-host infrastructure, durable request-event delivery, remaining NPM workers/routes and canonical auth ingress
 still require implementation and acceptance. All public rules must retain their
 default feed while existing login protection remains intact. Browser and physical
 passkey acceptance are separate from these CLI/API fixtures.
+
+
+## Policy synchronization canary extension
+
+The 2a81e2963ad3fb76a8e1aefa235cd7683eacd26a runtime now runs on both test
+hosts with migration 0011 and the documented source/publisher grants. The clean
+AMD64 executable SHA-256 is
+`76023485a6cf46387cb1d2e2397af876ff46776c58b0b2b0ec4e62ad4aa7379f`.
+A private custom-format database backup was saved before the fixture migration;
+older stopped worker binaries cannot restart against schema 11 without a
+compatible restore/release. This remains an isolated fixture upgrade.
+
+An authenticated request through worker renders Policy Sync and returns both
+nodes' durable confirmations. Stopping the worker before a rule edit keeps the
+new source pending. Restarting it applies and confirms the new head. A further
+country-policy edit with both nodes healthy reached confirmation and enforcement
+on both nodes in 5.219 seconds; the resulting policy revision was 7. The live
+Eworx generation at this test contained 4,826 entries.
+
+A direct pinned, source-bound TLS 1.3 connection received the master's first
+policy notice in 5 ms. A duplicate stream for the worker identity returned 429,
+confirming its runtime stream was already connected and the per-node limit
+was enforced. The control-application outage test was repeated on this build:
+existing authenticated sessions, new password/2FA/SSO, feed denial and worker
+restart passed with control stopped; admin returned 503 in 0.758 seconds.
+Control was restored. SQL/proxy and Hodus itself stayed online throughout.
+
+Validation also passed all full affected SQL suites on Windows, all 47 integrated
+root groups natively on Linux, five native receipt groups, 18 affected native core
+groups and three CLI-only frontend groups. Included review completed with zero
+findings; lint and Windows/Linux gosec reported zero issues. Frontend regressions
+run in both existing CI test jobs. These are not physical browser/passkey or
+three-host infrastructure/fencing acceptance results.

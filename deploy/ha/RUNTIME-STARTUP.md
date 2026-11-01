@@ -68,8 +68,8 @@ through the browser's normal reconnect behavior. If control is down admin return
 The two-host Linux container canary verifies real host mounts, private service
 PKI, read-only worker schema startup, live default-feed enforcement, cross-node
 login/2FA/SSO, control-application outage and real-MMDB country updates. See
-CONTAINER-CANARY.md for evidence and the measurement limits. Fleet desired/applied
-UI and acknowledgments, policy notices, durable event spooling/collection and
+CONTAINER-CANARY.md for evidence and the measurement limits. Policy notices and durable per-node confirmations are now wired and verified
+in that canary; see POLICY-SYNC-STATUS.md. Durable event spooling/collection and
 actual three-host strict-sync/fencing infrastructure remain required before
 worker/NPM cutover. This does not prove deployed host loss or physical passkey
 acceptance. Never enable an incomplete rollout merely because source compiles.
