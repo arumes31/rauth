@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -221,4 +222,30 @@ func TestPolicyPreviewDoesNotFetchAndReportsWinningRule(t *testing.T) {
 		_, err = PreviewURLPolicy(raw, "8.8.8.8")
 		assert.Error(t, err)
 	}
+}
+
+func TestIPFeedSourceEditSchedulesImmediateRefresh(t *testing.T) {
+	newRegressionRedis(t)
+	t.Cleanup(func() {
+		activeFeeds.Store(&feedSnapshot{indexes: map[string]*compiledIPFeed{}, versions: map[string]int64{}})
+	})
+	ctx := context.Background()
+	f, err := AddIPFeed(ctx, "Custom", "https://example.org/old", 1440, "admin")
+	require.NoError(t, err)
+	require.NoError(t, refreshIPFeed(ctx, f.ID, FeedRefreshOptions{}, testFeedClient("8.8.8.8")))
+	before, err := GetIPFeed(ctx, f.ID)
+	require.NoError(t, err)
+	require.NoError(t, UpdateIPFeed(ctx, f.ID, "Custom", "https://example.org/new", 1440, true, "admin"))
+	after, err := GetIPFeed(ctx, f.ID)
+	require.NoError(t, err)
+	assert.Zero(t, after.LastAttempt)
+	assert.True(t, after.RefreshPending())
+	assert.True(t, ipFeedRefreshDue(after, time.Now().Unix()))
+	assert.Equal(t, before.Version, after.Version)
+	assert.Equal(t, before.LastSuccess, after.LastSuccess)
+	policy := RulePolicy{BlockedFeedIDs: []string{f.ID}}
+	assert.Equal(t, "ip_feed_blocked", policy.Evaluate("8.8.8.8", "AT").Reason, "retain the last good payload until the new source validates")
+	require.NoError(t, refreshIPFeed(ctx, f.ID, FeedRefreshOptions{}, testFeedClient("9.9.9.9")))
+	assert.True(t, policy.Evaluate("8.8.8.8", "AT").Allowed)
+	assert.Equal(t, "ip_feed_blocked", policy.Evaluate("9.9.9.9", "AT").Reason)
 }

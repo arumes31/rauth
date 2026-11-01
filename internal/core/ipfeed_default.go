@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -11,6 +12,10 @@ import (
 )
 
 const DefaultIPFeedURL = "https://blocklist.eworx.at/api/v1/raw"
+
+// Installation is independent of snapshot loading: a transient database read
+// failure must not remove the default requirement from environment rules.
+var defaultIPFeedInstalled atomic.Bool
 
 var DefaultIPFeedID = uuid.NewSHA1(uuid.NameSpaceURL, []byte(DefaultIPFeedURL)).String()
 
@@ -88,6 +93,9 @@ func EnsureDefaultIPFeed(ctx context.Context) error {
 		}
 		return nil
 	})
+	if err == nil {
+		defaultIPFeedInstalled.Store(true)
+	}
 	if err == nil && changed > 0 {
 		LogAudit("IP_FEED_DEFAULT_INITIALIZED", "system", "", map[string]interface{}{"feed_id": DefaultIPFeedID, "changed": changed})
 	}
@@ -115,4 +123,8 @@ func applyDefaultRulePolicy(ctx context.Context, tx pgx.Tx, rule BypassRule, pol
 		policy.DefaultFeedConfigured = true
 	}
 	return policy, nil
+}
+
+func defaultFeedRequired() bool {
+	return defaultIPFeedInstalled.Load() || activeFeeds.Load().defaultConfigured
 }

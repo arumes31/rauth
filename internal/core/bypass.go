@@ -420,7 +420,7 @@ func SetEnvBypassRules(raw []string) {
 			continue
 		}
 		r.Source = "env"
-		if r.Allows() && activeFeeds.Load().defaultConfigured {
+		if r.Allows() && defaultFeedRequired() {
 			r.DefaultFeedConfigured = true
 			r.BlockedFeedIDs = appendFeedID(r.BlockedFeedIDs, DefaultIPFeedID)
 		}

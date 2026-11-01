@@ -139,3 +139,30 @@ func TestDefaultIPFeedRespectsCatalogLimit(t *testing.T) {
 	require.True(t, found)
 	assert.Empty(t, rule.BlockedFeedIDs, "a failed bootstrap must not partially alter rules")
 }
+
+func TestDefaultIPFeedEnvRulesFailClosedAfterInitialLoadFailure(t *testing.T) {
+	newRegressionRedis(t)
+	t.Cleanup(func() {
+		activeFeeds.Store(&feedSnapshot{indexes: map[string]*compiledIPFeed{}, versions: map[string]int64{}})
+		activeBypass.Store(&bypassSet{})
+	})
+	ctx := context.Background()
+	require.NoError(t, EnsureDefaultIPFeed(ctx))
+	// Model the exact startup failure: installation committed, but the first
+	// snapshot reload left the empty process-local snapshot in place.
+	activeFeeds.Store(&feedSnapshot{indexes: map[string]*compiledIPFeed{}, versions: map[string]int64{}})
+	SetEnvBypassRules([]string{"env-load-failed.example.com", "!private.example.com"})
+	rule, found, err := SelectBypassRule("env-load-failed.example.com", "/")
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.Contains(t, rule.BlockedFeedIDs, DefaultIPFeedID)
+	assert.Equal(t, "ip_feed_unavailable", rule.Evaluate("8.8.8.8", "AT").Reason)
+	assert.False(t, IPFeedPolicyReady())
+	private, found, err := SelectBypassRule("private.example.com", "/")
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.Empty(t, private.BlockedFeedIDs)
+	require.NoError(t, refreshIPFeed(ctx, DefaultIPFeedID, FeedRefreshOptions{}, testFeedClient("8.8.8.8")))
+	assert.True(t, IPFeedPolicyReady())
+	assert.Equal(t, "ip_feed_blocked", rule.Evaluate("8.8.8.8", "AT").Reason, "a later reload must enforce the original env rule without reconfiguration")
+}

@@ -50,7 +50,8 @@ func (f IPFeed) DisplayURL() string {
 	u.Fragment = ""
 	return u.String()
 }
-func (f IPFeed) Ready() bool { return f.Enabled && f.Version > 0 }
+func (f IPFeed) Ready() bool          { return f.Enabled && f.Version > 0 }
+func (f IPFeed) RefreshPending() bool { return f.Ready() && f.LastAttempt == 0 }
 func (f IPFeed) Stale() bool {
 	return f.LastSuccess > 0 && time.Now().Unix()-f.LastSuccess > int64(f.RefreshMinutes*120)
 }
@@ -191,7 +192,12 @@ func UpdateIPFeed(ctx context.Context, id, name, source string, minutes int, ena
 				return ErrIPFeedInUse
 			}
 		}
-		_, err = tx.Exec(ctx, `UPDATE ip_feeds SET name=$2,source_url=$3,refresh_minutes=$4,enabled=$5,revision=revision+1,updated_by=$6,updated_at=$7 WHERE id=$1`, id, name, source, minutes, enabled, admin, time.Now().Unix())
+		_, err = tx.Exec(ctx, `UPDATE ip_feeds SET name=$2,
+        last_attempt=CASE WHEN source_url<>$3 THEN 0 ELSE last_attempt END,
+        refresh_lease_until=CASE WHEN source_url<>$3 THEN 0 ELSE refresh_lease_until END,
+        lease_token=CASE WHEN source_url<>$3 THEN NULL ELSE lease_token END,
+        last_error=CASE WHEN source_url<>$3 THEN '' ELSE last_error END,
+        source_url=$3,refresh_minutes=$4,enabled=$5,revision=revision+1,updated_by=$6,updated_at=$7 WHERE id=$1`, id, name, source, minutes, enabled, admin, time.Now().Unix())
 		return err
 	})
 }
@@ -494,7 +500,7 @@ func StartIPFeedService(parent context.Context, fetch bool) func() {
 // collector/network availability. Last-good snapshots remain ready on errors.
 func IPFeedPolicyReady() bool {
 	snapshot := activeFeeds.Load()
-	return !snapshot.defaultConfigured || snapshot.indexes[DefaultIPFeedID] != nil
+	return !defaultFeedRequired() || snapshot.indexes[DefaultIPFeedID] != nil
 }
 
 func ipFeedRefreshDue(feed IPFeed, now int64) bool {
