@@ -23,7 +23,7 @@ func policyKey() ed25519.PrivateKey {
 }
 func document(root string) Config {
 	pin := sha256.Sum256([]byte("synthetic-controller-spki"))
-	return Config{Schema: 1, Role: Worker, ClusterID: clusterID, NodeID: nodeID, ServiceIP: "100.72.1.2", PrivatePort: 9443, DataRoot: root, MountDevice: "8:1", MountFilesystem: "ext4", CacheRoot: root + "/cache", CertificateFile: root + "/identity/node.crt", PrivateKeyFile: root + "/identity/node.key", CAFile: root + "/identity/ca.crt", PolicyKeys: map[string]string{"one": base64.StdEncoding.EncodeToString(policyKey().Public().(ed25519.PublicKey))}, Databases: DatabaseFiles{Head: root + "/secrets/head.url", Payload: root + "/secrets/payload.url"}, Controller: Controller{NodeID: controllerID, Endpoint: "https://100.72.1.1:9443", Pins: []string{base64.StdEncoding.EncodeToString(pin[:])}}}
+	return Config{Schema: 1, Role: Worker, ClusterID: clusterID, NodeID: nodeID, ServiceIP: "100.72.1.2", PrivatePort: 9443, DataRoot: root, MountDevice: "8:1", MountFilesystem: "ext4", CacheRoot: root + "/cache", CertificateFile: root + "/identity/node.crt", PrivateKeyFile: root + "/identity/node.key", CAFile: root + "/identity/ca.crt", PolicyKeys: map[string]string{"one": base64.StdEncoding.EncodeToString(policyKey().Public().(ed25519.PublicKey))}, Databases: DatabaseFiles{Registry: root + "/secrets/registry.url", Head: root + "/secrets/head.url", Payload: root + "/secrets/payload.url"}, Controller: Controller{NodeID: controllerID, Endpoint: "https://100.72.1.1:9443", Pins: []string{base64.StdEncoding.EncodeToString(pin[:])}}}
 }
 func TestRuntimeConfigValidatesExactNodeScopeAndRoleCapabilities(t *testing.T) {
 	good := document("/var/lib/rauth")
@@ -33,7 +33,7 @@ func TestRuntimeConfigValidatesExactNodeScopeAndRoleCapabilities(t *testing.T) {
 	parsed, err := Parse(raw)
 	require.NoError(t, err)
 	assert.Equal(t, good, parsed)
-	mutations := []func(*Config){func(c *Config) { c.Role = "unknown" }, func(c *Config) { c.ClusterID = "other" }, func(c *Config) { c.NodeID = "../node" }, func(c *Config) { c.ServiceIP = "192.168.1.2" }, func(c *Config) { c.ServiceIP = "::" }, func(c *Config) { c.PrivatePort = 0 }, func(c *Config) { c.CacheRoot = "/tmp/cache" }, func(c *Config) { c.PrivateKeyFile = c.CertificateFile }, func(c *Config) { c.CertificateFile = c.DataRoot + "/../node.crt" }, func(c *Config) { c.MountDevice = "08:1" }, func(c *Config) { c.MountFilesystem = "overlay" }, func(c *Config) { c.SignerFile = c.DataRoot + "/signer.json" }, func(c *Config) { c.Databases.Publisher = c.DataRoot + "/writer.url" }, func(c *Config) { c.Controller.NodeID = c.NodeID }, func(c *Config) { c.Controller.Endpoint = "https://public.example.test:9443" }, func(c *Config) { c.Controller.Pins = append(c.Controller.Pins, c.Controller.Pins[0]) }, func(c *Config) { c.PolicyKeys["one"] = base64.StdEncoding.EncodeToString(make([]byte, 32)) }}
+	mutations := []func(*Config){func(c *Config) { c.Databases.Registry = "" }, func(c *Config) { c.Databases.Registrar = c.DataRoot + "/secrets/registrar.url" }, func(c *Config) { c.Role = "unknown" }, func(c *Config) { c.ClusterID = "other" }, func(c *Config) { c.NodeID = "../node" }, func(c *Config) { c.ServiceIP = "192.168.1.2" }, func(c *Config) { c.ServiceIP = "::" }, func(c *Config) { c.PrivatePort = 0 }, func(c *Config) { c.CacheRoot = "/tmp/cache" }, func(c *Config) { c.PrivateKeyFile = c.CertificateFile }, func(c *Config) { c.CertificateFile = c.DataRoot + "/../node.crt" }, func(c *Config) { c.MountDevice = "08:1" }, func(c *Config) { c.MountFilesystem = "overlay" }, func(c *Config) { c.SignerFile = c.DataRoot + "/signer.json" }, func(c *Config) { c.Databases.Publisher = c.DataRoot + "/writer.url" }, func(c *Config) { c.Controller.NodeID = c.NodeID }, func(c *Config) { c.Controller.Endpoint = "https://public.example.test:9443" }, func(c *Config) { c.Controller.Pins = append(c.Controller.Pins, c.Controller.Pins[0]) }, func(c *Config) { c.PolicyKeys["one"] = base64.StdEncoding.EncodeToString(make([]byte, 32)) }}
 	for i, change := range mutations {
 		c := document("/var/lib/rauth")
 		change(&c)
@@ -61,6 +61,7 @@ func TestRuntimeConfigControlNeedsItsOwnEnrolledEndpointAndAllHostFiles(t *testi
 	c.ProfilesFile = c.DataRoot + "/config/profiles.json"
 	c.Databases.Source = c.DataRoot + "/secrets/source.url"
 	c.Databases.Publisher = c.DataRoot + "/secrets/publisher.url"
+	c.Databases.Registrar = c.DataRoot + "/secrets/registrar.url"
 	require.NoError(t, c.Validate())
 	c.Controller.Endpoint = "https://100.72.1.1:9443"
 	require.Error(t, c.Validate())

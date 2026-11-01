@@ -67,6 +67,7 @@ func loadedFixture(t *testing.T, role string) (string, Config) {
 		c.ProfilesFile = root + "/config/profiles.json"
 		c.Databases.Source = root + "/secrets/source.url"
 		c.Databases.Publisher = root + "/secrets/publisher.url"
+		c.Databases.Registrar = root + "/secrets/registrar.url"
 		signer, err := json.Marshal(map[string]string{"key_id": "one", "seed": base64.StdEncoding.EncodeToString(policyKey().Seed())})
 		require.NoError(t, err)
 		writeFixture(t, c.SignerFile, signer)
@@ -75,7 +76,7 @@ func loadedFixture(t *testing.T, role string) (string, Config) {
 		require.NoError(t, err)
 		writeFixture(t, c.ProfilesFile, profiles)
 	}
-	for _, filename := range []string{c.Databases.Head, c.Databases.Payload, c.Databases.Source, c.Databases.Publisher} {
+	for _, filename := range []string{c.Databases.Head, c.Databases.Payload, c.Databases.Source, c.Databases.Publisher, c.Databases.Registry, c.Databases.Registrar} {
 		if filename != "" {
 			writeFixture(t, filename, []byte("postgres://test:synthetic-database-password@100.72.99.1:6543/auth?sslmode=verify-full&target_session_attrs=read-write"))
 		}
@@ -148,6 +149,7 @@ func TestRuntimeLoadWorkerAndControllerKeepSecretsPrivate(t *testing.T) {
 				assert.Empty(t, id)
 				assert.Empty(t, key)
 				assert.Empty(t, loaded.DatabaseURL("publisher"))
+				assert.Empty(t, loaded.DatabaseURL("registrar"))
 			} else {
 				assert.Equal(t, "one", id)
 				key[0] ^= 0xff

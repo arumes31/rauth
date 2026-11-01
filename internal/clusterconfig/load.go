@@ -158,9 +158,10 @@ func load(filename string, checkMount func(Config) error) (*Loaded, error) {
 		return nil, ErrInvalid
 	}
 	client.CloseIdleConnections()
-	paths := map[string]string{"head": c.Databases.Head, "payload": c.Databases.Payload}
+	paths := map[string]string{"head": c.Databases.Head, "payload": c.Databases.Payload, "registry": c.Databases.Registry}
 	if c.Role == Control {
 		paths["source"] = c.Databases.Source
+		paths["registrar"] = c.Databases.Registrar
 		paths["publisher"] = c.Databases.Publisher
 	}
 	for name, filename := range paths {

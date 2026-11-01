@@ -29,6 +29,8 @@ var ErrUnsupported = errors.New("cluster runtime host files require Linux")
 
 type DatabaseFiles struct {
 	Head      string `json:"head"`
+	Registry  string `json:"registry"`
+	Registrar string `json:"registrar,omitempty"`
 	Payload   string `json:"payload"`
 	Source    string `json:"source,omitempty"`
 	Publisher string `json:"publisher,omitempty"`
@@ -97,10 +99,10 @@ func (c Config) Validate() error {
 	default:
 		return ErrInvalid
 	}
-	paths := []string{c.CertificateFile, c.PrivateKeyFile, c.CAFile, c.Databases.Head, c.Databases.Payload}
+	paths := []string{c.CertificateFile, c.PrivateKeyFile, c.CAFile, c.Databases.Head, c.Databases.Payload, c.Databases.Registry}
 	if c.Role == Control {
-		paths = append(paths, c.SignerFile, c.ProfilesFile, c.Databases.Source, c.Databases.Publisher)
-	} else if c.SignerFile != "" || c.ProfilesFile != "" || c.Databases.Source != "" || c.Databases.Publisher != "" {
+		paths = append(paths, c.SignerFile, c.ProfilesFile, c.Databases.Source, c.Databases.Publisher, c.Databases.Registrar)
+	} else if c.SignerFile != "" || c.ProfilesFile != "" || c.Databases.Source != "" || c.Databases.Publisher != "" || c.Databases.Registrar != "" {
 		return ErrInvalid
 	}
 	seen := map[string]bool{c.CacheRoot: true}
