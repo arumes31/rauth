@@ -28,6 +28,7 @@ var ErrMount = errors.New("cluster persistence is not on its required host bind 
 var ErrUnsupported = errors.New("cluster runtime host files require Linux")
 
 type DatabaseFiles struct {
+	Auth      string `json:"auth"`
 	Head      string `json:"head"`
 	Registry  string `json:"registry"`
 	Registrar string `json:"registrar,omitempty"`
@@ -41,24 +42,28 @@ type Controller struct {
 	Pins     []string `json:"spki_sha256"`
 }
 type Config struct {
-	Schema          int               `json:"schema"`
-	Role            string            `json:"role"`
-	ClusterID       string            `json:"cluster_id"`
-	NodeID          string            `json:"node_id"`
-	ServiceIP       string            `json:"service_ip"`
-	PrivatePort     int               `json:"private_port"`
-	DataRoot        string            `json:"data_root"`
-	MountDevice     string            `json:"mount_device"`
-	MountFilesystem string            `json:"mount_filesystem"`
-	CacheRoot       string            `json:"cache_root"`
-	CertificateFile string            `json:"certificate_file"`
-	PrivateKeyFile  string            `json:"private_key_file"`
-	CAFile          string            `json:"ca_file"`
-	PolicyKeys      map[string]string `json:"policy_public_keys"`
-	SignerFile      string            `json:"signer_file,omitempty"`
-	ProfilesFile    string            `json:"profiles_file,omitempty"`
-	Databases       DatabaseFiles     `json:"database_files"`
-	Controller      Controller        `json:"controller"`
+	PublicListen     string            `json:"public_listen"`
+	CookieSecretFile string            `json:"cookie_secret_file"`
+	AuthStateKeyFile string            `json:"auth_state_key_file"`
+	GeoIPFile        string            `json:"geoip_file,omitempty"`
+	Schema           int               `json:"schema"`
+	Role             string            `json:"role"`
+	ClusterID        string            `json:"cluster_id"`
+	NodeID           string            `json:"node_id"`
+	ServiceIP        string            `json:"service_ip"`
+	PrivatePort      int               `json:"private_port"`
+	DataRoot         string            `json:"data_root"`
+	MountDevice      string            `json:"mount_device"`
+	MountFilesystem  string            `json:"mount_filesystem"`
+	CacheRoot        string            `json:"cache_root"`
+	CertificateFile  string            `json:"certificate_file"`
+	PrivateKeyFile   string            `json:"private_key_file"`
+	CAFile           string            `json:"ca_file"`
+	PolicyKeys       map[string]string `json:"policy_public_keys"`
+	SignerFile       string            `json:"signer_file,omitempty"`
+	ProfilesFile     string            `json:"profiles_file,omitempty"`
+	Databases        DatabaseFiles     `json:"database_files"`
+	Controller       Controller        `json:"controller"`
 }
 
 func inside(root, filename string) bool {
@@ -99,10 +104,19 @@ func (c Config) Validate() error {
 	default:
 		return ErrInvalid
 	}
-	paths := []string{c.CertificateFile, c.PrivateKeyFile, c.CAFile, c.Databases.Head, c.Databases.Payload, c.Databases.Registry}
+	publicIP, publicPort, e := net.SplitHostPort(c.PublicListen)
+	address, parseErr := netip.ParseAddr(publicIP)
+	port, portErr := strconv.ParseUint(publicPort, 10, 16)
+	if e != nil || parseErr != nil || !address.IsPrivate() || address.Is4In6() || address.Zone() != "" || portErr != nil || port < 1024 || net.JoinHostPort(address.String(), strconv.FormatUint(port, 10)) != c.PublicListen {
+		return ErrInvalid
+	}
+	paths := []string{c.CookieSecretFile, c.AuthStateKeyFile, c.Databases.Auth, c.CertificateFile, c.PrivateKeyFile, c.CAFile, c.Databases.Head, c.Databases.Payload, c.Databases.Registry}
 	if c.Role == Control {
+		if c.GeoIPFile != "" {
+			paths = append(paths, c.GeoIPFile)
+		}
 		paths = append(paths, c.SignerFile, c.ProfilesFile, c.Databases.Source, c.Databases.Publisher, c.Databases.Registrar)
-	} else if c.SignerFile != "" || c.ProfilesFile != "" || c.Databases.Source != "" || c.Databases.Publisher != "" || c.Databases.Registrar != "" {
+	} else if c.GeoIPFile != "" || c.SignerFile != "" || c.ProfilesFile != "" || c.Databases.Source != "" || c.Databases.Publisher != "" || c.Databases.Registrar != "" {
 		return ErrInvalid
 	}
 	seen := map[string]bool{c.CacheRoot: true}

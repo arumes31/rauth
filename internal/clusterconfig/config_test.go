@@ -23,7 +23,7 @@ func policyKey() ed25519.PrivateKey {
 }
 func document(root string) Config {
 	pin := sha256.Sum256([]byte("synthetic-controller-spki"))
-	return Config{Schema: 1, Role: Worker, ClusterID: clusterID, NodeID: nodeID, ServiceIP: "100.72.1.2", PrivatePort: 9443, DataRoot: root, MountDevice: "8:1", MountFilesystem: "ext4", CacheRoot: root + "/cache", CertificateFile: root + "/identity/node.crt", PrivateKeyFile: root + "/identity/node.key", CAFile: root + "/identity/ca.crt", PolicyKeys: map[string]string{"one": base64.StdEncoding.EncodeToString(policyKey().Public().(ed25519.PublicKey))}, Databases: DatabaseFiles{Registry: root + "/secrets/registry.url", Head: root + "/secrets/head.url", Payload: root + "/secrets/payload.url"}, Controller: Controller{NodeID: controllerID, Endpoint: "https://100.72.1.1:9443", Pins: []string{base64.StdEncoding.EncodeToString(pin[:])}}}
+	return Config{PublicListen: "10.253.42.3:5980", CookieSecretFile: root + "/secrets/cookie-secret", AuthStateKeyFile: root + "/secrets/auth-keyring.json", Schema: 1, Role: Worker, ClusterID: clusterID, NodeID: nodeID, ServiceIP: "100.72.1.2", PrivatePort: 9443, DataRoot: root, MountDevice: "8:1", MountFilesystem: "ext4", CacheRoot: root + "/cache", CertificateFile: root + "/identity/node.crt", PrivateKeyFile: root + "/identity/node.key", CAFile: root + "/identity/ca.crt", PolicyKeys: map[string]string{"one": base64.StdEncoding.EncodeToString(policyKey().Public().(ed25519.PublicKey))}, Databases: DatabaseFiles{Auth: root + "/secrets/auth.url", Registry: root + "/secrets/registry.url", Head: root + "/secrets/head.url", Payload: root + "/secrets/payload.url"}, Controller: Controller{NodeID: controllerID, Endpoint: "https://100.72.1.1:9443", Pins: []string{base64.StdEncoding.EncodeToString(pin[:])}}}
 }
 func TestRuntimeConfigValidatesExactNodeScopeAndRoleCapabilities(t *testing.T) {
 	good := document("/var/lib/rauth")
@@ -118,4 +118,17 @@ func TestRuntimeConfigReservesEntireCacheNamespace(t *testing.T) {
 	c.PrivateKeyFile = "/var/lib/rauth/cache-parent"
 	c.CacheRoot = c.PrivateKeyFile + "/cache"
 	require.ErrorIs(t, c.Validate(), ErrInvalid, "a protected file cannot be the cache's parent either")
+}
+
+func TestRuntimeConfigRequiresExplicitPrivateAppListenerAndAuthFiles(t *testing.T) {
+	for _, listen := range []string{"0.0.0.0:5980", ":5980", "127.0.0.1:5980", "100.72.1.2:5980", "10.253.42.3:80", "public.example:5980", "10.253.42.3:05980"} {
+		c := document("/var/lib/rauth")
+		c.PublicListen = listen
+		require.ErrorIs(t, c.Validate(), ErrInvalid)
+	}
+	for _, change := range []func(*Config){func(c *Config) { c.CookieSecretFile = "" }, func(c *Config) { c.AuthStateKeyFile = "" }, func(c *Config) { c.Databases.Auth = "" }, func(c *Config) { c.CookieSecretFile = c.CacheRoot + "/cookie" }, func(c *Config) { c.GeoIPFile = c.DataRoot + "/geoip.mmdb" }} {
+		c := document("/var/lib/rauth")
+		change(&c)
+		require.ErrorIs(t, c.Validate(), ErrInvalid)
+	}
 }

@@ -7,8 +7,8 @@ change production authentication/DNS.
 
 ## Frozen node settings
 
-NodeSecurityFingerprint hashes an explicit reviewed projection of 49 security
-settings; 20 operational/secret fields are excluded. Every Config field must be
+NodeSecurityFingerprint hashes an explicit reviewed projection of security
+settings; operational and secret fields are excluded. Every Config field must be
 classified, so adding a field requires review before profile creation works.
 The projection covers proxy trust, origins/RP, CSRF, country/session/password/
 rate-limit settings, telemetry trust and SMTP delivery settings. It never hashes

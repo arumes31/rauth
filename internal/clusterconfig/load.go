@@ -2,6 +2,7 @@ package clusterconfig
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"crypto/tls"
@@ -10,6 +11,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"io"
 	"log/slog"
 	"net/url"
 	"rauth/internal/clusterpolicy"
@@ -19,14 +21,15 @@ import (
 )
 
 type Loaded struct {
-	config      Config
-	certificate tls.Certificate
-	roots       *x509.CertPool
-	verifier    *clusterpolicy.Verifier
-	databases   map[string]string
-	signerID    string
-	signer      ed25519.PrivateKey
-	profiles    Profiles
+	cookieSecret string
+	config       Config
+	certificate  tls.Certificate
+	roots        *x509.CertPool
+	verifier     *clusterpolicy.Verifier
+	databases    map[string]string
+	signerID     string
+	signer       ed25519.PrivateKey
+	profiles     Profiles
 }
 
 // LogValue prevents accidental whole-configuration logging from disclosing keys
@@ -39,6 +42,22 @@ func (l *Loaded) Config() Config {
 	var clone Config
 	_ = json.Unmarshal(raw, &clone)
 	return clone
+}
+func (l *Loaded) CheckCacheRoot() error {
+	if err := validateCacheRoot(l.config); err != nil {
+		return err
+	}
+	return validateSourceDirectory(l.config)
+}
+func (l *Loaded) CookieSecret() string { return l.cookieSecret }
+func (l *Loaded) OpenGeoIP(ctx context.Context) (io.ReadCloser, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if l.config.Role != Control || l.config.GeoIPFile == "" {
+		return nil, ErrInvalid
+	}
+	return openGeoSource(l.config)
 }
 func (l *Loaded) Verifier() *clusterpolicy.Verifier    { return l.verifier }
 func (l *Loaded) DatabaseURL(name string) string       { return l.databases[name] }
@@ -77,6 +96,17 @@ func load(filename string, checkMount func(Config) error) (*Loaded, error) {
 		return nil, err
 	}
 	loaded := &Loaded{config: c, databases: map[string]string{}}
+	secret, e := readPrivate(c.CookieSecretFile, 4096)
+	if e != nil {
+		return nil, e
+	}
+	loaded.cookieSecret = strings.TrimSpace(string(secret))
+	if loaded.cookieSecret == "" {
+		return nil, ErrInvalid
+	}
+	if _, e = readPrivate(c.AuthStateKeyFile, 64<<10); e != nil {
+		return nil, e
+	}
 	loaded.verifier, err = c.Verifier()
 	if err != nil {
 		return nil, ErrInvalid
@@ -127,6 +157,13 @@ func load(filename string, checkMount func(Config) error) (*Loaded, error) {
 	if err != nil || leaf.VerifyHostname(c.ServiceIP) != nil {
 		return nil, ErrInvalid
 	}
+	for _, der := range loaded.certificate.Certificate[1:] {
+		chainCert, e := x509.ParseCertificate(der)
+		if e != nil {
+			return nil, ErrInvalid
+		}
+		caKeys = append(caKeys, chainCert.RawSubjectPublicKeyInfo)
+	}
 	for _, encoded := range c.PolicyKeys {
 		key, _ := decode(encoded, ed25519.PublicKeySize)
 		public, e := x509.MarshalPKIXPublicKey(ed25519.PublicKey(key))
@@ -158,7 +195,7 @@ func load(filename string, checkMount func(Config) error) (*Loaded, error) {
 		return nil, ErrInvalid
 	}
 	client.CloseIdleConnections()
-	paths := map[string]string{"head": c.Databases.Head, "payload": c.Databases.Payload, "registry": c.Databases.Registry}
+	paths := map[string]string{"auth": c.Databases.Auth, "head": c.Databases.Head, "payload": c.Databases.Payload, "registry": c.Databases.Registry}
 	if c.Role == Control {
 		paths["source"] = c.Databases.Source
 		paths["registrar"] = c.Databases.Registrar
@@ -176,7 +213,7 @@ func load(filename string, checkMount func(Config) error) (*Loaded, error) {
 		// Require explicit leader selection, rather than allowing a first
 		// reachable standby to become the authority after failover.
 		u, e := url.Parse(dsn)
-		if e != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") || u.Host == "" || u.User == nil || u.User.Username() == "" || u.Path == "" || u.Fragment != "" {
+		if e != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") || u.Host == "" || u.User == nil || u.User.Username() == "" || (u.Path == "" || u.Path == "/") || u.Fragment != "" {
 			return nil, ErrInvalid
 		}
 		query, e := url.ParseQuery(u.RawQuery)

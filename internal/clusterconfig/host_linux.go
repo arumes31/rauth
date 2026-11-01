@@ -13,11 +13,24 @@ import (
 )
 
 func readPrivate(filename string, limit int64) ([]byte, error) {
-	if !privatePath(filename) || !filepath.IsAbs(filename) || limit < 1 || limit > 1<<20 {
+	if limit < 1 || limit > 1<<20 {
 		return nil, ErrPrivateFile
 	}
-	// O_NONBLOCK prevents a path-replacement race from hanging on a FIFO. Stat
-	// and permission checks apply to this exact no-follow opened descriptor.
+	file, err := openPrivate(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+	body, err := io.ReadAll(io.LimitReader(file, limit+1))
+	if err != nil || int64(len(body)) > limit {
+		return nil, ErrPrivateFile
+	}
+	return body, nil
+}
+func openPrivate(filename string) (*os.File, error) {
+	if !privatePath(filename) || !filepath.IsAbs(filename) {
+		return nil, ErrPrivateFile
+	}
 	fd, err := openNoSymlinks(filename, unix.O_RDONLY|unix.O_NONBLOCK)
 	if err != nil {
 		return nil, ErrPrivateFile
@@ -27,23 +40,16 @@ func readPrivate(filename string, limit int64) ([]byte, error) {
 		_ = unix.Close(fd)
 		return nil, ErrPrivateFile
 	}
-	defer func() { _ = file.Close() }()
+	fail := func() (*os.File, error) { _ = file.Close(); return nil, ErrPrivateFile }
 	info, err := file.Stat()
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
-		return nil, ErrPrivateFile
+		return fail()
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		return nil, ErrPrivateFile
+	if !ok || (stat.Uid != 0 && int64(stat.Uid) != int64(os.Geteuid())) {
+		return fail()
 	}
-	if stat.Uid != 0 && int64(stat.Uid) != int64(os.Geteuid()) {
-		return nil, ErrPrivateFile
-	}
-	body, err := io.ReadAll(io.LimitReader(file, limit+1))
-	if err != nil || int64(len(body)) > limit {
-		return nil, ErrPrivateFile
-	}
-	return body, nil
+	return file, nil
 }
 
 // Resolve every component through an opened directory, so a symlink in an
@@ -139,4 +145,64 @@ func writableMountOptions(raw string) bool {
 		}
 	}
 	return writable
+}
+
+func validateCacheRoot(c Config) error { return validateDataDirectory(c.CacheRoot, c.MountDevice) }
+func validateSourceDirectory(c Config) error {
+	if c.Role != Control || c.GeoIPFile == "" {
+		return nil
+	}
+	return validateDataDirectory(filepath.Dir(c.GeoIPFile), c.MountDevice)
+}
+func validateDataDirectory(directory, device string) error {
+	fd, err := openNoSymlinks(directory, unix.O_RDONLY|unix.O_DIRECTORY)
+	if err != nil {
+		return ErrMount
+	}
+	file := os.NewFile(uintptr(fd), directory)
+	if file == nil {
+		_ = unix.Close(fd)
+		return ErrMount
+	}
+	defer func() { _ = file.Close() }()
+	info, err := file.Stat()
+	if err != nil || !info.IsDir() || info.Mode().Perm()&0o027 != 0 {
+		return ErrMount
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || (stat.Uid != 0 && int64(stat.Uid) != int64(os.Geteuid())) {
+		return ErrMount
+	}
+	actual := fmt.Sprintf("%d:%d", unix.Major(uint64(stat.Dev)), unix.Minor(uint64(stat.Dev)))
+	if actual != device {
+		return ErrMount
+	}
+	return nil
+}
+func openGeoSource(c Config) (*os.File, error) {
+	if validateSourceDirectory(c) != nil {
+		return nil, ErrMount
+	}
+	fd, err := openNoSymlinks(c.GeoIPFile, unix.O_RDONLY|unix.O_NONBLOCK)
+	if err != nil {
+		return nil, ErrPrivateFile
+	}
+	file := os.NewFile(uintptr(fd), c.GeoIPFile)
+	if file == nil {
+		_ = unix.Close(fd)
+		return nil, ErrPrivateFile
+	}
+	fail := func() (*os.File, error) { _ = file.Close(); return nil, ErrPrivateFile }
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o022 != 0 {
+		return fail()
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || (stat.Uid != 0 && int64(stat.Uid) != int64(os.Geteuid())) {
+		return fail()
+	}
+	if fmt.Sprintf("%d:%d", unix.Major(uint64(stat.Dev)), unix.Minor(uint64(stat.Dev))) != c.MountDevice {
+		return fail()
+	}
+	return file, nil
 }

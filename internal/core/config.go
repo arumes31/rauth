@@ -15,11 +15,12 @@ import (
 )
 
 type Config struct {
-	ListenAddr    string
-	ServerSecret  string
-	RedisHost     string
-	RedisPort     string
-	RedisPassword string
+	ClusterConfigFile string
+	ListenAddr        string
+	ServerSecret      string
+	RedisHost         string
+	RedisPort         string
+	RedisPassword     string
 	// PostgresURL is the connection string for the durable store (users,
 	// credentials, bypass rules, audit log). Built from POSTGRES_* when
 	// DATABASE_URL is unset.
@@ -143,6 +144,7 @@ var DefaultCloudflareIPRanges = []string{
 func LoadConfig() *Config {
 	return &Config{
 		ListenAddr:               getEnv("LISTEN_ADDR", ":80"),
+		ClusterConfigFile:        getEnv("CLUSTER_CONFIG_FILE", ""),
 		ServerSecret:             getEnv("SERVER_SECRET", ""),
 		RedisHost:                getEnv("REDIS_HOST", "rauth-auth-redis"),
 		RedisPort:                getEnv("REDIS_PORT", "6379"),

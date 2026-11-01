@@ -13,6 +13,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
@@ -23,6 +24,7 @@ import (
 	"os"
 	"path/filepath"
 	"rauth/internal/clustertransport"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -38,6 +40,8 @@ func loadedFixture(t *testing.T, role string) (string, Config) {
 	require.NoError(t, os.Chmod(root, 0o700))
 	c := document(root)
 	c.Role = role
+	writeFixture(t, c.CookieSecretFile, []byte("synthetic-cookie-secret-file-content-1234567890"))
+	writeFixture(t, c.AuthStateKeyFile, []byte(`{"synthetic":"validated by SQL authority initializer"}`))
 	_, caKey, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	now := time.Now()
@@ -76,7 +80,7 @@ func loadedFixture(t *testing.T, role string) (string, Config) {
 		require.NoError(t, err)
 		writeFixture(t, c.ProfilesFile, profiles)
 	}
-	for _, filename := range []string{c.Databases.Head, c.Databases.Payload, c.Databases.Source, c.Databases.Publisher, c.Databases.Registry, c.Databases.Registrar} {
+	for _, filename := range []string{c.Databases.Auth, c.Databases.Head, c.Databases.Payload, c.Databases.Source, c.Databases.Publisher, c.Databases.Registry, c.Databases.Registrar} {
 		if filename != "" {
 			writeFixture(t, filename, []byte("postgres://test:synthetic-database-password@100.72.99.1:6543/auth?sslmode=verify-full&target_session_attrs=read-write"))
 		}
@@ -136,6 +140,7 @@ func TestRuntimeLoadWorkerAndControllerKeepSecretsPrivate(t *testing.T) {
 			require.NoError(t, err)
 			assert.True(t, called)
 			assert.Equal(t, role, loaded.Config().Role)
+			assert.Equal(t, "synthetic-cookie-secret-file-content-1234567890", loaded.CookieSecret())
 			clone := loaded.Config()
 			clone.PolicyKeys["one"] = "caller-mutated"
 			assert.NotEqual(t, clone.PolicyKeys, loaded.Config().PolicyKeys)
@@ -143,6 +148,7 @@ func TestRuntimeLoadWorkerAndControllerKeepSecretsPrivate(t *testing.T) {
 			logger := slog.New(slog.NewJSONHandler(&output, nil))
 			logger.Info("node", "loaded", loaded)
 			assert.NotContains(t, output.String(), "synthetic-database-password")
+			assert.NotContains(t, output.String(), "synthetic-cookie-secret-file-content")
 			assert.NotContains(t, output.String(), base64.StdEncoding.EncodeToString(policyKey().Seed()))
 			id, key := loaded.Signer()
 			if role == Worker {
@@ -240,4 +246,37 @@ func TestRuntimeLoadRejectsNodeDocumentInCacheNamespace(t *testing.T) {
 	_, err = load(nested, func(Config) error { checked = true; return nil })
 	require.ErrorIs(t, err, ErrInvalid)
 	assert.False(t, checked, "cache collision is rejected before mount/secret loading")
+}
+
+func TestCacheAndGeoSourceDirectoriesStayOnValidatedPersistence(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.Chmod(root, 0o700))
+	c := document(root)
+	info, err := os.Stat(root)
+	require.NoError(t, err)
+	stat := info.Sys().(*syscall.Stat_t)
+	c.MountDevice = fmt.Sprintf("%d:%d", unix.Major(uint64(stat.Dev)), unix.Minor(uint64(stat.Dev)))
+	require.ErrorIs(t, validateCacheRoot(c), ErrMount, "missing cache must never be created on fallback storage")
+	require.NoError(t, os.Mkdir(c.CacheRoot, 0o700))
+	require.NoError(t, validateCacheRoot(c))
+	require.NoError(t, os.Chmod(c.CacheRoot, 0o777))
+	require.ErrorIs(t, validateCacheRoot(c), ErrMount)
+	require.NoError(t, os.Chmod(c.CacheRoot, 0o700))
+	c.Role = Control
+	c.GeoIPFile = root + "/geo/source.mmdb"
+	require.ErrorIs(t, validateSourceDirectory(c), ErrMount)
+	require.NoError(t, os.Mkdir(root+"/geo", 0o700))
+	require.NoError(t, validateSourceDirectory(c))
+	writeFixture(t, c.GeoIPFile, []byte("synthetic-public-geo-bytes"))
+	require.NoError(t, os.Chmod(c.GeoIPFile, 0o644))
+	source, err := openGeoSource(c)
+	require.NoError(t, err)
+	require.NoError(t, source.Close())
+	require.NoError(t, os.Chmod(c.GeoIPFile, 0o666))
+	_, err = openGeoSource(c)
+	require.ErrorIs(t, err, ErrPrivateFile)
+	link := root + "/linked-cache"
+	require.NoError(t, os.Symlink(c.CacheRoot, link))
+	c.CacheRoot = link
+	require.ErrorIs(t, validateCacheRoot(c), ErrMount)
 }

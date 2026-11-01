@@ -22,6 +22,7 @@ func TestWorkerProfileIgnoresSecretsAndPhysicalLocations(t *testing.T) {
 	cfg.SMTPPass = "private-smtp-password"
 	cfg.MaxMindLicenseKey = "private-license"
 	cfg.ListenAddr = "127.0.0.2:9000"
+	cfg.ClusterConfigFile = "/mnt/usb1/rauth/config/node.json"
 	cfg.MaxMindDBPath = "/mnt/usb1/rauth/geoip/database.mmdb"
 	after, err := NodeSecurityFingerprint(cfg)
 	require.NoError(t, err)
