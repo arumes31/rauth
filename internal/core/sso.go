@@ -11,6 +11,7 @@ import (
 )
 
 const SSOAppCookie = "__Host-rauth-session"
+const SSOAuthCookie = "__Host-rauth-auth"
 
 func (c *Config) ValidateSSO() error {
 	if c.SSOCanonicalOrigin == "" && len(c.SSOApplicationOrigins) == 0 {
@@ -122,4 +123,13 @@ func (c *Config) SessionCookieDomain() string {
 		return ""
 	}
 	return c.CookieDomains[0]
+}
+
+// SessionCookieName keeps broad-domain cookie planting out of the canonical SSO
+// login. SSO never falls back to a sibling-settable legacy cookie name.
+func (c *Config) SessionCookieName() string {
+	if c.SSOCanonicalOrigin != "" {
+		return SSOAuthCookie
+	}
+	return "X-rauth-authtoken"
 }

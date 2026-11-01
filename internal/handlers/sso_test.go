@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -73,9 +74,18 @@ func TestSSOHTTPPasswordAndTOTPOnDifferentNodesCrossDomainAndGlobalLogout(t *tes
 	c.Request().AddCookie(pending)
 	require.NoError(t, b.Verify2FA(c))
 	require.Equal(t, http.StatusFound, completed.Code)
-	central := responseCookie(t, completed, "X-rauth-authtoken")
+	central := responseCookie(t, completed, core.SSOAuthCookie)
 	assert.Empty(t, central.Domain, "canonical SSO login must not share a domain cookie with application backends")
 	assert.Equal(t, startURL.RequestURI(), completed.Header().Get("Location"))
+	// A valid token planted under the old broad-domain cookie name must not
+	// establish canonical SSO, even before a legitimate prefixed cookie exists.
+	planted := *central
+	planted.Name = "X-rauth-authtoken"
+	planted.Domain = "example.com"
+	c, plantAttempt := ssoHTTPContext(e, http.MethodGet, cfg.SSOCanonicalOrigin, startURL.RequestURI(), &planted)
+	require.NoError(t, a.SSOAuthorize(c))
+	require.Equal(t, http.StatusFound, plantAttempt.Code)
+	assert.Contains(t, plantAttempt.Header().Get("Location"), "/rauthlogin?rd=")
 	c, authorized := ssoHTTPContext(e, http.MethodGet, cfg.SSOCanonicalOrigin, startURL.RequestURI(), central)
 	require.NoError(t, a.SSOAuthorize(c))
 	require.Equal(t, http.StatusFound, authorized.Code)
@@ -121,7 +131,7 @@ func TestSSOHTTPPasswordAndTOTPOnDifferentNodesCrossDomainAndGlobalLogout(t *tes
 	assert.Equal(t, http.StatusUnauthorized, validate(b, "app.other.test", central).Code, "a central domain cookie does not authorize an app directly")
 	// Even renaming an app cookie cannot turn it into a canonical/profile cookie.
 	copied := *app
-	copied.Name = "X-rauth-authtoken"
+	copied.Name = core.SSOAuthCookie
 	c, root := ssoHTTPContext(e, http.MethodGet, cfg.SSOCanonicalOrigin, "/", &copied)
 	require.NoError(t, a.Root(c))
 	assert.Equal(t, "/rauthlogin", root.Header().Get("Location"))
@@ -153,6 +163,13 @@ func TestSSOHTTPPasswordAndTOTPOnDifferentNodesCrossDomainAndGlobalLogout(t *tes
 	require.NoError(t, a.SSOCallback(c))
 	second := responseCookie(t, secondAccepted, core.SSOAppCookie)
 	assert.Equal(t, http.StatusOK, validate(b, "second.example.net", second).Code)
+	c, confirmation := ssoHTTPContext(e, http.MethodGet, cfg.SSOApplicationOrigins[1], "/_rauth/logout", second)
+	c.Set("csrf", "same-origin-form-proof")
+	require.NoError(t, b.SSOLogoutPage(c))
+	assert.Equal(t, http.StatusOK, confirmation.Code)
+	assert.Equal(t, "same-origin-form-proof", e.Renderer.(*mockRenderer).LastData.(map[string]interface{})["csrf"])
+	assert.Equal(t, "no-store", confirmation.Header().Get("Cache-Control"))
+	assert.Equal(t, http.StatusOK, validate(a, "app.other.test", replacement).Code, "GET confirmation must not revoke the family")
 	c, signedOut := ssoHTTPContext(e, http.MethodPost, cfg.SSOApplicationOrigins[1], "/_rauth/logout", second)
 	require.NoError(t, a.SSOSignOut(c))
 	assert.Equal(t, http.StatusFound, signedOut.Code)
@@ -189,7 +206,7 @@ func TestSSORoutesRejectUnknownHostsAndUnsafeReturns(t *testing.T) {
 	generation, err := core.AuthGeneration("sso-header-user")
 	require.NoError(t, err)
 	require.NoError(t, h.issueToken(c, "sso-header-user", generation))
-	central := responseCookie(t, issued, "X-rauth-authtoken")
+	central := responseCookie(t, issued, core.SSOAuthCookie)
 	c, authorized := ssoHTTPContext(e, http.MethodGet, cfg.SSOCanonicalOrigin, target.RequestURI(), central)
 	require.NoError(t, h.SSOAuthorize(c))
 	callback, err := url.Parse(authorized.Header().Get("Location"))
@@ -202,4 +219,19 @@ func TestSSORoutesRejectUnknownHostsAndUnsafeReturns(t *testing.T) {
 	cfg.SSOCanonicalOrigin = ""
 	c, _ = ssoHTTPContext(e, http.MethodGet, "https://app.other.test", "/_rauth/start")
 	ssoHTTPError(t, h.SSOStart(c), http.StatusNotFound)
+}
+
+func TestSSOOperationalFailureKeepsResponsePrivateAndLogsCause(t *testing.T) {
+	cause := errors.New("synthetic backend diagnostic")
+	err := ssoFailure(cause)
+	var he *echo.HTTPError
+	require.ErrorAs(t, err, &he)
+	require.ErrorIs(t, he.Internal, cause)
+	assert.Contains(t, he.Error(), cause.Error())
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/_rauth/authorize", nil)
+	rec := httptest.NewRecorder()
+	e.HTTPErrorHandler(err, e.NewContext(req, rec))
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assert.NotContains(t, rec.Body.String(), cause.Error())
 }
