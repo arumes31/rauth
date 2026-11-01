@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"rauth/internal/authstate"
 	"rauth/internal/core"
 	"strconv"
 	"strings"
@@ -52,8 +53,10 @@ func (h *AuthHandler) Root(c echo.Context) error {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
 
-	// ⚡ Bolt optimization: Use HMGet instead of HGetAll since we only need the status field.
 	data, err := core.ReadAuthSession(c.Request().Context(), token)
+	if err != nil && !errors.Is(err, authstate.ErrNotFound) {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "Session service is temporarily unavailable")
+	}
 	if err != nil || data["status"] != "valid" {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
@@ -96,6 +99,9 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 
 	redisKey := "X-rauth-authtoken=" + token
 	data, err := core.ReadAuthSession(c.Request().Context(), token)
+	if err != nil && !errors.Is(err, authstate.ErrNotFound) {
+		return h.sessionAuthorityUnavailable(c)
+	}
 	if err != nil || len(data) == 0 || data["status"] != "valid" {
 		return h.denyOrBypass(c, rateLimitKey, true)
 	}
@@ -104,7 +110,11 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 	// credential change (see core.BumpAuthGeneration). The session is left to
 	// expire rather than deleted: SessionAuthorized also fails closed on a
 	// transient Redis error, which must not destroy a valid session.
-	if !core.SessionAuthorized(data) {
+	authorized, authErr := core.SessionAuthorization(c.Request().Context(), data)
+	if authErr != nil {
+		return h.sessionAuthorityUnavailable(c)
+	}
+	if !authorized {
 		return h.denyOrBypass(c, rateLimitKey, true)
 	}
 
@@ -232,6 +242,19 @@ func (h *AuthHandler) denyOrBypass(c echo.Context, rateLimitKey string, rateLimi
 	return c.NoContent(http.StatusUnauthorized)
 }
 
+// A valid local public policy remains usable during an auth-state outage.
+// Private URLs fail closed with an operational status, never a login redirect.
+func (h *AuthHandler) sessionAuthorityUnavailable(c echo.Context) error {
+	if _, ok := h.matchBypass(c); ok {
+		return h.denyOrBypass(c, "", false)
+	}
+	for _, header := range []string{"X-RAuth-User", "X-RAuth-Groups", "X-RAuth-Admin", "X-RAuth-Anonymous"} {
+		c.Response().Header().Del(header)
+	}
+	c.Response().Header().Set("Retry-After", "5")
+	return c.NoContent(http.StatusServiceUnavailable)
+}
+
 // matchBypass checks the auth bypass rules against the host and URI the
 // reverse proxy reports for the original request. Those headers are only
 // honoured from TRUSTED_PROXIES or, when that list is empty (legacy smart
@@ -251,7 +274,11 @@ func (h *AuthHandler) matchBypass(c echo.Context) (core.BypassRule, bool) {
 // rateLimitedUnauthorized applies the validate rate limit and returns 429 once
 // it is exceeded, otherwise 401. Used for every pre-authentication failure path.
 func (h *AuthHandler) rateLimitedUnauthorized(c echo.Context, rateLimitKey string) error {
-	if !core.CheckRateLimit(rateLimitKey, h.Cfg.RateLimitValidateMax, h.Cfg.RateLimitValidateDecay) {
+	exceeded, _, err := core.ReserveRateLimitAttempt(rateLimitKey, h.Cfg.RateLimitValidateMax, h.Cfg.RateLimitValidateDecay)
+	if err != nil {
+		return h.sessionAuthorityUnavailable(c)
+	}
+	if exceeded {
 		return c.NoContent(http.StatusTooManyRequests)
 	}
 	return c.NoContent(http.StatusUnauthorized)

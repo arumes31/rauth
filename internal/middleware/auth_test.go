@@ -8,9 +8,11 @@ import (
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAuthMiddleware(t *testing.T) {
@@ -139,4 +141,37 @@ func usePG(t *testing.T) {
 	t.Helper()
 	core.PG = pgtest.Open(t, core.Migrate)
 	pgtest.Reset(t, core.PG)
+}
+
+func TestAuthMiddlewareDistinguishesOutageFromRevocation(t *testing.T) {
+	s := miniredis.RunT(t)
+	core.TokenDB = redis.NewClient(&redis.Options{Addr: s.Addr()})
+	usePG(t)
+	require.NoError(t, core.PutUser(core.User{Username: "outage-user"}))
+	cfg := &core.Config{ServerSecret: "32byte-secret-key-for-testing-!!"}
+	token := "outage-test-token"
+	require.NoError(t, core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken="+token, "username", "outage-user", "status", "valid").Err())
+	encrypted, err := core.EncryptToken(token, cfg.ServerSecret)
+	require.NoError(t, err)
+	reached := false
+	handler := AuthMiddleware(cfg)(func(c echo.Context) error { reached = true; return c.NoContent(http.StatusOK) })
+	check := func() {
+		req := httptest.NewRequest(http.MethodGet, "/rauthprofile", nil)
+		req.AddCookie(&http.Cookie{Name: "X-rauth-authtoken", Value: encrypted})
+		rec := httptest.NewRecorder()
+		err := handler(echo.New().NewContext(req, rec))
+		require.Error(t, err)
+		require.Equal(t, http.StatusServiceUnavailable, err.(*echo.HTTPError).Code)
+		require.Empty(t, rec.Header().Get("Location"))
+		require.False(t, reached)
+	}
+	original := core.PG
+	unavailable, err := pgxpool.New(core.Ctx, "postgres://localhost:1/none?connect_timeout=1")
+	require.NoError(t, err)
+	unavailable.Close()
+	core.PG = unavailable
+	check()
+	core.PG = original
+	require.NoError(t, core.TokenDB.Close())
+	check()
 }

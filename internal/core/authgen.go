@@ -115,21 +115,29 @@ func SessionGen(data map[string]string) string {
 // SessionAuthorized reports whether a session hash still belongs to a live
 // account at the current auth generation. It fails closed on database errors.
 func SessionAuthorized(data map[string]string) bool {
-	ctx, cancel := context.WithTimeout(Ctx, 3*time.Second)
+	valid, err := SessionAuthorization(Ctx, data)
+	if err != nil {
+		slog.Error("Failed to check session authorization", "user", data["username"], "error", err)
+	}
+	return valid && err == nil
+}
+
+// SessionAuthorization distinguishes revoked/missing accounts from an
+// unavailable authority so private requests receive 503 instead of a login loop.
+func SessionAuthorization(ctx context.Context, data map[string]string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	username := data["username"]
 	if username == "" {
-		return false
+		return false, nil
+	}
+	if PG == nil {
+		return false, errors.New("authentication database is unavailable")
 	}
 	var exists bool
 	var gen int64
-	err := PG.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM users WHERE username = $1),
-		COALESCE((SELECT gen FROM auth_generations WHERE username = $1), 0)`, username).Scan(&exists, &gen)
-	if err != nil {
-		slog.Error("Failed to check session authorization", "user", username, "error", err)
-		return false
-	}
-	return exists && strconv.FormatInt(gen, 10) == SessionGen(data)
+	err := PG.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE username=$1),COALESCE((SELECT gen FROM auth_generations WHERE username=$1),0)`, username).Scan(&exists, &gen)
+	return exists && strconv.FormatInt(gen, 10) == SessionGen(data), err
 }
 
 // restampScript sets auth_gen only on an existing session hash, so a session

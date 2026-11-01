@@ -42,7 +42,11 @@ func ReadAuthSession(ctx context.Context, token string) (map[string]string, erro
 	if TokenDB == nil {
 		return nil, errors.New("session authority unavailable")
 	}
-	return TokenDB.HGetAll(ctx, "X-rauth-authtoken="+token).Result()
+	fields, err := TokenDB.HGetAll(ctx, "X-rauth-authtoken="+token).Result()
+	if err == nil && len(fields) == 0 {
+		return nil, authstate.ErrNotFound
+	}
+	return fields, err
 }
 func RevokeAuthSession(ctx context.Context, token string) error {
 	if securitySessions != nil {

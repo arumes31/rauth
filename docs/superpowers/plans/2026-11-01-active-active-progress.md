@@ -37,7 +37,13 @@ No secrets belong in Git.
   Passkey registration now follows stable authoritative browser identity across
   normal rotation and hard replacement; separate-browser and generation/one-use
   checks remain. Its reproduced regression and both authority adapters pass.
-  Runtime migration remains pending; SQL authority is not enabled in production.
+  Guarded SQL runtime selection, verified-primary TLS connections, host-file
+  keyrings, a durable fleet-key/authority guard, idempotent offline cutover,
+  TOTP activation quarantine and SQL-only readiness are now implemented. Real
+  handler tests cover password on one handler / TOTP on another, global replay,
+  recovery, profile metadata and family revocation with every Redis client nil.
+  Backend-outage/public-policy checks pass. This remains source validation;
+  SQL authority is not enabled in production.
 - CodeRabbit's included milestone reviews were used and their verified findings
   fixed. No paid reviews were started; honor quota/cooldown reports.
 
@@ -45,8 +51,8 @@ No secrets belong in Git.
   Its test tree, containers and image were removed. This is performance evidence,
   not a quorum, fencing, durability or failover acceptance claim.
 
-Remaining work: finish the session/grant adapters and all call sites, runtime
-selection and readiness, cross-node and cross-domain flows, HA quorum and
+Remaining work: finalize runtime regression/review and shared HTTP
+flow acceptance, cross-node and cross-domain flows, HA quorum and
 storage/fencing gates, dedicated networking and node lifecycle checks, signed
 persistent policy synchronization with bounded freshness, durable RAuth-only
 event forwarding, worker/public-rule rollout, and controlled outage tests.

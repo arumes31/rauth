@@ -1,9 +1,11 @@
 package middleware
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/url"
+	"rauth/internal/authstate"
 	"rauth/internal/core"
 
 	"github.com/labstack/echo/v4"
@@ -29,9 +31,12 @@ func AuthMiddleware(cfg *core.Config) echo.MiddlewareFunc {
 			// /rauthvalidate can be applied to rauth's own pages.
 			redisKey := "X-rauth-authtoken=" + token
 			data, err := core.ReadAuthSession(c.Request().Context(), token)
+			if errors.Is(err, authstate.ErrNotFound) {
+				return c.Redirect(http.StatusFound, "/rauthlogin")
+			}
 			if err != nil {
 				slog.Error("Session authority error in auth middleware", "error", err)
-				return c.Redirect(http.StatusFound, "/rauthlogin")
+				return echo.NewHTTPError(http.StatusServiceUnavailable, "Session service is temporarily unavailable")
 			}
 
 			if data["status"] != "valid" {
@@ -48,7 +53,11 @@ func AuthMiddleware(cfg *core.Config) echo.MiddlewareFunc {
 			// user's last credential change (see core.BumpAuthGeneration). Not
 			// deleted here: SessionAuthorized also fails closed on transient
 			// Redis errors, which must not destroy a valid session.
-			if !core.SessionAuthorized(data) {
+			authorized, authErr := core.SessionAuthorization(c.Request().Context(), data)
+			if authErr != nil {
+				return echo.NewHTTPError(http.StatusServiceUnavailable, "Session service is temporarily unavailable")
+			}
+			if !authorized {
 				return c.Redirect(http.StatusFound, "/rauthlogin")
 			}
 
@@ -100,7 +109,7 @@ func AdminMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 		isAdmin, err := core.UserIsAdmin(username)
 		if err != nil {
 			slog.Error("Failed to fetch admin status in admin middleware", "user", username, "error", err)
-			return echo.NewHTTPError(http.StatusInternalServerError, "Internal Server Error")
+			return echo.NewHTTPError(http.StatusServiceUnavailable, "Account service is temporarily unavailable")
 		}
 
 		if !isAdmin {

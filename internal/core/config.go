@@ -24,6 +24,11 @@ type Config struct {
 	// credentials, bypass rules, audit log). Built from POSTGRES_* when
 	// DATABASE_URL is unset.
 	PostgresURL string
+	// AuthStateMode is redis until a coordinated, durable SQL cutover. All
+	// security authorities select together before HTTP starts.
+	AuthStateMode            string
+	AuthStateKeyFile         string
+	AuthStateAbsoluteMinutes int
 	// AuditRetentionDays bounds how long audit entries are kept (0 = forever).
 	AuditRetentionDays   int
 	CookieDomains        []string
@@ -135,26 +140,29 @@ var DefaultCloudflareIPRanges = []string{
 
 func LoadConfig() *Config {
 	return &Config{
-		ListenAddr:           getEnv("LISTEN_ADDR", ":80"),
-		ServerSecret:         getEnv("SERVER_SECRET", ""),
-		RedisHost:            getEnv("REDIS_HOST", "rauth-auth-redis"),
-		RedisPort:            getEnv("REDIS_PORT", "6379"),
-		RedisPassword:        getEnv("REDIS_PASSWORD", ""),
-		PostgresURL:          postgresURLFromEnv(),
-		AuditRetentionDays:   getEnvInt("AUDIT_RETENTION_DAYS", 365),
-		CookieDomains:        getEnvSlice("COOKIE_DOMAIN", []string{"example.com"}),
-		TokenValidityMinutes: getEnvInt("TOKEN_VALIDITY_MINUTES", 2880),
-		AllowedHosts:         getEnvSlice("ALLOWED_HOSTS", []string{"localhost", "127.0.0.1"}),
-		GeoApiHost:           getEnv("GEO_API_HOST", "rauth-geo-service"),
-		GeoApiPort:           getEnv("GEO_API_PORT", "3000"),
-		MaxMindDBPath:        getEnv("MAXMIND_DB_PATH", "/app/geoip/GeoLite2-Country.mmdb"),
-		MetricsAllowedIPs:    getEnvSlice("METRICS_ALLOWED_IPS", []string{"127.0.0.1", "::1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "fd7a:115c:a1e0::/48"}),
-		InitialUser:          getEnv("INITIAL_USER", "admin"),
-		InitialPassword:      getEnv("INITIAL_PASSWORD", ""),
-		InitialEmail:         getEnv("INITIAL_EMAIL", "admin@local"),
-		Initial2FASecret:     getEnv("INITIAL_2FA_SECRET", ""),
-		WebAuthnOrigins:      getEnvSlice("WEBAUTHN_ORIGINS", []string{}),
-		AllowedCountries:     getEnvSlice("ALLOWED_COUNTRIES", []string{}),
+		ListenAddr:               getEnv("LISTEN_ADDR", ":80"),
+		ServerSecret:             getEnv("SERVER_SECRET", ""),
+		RedisHost:                getEnv("REDIS_HOST", "rauth-auth-redis"),
+		RedisPort:                getEnv("REDIS_PORT", "6379"),
+		RedisPassword:            getEnv("REDIS_PASSWORD", ""),
+		PostgresURL:              postgresURLFromEnv(),
+		AuthStateMode:            getEnv("AUTH_STATE_MODE", "redis"),
+		AuthStateKeyFile:         getEnv("AUTH_STATE_KEY_FILE", ""),
+		AuthStateAbsoluteMinutes: getEnvInt("AUTH_STATE_ABSOLUTE_MINUTES", 43200),
+		AuditRetentionDays:       getEnvInt("AUDIT_RETENTION_DAYS", 365),
+		CookieDomains:            getEnvSlice("COOKIE_DOMAIN", []string{"example.com"}),
+		TokenValidityMinutes:     getEnvInt("TOKEN_VALIDITY_MINUTES", 2880),
+		AllowedHosts:             getEnvSlice("ALLOWED_HOSTS", []string{"localhost", "127.0.0.1"}),
+		GeoApiHost:               getEnv("GEO_API_HOST", "rauth-geo-service"),
+		GeoApiPort:               getEnv("GEO_API_PORT", "3000"),
+		MaxMindDBPath:            getEnv("MAXMIND_DB_PATH", "/app/geoip/GeoLite2-Country.mmdb"),
+		MetricsAllowedIPs:        getEnvSlice("METRICS_ALLOWED_IPS", []string{"127.0.0.1", "::1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "fd7a:115c:a1e0::/48"}),
+		InitialUser:              getEnv("INITIAL_USER", "admin"),
+		InitialPassword:          getEnv("INITIAL_PASSWORD", ""),
+		InitialEmail:             getEnv("INITIAL_EMAIL", "admin@local"),
+		Initial2FASecret:         getEnv("INITIAL_2FA_SECRET", ""),
+		WebAuthnOrigins:          getEnvSlice("WEBAUTHN_ORIGINS", []string{}),
+		AllowedCountries:         getEnvSlice("ALLOWED_COUNTRIES", []string{}),
 		// MaxMind
 		MaxMindAccountID:  getEnv("MAXMIND_ACCOUNT_ID", ""),
 		MaxMindLicenseKey: getEnv("MAXMIND_LICENSE_KEY", ""),

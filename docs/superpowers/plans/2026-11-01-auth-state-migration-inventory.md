@@ -136,3 +136,30 @@ Still pending: admin/profile session listing and handle-based revocation,
 explicit backend-error HTTP behavior, full runtime selection/key provisioning,
 Redis-independent startup/readiness and maintenance, cross-node HTTP/SSO and
 coordinated cutover. No production SQL selector is exposed by these adapters.
+
+
+## Runtime selection and coordinated activation
+
+The source now selects sessions, proofs and security counters together through
+InitAuthenticationState before handlers start. Legacy mode is still the default.
+PostgreSQL mode requires verified TLS to a writable primary, an absolute bounded
+host-mounted keyring file, a completed durable import and the committed offline
+authority marker. The marker pins SERVER_SECRET by a keyed fingerprint as well
+as the existing token-index/payload-key checks, and rejects Redis-authority
+restarts. Activation waits two minutes so old TOTP proofs age out. Cutover bumps
+account generations and deliberately expires transient state once; repeating it
+cannot delete live SQL sessions. Operator procedure: deploy/ha/AUTHSTATE.md.
+
+Readiness in selected SQL mode no longer pings Redis, and state cleanup is bounded
+and cancellable. Missing/revoked sessions remain login failures; private requests
+return503 on authority errors. Valid local public rules still authorize anonymously
+only after their country/feed restrictions pass. The later worker stage still
+must add independent durable policy freshness/readiness and event health.
+
+Real-database tests cover concurrent cutover, unchanged account identity, wrong
+keys/authority markers, idempotency and rollback rejection. Real handlers exercise
+password on A / TOTP on B, global TOTP replay, one-use recovery, profile metadata
+and family revocation with no Redis clients. These are separate handler instances
+sharing a process, not proof of independent-process/network/failover acceptance.
+The complete prior management/registration revision passed the full suite; the
+runtime revision still requires its own complete regression and CI before merge.
