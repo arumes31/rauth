@@ -141,6 +141,9 @@ func (s *PostgresSessions) Issue(ctx context.Context, token string, p IssueSessi
 	if p.Username == "" || p.Generation < 0 || !validTTL(p.IdleTTL) || !validTTL(p.AbsoluteTTL) {
 		return errors.New("invalid session parameters")
 	}
+	// This is an optional throttle index, not a new authentication precondition.
+	// Historical or absent IP metadata must not strand an otherwise valid proof.
+	ipHash, _ := s.ipHash(p.IP)
 	key, body, err := s.payload(hash, sessionPayload{IP: p.IP, Fields: p.Fields})
 	if err != nil {
 		return err
@@ -175,7 +178,10 @@ func (s *PostgresSessions) Issue(ctx context.Context, token string, p IssueSessi
 		if _, err := tx.Exec(ctx, "INSERT INTO auth_session_families(id,username,auth_gen,absolute_expires_at) VALUES($1,$2,$3,$4)", family, p.Username, gen, absolute); err != nil {
 			return err
 		}
-		_, err = tx.Exec(ctx, "INSERT INTO auth_sessions(token_hash,family_id,key_id,payload,issued_at,idle_expires_at,last_refreshed_at) VALUES($1,$2,$3,$4,$5,$6,$5)", hash, family, key, body, now, idle)
+		if _, err := tx.Exec(ctx, "INSERT INTO auth_session_tokens(token_hash,family_id) VALUES($1,$2)", hash, family); err != nil {
+			return err
+		}
+		_, err = tx.Exec(ctx, "INSERT INTO auth_sessions(token_hash,family_id,key_id,payload,issued_at,idle_expires_at,last_refreshed_at,ip_hash) VALUES($1,$2,$3,$4,$5,$6,$5,$7)", hash, family, key, body, now, idle, ipHash)
 		return err
 	}))
 }
@@ -265,7 +271,7 @@ func (s *PostgresSessions) locked(ctx context.Context, tx pgx.Tx, hash []byte) (
 	}
 	return r, now, nil
 }
-func (s *PostgresSessions) move(ctx context.Context, oldToken, newToken string, idleTTL, grace time.Duration, replace bool) (bool, error) {
+func (s *PostgresSessions) move(ctx context.Context, oldToken, newToken string, idleTTL, grace time.Duration, replace bool, grant *PublicAccessGrant) (bool, error) {
 	oldHash, err := s.keys.tokenHash(oldToken)
 	if err != nil {
 		return false, err
@@ -298,6 +304,12 @@ func (s *PostgresSessions) move(ctx context.Context, oldToken, newToken string, 
 		if err != nil {
 			return err
 		}
+		if grant != nil && (grant.Username != r.username || grant.Generation != r.generation) {
+			return ErrStaleGeneration
+		}
+		// Keep older/unparseable encrypted metadata rotatable; unknown addresses
+		// have no IP shortcut rather than sharing a permissive fallback index.
+		ipHash, _ := s.ipHash(p.IP)
 		key, body, err := s.payload(newHash, sessionPayload{IP: p.IP, Fields: p.Fields})
 		if err != nil {
 			return err
@@ -312,8 +324,18 @@ func (s *PostgresSessions) move(ctx context.Context, oldToken, newToken string, 
 			}
 			issued = now
 		}
-		if _, err := tx.Exec(ctx, "INSERT INTO auth_sessions(token_hash,family_id,key_id,payload,issued_at,idle_expires_at,last_refreshed_at) VALUES($1,$2,$3,$4,$5,$6,$7)", newHash, r.family, key, body, issued, idle, refreshed); err != nil {
+		if _, err := tx.Exec(ctx, "INSERT INTO auth_sessions(token_hash,family_id,key_id,payload,issued_at,idle_expires_at,last_refreshed_at,ip_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8)", newHash, r.family, key, body, issued, idle, refreshed, ipHash); err != nil {
 			return err
+		}
+		if _, err := tx.Exec(ctx, "INSERT INTO auth_session_tokens(token_hash,family_id) VALUES($1,$2)", newHash, r.family); err != nil {
+			return err
+		}
+		if !replace {
+			// Rotation preserves an existing grant's original deadline, never its TTL.
+			if _, err := tx.Exec(ctx, `INSERT INTO auth_step_up_grants(token_hash,username,auth_gen,expires_at)
+    SELECT $2,username,auth_gen,LEAST(expires_at,$3::timestamptz) FROM auth_step_up_grants WHERE token_hash=$1 AND auth_gen=$4 AND username=$5 AND expires_at>clock_timestamp()`, oldHash, newHash, idle, r.generation, r.username); err != nil {
+				return err
+			}
 		}
 		if replace {
 			_, err = tx.Exec(ctx, "DELETE FROM auth_sessions WHERE token_hash=$1", oldHash)
@@ -331,6 +353,23 @@ func (s *PostgresSessions) move(ctx context.Context, oldToken, newToken string, 
 			}
 			_, err = tx.Exec(ctx, "UPDATE auth_sessions SET retired=true,key_id=$2,payload=$3,idle_expires_at=$4 WHERE token_hash=$1", oldHash, key, body, expiry)
 		}
+		if err == nil && grant != nil {
+			expires := now.Add(grant.TTL)
+			if expires.After(idle) {
+				expires = idle
+			}
+			if expires.After(r.absolute) {
+				expires = r.absolute
+			}
+			var admin bool
+			if err = tx.QueryRow(ctx, "SELECT is_admin FROM users WHERE username=$1 FOR SHARE", r.username).Scan(&admin); err != nil {
+				return err
+			}
+			if !admin {
+				return errors.New("step-up grant requires administrator")
+			}
+			_, err = tx.Exec(ctx, "INSERT INTO auth_step_up_grants(token_hash,username,auth_gen,expires_at) VALUES($1,$2,$3,$4)", newHash, r.username, r.generation, expires)
+		}
 		if err == nil {
 			changed = true
 		}
@@ -339,10 +378,10 @@ func (s *PostgresSessions) move(ctx context.Context, oldToken, newToken string, 
 	return changed && err == nil, sqlError(err)
 }
 func (s *PostgresSessions) Rotate(ctx context.Context, oldToken, newToken string, idleTTL, grace time.Duration) (bool, error) {
-	return s.move(ctx, oldToken, newToken, idleTTL, grace, false)
+	return s.move(ctx, oldToken, newToken, idleTTL, grace, false, nil)
 }
 func (s *PostgresSessions) Replace(ctx context.Context, oldToken, newToken string) (bool, error) {
-	return s.move(ctx, oldToken, newToken, 0, 0, true)
+	return s.move(ctx, oldToken, newToken, 0, 0, true, nil)
 }
 func (s *PostgresSessions) Refresh(ctx context.Context, token string, idleTTL time.Duration) (bool, error) {
 	hash, err := s.keys.tokenHash(token)
@@ -370,10 +409,11 @@ func (s *PostgresSessions) Revoke(ctx context.Context, token string) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, mutationTimeout)
 	defer cancel()
-	// Family UPDATE conflicts with the family lock used by rotate/replace. A
-	// successor committed before this update is revoked in the same operation.
+	// Stable keyed-token aliases survive replacement and grace cleanup. Family
+	// UPDATE conflicts with rotate/replace, so a logout that already read the old
+	// token still revokes a successor committed before it acquires the lock.
 	_, err = s.pool.Exec(ctx, `UPDATE auth_session_families SET revoked_at=COALESCE(revoked_at,clock_timestamp())
-  WHERE id=(SELECT family_id FROM auth_sessions WHERE token_hash=$1)`, hash)
+  WHERE id=(SELECT family_id FROM auth_session_tokens WHERE token_hash=$1)`, hash)
 	return err
 }
 func (s *PostgresSessions) RevokeUser(ctx context.Context, user string) error {
@@ -461,6 +501,8 @@ func (s *PostgresSessions) Cleanup(ctx context.Context) error {
 		return err
 	}
 	queries := []string{
+		`WITH doomed AS (SELECT token_hash FROM auth_step_up_grants WHERE expires_at<=$1 ORDER BY expires_at LIMIT 1000 FOR UPDATE SKIP LOCKED)
+ DELETE FROM auth_step_up_grants g USING doomed d WHERE g.token_hash=d.token_hash`,
 
 		`WITH doomed AS (SELECT kind,token_hash FROM auth_artifacts WHERE expires_at<=$1 ORDER BY expires_at LIMIT 1000 FOR UPDATE SKIP LOCKED)
          DELETE FROM auth_artifacts a USING doomed d WHERE a.kind=d.kind AND a.token_hash=d.token_hash`,
@@ -473,7 +515,9 @@ func (s *PostgresSessions) Cleanup(ctx context.Context) error {
 		`WITH doomed AS (SELECT s.token_hash FROM auth_session_families f JOIN auth_sessions s ON s.family_id=f.id WHERE f.absolute_expires_at<=$1
    ORDER BY f.absolute_expires_at LIMIT 1000 FOR UPDATE OF s SKIP LOCKED)
    DELETE FROM auth_sessions s USING doomed d WHERE s.token_hash=d.token_hash`,
-		`WITH doomed AS (SELECT f.id FROM auth_session_families f WHERE f.absolute_expires_at<=$1 AND NOT EXISTS(SELECT 1 FROM auth_sessions s WHERE s.family_id=f.id)
+		`WITH doomed AS (SELECT a.token_hash FROM auth_session_tokens a JOIN auth_session_families f ON f.id=a.family_id WHERE f.absolute_expires_at<=$1 ORDER BY f.absolute_expires_at LIMIT 1000 FOR UPDATE OF a SKIP LOCKED)
+ DELETE FROM auth_session_tokens a USING doomed d WHERE a.token_hash=d.token_hash`,
+		`WITH doomed AS (SELECT f.id FROM auth_session_families f WHERE f.absolute_expires_at<=$1 AND NOT EXISTS(SELECT 1 FROM auth_sessions s WHERE s.family_id=f.id) AND NOT EXISTS(SELECT 1 FROM auth_session_tokens t WHERE t.family_id=f.id)
    ORDER BY f.absolute_expires_at LIMIT 1000 FOR UPDATE OF f SKIP LOCKED)
    DELETE FROM auth_session_families f USING doomed d WHERE f.id=d.id`,
 	}

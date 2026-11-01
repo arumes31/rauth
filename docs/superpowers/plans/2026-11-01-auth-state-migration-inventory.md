@@ -26,7 +26,7 @@ The new internal/authstate package and additive 0004 schema provide a typed sess
 
 Issue locks the same auth_generations row as current credential changes. Families share revocation and absolute expiry across rotation/replacement and future SSO sessions. Reads join current account/generation and enforce both expiries. Rotation takes generation/family/session locks in that order; retired grace tokens return before acquiring a family lock, and live operations encountering a locked family return explicit ErrBusy so an adapter can retain/retry the current token instead of reporting expiry. Revoke cannot leave a concurrently committed successor active. Refresh writes at most once per 30 seconds (or quarter of a shorter idle lifetime) and cannot extend a retired token or absolute deadline. Authorization reads and single-statement refreshes have a three-second cancellation deadline; multi-statement mutations have a ten-second budget, and startup key validation has a separate fifteen-second budget. All use PostgreSQL time. Parallel full-suite traffic through the remote SSH test tunnel exposed that the earlier uniform three-second mutation budget was too small for its multiple round trips; reads retain the short deadline.
 
-Still required before this store can be selected: session adapter and runtime call-site migration; family listing/revoke-others/IP-session queries; step-up grants; remaining atomic cross-state operations; configuration and key provisioning; startup/readiness separation; real two-process/race/load/failover testing; coordinated cutover that deliberately expires legacy transient state. No active-active acceptance claim follows from this foundation alone.
+Still required before this store can be selected: session/grant facade and runtime call-site migration; remaining atomic cross-state operations; configuration and key provisioning; startup/readiness separation; real two-process/race/load/failover testing; coordinated cutover that deliberately expires legacy transient state. No active-active acceptance claim follows from this foundation alone.
 
 
 Cleanup uses independent batches of at most 1,000 rows with one fixed database
@@ -71,3 +71,40 @@ gap; it was fixed and tested without paid review usage. The full regression
 identified one stale username-keyed passkey fixture; it now exercises the new
 nonce cookie and authenticated browser context while retaining its deletion and
 replay assertions. That test and the other WebAuthn/registration regressions pass.
+
+
+## Session administration, step-up and revocation reachability
+
+The additive 0006 schema now supplies a keyed optional IP lookup index, token-bound
+Public Access grants and stable keyed token-to-family revocation aliases. Family
+listing uses bounded keyset pages and returns display-only fields plus a family
+handle; it never returns bearer tokens or rotation successors. Owned family
+revocation, revoke-others, active IP/family queries and non-reviving country
+updates are implemented in the SQL store. Runtime/UI adapters remain to be wired.
+
+Step-up replaces the old token and commits its grant atomically with the exact
+owner/generation that supplied the proof. Non-admin, stale-generation and token
+collision failures roll back the replacement. Expiry is capped by the session
+and family deadlines. Normal rotation preserves an existing grant's original
+deadline, while a retired token cannot use it. Credential changes and family
+revocation invalidate grants immediately on the next authoritative read.
+
+A racing logout must still reach its family after step-up deletes the old token
+or cleanup removes an expired rotation-grace row. Stable keyed revocation aliases
+retain that link until absolute family expiry. Cleanup prunes aliases in bounded
+batches before deleting empty families, avoiding an unbounded cascade. New
+session issuance cannot reuse an outstanding alias within another live family.
+
+The IP digest is a throttle optimization, not a new authentication condition.
+Missing or unparseable historical metadata remains issuable/rotatable with a
+NULL index and cannot gain an active-IP shortcut. HTTP source trust and existing
+binding checks remain separate. This preserves the original contract rather than
+stranding sessions on a derived-index error.
+
+Validation: the full SQL authority suite passed (319 seconds), covering the
+existing session/artifact/counter tests plus new ownership/pagination, grants,
+rotation deadlines, country/expiry and deterministic/racing logout regressions.
+Five unparseable-IP cases passed after the review fix. Final vet and lint pass.
+CodeRabbit's included review found the optional-index compatibility issues; both
+were fixed and tested. Two scanner warnings on challenge-purpose enum strings
+were false positives and now carry explicit credential-free justifications.

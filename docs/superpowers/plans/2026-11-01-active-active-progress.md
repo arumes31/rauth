@@ -8,9 +8,10 @@ No secrets belong in Git.
   race, build and security checks passed. The advisory scan runs separately.
   This includes the managed Eworx default, rule inheritance/explicit opt-out,
   pre-session blocking, bounded last-good snapshots, admin menu and URL/IP preview.
-- Real-source integration denied a listed IP. The production bootstrap has a
-  ready snapshot with 4,827 entries after a full database backup. The runtime
-  release is pending, so this is not yet a production enforcement claim.
+- Real-source integration denied a listed IP. The production snapshot has 4,827
+  entries. The exact reviewed release is deployed and healthy after backup; a
+  listed IP receives 403 and an unlisted control receives anonymous 200. All 73
+  before/after root/admin/WebDAV probes match.
 - Original-client-IP proxy migration is applied to the existing integrations,
   including the RAuth login/admin/profile paths. All 73 before/after root/admin/
   WebDAV probes matched. Syntax/render tests and RAuth application-log probes
@@ -22,9 +23,16 @@ No secrets belong in Git.
   global security counters/replay markers are implemented separately in draft
   PR #780. Real PostgreSQL and no-Redis adapter tests pass; callback cancellation
   and browser-bound registration regressions pass; lint and vet report no issues.
-  The remaining session/grant/runtime migration is not enabled in production.
+  SQL family listing/revocation/IP queries and atomic step-up grants now also pass
+  their real-database tests. Stable keyed aliases preserve logout across token
+  replacement and grace cleanup. Remaining facades/runtime migration are not
+  enabled in production.
 - CodeRabbit's included milestone reviews were used and their verified findings
   fixed. No paid reviews were started; honor quota/cooldown reports.
+
+- The third state candidate passed a mount-guarded USB fsync/throughput probe.
+  Its test tree, containers and image were removed. This is performance evidence,
+  not a quorum, fencing, durability or failover acceptance claim.
 
 Remaining work: finish the session/grant adapters and all call sites, runtime
 selection and readiness, cross-node and cross-domain flows, HA quorum and

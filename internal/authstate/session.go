@@ -26,6 +26,15 @@ type SessionStore interface {
 	Revoke(context.Context, string) error
 	RevokeUser(context.Context, string) error
 	Restamp(context.Context, string, int64, int64) (bool, error)
+	ReplaceWithGrant(context.Context, string, string, PublicAccessGrant) (bool, error)
+	GrantRemaining(context.Context, string, string) (time.Duration, error)
+	LockGrant(context.Context, string) error
+	List(context.Context, string, string, int) (SessionPage, error)
+	RevokeFamily(context.Context, string, string) (bool, error)
+	RevokeOthers(context.Context, string, string) error
+	HasActiveForIP(context.Context, string) (bool, error)
+	ActiveCount(context.Context) (int64, error)
+	UpdateCountry(context.Context, string, string) (bool, error)
 }
 
 type IssueSession struct {
