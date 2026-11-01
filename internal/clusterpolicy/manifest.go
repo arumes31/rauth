@@ -221,6 +221,14 @@ type VerifiedManifest struct {
 	scope    [32]byte
 }
 
+// ClusterID identifies the trust scope without exposing its copied verification keys.
+func (v *Verifier) ClusterID() string {
+	if v == nil {
+		return ""
+	}
+	return v.cluster
+}
+
 func (v VerifiedManifest) Identity() Identity { return v.identity }
 func (v VerifiedManifest) Manifest() Manifest {
 	m := v.manifest
