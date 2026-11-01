@@ -221,8 +221,14 @@ func (s *PostgresSessions) Get(ctx context.Context, token string) (Session, erro
 func (s *PostgresSessions) locked(ctx context.Context, tx pgx.Tx, hash []byte) (sessionRow, time.Time, error) {
 	var family, user string
 	var want int64
-	if err := tx.QueryRow(ctx, `SELECT f.id::text,f.username,f.auth_gen FROM auth_sessions s JOIN auth_session_families f ON f.id=s.family_id WHERE s.token_hash=$1`, hash).Scan(&family, &user, &want); err != nil {
+	var retired bool
+	if err := tx.QueryRow(ctx, `SELECT f.id::text,f.username,f.auth_gen,s.retired FROM auth_sessions s JOIN auth_session_families f ON f.id=s.family_id WHERE s.token_hash=$1`, hash).Scan(&family, &user, &want, &retired); err != nil {
 		return sessionRow{}, time.Time{}, sqlError(err)
+	}
+	// Retirement is monotonic. In-flight requests using an old grace token
+	// must not contend with the live successor's rotation or replacement.
+	if retired {
+		return sessionRow{retired: true}, time.Time{}, nil
 	}
 	gen, err := lockGeneration(ctx, tx, user)
 	if err != nil {
@@ -234,6 +240,15 @@ func (s *PostgresSessions) locked(ctx context.Context, tx pgx.Tx, hash []byte) (
 	var revoked *time.Time
 	var current int64
 	if err := tx.QueryRow(ctx, "SELECT revoked_at,auth_gen FROM auth_session_families WHERE id=$1 FOR UPDATE SKIP LOCKED", family).Scan(&revoked, &current); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			var exists bool
+			if err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM auth_session_families WHERE id=$1)", family).Scan(&exists); err != nil {
+				return sessionRow{}, time.Time{}, err
+			}
+			if exists {
+				return sessionRow{}, time.Time{}, ErrBusy
+			}
+		}
 		return sessionRow{}, time.Time{}, sqlError(err)
 	}
 	r, err := scanSession(tx.QueryRow(ctx, "SELECT "+sessionColumns+" FROM auth_sessions s JOIN auth_session_families f ON f.id=s.family_id WHERE s.token_hash=$1 FOR UPDATE OF s", hash))
@@ -432,14 +447,40 @@ func (s *PostgresSessions) Restamp(ctx context.Context, token string, oldGenerat
 	return changed && err == nil, err
 }
 
-// Cleanup deletes only expired families/sessions. Revoked records remain until
-// their absolute deadline so an ambiguous mutation cannot resurrect a token.
+// Cleanup deletes only expired families/sessions. Revoked families remain until
+// their absolute deadline; expired child token rows can be pruned sooner.
 func (s *PostgresSessions) Cleanup(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
-	defer cancel()
-	if _, err := s.pool.Exec(ctx, "DELETE FROM auth_sessions WHERE idle_expires_at<=clock_timestamp()"); err != nil {
+	// A fixed DB cutoff gives this run a finite backlog. Each independently
+	// committed batch makes progress even if a later batch times out/cancels.
+	var cutoff time.Time
+	bounded, cancel := context.WithTimeout(ctx, operationTimeout)
+	err := s.pool.QueryRow(bounded, "SELECT clock_timestamp()").Scan(&cutoff)
+	cancel()
+	if err != nil {
 		return err
 	}
-	_, err := s.pool.Exec(ctx, "DELETE FROM auth_session_families WHERE absolute_expires_at<=clock_timestamp()")
-	return err
+	queries := []string{
+		`WITH doomed AS (SELECT token_hash FROM auth_sessions WHERE idle_expires_at<=$1 ORDER BY idle_expires_at LIMIT 1000 FOR UPDATE SKIP LOCKED)
+   DELETE FROM auth_sessions s USING doomed d WHERE s.token_hash=d.token_hash`,
+		`WITH doomed AS (SELECT s.token_hash FROM auth_session_families f JOIN auth_sessions s ON s.family_id=f.id WHERE f.absolute_expires_at<=$1
+   ORDER BY f.absolute_expires_at LIMIT 1000 FOR UPDATE OF s SKIP LOCKED)
+   DELETE FROM auth_sessions s USING doomed d WHERE s.token_hash=d.token_hash`,
+		`WITH doomed AS (SELECT f.id FROM auth_session_families f WHERE f.absolute_expires_at<=$1 AND NOT EXISTS(SELECT 1 FROM auth_sessions s WHERE s.family_id=f.id)
+   ORDER BY f.absolute_expires_at LIMIT 1000 FOR UPDATE OF f SKIP LOCKED)
+   DELETE FROM auth_session_families f USING doomed d WHERE f.id=d.id`,
+	}
+	for _, query := range queries {
+		for {
+			bounded, cancel := context.WithTimeout(ctx, operationTimeout)
+			tag, err := s.pool.Exec(bounded, query, cutoff)
+			cancel()
+			if err != nil {
+				return err
+			}
+			if tag.RowsAffected() == 0 {
+				break
+			}
+		}
+	}
+	return nil
 }

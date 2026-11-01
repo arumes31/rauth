@@ -158,7 +158,9 @@ func TestPostgresSessionsConcurrentRotationAndLogout(t *testing.T) {
 				store = b
 			}
 			ok, err := store.Rotate(ctx, old, token(string(rune('a'+i))), time.Hour, 30*time.Second)
-			assert.NoError(t, err)
+			if err != nil {
+				assert.ErrorIs(t, err, authstate.ErrBusy)
+			}
 			if ok {
 				wins.Add(1)
 			}
@@ -184,7 +186,9 @@ func TestPostgresSessionsConcurrentRotationAndLogout(t *testing.T) {
 			defer wg.Done()
 			<-gate
 			_, err := a.Rotate(ctx, old, next, time.Hour, 30*time.Second)
-			assert.NoError(t, err)
+			if err != nil {
+				assert.ErrorIs(t, err, authstate.ErrBusy)
+			}
 		}()
 		go func() { defer wg.Done(); <-gate; assert.NoError(t, b.Revoke(ctx, old)) }()
 		close(gate)
@@ -304,4 +308,65 @@ func TestAuthStateRejectsInvalidKeyrings(t *testing.T) {
 		_, err := authstate.NewKeyring(c.index, c.active, c.keys)
 		require.Error(t, err)
 	}
+}
+
+func TestPostgresSessionsBusyDoesNotMeanExpired(t *testing.T) {
+	p, a, b := fixture(t)
+	ctx := context.Background()
+	old, next := token("old-busy"), token("live-busy")
+	require.NoError(t, a.Issue(ctx, old, params()))
+	changed, err := a.Rotate(ctx, old, next, time.Hour, 30*time.Second)
+	require.NoError(t, err)
+	require.True(t, changed)
+	session, err := b.Get(ctx, next)
+	require.NoError(t, err)
+	tx, err := p.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback(ctx) }()
+	_, err = tx.Exec(ctx, "SELECT id FROM auth_session_families WHERE id=$1 FOR UPDATE", session.FamilyID)
+	require.NoError(t, err)
+	// Retired tokens return without trying to acquire the held family lock.
+	changed, err = b.Rotate(ctx, old, token("retired-no-fork"), time.Hour, 30*time.Second)
+	require.NoError(t, err)
+	assert.False(t, changed)
+	changed, err = b.Rotate(ctx, next, token("busy-next"), time.Hour, 30*time.Second)
+	require.ErrorIs(t, err, authstate.ErrBusy)
+	assert.False(t, changed)
+	changed, err = b.Replace(ctx, next, token("busy-replacement"))
+	require.ErrorIs(t, err, authstate.ErrBusy)
+	assert.False(t, changed)
+	_, err = b.Get(ctx, next)
+	require.NoError(t, err, "a busy mutation must not invalidate an active token")
+	require.NoError(t, tx.Rollback(ctx))
+	changed, err = b.Rotate(ctx, next, token("retry-next"), time.Hour, 30*time.Second)
+	require.NoError(t, err)
+	assert.True(t, changed)
+}
+func TestPostgresSessionsCleanupDrainsBacklogInBatches(t *testing.T) {
+	p, a, b := fixture(t)
+	ctx := context.Background()
+	live := token("keep-live")
+	require.NoError(t, a.Issue(ctx, live, params()))
+	var expired, active string
+	require.NoError(t, p.QueryRow(ctx, "INSERT INTO auth_session_families(id,username,auth_gen,absolute_expires_at) VALUES(gen_random_uuid(),'alice',0,clock_timestamp()-interval '1 hour') RETURNING id::text").Scan(&expired))
+	require.NoError(t, p.QueryRow(ctx, "INSERT INTO auth_session_families(id,username,auth_gen,absolute_expires_at) VALUES(gen_random_uuid(),'alice',0,clock_timestamp()+interval '1 hour') RETURNING id::text").Scan(&active))
+	// More than one batch in each category; absolute-expired families may still
+	// have children whose idle deadline is in the future (e.g. an older writer).
+	_, err := p.Exec(ctx, `INSERT INTO auth_sessions(token_hash,family_id,key_id,payload,issued_at,idle_expires_at,last_refreshed_at)
+ SELECT decode(lpad(to_hex(n),64,'0'),'hex'),$1,'v1',decode('00','hex'),clock_timestamp()-interval '2 hours',clock_timestamp()+interval '1 hour',clock_timestamp()-interval '2 hours'
+ FROM generate_series(1,1205) n`, expired)
+	require.NoError(t, err)
+	_, err = p.Exec(ctx, `INSERT INTO auth_sessions(token_hash,family_id,key_id,payload,issued_at,idle_expires_at,last_refreshed_at)
+ SELECT decode(lpad(to_hex(n),64,'0'),'hex'),$1,'v1',decode('00','hex'),clock_timestamp()-interval '2 hours',clock_timestamp()-interval '1 hour',clock_timestamp()-interval '2 hours'
+ FROM generate_series(2001,3305) n`, active)
+	require.NoError(t, err)
+	require.NoError(t, a.Cleanup(ctx))
+	var count int
+	require.NoError(t, p.QueryRow(ctx, "SELECT count(*) FROM auth_sessions").Scan(&count))
+	assert.Equal(t, 1, count)
+	require.NoError(t, p.QueryRow(ctx, "SELECT count(*) FROM auth_session_families WHERE id=$1", expired).Scan(&count))
+	assert.Zero(t, count)
+	_, err = b.Get(ctx, live)
+	require.NoError(t, err)
+	require.NoError(t, a.Cleanup(ctx), "cleanup is idempotent")
 }

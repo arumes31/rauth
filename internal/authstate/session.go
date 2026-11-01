@@ -9,8 +9,11 @@ import (
 var ErrNotFound = errors.New("authentication state not found or expired")
 var ErrStaleGeneration = errors.New("authentication proof was revoked")
 var ErrConflict = errors.New("session token already exists")
+var ErrBusy = errors.New("authentication state is busy; retry")
 
 // SessionStore is deliberately separate from challenge/grant/counter stores.
+// Rotate/Replace return ErrBusy for transient family-lock contention; callers
+// can retain/retry the current token rather than treating it as expired.
 // Every operation uses SQL authority; there is no positive authorization cache.
 // Revoke invalidates the entire family, including concurrent rotations and
 // future app sessions linked by SSO. Refresh cannot extend absolute expiry.
