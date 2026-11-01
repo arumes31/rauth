@@ -326,8 +326,8 @@ Manage rules in **`/rauthmgmt` → Public Access**. Before you can add, edit or 
 How matching works:
 - Hosts match exactly and ignore case and port. Path rules match on whole segments and are case-sensitive.
 - The query string is ignored.
-- A URI with dot segments (`.` or `..`), a backslash, encoded `/`, `\`, `.` or NUL, double encoding, or invalid escapes is never bypassed, so tricks like `/webhook/..%2fadmin` cannot reach other paths.
-- Literal and encoded semicolons in filenames (for example WebDAV `/files/ops;C` or `/files/ops%3BC`) are accepted when **all rules matching the requested host apply to the whole host**. If any matching host rule is path-specific, semicolon paths still require authentication to prevent path-parameter interpretation from sidestepping that policy.
+- A URI with dot segments (`.` or `..`), a backslash, encoded `/`, `\`, `.` or NUL, or invalid escapes is never bypassed, so tricks like `/webhook/..%2fadmin` cannot reach other paths.
+- Literal/encoded semicolons and encoded percent signs in filenames (for example WebDAV `/files/ops;C`, `/files/ops%3BC`, or `/files/Understanding%252bThe%252bManifest.psd1`) are accepted when **all rules matching the requested host apply to the whole host**. If any matching host rule is path-specific, semicolon and double-encoded paths still require authentication so differing backend decoding cannot sidestep that policy.
 - Anonymous responses carry `X-RAuth-Anonymous: 1` and an empty `X-RAuth-User`. Backends must not treat an empty user as authenticated.
 
 The host and URI come from `X-Forwarded-Host` and `X-Forwarded-Uri` on the auth subrequest. Caddy (`forward_auth`) and Traefik (`forwardAuth`) send these headers by default. With nginx, add `proxy_set_header X-Forwarded-Host $host;` and `proxy_set_header X-Forwarded-Uri $request_uri;` to the `/rauth-verify` location. Setups that only send `X-Original-URI` can set `AUTH_BYPASS_URI_HEADER=X-Original-URI` instead. If a request is missing either header, it is never bypassed.

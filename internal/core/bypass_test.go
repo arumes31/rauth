@@ -249,6 +249,11 @@ func TestMatchBypassSemicolonFilenames(t *testing.T) {
 		want      bool
 	}{
 		{"whole host literal", []string{"cloud.example.com"}, "cloud.example.com", davPath, true},
+		{"whole host literal percent filename", []string{"cloud.example.com"}, "cloud.example.com", "/files/Understanding%252bThe%252bManifest.psd1", true},
+		{"whole host encoded percent itself", []string{"cloud.example.com"}, "cloud.example.com", "/files/report%25.txt", true},
+		{"percent filename with path allow", []string{"cloud.example.com/files"}, "cloud.example.com", "/files/report%25.txt", false},
+		{"percent encoding with path deny", []string{"cloud.example.com", "!cloud.example.com/admin"}, "cloud.example.com", "/public%252f..%252fadmin", false},
+		{"percent encoding with wildcard path policy", []string{"cloud.example.com", "!*.example.com/admin"}, "cloud.example.com", "/public%252fadmin", false},
 		{"whole host encoded", []string{"cloud.example.com"}, "cloud.example.com", "/remote.php/dav/files/admin/ops%3BC", true},
 		{"whole host absolute target", []string{"cloud.example.com"}, "cloud.example.com", "https://cloud.example.com" + davPath, true},
 		{"wildcard host", []string{"*.example.com"}, "cloud.example.com", davPath, true},
@@ -266,7 +271,7 @@ func TestMatchBypassSemicolonFilenames(t *testing.T) {
 		{"semicolon with encoded dot", []string{"cloud.example.com"}, "cloud.example.com", "/public/%2e%2e/admin;C", false},
 		{"semicolon with backslash", []string{"cloud.example.com"}, "cloud.example.com", `/public\admin;C`, false},
 		{"semicolon with encoded NUL", []string{"cloud.example.com"}, "cloud.example.com", "/public/%00;C", false},
-		{"semicolon with double encoding", []string{"cloud.example.com"}, "cloud.example.com", "/public%252fadmin;C", false},
+		{"opaque names on whole host", []string{"cloud.example.com"}, "cloud.example.com", "/public%252fadmin;C", true},
 		{"semicolon with bad escape", []string{"cloud.example.com"}, "cloud.example.com", "/public/%zz;C", false},
 	}
 	for _, tc := range cases {
