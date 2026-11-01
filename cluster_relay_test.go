@@ -277,3 +277,20 @@ func TestClusterBootstrapKeepsLegacyAndRejectsUnsafeOptinBeforeDatabase(t *testi
 	require.Error(t, err)
 	assert.Nil(t, material)
 }
+
+func TestClusterIPExtractionUsesOnlyFrozenCloudflareRanges(t *testing.T) {
+	cfg := relayConfig()
+	cfg.ClusterConfigFile = "/private/node.json"
+	cfg.TrustCloudflareIP = true
+	cfg.TrustXRealIP = false
+	cfg.CloudflareIPRanges = []string{"198.51.100.0/24"}
+	extract := CreateIPExtractor(cfg)
+	request := httptest.NewRequest(http.MethodGet, "https://auth.example.com/rauthvalidate", nil)
+	request.RemoteAddr = "10.253.42.2:45000"
+	request.Header.Set("X-Real-IP", "198.51.100.22")
+	request.Header.Set("CF-Connecting-IP", "203.0.113.7")
+	assert.Equal(t, "203.0.113.7", extract(request))
+	request.Header.Set("X-Real-IP", "104.16.0.1")
+	request.Header.Set("X-Forwarded-For", "104.16.0.1")
+	assert.Equal(t, "104.16.0.1", extract(request), "the process-global default must not override the enrolled frozen list")
+}

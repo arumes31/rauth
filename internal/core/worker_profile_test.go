@@ -64,3 +64,18 @@ func TestWorkerPolicyOptionsRequireFrozenExplicitClusterConfiguration(t *testing
 	_, err = WorkerPolicyOptionsForConfig(snapshotNode, cfg)
 	require.NoError(t, err)
 }
+
+func TestWorkerPolicyOptionsRejectInvalidFrozenEdgeRanges(t *testing.T) {
+	for _, ranges := range [][]string{nil, {"bad-prefix"}, {"198.51.100.1/24"}} {
+		cfg := workerProfileConfig()
+		cfg.TrustCloudflareIP = true
+		cfg.CloudflareIPRanges = ranges
+		_, err := WorkerPolicyOptionsForConfig(snapshotNode, cfg)
+		require.Error(t, err)
+	}
+	cfg := workerProfileConfig()
+	cfg.TrustCloudflareIP = true
+	cfg.CloudflareIPRanges = []string{"198.51.100.0/24"}
+	_, err := WorkerPolicyOptionsForConfig(snapshotNode, cfg)
+	require.NoError(t, err)
+}

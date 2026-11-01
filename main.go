@@ -766,7 +766,11 @@ func CreateIPExtractor(cfg *core.Config) echo.IPExtractor {
 					edge = ip.String()
 				}
 			}
-			if core.IsCloudflareIP(edge) {
+			cloudflareEdge := core.IsCloudflareIP(edge)
+			if cfg.ClusterConfigFile != "" {
+				cloudflareEdge = cfg.IsIPAllowed(edge, cfg.CloudflareIPRanges)
+			}
+			if cloudflareEdge {
 				if ip := net.ParseIP(strings.TrimSpace(req.Header.Get("CF-Connecting-IP"))); ip != nil {
 					return ip.String()
 				}

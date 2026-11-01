@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	"rauth/internal/clusterconfig"
 	"rauth/internal/core"
 )
 
@@ -19,6 +20,11 @@ func main() {
 		os.Exit(2)
 	}
 	cfg := core.LoadConfig()
+	material, err := core.LoadClusterBootstrap(cfg)
+	if err != nil || (material != nil && material.Config().Role != clusterconfig.Control) {
+		slog.Error("Offline control configuration failed")
+		os.Exit(1)
+	}
 	if cfg.AuthStateMode != "postgres" {
 		slog.Error("Set AUTH_STATE_MODE=postgres for this offline operation")
 		os.Exit(2)

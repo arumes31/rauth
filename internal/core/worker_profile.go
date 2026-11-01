@@ -77,6 +77,15 @@ func WorkerPolicyOptionsForConfig(nodeID string, cfg *Config) (WorkerPolicyOptio
 	if cfg.CloudflareAutoUpdate {
 		return invalid, errors.New("worker policy runtime requires versioned Cloudflare ranges; disable automatic config mutation")
 	}
+	if cfg.TrustCloudflareIP && len(cfg.CloudflareIPRanges) == 0 {
+		return invalid, errors.New("worker Cloudflare trust requires explicit frozen ranges")
+	}
+	for _, raw := range cfg.CloudflareIPRanges {
+		prefix, e := netip.ParsePrefix(raw)
+		if e != nil || prefix.Addr().Is4In6() || prefix.Masked().String() != raw {
+			return invalid, errors.New("worker Cloudflare ranges must be canonical prefixes")
+		}
+	}
 	if len(cfg.TrustedProxies) == 0 {
 		return invalid, errors.New("worker policy runtime requires explicit proxy peers")
 	}

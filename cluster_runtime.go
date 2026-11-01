@@ -50,31 +50,10 @@ type clusterRuntime struct {
 // loadClusterBootstrap runs before database/authority initialization. Legacy
 // startup remains unchanged when the explicit host-file opt-in is absent.
 func loadClusterBootstrap(cfg *core.Config) (*clusterconfig.Loaded, error) {
-	if cfg.ClusterConfigFile == "" {
-		return nil, nil
-	}
-	material, err := clusterconfig.Load(cfg.ClusterConfigFile)
-	if err != nil {
-		return nil, err
-	}
-	spec := material.Config()
-	if material.CheckCacheRoot() != nil {
-		return nil, errClusterRuntime
-	}
-	cfg.ServerSecret = material.CookieSecret()
-	cfg.PostgresURL = material.DatabaseURL("auth")
-	cfg.AuthStateKeyFile = spec.AuthStateKeyFile
-	cfg.ListenAddr = spec.PublicListen
-	if spec.Role == clusterconfig.Control {
-		cfg.MaxMindDBPath = spec.GeoIPFile
-	}
-	if _, err = core.WorkerPolicyOptionsForConfig(spec.NodeID, cfg); err != nil {
-		return nil, err
-	}
-	return material, nil
+	return core.LoadClusterBootstrap(cfg)
 }
 func newClusterRuntime(parent context.Context, cfg *core.Config, material *clusterconfig.Loaded) (*clusterRuntime, error) {
-	if material == nil || parent == nil {
+	if material == nil || parent == nil || cfg == nil || cfg.ClusterConfigFile == "" {
 		return nil, errClusterRuntime
 	}
 	spec := material.Config()

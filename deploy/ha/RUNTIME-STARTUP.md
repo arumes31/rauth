@@ -71,3 +71,12 @@ policy notices, durable event spooling/collection and actual
 three-host strict-sync/fencing infrastructure before worker/NPM cutover. Existing
 unit/SQL/relay checks are not a proof of deployed host-loss or physical passkey
 acceptance. Never enable an incomplete rollout merely because source compiles.
+
+Offline helpers in the image use the same guarded bootstrap when
+CLUSTER_CONFIG_FILE is set. The feed bootstrap and explicit authority-cutover
+command require the control role. rauth-node-profile -node-id <UUID> derives only
+the public security fingerprint/GeoIP requirement from the node's environment;
+it makes no database connection and can run before private material is installed.
+Cluster client-IP extraction uses the frozen configured Cloudflare prefixes,
+which must be canonical networks, without relying on a mutable process-global
+updater. Actual peer/source measurements remain a deployment preflight.
