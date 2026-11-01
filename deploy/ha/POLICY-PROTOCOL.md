@@ -48,9 +48,13 @@ verified TLS independently of the control service every 10 seconds. A control
 notification or cached HTTP response is not proof of the current authoritative
 head. Verify its signature before observing it.
 
-`NewFreshness` takes the durable high-water revision/hash and starts unready.
+`NewFreshness` takes the configured verifier plus the durable high-water
+revision/hash and starts unready. Verified evidence is bound to that exact trust
+key set as well as the cluster; a keyring change requires re-verifying the cache
+and current head through the replacement verifier.
 `Restore` accepts a complete verified cache but cannot restore a prior wall-clock
-lease. Persist a verified newer head before publishing its observation; an
+lease. Withdraw readiness immediately upon a verified new head before waiting for
+disk I/O. Durably record its watermark before activating a replacement; an
 indeterminate persistence failure is an operational error, never permission to
 serve an older public rule. The monotonic in-process deadline is 120 seconds by
 default, configurable from 10 through 300 seconds.
@@ -76,20 +80,68 @@ must return an operational 503. Never turn a missing or stale restriction into a
 broader Public Access match. Private/session operations already fail closed on
 SQL authority errors. Collector health is independent of policy/auth readiness.
 
-## Durable-store integration still required
+## Durable Linux host cache
 
-Use a mount-checked, pre-existing absolute host bind root (Pi3 below
-/mnt/usb1/rauth). Create immutable content-addressed blobs and signed envelopes,
-fsync before atomic state-pointer publication, and retain active/previous plus
-one bounded staging generation. Persist high-water identity and current/previous
-pointers with an exclusive writer lock. Reject symlink/traversal paths and corrupt
-state. Handle disk-full, interrupted writes and ambiguous fsync/rename outcomes
-without publishing unverified content or resetting the watermark. On restart,
-verify signatures, all blob hashes and semantic compilation again, then require
-a fresh authoritative head. Never trust a persisted deadline for readiness.
+The Linux `Store` now implements the local persistence primitive. It requires a
+pre-existing private absolute bind root; it never creates an absent configured
+root that could conceal a missing USB mount. Deployment still has to check the
+expected mounted filesystem and use create_host_path:false on Docker binds.
+Pi3 paths stay below /mnt/usb1/rauth. The store rejects symlink roots/directories
+and acquires an exclusive lifetime writer lock. Its os.Root-relative operations
+address blobs/manifests by validated hashes and never traverse supplied paths.
 
-Make current manifests/dependencies durably available after control-host loss;
-commit the HA head only after its payload availability is established. A newly
-signed higher revision is the rollback mechanism. Do not overwrite a revision
-or let an old signature remove a newer restriction. Implement and test this
-store/control-plane contract before wiring these primitives into workers.
+Content files are streamed to private temporaries, checked, fsynced and renamed
+before the atomic state journal can reference them. One journal retains high-water
+identity, active, previous and at most one staged generation. Staging needs every
+hash and semantic compiler to succeed. A failed/cancelled/invalid download cannot
+replace active data or accumulate its newly written orphan blobs. Old unused
+artifacts are reclaimed before another staging generation is downloaded.
+
+Head observations do not wait for network staging. A newer head arriving during
+staging prevents its older result from committing. Artifact cleanup never removes
+an in-progress head journal temporary. Root journal temporaries are reclaimed at
+startup or during locked post-commit cleanup. Only exact generated hash/temporary
+names are removed; unrelated operator files and directories are left alone.
+
+An ambiguous state-rename/directory-fsync result requires reopening; the caller
+must not infer the old pointer still won. Recovery verifies the journal and signed
+manifests, loads and revalidates every active blob/semantic object, then requires
+a fresh HA head. Missing journals beside artifacts are corrupt state, not a reason
+to reset the watermark. No persisted deadline can restore readiness.
+
+After a successful activation commit, reclamation failures are reported through
+CleanupError, independently of commit success. Activation retry is idempotent;
+a cleanup fault cannot falsely make a committed generation look uncommitted.
+The next staging operation reclaims before allowing more downloads, bounding
+retention even when cleanup is failing. Runtime health must expose this signal.
+
+This component remains unwired. Make current manifests/dependencies durably
+available after control-host loss and commit the HA head only after its payload
+availability is established. Integrate Store and Freshness with the private mTLS
+control plane and an atomic immutable runtime bundle pointer. Readiness must use
+Status on the exact pinned bundle. A newly signed higher revision is the rollback
+mechanism. Re-verification after trust-key rotation is mandatory; keep public
+keys needed by retained active/previous/staged generations until those generations
+have been safely retired. Never delete a required verifier key as a shortcut.
+
+Native Linux tests cover writer exclusion, missing/private root checks, restart,
+active/previous/staged bounds, failed staging, concurrent heads, symlink/corrupt
+state, interrupted commit recovery, disk-full rename failure, journal-temporary
+races and idempotent commit/cleanup separation. They also reject evidence verified
+under a different key set even when its cluster or envelope identity matches.
+These checks do not certify the physical disk's power-loss behavior, HA fencing,
+transport identity, production filesystem mounts, or worker request admission.
+
+An identical durable staged generation is re-verified and reused after restart;
+it is not cleared/reclaimed before activation. Successful complete pre-stage
+cleanup clears the previous cleanup health signal. Root temporary reclamation
+holds the journal lock; network staging does not. A second writer reports the
+explicit ErrStoreLocked sentinel. Changing the cluster UUID intentionally changes
+the trust scope and invalidates cached policies; re-registration into a different
+cluster requires its own verified state rather than reusing the old cache.
+
+The opened root handle is rechecked for identity and private permissions, closing
+the path-resolution race after Lstat. Damaged regular blobs can be refetched and
+atomically replaced only after matching the signed size/hash. Repaired content
+referenced by active/previous/staged generations survives subsequent stage
+failures. Symlink/non-regular targets and non-integrity I/O failures still reject.

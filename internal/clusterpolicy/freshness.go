@@ -14,6 +14,7 @@ var ErrNotCurrent = errors.New("complete policy does not match a fresh authorita
 
 type Freshness struct {
 	mu        sync.Mutex
+	scope     [32]byte
 	now       func() time.Time
 	lease     time.Duration
 	minimum   Identity
@@ -30,16 +31,18 @@ type Status struct {
 
 // NewFreshness requires the durable high-water mark from the host-mounted store.
 // A fresh process never inherits readiness from a persisted wall-clock deadline.
-// Callers must durably record a verified higher head/activation before publishing
-// it here; this object implements lease decisions, not filesystem persistence.
-func NewFreshness(minimum Identity, lease time.Duration) (*Freshness, error) {
+// A new verified head withdraws readiness before disk I/O; persist its
+// watermark before replacement activation. This object implements lease
+// decisions, not filesystem persistence.
+func NewFreshness(v *Verifier, minimum Identity, lease time.Duration) (*Freshness, error) {
 	if lease == 0 {
 		lease = DefaultLease
 	}
-	if lease < HeadCheckInterval || lease > MaxLease || (minimum != (Identity{}) && !minimum.valid()) {
+	// A zero scope denotes an uninitialized verifier without configured trust.
+	if v == nil || v.scope == ([32]byte{}) || lease < HeadCheckInterval || lease > MaxLease || (minimum != (Identity{}) && !minimum.valid()) {
 		return nil, ErrInvalid
 	}
-	return &Freshness{minimum: minimum, lease: lease, now: time.Now}, nil
+	return &Freshness{minimum: minimum, lease: lease, now: time.Now, scope: v.scope}, nil
 }
 func (f *Freshness) acceptable(id Identity) bool {
 	return id.valid() && (f.minimum.Revision == 0 || id.Revision > f.minimum.Revision || id == f.minimum)
@@ -50,7 +53,7 @@ func (f *Freshness) acceptable(id Identity) bool {
 func (f *Freshness) Restore(bundle VerifiedBundle) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if !bundle.valid || !f.acceptable(bundle.Identity()) {
+	if !bundle.valid || bundle.head.scope != f.scope || !f.acceptable(bundle.Identity()) {
 		return ErrRollback
 	}
 	f.active = bundle.Identity()
@@ -66,7 +69,7 @@ func (f *Freshness) Restore(bundle VerifiedBundle) error {
 func (f *Freshness) ObserveHead(head VerifiedManifest) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if !head.valid || !f.acceptable(head.Identity()) || head.identity.Revision < f.desired.Revision || (head.identity.Revision == f.desired.Revision && head.identity != f.desired) {
+	if !head.valid || head.scope != f.scope || !f.acceptable(head.Identity()) || head.identity.Revision < f.desired.Revision || (head.identity.Revision == f.desired.Revision && head.identity != f.desired) {
 		f.headUntil = time.Time{}
 		return ErrRollback
 	}
@@ -85,7 +88,7 @@ func (f *Freshness) HeadUnavailable() {}
 func (f *Freshness) Activate(bundle VerifiedBundle) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if !bundle.valid || bundle.Identity() != f.desired || !f.now().Before(f.headUntil) || !f.acceptable(bundle.Identity()) {
+	if !bundle.valid || bundle.head.scope != f.scope || bundle.Identity() != f.desired || !f.now().Before(f.headUntil) || !f.acceptable(bundle.Identity()) {
 		return ErrNotCurrent
 	}
 	f.active = bundle.Identity()
@@ -99,5 +102,5 @@ func (f *Freshness) Activate(bundle VerifiedBundle) error {
 func (f *Freshness) Status(bundle VerifiedBundle) Status {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return Status{Ready: bundle.valid && bundle.Identity() == f.active && f.active.valid() && f.active == f.desired && f.now().Before(f.headUntil), Applied: f.active, Desired: f.desired, LeaseExpiresAt: f.headUntil}
+	return Status{Ready: bundle.valid && bundle.head.scope == f.scope && bundle.Identity() == f.active && f.active.valid() && f.active == f.desired && f.now().Before(f.headUntil), Applied: f.active, Desired: f.desired, LeaseExpiresAt: f.headUntil}
 }

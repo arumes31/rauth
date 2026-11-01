@@ -1,6 +1,7 @@
 package clusterpolicy
 
 import (
+	"crypto/ed25519"
 	"io"
 	"strings"
 	"testing"
@@ -11,9 +12,9 @@ import (
 )
 
 func TestFreshnessRestartNeedsFreshHeadAndControllerOutageDoesNotMatter(t *testing.T) {
-	head, bundle, _, _ := fixture(t, 10)
+	head, bundle, _, v := fixture(t, 10)
 	now := time.Now()
-	f, err := NewFreshness(head.Identity(), 0)
+	f, err := NewFreshness(v, head.Identity(), 0)
 	require.NoError(t, err)
 	f.now = func() time.Time { return now }
 	require.NoError(t, f.Restore(bundle))
@@ -29,17 +30,17 @@ func TestFreshnessRestartNeedsFreshHeadAndControllerOutageDoesNotMatter(t *testi
 	assert.True(t, f.Status(bundle).Ready)
 	now = now.Add(time.Second)
 	assert.False(t, f.Status(bundle).Ready, "lease is closed at the deadline, not one tick later")
-	restarted, err := NewFreshness(head.Identity(), DefaultLease)
+	restarted, err := NewFreshness(v, head.Identity(), DefaultLease)
 	require.NoError(t, err)
 	restarted.now = f.now
 	require.NoError(t, restarted.Restore(bundle))
 	assert.False(t, restarted.Status(bundle).Ready, "disk cache alone cannot renew an outage lease")
 }
 func TestNewHeadWithdrawsReadinessUntilCompleteCurrentActivation(t *testing.T) {
-	old, oldBundle, _, _ := fixture(t, 1)
+	old, oldBundle, _, v := fixture(t, 1)
 	next, nextBundle, _, _ := fixture(t, 2)
 	now := time.Now()
-	f, err := NewFreshness(Identity{}, DefaultLease)
+	f, err := NewFreshness(v, Identity{}, DefaultLease)
 	require.NoError(t, err)
 	f.now = func() time.Time { return now }
 	require.NoError(t, f.Restore(oldBundle))
@@ -59,8 +60,8 @@ func TestNewHeadWithdrawsReadinessUntilCompleteCurrentActivation(t *testing.T) {
 	assert.True(t, f.Status(nextBundle).Ready)
 }
 func TestFreshnessRejectsEquivocationDelayedActivationAndInvalidLimits(t *testing.T) {
-	head, bundle, _, _ := fixture(t, 8)
-	other, _, _, v := fixture(t, 8)
+	head, bundle, _, v := fixture(t, 8)
+	other, _, _, _ := fixture(t, 8)
 	// A different signed payload at the same revision is never a rollback alias.
 	m := other.Manifest()
 	m.PublishedAt = m.PublishedAt.Add(time.Second)
@@ -69,7 +70,7 @@ func TestFreshnessRejectsEquivocationDelayedActivationAndInvalidLimits(t *testin
 	other, err = v.Verify(raw)
 	require.NoError(t, err)
 	now := time.Now()
-	f, err := NewFreshness(head.Identity(), 10*time.Second)
+	f, err := NewFreshness(v, head.Identity(), 10*time.Second)
 	require.NoError(t, err)
 	f.now = func() time.Time { return now }
 	require.NoError(t, f.Restore(bundle))
@@ -82,17 +83,17 @@ func TestFreshnessRejectsEquivocationDelayedActivationAndInvalidLimits(t *testin
 	now = now.Add(10 * time.Second)
 	require.ErrorIs(t, f.Activate(bundle), ErrNotCurrent)
 	assert.False(t, f.Status(bundle).Ready)
-	_, err = NewFreshness(Identity{}, MaxLease+time.Second)
+	_, err = NewFreshness(v, Identity{}, MaxLease+time.Second)
 	require.ErrorIs(t, err, ErrInvalid)
-	_, err = NewFreshness(Identity{}, time.Second)
+	_, err = NewFreshness(v, Identity{}, time.Second)
 	require.ErrorIs(t, err, ErrInvalid)
-	_, err = NewFreshness(Identity{Revision: 2, SHA256: "bad"}, 0)
+	_, err = NewFreshness(v, Identity{Revision: 2, SHA256: "bad"}, 0)
 	require.ErrorIs(t, err, ErrInvalid)
 }
 func TestPersistedHighWaterRejectsOldRestoredGenerations(t *testing.T) {
-	old, oldBundle, _, _ := fixture(t, 5)
+	old, oldBundle, _, v := fixture(t, 5)
 	current, _, _, _ := fixture(t, 6)
-	f, err := NewFreshness(current.Identity(), DefaultLease)
+	f, err := NewFreshness(v, current.Identity(), DefaultLease)
 	require.NoError(t, err)
 	require.ErrorIs(t, f.Restore(oldBundle), ErrRollback)
 	require.ErrorIs(t, f.ObserveHead(old), ErrRollback)
@@ -100,10 +101,10 @@ func TestPersistedHighWaterRejectsOldRestoredGenerations(t *testing.T) {
 }
 
 func TestNewHeadDuringStagingCannotPublishAnOlderBundleAsReady(t *testing.T) {
-	initial, initialBundle, _, _ := fixture(t, 1)
+	initial, initialBundle, _, v := fixture(t, 1)
 	next, _, _, _ := fixture(t, 2)
 	newest, newestBundle, _, _ := fixture(t, 3)
-	f, err := NewFreshness(Identity{}, DefaultLease)
+	f, err := NewFreshness(v, Identity{}, DefaultLease)
 	require.NoError(t, err)
 	require.NoError(t, f.Restore(initialBundle))
 	require.NoError(t, f.ObserveHead(initial))
@@ -150,4 +151,38 @@ func TestNewHeadDuringStagingCannotPublishAnOlderBundleAsReady(t *testing.T) {
 	require.NoError(t, f.Activate(newestBundle))
 	assert.True(t, f.Status(newestBundle).Ready)
 	assert.False(t, f.Status(staged).Ready)
+}
+
+func TestFreshnessCannotAdmitEvidenceFromAnotherTrustKeySet(t *testing.T) {
+	head, bundle, _, v := fixture(t, 1)
+	foreignKey := testKey("foreign")
+	foreign, err := NewVerifier(testCluster, map[string]ed25519.PublicKey{"foreign": foreignKey.Public().(ed25519.PublicKey)})
+	require.NoError(t, err)
+	m := head.Manifest()
+	m.Revision = 2
+	raw, err := Sign(m, "foreign", foreignKey)
+	require.NoError(t, err)
+	foreignHead, err := foreign.Verify(raw)
+	require.NoError(t, err)
+	foreignBundle := VerifiedBundle{head: foreignHead, valid: true}
+	f, err := NewFreshness(v, head.Identity(), DefaultLease)
+	require.NoError(t, err)
+	require.NoError(t, f.Restore(bundle))
+	require.NoError(t, f.ObserveHead(head))
+	assert.True(t, f.Status(bundle).Ready)
+	require.ErrorIs(t, f.ObserveHead(foreignHead), ErrRollback)
+	assert.False(t, f.Status(bundle).Ready)
+	require.ErrorIs(t, f.Restore(foreignBundle), ErrRollback)
+	require.ErrorIs(t, f.Activate(foreignBundle), ErrNotCurrent)
+	assert.False(t, f.Status(foreignBundle).Ready)
+	// A valid signature under a different key set cannot even borrow an identical
+	// raw envelope's identity (key rotation requires re-verification/reloading).
+	overlap, err := NewVerifier(testCluster, map[string]ed25519.PublicKey{"one": testKey("one").Public().(ed25519.PublicKey), "foreign": foreignKey.Public().(ed25519.PublicKey)})
+	require.NoError(t, err)
+	originalRaw, err := Sign(head.Manifest(), "one", testKey("one"))
+	require.NoError(t, err)
+	alternate, err := overlap.Verify(originalRaw)
+	require.NoError(t, err)
+	assert.Equal(t, head.Identity(), alternate.Identity())
+	require.ErrorIs(t, f.ObserveHead(alternate), ErrRollback)
 }
