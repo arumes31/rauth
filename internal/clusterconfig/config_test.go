@@ -105,3 +105,17 @@ func TestStrictJSONRejectsCaseAndUnicodeAliasesInSignerFields(t *testing.T) {
 		require.ErrorIs(t, strictJSON([]byte(raw), &signer), ErrInvalid)
 	}
 }
+
+func TestRuntimeConfigReservesEntireCacheNamespace(t *testing.T) {
+	for _, location := range []string{"state.json", "manifests/operator.json", "blobs/node.key"} {
+		c := document("/var/lib/rauth")
+		c.PrivateKeyFile = c.CacheRoot + "/" + location
+		require.ErrorIs(t, c.Validate(), ErrInvalid)
+	}
+	c := document("/var/lib/rauth")
+	c.PrivateKeyFile = "/var/lib/rauth/cache-old/node.key"
+	require.NoError(t, c.Validate(), "a sibling with a similar prefix is independent of the cache")
+	c.PrivateKeyFile = "/var/lib/rauth/cache-parent"
+	c.CacheRoot = c.PrivateKeyFile + "/cache"
+	require.ErrorIs(t, c.Validate(), ErrInvalid, "a protected file cannot be the cache's parent either")
+}

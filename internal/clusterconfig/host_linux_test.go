@@ -229,3 +229,15 @@ func TestRuntimeLoadRequiresWritableLeaderAndValidProfiles(t *testing.T) {
 	_, err := load(file, func(Config) error { return nil })
 	require.ErrorIs(t, err, ErrInvalid)
 }
+
+func TestRuntimeLoadRejectsNodeDocumentInCacheNamespace(t *testing.T) {
+	filename, c := loadedFixture(t, Worker)
+	body, err := os.ReadFile(filename)
+	require.NoError(t, err)
+	nested := c.CacheRoot + "/state.json"
+	writeFixture(t, nested, body)
+	checked := false
+	_, err = load(nested, func(Config) error { checked = true; return nil })
+	require.ErrorIs(t, err, ErrInvalid)
+	assert.False(t, checked, "cache collision is rejected before mount/secret loading")
+}
