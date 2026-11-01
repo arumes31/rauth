@@ -1,7 +1,7 @@
 # Implementation plan: RAuth public-access policies and active-active authentication
 
 Date: 2026-11-01 (Europe/Vienna)
-Status: Proposed implementation plan; documentation only. No product code, deployment, DNS or NPM changes have been made for this proposal.
+Status: Approved for implementation by the user goal on 2026-11-01. Work in progress; deployment gates remain mandatory.
 Design: ../specs/2026-11-01-public-access-active-active-design.md
 Baseline: main 52cd1a2f95a2004c722f6ef572da86859100f491
 Documentation branch: docs/public-access-ha-design
@@ -308,3 +308,11 @@ The design and this plan are proposed deliverables. Review especially:
 - Proposed feed limits and event-retention/backlog caps.
 
 No implementation, feed activation, NPM edits or DNS changes should be inferred from this documentation-only task.
+
+## User addition: dedicated Tailscale services
+
+In Task 1 inventory existing tailnet policy and verify enrollment-key reuse/expiry without printing its value. In Tasks 7 and 9 add one official, pinned Tailscale service and persistent identity per RAuth node; carry policy, events and replicated state through those service addresses. Preserve private local NPM ingress, restrict tailnet peers/ports, keep TLS, and test restart/re-enrollment, sidecar outage and distinct identities. Store the supplied join key only as a bootstrap secret outside Git, remove it from the runtime after enrollment, and never clone node state. In Tasks 11/12 verify there is no dependency on the host's existing Tailscale daemon for RAuth cluster traffic.
+
+## User additions: pi3 and host bind mounts
+
+Use pi3 as the third state-node candidate after live storage/latency checks, with every RAuth persistent path under /mnt/usb1/rauth. Live mount, free-space, memory and TUN evidence is saved outside Git at C:/DR/rauth-deployment/pi3-storage-preflight.json. All deployment templates and tests must cover image VOLUME destinations with explicit host bind mounts; do not create named or anonymous volumes. Check the expected filesystem before creating a directory so an absent USB device cannot redirect writes to the system disk. Include state, WAL, etcd, GeoIP/feed snapshots, event databases/spools, Tailscale identity, certificates, configuration and backups in the path manifest and restore tests.

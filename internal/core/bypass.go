@@ -51,6 +51,7 @@ const (
 
 // BypassRule is one normalized bypass rule.
 type BypassRule struct {
+	RulePolicy
 	// Rule is the canonical text form ("host", "host/" or "host/path"),
 	// without the "!" deny marker.
 	Rule string `json:"rule"`
@@ -326,20 +327,40 @@ func init() {
 // as reported by the reverse proxy, and whether it allows anonymous access.
 // It fails closed on anything unclear.
 func MatchBypass(rawHost, rawURI string) (BypassRule, bool) {
+	rule, found, err := SelectBypassRule(rawHost, rawURI)
+	return rule, err == nil && found && rule.Allows()
+}
+
+// SelectBypassRule selects the winning rule, including login-required rules.
+// An ambiguous target returns an error so restrictions cannot be skipped by
+// authenticating with a valid cookie.
+func SelectBypassRule(rawHost, rawURI string) (BypassRule, bool, error) {
 	set := activeBypass.Load()
 	if len(set.env) == 0 && len(set.ui) == 0 {
-		return BypassRule{}, false
+		return BypassRule{}, false, nil
 	}
 	host := normalizeRequestHost(rawHost)
 	if host == "" {
-		return BypassRule{}, false
+		return BypassRule{}, false, nil
+	}
+	matchingHost := false
+	for _, list := range [][]BypassRule{set.env, set.ui} {
+		for _, rule := range list {
+			if rule.matchesHost(host) {
+				matchingHost = true
+				break
+			}
+		}
+	}
+	if !matchingHost {
+		return BypassRule{}, false, nil
 	}
 	reqPath, ok := safeRequestPath(rawURI)
 	opaquePath := !ok
 	if !ok {
 		reqPath, ok = requestPath(rawURI, true)
 		if !ok {
-			return BypassRule{}, false
+			return BypassRule{}, false, errBypassPath
 		}
 	}
 	var best BypassRule
@@ -351,7 +372,7 @@ func MatchBypass(rawHost, rawURI string) (BypassRule, bool) {
 			// Keep failing closed whenever this host has any path-scoped policy,
 			// even if the literal path would not match that rule.
 			if opaquePath && r.Path != "" && r.matchesHost(host) {
-				return BypassRule{}, false
+				return BypassRule{}, false, errBypassPath
 			}
 			if r.matches(host, reqPath) && (!found || r.moreSpecific(best)) {
 				best, found = r, true
@@ -359,9 +380,9 @@ func MatchBypass(rawHost, rawURI string) (BypassRule, bool) {
 		}
 	}
 	if !found {
-		return BypassRule{}, false
+		return BypassRule{}, false, nil
 	}
-	return best, best.Allows()
+	return best, true, nil
 }
 
 // HasBypassRules reports whether any allow rule is active (deny rules alone
@@ -439,13 +460,20 @@ func ReloadBypassRules() error {
 			continue
 		}
 		var m BypassRule
-		_ = json.Unmarshal(meta, &m)
+		if err := json.Unmarshal(meta, &m); err != nil {
+			return fmt.Errorf("invalid bypass metadata for %s: %w", field, err)
+		}
 		action, err := normalizeAction(m.Action)
 		if err != nil {
 			// Unknown action: fail closed rather than open the path.
 			action = BypassDeny
 		}
 		r.Action = action
+		policy, err := NormalizeRulePolicy(m.RulePolicy)
+		if err != nil {
+			return fmt.Errorf("invalid bypass policy for %s: %w", field, err)
+		}
+		r.RulePolicy = policy
 		r.Source = "ui"
 		r.Note, r.CreatedBy, r.CreatedAt = m.Note, m.CreatedBy, m.CreatedAt
 		r.UpdatedBy, r.UpdatedAt = m.UpdatedBy, m.UpdatedAt
@@ -512,11 +540,16 @@ func reloadAfter(op string) {
 
 // AddBypassRule stores a new UI-managed rule and reloads the active set. An
 // existing rule for the same host and path is not overwritten.
-func AddBypassRule(raw, action, note, createdBy string) (BypassRule, error) {
+func AddBypassRule(raw, action, note, createdBy string, policies ...RulePolicy) (BypassRule, error) {
 	r, err := parseRuleInput(raw, action)
 	if err != nil {
 		return BypassRule{}, err
 	}
+	policy, err := optionalRulePolicy(policies, RulePolicy{})
+	if err != nil {
+		return BypassRule{}, err
+	}
+	r.RulePolicy = policy
 	var n int
 	if err := PG.QueryRow(Ctx, "SELECT count(*) FROM bypass_rules").Scan(&n); err != nil {
 		return BypassRule{}, err
@@ -524,7 +557,7 @@ func AddBypassRule(raw, action, note, createdBy string) (BypassRule, error) {
 	if n >= maxBypassRules {
 		return BypassRule{}, errBypassTooMany
 	}
-	meta, _ := json.Marshal(BypassRule{Action: r.Action, Note: trimNote(note), CreatedBy: createdBy, CreatedAt: time.Now().Unix()})
+	meta, _ := json.Marshal(BypassRule{RulePolicy: policy, Action: r.Action, Note: trimNote(note), CreatedBy: createdBy, CreatedAt: time.Now().Unix()})
 	tag, err := PG.Exec(Ctx, "INSERT INTO bypass_rules (rule, meta) VALUES ($1, $2) ON CONFLICT (rule) DO NOTHING", r.Rule, meta)
 	if err != nil {
 		return BypassRule{}, err
@@ -538,7 +571,7 @@ func AddBypassRule(raw, action, note, createdBy string) (BypassRule, error) {
 
 // UpdateBypassRule changes the rule text, action and note of a UI-managed
 // rule, keeping its creation metadata. It returns the old and new rule.
-func UpdateBypassRule(oldRaw, newRaw, action, note, updatedBy string) (BypassRule, BypassRule, error) {
+func UpdateBypassRule(oldRaw, newRaw, action, note, updatedBy string, policies ...RulePolicy) (BypassRule, BypassRule, error) {
 	old, err := ParseBypassRule(oldRaw)
 	if err != nil {
 		return BypassRule{}, BypassRule{}, err
@@ -556,11 +589,20 @@ func UpdateBypassRule(oldRaw, newRaw, action, note, updatedBy string) (BypassRul
 			return err
 		}
 		var prev BypassRule
-		_ = json.Unmarshal(prevMeta, &prev)
+		if err := json.Unmarshal(prevMeta, &prev); err != nil {
+			return err
+		}
+		old.RulePolicy = prev.RulePolicy
+		policy, err := optionalRulePolicy(policies, prev.RulePolicy)
+		if err != nil {
+			return err
+		}
+		r.RulePolicy = policy
 		old.Action, _ = normalizeAction(prev.Action)
 
 		meta, _ := json.Marshal(BypassRule{
-			Action: r.Action, Note: trimNote(note),
+			RulePolicy: policy,
+			Action:     r.Action, Note: trimNote(note),
 			CreatedBy: prev.CreatedBy, CreatedAt: prev.CreatedAt,
 			UpdatedBy: updatedBy, UpdatedAt: time.Now().Unix(),
 		})
@@ -631,4 +673,15 @@ func ruleTexts(rules []BypassRule) []string {
 		}
 	}
 	return out
+}
+
+// Legacy non-policy callers preserve existing restrictions when editing.
+func optionalRulePolicy(policies []RulePolicy, fallback RulePolicy) (RulePolicy, error) {
+	if len(policies) > 1 {
+		return RulePolicy{}, fmt.Errorf("expected at most one policy")
+	}
+	if len(policies) == 1 {
+		fallback = policies[0]
+	}
+	return NormalizeRulePolicy(fallback)
 }

@@ -1,3 +1,4 @@
+import { initPolicyForms } from './management/policies.js';
 import { initLiveFeed } from './management/live-feed.js';
 // Management console (/rauthmgmt).
 import { $, $$, alertDialog, initConsole, setFieldValue, showModal, showSection } from './console/index.js';
@@ -63,7 +64,7 @@ function initUserEditor() {
         const has2fa = btn.dataset.has2fa === '1';
 
         $('#editUserTitle').textContent = u;
-        $('#editUserMeta').textContent = `${btn.dataset.email || 'No email'} · ${sessions} active session(s)`;
+        $('#editUserMeta').textContent = `${btn.dataset.email || 'No email'} \u00B7 ${sessions} active session(s)`;
         $('#editUserAvatar').src = $(`img[data-identicon="${CSS.escape(u)}"]`)?.src || '';
         ['#emailUsernameInput', '#passwordUsernameInput', '#reset2faUsernameInput'].forEach(id => { $(id).value = u; });
         $('#emailInput').value = btn.dataset.email || '';
@@ -87,6 +88,15 @@ function initBypassEditor() {
         $('#editBypassRule').value = btn.dataset.rule;
         $('#editBypassAction').value = btn.dataset.action;
         $('#editBypassNote').value = btn.dataset.note || '';
+        const fields = $('#editBypassModal [data-policy-fields]');
+        fields.querySelector('[name="country_mode"]').value = btn.dataset.countryMode || 'all';
+        const selected = new Set((btn.dataset.countries || '').split(','));
+        fields.querySelectorAll('[name="allowed_countries"]').forEach(input => { input.checked = selected.has(input.value); });
+        fields.querySelector('[name="allow_private_networks"]').checked = btn.dataset.privateNetworks === 'true';
+        fields.querySelector('[data-country-search]').value = '';
+        fields.querySelectorAll('[data-country-option]').forEach(label => { label.hidden = false; });
+        fields.querySelector('[data-country-search]').setCustomValidity('');
+        fields.querySelector('[name="country_mode"]').dispatchEvent(new Event('change'));
         showModal('editBypassModal');
     }));
 }
@@ -123,6 +133,7 @@ function initInvites() {
 initConsole({ messages, successSection, commands });
 initAttentionList();
 initUserEditor();
+initPolicyForms();
 initBypassEditor();
 initInvites();
 

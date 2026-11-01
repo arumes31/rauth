@@ -1,7 +1,7 @@
 # RAuth public-access policies and active-active authentication
 
 Date: 2026-11-01 (Europe/Vienna)
-Status: Proposed design for review; implementation and production changes are not authorized by this document alone.
+Status: Approved for implementation by the user goal on 2026-11-01; rollout gates still require verification.
 Baseline: arumes31/rauth main 52cd1a2f95a2004c722f6ef572da86859100f491.
 Companion: ../plans/2026-11-01-public-access-active-active.md
 
@@ -74,7 +74,7 @@ Run the same versioned RAuth image on all four NPM hosts. A deployment role enab
 
 ### HA state
 
-Proposed baseline: PostgreSQL 18 with Patroni and a three-member etcd quorum on three independent hosts. Candidate placement is hodus, nl-bluehost, and massivgrid; confirm memory, persistent disks, latency, provider/failure independence and access before fixing this placement. Oracle initially remains an application worker. If a candidate fails preflight, select another already-managed independent host and record the reason.
+Proposed baseline: PostgreSQL 18 with Patroni and a three-member etcd quorum on three independent hosts. Candidate placement is hodus, nl-bluehost, and pi3; confirm memory, persistent disks, latency, provider/failure independence and access before fixing this placement. Oracle initially remains an application worker. If a candidate fails preflight, select another already-managed independent host and record the reason.
 
 Use one PostgreSQL write leader, synchronous replication to one of the other two data nodes, strict synchronous mode, safe promotion and fencing. Active-active describes the RAuth application layer, not unrestricted multi-primary SQL writes. Reads that authorize sessions or consume one-time state go to the current leader, never an asynchronously lagging replica.
 
@@ -169,7 +169,7 @@ HTTPS fetches use certificate validation. Block URL credentials and unsafe/non-H
 
 Fetch once on the control service, validate into an immutable normalized generation, then publish metadata and payload checksums to workers. Workers stage the complete policy and every referenced feed version, verify the signed manifest and hashes, then atomically activate it. A download/parse failure leaves the previous generation active. Do not attach a never-successfully-loaded feed or activate a newly referenced missing feed. Reject empty or malformed replacement datasets by default; require an explicit audited acceptance of a legitimate empty list or unusually large drop. A feed in use cannot be deleted until its references are removed through a reviewed policy change.
 
-Workers retain active and previous complete generations on local persistent volumes. They detect policy notices through an authenticated control channel and use periodic reconciliation as a fallback. Proposed healthy propagation objective is <=10 seconds; show per-worker desired/applied versions and rollout status. Changes are not reported as globally applied until all online assigned workers acknowledge them. Offline workers enforce their last good generation and are visibly marked stale; neither config changes nor revocations can be magically delivered to disconnected nodes.
+Workers retain active and previous complete generations on local persistent host bind mounts. They detect policy notices through an authenticated control channel and use periodic reconciliation as a fallback. Proposed healthy propagation objective is <=10 seconds; show per-worker desired/applied versions and rollout status. Changes are not reported as globally applied until all online assigned workers acknowledge them. Offline workers enforce their last good generation and are visibly marked stale; neither config changes nor revocations can be magically delivered to disconnected nodes.
 
 Country database and trusted proxy configuration are also versioned local inputs. Feed refresh/GeoIP refresh failures never clear a denylist or country restriction. Private configuration endpoints use mutual TLS and per-node identities, with separate authorization for read-only policy fetch and event ingestion.
 
@@ -249,3 +249,15 @@ Document approval selects the functional design. It does not certify these unmea
 ## 13. Design review
 
 An independent builder check on 2026-11-01 reported: 'nothing important left'. This checks planning completeness, not implementation correctness or production readiness. The user has selected active-active; the detailed design remains proposed for review.
+
+## 14. Dedicated Tailscale services (user addition)
+
+Each RAuth node gets its own persistent Tailscale sidecar/service and distinct tailnet identity (rauth-hodus, rauth-nl-bluehost, rauth-massivgrid, rauth-oracle, rauth-pi3). Inter-node policy, event and HA-state communication uses those service identities/addresses, not the Docker host's existing Tailscale identity or a public management port. State replicas/quorum members bind to their node's dedicated tailnet network namespace as appropriate. Local NPM-to-worker traffic stays on a private Docker network.
+
+Use an official pinned Tailscale image, persistent per-node state, narrowly scoped capabilities and explicit private ingress ports. Authentication and cluster TLS remain verified on top of the tailnet; ACLs/grants must permit only the required peers and ports. Do not enable Funnel, exit-node service or subnet advertisement. Enrollment uses an external secret file and the supplied key; no key value is committed or logged. Verify key reuse/expiry and approval/tag behavior during enrollment, and remove bootstrap key mounts after successful enrollment. Never copy a Tailscale state volume between nodes. Health and outage tests include independent identities and sidecar restart.
+
+## 15. Pi3 placement and bind-mount storage (user additions)
+
+The user selected pi3 as the third HA-node candidate and requires all its RAuth files under /mnt/usb1/rauth. Live read-only preflight verified a mounted USB ext4 filesystem at /mnt/usb1 on /dev/sda1, roughly 138 GiB free, ARM64 with four cores, about 4 GiB RAM / 2.5 GiB available, and TUN support. Storage fsync/latency and failover testing remain required. This is a three-host guarantee; do not claim three independent sites or power domains without verifying their locations.
+
+All RAuth persistence uses explicit host bind mounts, never named or anonymous Docker volumes: PostgreSQL data/WAL, etcd data, Tailscale state, policy/feed/GeoIP snapshots, local event spools, central event storage, configuration, certificates, secrets and backups. On pi3 bind paths live below /mnt/usb1/rauth. Other hosts use a documented absolute /opt/rauth tree, unless an existing appropriate host path is selected and recorded. Data paths must be mountpoint-checked before creation/start; stop if the expected filesystem is missing. The PostgreSQL image's default VOLUME destination must be covered explicitly by a bind mount, including disposable test deployments.

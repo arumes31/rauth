@@ -125,13 +125,17 @@ func (h *AdminHandler) AddBypassRule(c echo.Context) error {
 		return herr
 	}
 
-	rule, err := core.AddBypassRule(c.FormValue("rule"), c.FormValue("action"), c.FormValue("note"), admin)
+	policies, err := bypassPolicyForm(c)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	rule, err := core.AddBypassRule(c.FormValue("rule"), c.FormValue("action"), c.FormValue("note"), admin, policies...)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
 	slog.Warn("Auth bypass rule added", "admin", admin, "rule", rule.Rule, "action", rule.Action)
-	core.LogAudit("ADMIN_BYPASS_RULE_ADD", admin, c.RealIP(), map[string]interface{}{"rule": rule.Rule, "action": rule.Action, "scope": core.DescribeBypassRule(rule)})
+	core.LogAudit("ADMIN_BYPASS_RULE_ADD", admin, c.RealIP(), map[string]interface{}{"rule": rule.Rule, "action": rule.Action, "scope": core.DescribeBypassRule(rule), "policy": rule.RulePolicy})
 	return c.Redirect(http.StatusFound, "/rauthmgmt?success=bypass_added#bypass")
 }
 
@@ -143,7 +147,11 @@ func (h *AdminHandler) UpdateBypassRule(c echo.Context) error {
 		return herr
 	}
 
-	old, rule, err := core.UpdateBypassRule(c.FormValue("original_rule"), c.FormValue("rule"), c.FormValue("action"), c.FormValue("note"), admin)
+	policies, err := bypassPolicyForm(c)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	old, rule, err := core.UpdateBypassRule(c.FormValue("original_rule"), c.FormValue("rule"), c.FormValue("action"), c.FormValue("note"), admin, policies...)
 	if errors.Is(err, core.ErrBypassNotFound) {
 		return echo.NewHTTPError(http.StatusNotFound, err.Error())
 	} else if err != nil {
@@ -153,7 +161,7 @@ func (h *AdminHandler) UpdateBypassRule(c echo.Context) error {
 	slog.Warn("Auth bypass rule updated", "admin", admin, "old_rule", old.Rule, "old_action", old.Action, "rule", rule.Rule, "action", rule.Action)
 	core.LogAudit("ADMIN_BYPASS_RULE_UPDATE", admin, c.RealIP(), map[string]interface{}{
 		"old_rule": old.Rule, "old_action": old.Action,
-		"rule": rule.Rule, "action": rule.Action, "scope": core.DescribeBypassRule(rule),
+		"rule": rule.Rule, "action": rule.Action, "scope": core.DescribeBypassRule(rule), "old_policy": old.RulePolicy, "policy": rule.RulePolicy,
 	})
 	return c.Redirect(http.StatusFound, "/rauthmgmt?success=bypass_updated#bypass")
 }
@@ -178,4 +186,29 @@ func (h *AdminHandler) DeleteBypassRule(c echo.Context) error {
 	slog.Warn("Auth bypass rule removed", "admin", admin, "rule", raw)
 	core.LogAudit("ADMIN_BYPASS_RULE_DELETE", admin, c.RealIP(), map[string]interface{}{"rule": raw})
 	return c.Redirect(http.StatusFound, "/rauthmgmt?success=bypass_deleted#bypass")
+}
+
+func bypassPolicyForm(c echo.Context) ([]core.RulePolicy, error) {
+	if c.FormValue("policy_fields") == "" {
+		return nil, nil
+	}
+	if c.FormValue("policy_fields") != "1" {
+		return nil, errors.New("invalid policy form")
+	}
+	private := c.FormValue("allow_private_networks")
+	if private != "" && private != "on" {
+		return nil, errors.New("invalid private network option")
+	}
+	if err := c.Request().ParseForm(); err != nil {
+		return nil, err
+	}
+	policy, err := core.NormalizeRulePolicy(core.RulePolicy{
+		CountryMode:          c.FormValue("country_mode"),
+		AllowedCountries:     c.Request().PostForm["allowed_countries"],
+		AllowPrivateNetworks: private == "on",
+	})
+	if err != nil {
+		return nil, err
+	}
+	return []core.RulePolicy{policy}, nil
 }
