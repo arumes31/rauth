@@ -119,12 +119,15 @@ type PolicyDecision struct {
 }
 
 func (p RulePolicy) Evaluate(clientIP, country string) PolicyDecision {
+	return p.evaluate(clientIP, country, activeFeeds.Load())
+}
+func (p RulePolicy) evaluate(clientIP, country string, feeds *feedSnapshot) PolicyDecision {
 	if len(p.BlockedFeedIDs) > 0 {
 		ip, err := netip.ParseAddr(clientIP)
 		if err != nil || ip.Zone() != "" {
 			return PolicyDecision{Allowed: false, Reason: "invalid_client_ip"}
 		}
-		result := matchPolicyFeeds(p.BlockedFeedIDs, ip.Unmap())
+		result := matchSnapshotFeeds(feeds, p.BlockedFeedIDs, ip.Unmap())
 		if !result.Allowed {
 			return result
 		}

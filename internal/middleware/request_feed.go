@@ -41,22 +41,35 @@ func RequestFeed(cfg *core.Config) echo.MiddlewareFunc {
 					action = "bypass"
 				}
 			}
-			target := ""
-			source := c.RealIP()
-			if cfg.IsTrustedProxyPeer(c.Request().RemoteAddr) {
-				headers := c.Request().Header
-				target = core.ProtectedRequestURL(headers.Get("X-Forwarded-Proto"), headers.Get(cfg.AuthBypassHostHeader), headers.Get(cfg.AuthBypassURIHeader))
-				if cfg.RequestFeedIPHeader != "" {
-					if ip := net.ParseIP(strings.TrimSpace(headers.Get(cfg.RequestFeedIPHeader))); ip != nil {
-						source = ip.String()
-					}
+			target, source := requestFeedTarget(c, cfg)
+			var country string
+			if captured, ok := c.Get(policyFeedCountryKey).(policyFeedCountry); ok {
+				country = "unknown"
+				if captured.source == source {
+					country = captured.country
 				}
+			} else {
+				country = core.CountryCodeForContext(c.Request().Context(), source)
 			}
 			reason, _ := c.Get("policy_reason").(string)
 			rule, _ := c.Get("policy_rule").(string)
 			feedID, _ := c.Get("policy_feed_id").(string)
-			core.LiveRequests.Append(core.RequestEvent{Reason: reason, Rule: rule, FeedID: feedID, URL: target, Source: source, Country: core.GetCountryCode(source), Action: action, Status: status})
+			core.LiveRequests.Append(core.RequestEvent{Reason: reason, Rule: rule, FeedID: feedID, URL: target, Source: source, Country: country, Action: action, Status: status})
 			return err
 		}
 	}
+}
+
+func requestFeedTarget(c echo.Context, cfg *core.Config) (target, source string) {
+	source = c.RealIP()
+	if cfg.IsTrustedProxyPeer(c.Request().RemoteAddr) {
+		headers := c.Request().Header
+		target = core.ProtectedRequestURL(headers.Get("X-Forwarded-Proto"), headers.Get(cfg.AuthBypassHostHeader), headers.Get(cfg.AuthBypassURIHeader))
+		if cfg.RequestFeedIPHeader != "" {
+			if ip := net.ParseIP(strings.TrimSpace(headers.Get(cfg.RequestFeedIPHeader))); ip != nil {
+				source = ip.String()
+			}
+		}
+	}
+	return target, source
 }

@@ -315,8 +315,10 @@ func ReloadIPFeeds(ctx context.Context) error {
 	activeFeeds.Store(next)
 	return nil
 }
-func matchPolicyFeeds(ids []string, address netip.Addr) PolicyDecision {
-	snapshot := activeFeeds.Load()
+
+// snapshot is initialized by package init in legacy mode, or embedded as a
+// non-nil value in every compiled worker snapshot.
+func matchSnapshotFeeds(snapshot *feedSnapshot, ids []string, address netip.Addr) PolicyDecision {
 	for _, id := range ids {
 		index, ok := snapshot.indexes[id]
 		if !ok {

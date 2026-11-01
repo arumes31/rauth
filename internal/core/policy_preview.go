@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"errors"
 	"net/netip"
 	"net/url"
@@ -18,6 +19,9 @@ type PolicyPreview struct {
 }
 
 func PreviewURLPolicy(rawURL, clientIP string) (PolicyPreview, error) {
+	return PreviewURLPolicyForContext(context.Background(), rawURL, clientIP)
+}
+func PreviewURLPolicyForContext(ctx context.Context, rawURL, clientIP string) (PolicyPreview, error) {
 	if len(rawURL) > 2048 {
 		return PolicyPreview{}, errors.New("URL is too long")
 	}
@@ -30,8 +34,8 @@ func PreviewURLPolicy(rawURL, clientIP string) (PolicyPreview, error) {
 		return PolicyPreview{}, errors.New("enter a valid client IP address")
 	}
 	p := PolicyPreview{URL: ProtectedRequestURL(u.Scheme, u.Host, u.RequestURI()), Source: ip.Unmap().String(), Allowed: true}
-	p.Country = GetCountryCode(p.Source)
-	rule, found, err := SelectBypassRule(u.Host, u.RequestURI())
+	p.Country = CountryCodeForContext(ctx, p.Source)
+	rule, found, err := SelectBypassRuleForContext(ctx, u.Host, u.RequestURI())
 	if err != nil {
 		p.Allowed = false
 		p.Reason = "policy_target_invalid"
@@ -43,7 +47,7 @@ func PreviewURLPolicy(rawURL, clientIP string) (PolicyPreview, error) {
 	}
 	p.Rule = rule.Rule
 	p.Public = rule.Allows()
-	decision := rule.Evaluate(p.Source, p.Country)
+	decision := EvaluateRuleForContext(ctx, rule.RulePolicy, p.Source)
 	p.Allowed = decision.Allowed
 	p.Reason = decision.Reason
 	p.FeedID = decision.FeedID

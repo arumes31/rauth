@@ -72,7 +72,7 @@ func (h *AdminHandler) RefreshIPFeed(c echo.Context) error {
 }
 
 func (h *AdminHandler) PreviewPolicy(c echo.Context) error {
-	result, err := core.PreviewURLPolicy(c.FormValue("url"), c.FormValue("client_ip"))
+	result, err := core.PreviewURLPolicyForContext(c.Request().Context(), c.FormValue("url"), c.FormValue("client_ip"))
 	if err != nil {
 		return feedFormError(err)
 	}
