@@ -6,7 +6,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
 
 concurrency:
   group: openrabbit-${{ github.event.pull_request.number }}
@@ -15,6 +14,10 @@ concurrency:
 jobs:
   review:
     name: OpenRabbit (advisory)
+    permissions:
+      contents: read
+      # Required only for posting COMMENT reviews and inline suggestions via the API.
+      pull-requests: write
     runs-on: ubuntu-latest
     continue-on-error: true
     timeout-minutes: 15
@@ -43,8 +46,10 @@ jobs:
           echo "ready=true" >> "$GITHUB_OUTPUT"
 
       - name: OpenRabbit
+        id: openrabbit
         if: steps.configuration.outputs.ready == 'true'
         continue-on-error: true
+        timeout-minutes: 12
         uses: aryanbrite/openrabbit@0350c5ff79e6efb3ba92898a46a2e420ae1c526c
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -56,5 +61,5 @@ jobs:
           tone_mode: balanced
 
       - name: Report advisory failure
-        if: failure()
+        if: always() && steps.openrabbit.outcome == 'failure'
         run: echo '::warning::OpenRabbit could not complete; its review is advisory.'
