@@ -39,7 +39,7 @@ func ssoFailure(err error) error {
 	if errors.Is(err, authstate.ErrSSOInvalid) || errors.Is(err, authstate.ErrNotFound) || errors.Is(err, authstate.ErrStaleGeneration) {
 		return echo.NewHTTPError(http.StatusBadRequest, "Login transfer is invalid or expired; start again from the application")
 	}
-	return echo.NewHTTPError(http.StatusServiceUnavailable, "Login transfer is temporarily unavailable; retry")
+	return echo.NewHTTPError(http.StatusServiceUnavailable, "Login transfer is temporarily unavailable; retry").SetInternal(err)
 }
 func (h *AuthHandler) ssoOrigin(c echo.Context, canonical bool) (string, error) {
 	ssoHeaders(c)
@@ -145,7 +145,7 @@ func (h *AuthHandler) SSOAuthorize(c echo.Context) error {
 	if !ok {
 		return ssoFailure(authstate.ErrSSOInvalid)
 	}
-	token, err := h.ssoSession(c, "X-rauth-authtoken", "")
+	token, err := h.ssoSession(c, h.Cfg.SessionCookieName(), "")
 	if errors.Is(err, authstate.ErrNotFound) {
 		return c.Redirect(http.StatusFound, "/rauthlogin?rd="+url.QueryEscape("/_rauth/authorize?transaction="+id))
 	}
@@ -201,6 +201,28 @@ func (h *AuthHandler) SSOCallback(c echo.Context) error {
 	return c.Redirect(http.StatusFound, target)
 }
 
+// SSOLogoutPage exposes the middleware's HttpOnly-cookie CSRF proof through a
+// same-origin confirmation form. Legacy clients need this explicit token path;
+// merely reading the confirmation page never revokes a session.
+func (h *AuthHandler) SSOLogoutPage(c echo.Context) error {
+	origin, err := h.ssoOrigin(c, false)
+	if err != nil {
+		return err
+	}
+	_, err = h.ssoSession(c, core.SSOAppCookie, origin)
+	if errors.Is(err, authstate.ErrNotFound) {
+		return echo.NewHTTPError(http.StatusUnauthorized, "Login required")
+	}
+	if err != nil {
+		return ssoFailure(err)
+	}
+	csrf, ok := c.Get("csrf").(string)
+	if !ok || csrf == "" {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "Sign-out form is temporarily unavailable; retry")
+	}
+	return c.Render(http.StatusOK, "sso_logout.html", map[string]interface{}{"csrf": csrf})
+}
+
 // SSOSignOut revokes the common family before clearing this host's cookie.
 // The route is POST-only and uses the same CSRF middleware as account mutations.
 func (h *AuthHandler) SSOSignOut(c echo.Context) error {
@@ -230,14 +252,14 @@ func writeAppSessionCookie(c echo.Context, value string, validity time.Duration)
 // merely because COOKIE_DOMAIN also covers that application.
 func (h *AuthHandler) validationCookie(c echo.Context) (string, string, error) {
 	if h.Cfg.SSOCanonicalOrigin == "" {
-		return "X-rauth-authtoken", "", nil
+		return h.Cfg.SessionCookieName(), "", nil
 	}
 	if !h.Cfg.IsTrustedProxyPeer(c.Request().RemoteAddr) {
 		return "", "", authstate.ErrSSOInvalid
 	}
 	origin := "https://" + c.Request().Header.Get(h.Cfg.AuthBypassHostHeader)
 	if origin == h.Cfg.SSOCanonicalOrigin {
-		return "X-rauth-authtoken", "", nil
+		return h.Cfg.SessionCookieName(), "", nil
 	}
 	if !h.Cfg.SSOApplication(origin) {
 		return "", "", authstate.ErrSSOInvalid
