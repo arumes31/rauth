@@ -31,11 +31,6 @@ func ListManagedSessions(ctx context.Context, user, currentToken, after string, 
 		return result, ErrInvalidSessionHandle
 	}
 	if securitySessions != nil {
-		if after != "" {
-			if _, err := uuid.Parse(after); err != nil {
-				return result, ErrInvalidSessionHandle
-			}
-		}
 		currentFamily := ""
 		if currentToken != "" {
 			current, err := securitySessions.Get(ctx, currentToken)
@@ -47,6 +42,9 @@ func ListManagedSessions(ctx context.Context, user, currentToken, after string, 
 			}
 		}
 		page, err := securitySessions.List(ctx, user, after, limit)
+		if errors.Is(err, authstate.ErrInvalidSessionCursor) {
+			return result, ErrInvalidSessionHandle
+		}
 		if err != nil {
 			return result, err
 		}

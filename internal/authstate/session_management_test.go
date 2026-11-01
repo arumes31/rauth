@@ -2,7 +2,10 @@ package authstate_test
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
+	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -281,4 +284,58 @@ func TestSessionIPIndexDoesNotStrandUnparseableMetadata(t *testing.T) {
 	var indexed int
 	require.NoError(t, p.QueryRow(ctx, "SELECT count(*) FROM auth_sessions WHERE ip_hash IS NOT NULL").Scan(&indexed))
 	assert.Zero(t, indexed)
+}
+
+func TestSessionPagesAreNewestFirstAndStableAcrossRotation(t *testing.T) {
+	p, a, b := fixture(t)
+	ctx := context.Background()
+	tokens := map[string]string{}
+	var ids []string
+	for _, name := range []string{"chronology-a", "chronology-b", "chronology-c"} {
+		raw := token(name)
+		require.NoError(t, a.Issue(ctx, raw, params()))
+		value, err := b.Get(ctx, raw)
+		require.NoError(t, err)
+		ids = append(ids, value.FamilyID)
+		tokens[value.FamilyID] = raw
+	}
+	sort.Strings(ids)
+	var now time.Time
+	require.NoError(t, p.QueryRow(ctx, "SELECT clock_timestamp()").Scan(&now))
+	oldest, recent := now.Add(-20*time.Minute), now.Add(-10*time.Minute)
+	for i, id := range ids {
+		created := recent
+		if i == 0 {
+			created = oldest
+		}
+		_, err := p.Exec(ctx, "UPDATE auth_session_families SET created_at=$2 WHERE id=$1", id, created)
+		require.NoError(t, err)
+	}
+	first, err := a.List(ctx, "alice", "", 2)
+	require.NoError(t, err)
+	require.Len(t, first.Sessions, 2)
+	assert.Equal(t, ids[2], first.Sessions[0].Handle, "timestamp ties use descending family ID")
+	assert.Equal(t, ids[1], first.Sessions[1].Handle)
+	assert.True(t, recent.Equal(first.Sessions[0].IssuedAt), "management shows the stable login start, not the latest token rotation")
+	require.NotEmpty(t, first.Next)
+	for _, bad := range []string{"invalid-cursor", ids[0], base64.RawURLEncoding.EncodeToString(make([]byte, 24)), base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("\xff", 24)))} {
+		_, err := b.List(ctx, "alice", bad, 2)
+		require.ErrorIs(t, err, authstate.ErrInvalidSessionCursor)
+	}
+	changed, err := b.Rotate(ctx, tokens[ids[0]], token("chronology-rotated"), time.Hour, time.Minute)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.NoError(t, b.Issue(ctx, token("arrived-after-page-one"), params()))
+	second, err := b.List(ctx, "alice", first.Next, 2)
+	require.NoError(t, err)
+	require.Len(t, second.Sessions, 1)
+	assert.Equal(t, ids[0], second.Sessions[0].Handle, "rotation must not skip or duplicate a family on later pages")
+	assert.True(t, oldest.Equal(second.Sessions[0].IssuedAt))
+	assert.Empty(t, second.Next)
+	latest, err := a.Get(ctx, token("arrived-after-page-one"))
+	require.NoError(t, err)
+	refreshed, err := a.List(ctx, "alice", "", 1)
+	require.NoError(t, err)
+	require.Len(t, refreshed.Sessions, 1)
+	assert.Equal(t, latest.FamilyID, refreshed.Sessions[0].Handle)
 }

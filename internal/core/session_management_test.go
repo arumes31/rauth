@@ -44,6 +44,8 @@ func TestSQLManagedSessionsWithoutRedis(t *testing.T) {
 	for _, secret := range []string{old, current, other, "PRIVATE-METADATA", "FORGED-TOKEN"} {
 		assert.NotContains(t, string(data), secret)
 	}
+	_, err = ListManagedSessions(Ctx, "management-alice", current, "not-a-valid-cursor", 1)
+	require.ErrorIs(t, err, ErrInvalidSessionHandle)
 	all, err := ListManagedSessions(Ctx, "", "", "", 1)
 	require.NoError(t, err)
 	require.NotEmpty(t, all.Next)

@@ -175,7 +175,7 @@ func (s *PostgresSessions) Issue(ctx context.Context, token string, p IssueSessi
 		if idle.After(absolute) {
 			idle = absolute
 		}
-		if _, err := tx.Exec(ctx, "INSERT INTO auth_session_families(id,username,auth_gen,absolute_expires_at) VALUES($1,$2,$3,$4)", family, p.Username, gen, absolute); err != nil {
+		if _, err := tx.Exec(ctx, "INSERT INTO auth_session_families(id,username,auth_gen,absolute_expires_at,created_at) VALUES($1,$2,$3,$4,$5)", family, p.Username, gen, absolute, now); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, "INSERT INTO auth_session_tokens(token_hash,family_id) VALUES($1,$2)", hash, family); err != nil {

@@ -2,7 +2,10 @@ package authstate
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/binary"
 	"errors"
+	"math"
 	"net/netip"
 	"strings"
 	"time"
@@ -26,7 +29,7 @@ type SessionSummary struct {
 	Username          string
 	IP                string
 	Fields            map[string]string
-	IssuedAt          time.Time
+	IssuedAt          time.Time // Stable family/login start, independent of token rotation.
 	IdleExpiresAt     time.Time
 	AbsoluteExpiresAt time.Time
 }
@@ -34,6 +37,48 @@ type SessionPage struct {
 	Sessions   []SessionSummary
 	Next       string
 	ObservedAt time.Time
+}
+
+var ErrInvalidSessionCursor = errors.New("invalid session cursor")
+
+// Cursors contain only the stable login instant and non-bearer family UUID.
+// Rotation changes token issuance time, never this pagination boundary.
+func sessionPageCursor(issued time.Time, handle string) (string, error) {
+	micros := issued.UnixMicro()
+	if micros <= 0 || issued.Year() > 9999 {
+		return "", errors.New("invalid stored login timestamp")
+	}
+	var data [24]byte
+	binary.BigEndian.PutUint64(data[:8], uint64(micros))
+	id := uuid.MustParse(handle)
+	copy(data[8:], id[:])
+	return base64.RawURLEncoding.EncodeToString(data[:]), nil
+}
+func parseSessionPageCursor(raw string) (*time.Time, string, error) {
+	if raw == "" {
+		return nil, uuid.Nil.String(), nil
+	}
+	if len(raw) != 32 {
+		return nil, "", ErrInvalidSessionCursor
+	}
+	data, err := base64.RawURLEncoding.Strict().DecodeString(raw)
+	if err != nil || len(data) != 24 {
+		return nil, "", ErrInvalidSessionCursor
+	}
+	rawMicros := binary.BigEndian.Uint64(data[:8])
+	if rawMicros > math.MaxInt64 {
+		return nil, "", ErrInvalidSessionCursor
+	}
+	micros := int64(rawMicros)
+	if micros <= 0 || micros > time.Date(9999, 12, 31, 23, 59, 59, 999999000, time.UTC).UnixMicro() {
+		return nil, "", ErrInvalidSessionCursor
+	}
+	id, err := uuid.FromBytes(data[8:])
+	if err != nil || id == uuid.Nil {
+		return nil, "", ErrInvalidSessionCursor
+	}
+	issued := time.UnixMicro(micros).UTC()
+	return &issued, id.String(), nil
 }
 
 func (s *PostgresSessions) ipHash(ip string) ([]byte, error) {
@@ -79,40 +124,41 @@ func (s *PostgresSessions) LockGrant(ctx context.Context, token string) error {
 	return err
 }
 
-// List uses bounded keyset pagination over live families, selecting one current
-// device session per family. No raw token or encrypted successor is returned.
+// List pages newest logins first using stable family creation time and ID,
+// selecting one current device session per family. No raw token or encrypted successor is returned.
 // Empty user selects all families for the separately authorized admin caller.
 func (s *PostgresSessions) List(ctx context.Context, user, after string, limit int) (SessionPage, error) {
 	var page SessionPage
 	if limit < 1 || limit > 200 {
 		return page, errors.New("session page size must be between 1 and 200")
 	}
-	cursor := uuid.Nil.String()
-	if after != "" {
-		id, err := uuid.Parse(after)
-		if err != nil {
-			return page, errors.New("invalid session cursor")
-		}
-		cursor = id.String()
+	cursorTime, cursorID, err := parseSessionPageCursor(after)
+	if err != nil {
+		return page, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
-	rows, err := s.pool.Query(ctx, `SELECT `+sessionColumns+`,clock_timestamp() FROM auth_session_families f JOIN users u ON u.username=f.username
+	rows, err := s.pool.Query(ctx, `SELECT `+sessionColumns+`,f.created_at,clock_timestamp() FROM auth_session_families f JOIN users u ON u.username=f.username
  LEFT JOIN auth_generations g ON g.username=f.username JOIN LATERAL
  (SELECT * FROM auth_sessions a WHERE a.family_id=f.id AND NOT a.retired AND a.idle_expires_at>clock_timestamp() ORDER BY a.issued_at DESC,a.token_hash LIMIT 1) s ON true
- WHERE ($1='' OR f.username=$1) AND f.id>$2::uuid AND f.revoked_at IS NULL AND f.absolute_expires_at>clock_timestamp()
- AND f.auth_gen=COALESCE(g.gen,0) ORDER BY f.id LIMIT $3`, user, cursor, limit+1)
+ WHERE ($1='' OR f.username=$1) AND ($2::timestamptz IS NULL OR (f.created_at,f.id)<($2::timestamptz,$3::uuid)) AND f.revoked_at IS NULL AND f.absolute_expires_at>clock_timestamp()
+ AND f.auth_gen=COALESCE(g.gen,0) ORDER BY f.created_at DESC,f.id DESC LIMIT $4`, user, cursorTime, cursorID, limit+1)
 	if err != nil {
 		return page, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var r sessionRow
-		if err := rows.Scan(&r.hash, &r.family, &r.username, &r.generation, &r.key, &r.payload, &r.issued, &r.idle, &r.absolute, &r.retired, &page.ObservedAt); err != nil {
+		var familyCreated time.Time
+		if err := rows.Scan(&r.hash, &r.family, &r.username, &r.generation, &r.key, &r.payload, &r.issued, &r.idle, &r.absolute, &r.retired, &familyCreated, &page.ObservedAt); err != nil {
 			return SessionPage{}, err
 		}
 		if len(page.Sessions) == limit {
-			page.Next = page.Sessions[len(page.Sessions)-1].Handle
+			last := page.Sessions[len(page.Sessions)-1]
+			page.Next, err = sessionPageCursor(last.IssuedAt, last.Handle)
+			if err != nil {
+				return SessionPage{}, err
+			}
 			break
 		}
 		value, err := s.decode(r)
@@ -125,7 +171,7 @@ func (s *PostgresSessions) List(ctx context.Context, user, after string, limit i
 				fields[key] = v
 			}
 		}
-		page.Sessions = append(page.Sessions, SessionSummary{Handle: value.FamilyID, Username: value.Username, IP: value.IP, Fields: fields, IssuedAt: value.IssuedAt, IdleExpiresAt: value.IdleExpiresAt, AbsoluteExpiresAt: value.AbsoluteExpiresAt})
+		page.Sessions = append(page.Sessions, SessionSummary{Handle: value.FamilyID, Username: value.Username, IP: value.IP, Fields: fields, IssuedAt: familyCreated, IdleExpiresAt: value.IdleExpiresAt, AbsoluteExpiresAt: value.AbsoluteExpiresAt})
 	}
 	return page, rows.Err()
 }

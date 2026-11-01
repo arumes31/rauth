@@ -31,7 +31,9 @@ known fields and exactly decoded key sizes. It never reports secret contents.
 
 PostgreSQL connections require sslmode=verify-full, the cluster CA, verified
 hostnames/IP SANs and a writable primary. Do not add an unverified TLS fallback.
-Leader-aware database endpoints must close existing connections when leadership
+For a database address list, set target_session_attrs=read-write so the driver
+can advance past read-only candidates. Leader-aware database endpoints must
+close existing connections when leadership
 is withdrawn, and promotion requires the separately verified fencing/quorum
 configuration. Source checks alone do not fence a partitioned primary.
 
