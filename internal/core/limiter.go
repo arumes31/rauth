@@ -5,6 +5,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -38,6 +39,9 @@ func RateLimitIP(ip string) string {
 }
 
 func incrAndExpire(fullKey string, decaySeconds int) (int64, error) {
+	if securityCounters != nil {
+		return securityCounters.Increment(Ctx, fullKey, time.Duration(decaySeconds)*time.Second)
+	}
 	return incrAndExpireScript.Run(Ctx, RateLimitDB, []string{fullKey}, decaySeconds).Int64()
 }
 
@@ -62,11 +66,25 @@ func CheckRateLimit(key string, maxAttempts int, decaySeconds int) bool {
 }
 
 func ResetRateLimit(key string) {
+	if securityCounters != nil {
+		if err := securityCounters.Reset(Ctx, "rate_limit:"+key); err != nil {
+			slog.Error("Rate limit reset failed", "error", err)
+		}
+		return
+	}
 	RateLimitDB.Del(Ctx, "rate_limit:"+key)
 }
 
 func IsRateLimitExceeded(key string, maxAttempts int) bool {
 	fullKey := "rate_limit:" + key
+	if securityCounters != nil {
+		count, err := securityCounters.Count(Ctx, fullKey)
+		if err != nil {
+			slog.Error("SQL rate limit read failed, failing closed", "error", err)
+			return true
+		}
+		return count >= int64(maxAttempts)
+	}
 	countStr, err := RateLimitDB.Get(Ctx, fullKey).Result()
 	if err != nil {
 		if err == redis.Nil {

@@ -234,7 +234,7 @@ func TestPostgresSessionsKeyRotationAndTamper(t *testing.T) {
 	old := token("old-key")
 	require.NoError(t, a.Issue(ctx, old, params()))
 	_, err := authstate.NewPostgresSessions(ctx, p, keyring(t, "v2", map[string]string{"v2": strings.Repeat("b", 32)}))
-	require.ErrorContains(t, err, "live session encryption key")
+	require.ErrorContains(t, err, "encryption key is missing")
 	both := keyring(t, "v2", map[string]string{"v1": encryptionSecret, "v2": strings.Repeat("b", 32)})
 	rotated, err := authstate.NewPostgresSessions(ctx, p, both)
 	require.NoError(t, err)

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -81,13 +82,17 @@ func RevokeAuth(username string, change func(tx pgx.Tx) error) (string, error) {
 // it, so they either finish before a concurrent RevokeAuth (which then undoes
 // them) or see the new generation and stop.
 func lockAuthGeneration(tx pgx.Tx, username, want string) (bool, error) {
+	return lockAuthGenerationContext(Ctx, tx, username, want)
+}
+
+func lockAuthGenerationContext(ctx context.Context, tx pgx.Tx, username, want string) (bool, error) {
 	// The row must exist to be locked; gen 0 is what AuthGeneration reports
 	// for a missing row anyway. A concurrent first bump makes this wait.
-	if _, err := tx.Exec(Ctx, "INSERT INTO auth_generations (username, gen) VALUES ($1, 0) ON CONFLICT (username) DO NOTHING", username); err != nil {
+	if _, err := tx.Exec(ctx, "INSERT INTO auth_generations (username, gen) VALUES ($1, 0) ON CONFLICT (username) DO NOTHING", username); err != nil {
 		return false, err
 	}
 	var gen int64
-	if err := tx.QueryRow(Ctx, "SELECT gen FROM auth_generations WHERE username = $1 FOR SHARE", username).Scan(&gen); err != nil {
+	if err := tx.QueryRow(ctx, "SELECT gen FROM auth_generations WHERE username = $1 FOR SHARE", username).Scan(&gen); err != nil {
 		return false, err
 	}
 	return strconv.FormatInt(gen, 10) == want, nil

@@ -419,7 +419,13 @@ func (h *AuthHandler) logLoginFailed(username, clientIP string) {
 
 func (h *AuthHandler) initiate2FASession(c echo.Context, username, authGen string) error {
 	tempToken := h.issueTempToken(username, authGen)
-	encrypted, _ := core.EncryptToken(tempToken, h.Cfg.ServerSecret)
+	if tempToken == "" {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "Failed to create login challenge")
+	}
+	encrypted, err := core.EncryptToken(tempToken, h.Cfg.ServerSecret)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to create login challenge")
+	}
 	cookie := &http.Cookie{
 		Name:     "rauth_2fa_pending",
 		Value:    encrypted,
@@ -440,7 +446,13 @@ func (h *AuthHandler) initiate2FASession(c echo.Context, username, authGen strin
 
 func (h *AuthHandler) initiate2FASetupSession(c echo.Context, username, authGen string) error {
 	setupToken := h.issueSetupToken(username, authGen)
-	encrypted, _ := core.EncryptToken(setupToken, h.Cfg.ServerSecret)
+	if setupToken == "" {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "Failed to create login challenge")
+	}
+	encrypted, err := core.EncryptToken(setupToken, h.Cfg.ServerSecret)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to create login challenge")
+	}
 	c.SetCookie(&http.Cookie{
 		Name:     "rauth_setup_pending",
 		Value:    encrypted,
@@ -495,7 +507,8 @@ func (h *AuthHandler) validatePendingToken(c echo.Context, cookieName, prefix st
 	if err != nil {
 		return "", "", "", err
 	}
-	value, err := core.TokenDB.Get(core.Ctx, prefix+":"+token).Result()
+	valueBytes, err := core.GetAuthArtifact(core.AuthArtifactKind(prefix), token)
+	value := string(valueBytes)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -503,7 +516,8 @@ func (h *AuthHandler) validatePendingToken(c echo.Context, cookieName, prefix st
 	// change, 2FA reset, deletion) is dead even if its TTL has not run out.
 	username, gen, current := core.ResolvePendingToken(value)
 	if !current {
-		core.TokenDB.Del(core.Ctx, prefix+":"+token, "pending_setup_secret:"+token)
+		_ = core.DeleteAuthArtifact(core.AuthArtifactKind(prefix), token)
+		_ = core.DeleteAuthArtifact(core.EnrollmentSecret, token)
 		return "", "", "", errStalePendingToken
 	}
 	return username, token, gen, nil
@@ -512,7 +526,10 @@ func (h *AuthHandler) validatePendingToken(c echo.Context, cookieName, prefix st
 var errStalePendingToken = errors.New("pending token predates a credential change")
 
 func (h *AuthHandler) handle2FASuccess(c echo.Context, username, clientIP, pendingToken, authGen string, usedRecovery bool, userRecord *core.User) error {
-	core.TokenDB.Del(core.Ctx, "pending_2fa:"+pendingToken)
+	data, err := core.TakeAuthArtifact(core.PendingSecondFactor, pendingToken)
+	if err != nil || !core.PendingArtifactMatches(data, username, authGen) {
+		return c.Redirect(http.StatusFound, "/rauthlogin")
+	}
 	c.SetCookie(&http.Cookie{
 		Name:     "rauth_2fa_pending",
 		MaxAge:   -1,
@@ -579,7 +596,7 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 
 	userRecord, _ := core.GetUser(username)
 	if userRecord.TwoFactor == "" {
-		core.TokenDB.Del(core.Ctx, "pending_2fa:"+pendingToken)
+		_ = core.DeleteAuthArtifact(core.PendingSecondFactor, pendingToken)
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
 
@@ -614,7 +631,7 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 }
 
 func (h *AuthHandler) Setup2FA(c echo.Context) error {
-	username, setupToken, _, err := h.validatePendingToken(c, "rauth_setup_pending", "pending_setup")
+	username, setupToken, authGen, err := h.validatePendingToken(c, "rauth_setup_pending", "pending_setup")
 	if err != nil {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
@@ -630,11 +647,13 @@ func (h *AuthHandler) Setup2FA(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Internal Server Error")
 	}
 
-	// Store secret temporarily
-	core.TokenDB.Set(core.Ctx, "pending_setup_secret:"+setupToken, key.Secret(), 5*time.Minute)
+	secret, err := core.EnrollmentSecretValue(setupToken, username, authGen, key.Secret())
+	if err != nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "Failed to store enrollment challenge")
+	}
 
 	return c.Render(http.StatusOK, "setup_2fa.html", map[string]interface{}{
-		"secret": key.Secret(),
+		"secret": secret,
 		"csrf":   c.Get("csrf"),
 		"rd":     getRD(c),
 	})
@@ -651,7 +670,8 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
 
-	secret, err := core.TokenDB.Get(core.Ctx, "pending_setup_secret:"+setupToken).Result()
+	secretBytes, err := core.GetAuthArtifact(core.EnrollmentSecret, setupToken)
+	secret := string(secretBytes)
 	if err != nil {
 		return c.Redirect(http.StatusFound, "/rauthsetup2fa")
 	}
@@ -662,7 +682,8 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 	// write into a deleted (or recreated) account.
 	userRecord, err := core.GetUser(username)
 	if err != nil || userRecord.TwoFactor != "" {
-		core.TokenDB.Del(core.Ctx, "pending_setup:"+setupToken, "pending_setup_secret:"+setupToken)
+		_ = core.DeleteAuthArtifact(core.PendingEnrollment, setupToken)
+		_ = core.DeleteAuthArtifact(core.EnrollmentSecret, setupToken)
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
 
@@ -680,7 +701,7 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 			slog.Error("Failed to encrypt 2FA secret", "error", err)
 			return echo.NewHTTPError(http.StatusInternalServerError, "Internal Server Error")
 		}
-		stored, err := core.SetSecondFactorIfUnset(username, encryptedSecret, authGen)
+		stored, err := core.CompleteSecondFactorEnrollment(setupToken, username, authGen, encryptedSecret)
 		if err != nil {
 			slog.Error("Failed to save 2FA secret", "error", err)
 			return echo.NewHTTPError(http.StatusInternalServerError, "Database Error")
@@ -688,13 +709,14 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 		if !stored {
 			// Lost a race with another enrollment, the account vanished, or a
 			// credential reset revoked this enrollment while it ran.
-			core.TokenDB.Del(core.Ctx, "pending_setup:"+setupToken, "pending_setup_secret:"+setupToken)
+			_ = core.DeleteAuthArtifact(core.PendingEnrollment, setupToken)
+			_ = core.DeleteAuthArtifact(core.EnrollmentSecret, setupToken)
 			return c.Redirect(http.StatusFound, "/rauthlogin")
 		}
 
 		// Cleanup
-		core.TokenDB.Del(core.Ctx, "pending_setup:"+setupToken)
-		core.TokenDB.Del(core.Ctx, "pending_setup_secret:"+setupToken)
+		_ = core.DeleteAuthArtifact(core.PendingEnrollment, setupToken)
+		_ = core.DeleteAuthArtifact(core.EnrollmentSecret, setupToken)
 		c.SetCookie(&http.Cookie{
 			Name:     "rauth_setup_pending",
 			MaxAge:   -1,
@@ -740,7 +762,10 @@ func (h *AuthHandler) issueTempToken(username, authGen string) string {
 		return ""
 	}
 	token := hex.EncodeToString(b)
-	core.TokenDB.Set(core.Ctx, "pending_2fa:"+token, core.PendingTokenValue(username, authGen), 5*time.Minute)
+	if err := core.StoreAuthArtifact(core.AuthArtifactKind("pending_2fa"), token, []byte(core.PendingTokenValue(username, authGen)), username, authGen, 5*time.Minute); err != nil {
+		slog.Error("Failed to store login challenge", "error", err)
+		return ""
+	}
 	return token
 }
 
@@ -751,7 +776,10 @@ func (h *AuthHandler) issueSetupToken(username, authGen string) string {
 		return ""
 	}
 	token := hex.EncodeToString(b)
-	core.TokenDB.Set(core.Ctx, "pending_setup:"+token, core.PendingTokenValue(username, authGen), 10*time.Minute)
+	if err := core.StoreAuthArtifact(core.AuthArtifactKind("pending_setup"), token, []byte(core.PendingTokenValue(username, authGen)), username, authGen, 10*time.Minute); err != nil {
+		slog.Error("Failed to store login challenge", "error", err)
+		return ""
+	}
 	return token
 }
 

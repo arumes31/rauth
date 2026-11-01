@@ -72,25 +72,35 @@ func (k *Keyring) tokenHash(token string) ([]byte, error) {
 	}
 	return digest(k.indexKey, []byte(token)), nil
 }
-func aad(id string, hash []byte) []byte {
-	return append(append([]byte("rauth-session-v1:"+id+":"), hash...), byte(0))
+func aad(domain, id string, hash []byte) []byte {
+	return append(append([]byte(domain+":"+id+":"), hash...), byte(0))
 }
 func (k *Keyring) seal(hash, payload []byte) (string, []byte, error) {
+	return k.sealFor("rauth-session-v1", hash, payload)
+}
+func (k *Keyring) sealFor(domain string, hash, payload []byte) (string, []byte, error) {
 	a := k.keys[k.active]
 	nonce := make([]byte, a.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return "", nil, err
 	}
-	return k.active, a.Seal(nonce, nonce, payload, aad(k.active, hash)), nil
+	return k.active, a.Seal(nonce, nonce, payload, aad(domain, k.active, hash)), nil
 }
 func (k *Keyring) open(id string, hash, payload []byte) ([]byte, error) {
+	return k.openFor("rauth-session-v1", id, hash, payload)
+}
+func (k *Keyring) openFor(domain, id string, hash, payload []byte) ([]byte, error) {
 	a := k.keys[id]
 	if a == nil || len(payload) < a.NonceSize()+a.Overhead() {
 		return nil, errors.New("session payload could not be decrypted")
 	}
-	out, err := a.Open(nil, payload[:a.NonceSize()], payload[a.NonceSize():], aad(id, hash))
+	out, err := a.Open(nil, payload[:a.NonceSize()], payload[a.NonceSize():], aad(domain, id, hash))
 	if err != nil {
 		return nil, errors.New("session payload could not be decrypted")
 	}
 	return out, nil
+}
+
+func (k *Keyring) stateHash(kind, id string) []byte {
+	return digest(k.indexKey, []byte(kind+"\x00"+id))
 }

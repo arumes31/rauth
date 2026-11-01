@@ -17,6 +17,9 @@ import (
 
 func newRegressionRedis(t *testing.T) {
 	t.Helper()
+	securityArtifacts = nil
+	securityCounters = nil
+	t.Cleanup(func() { securityArtifacts = nil; securityCounters = nil })
 	defaultIPFeedInstalled.Store(false)
 	t.Cleanup(func() { defaultIPFeedInstalled.Store(false) })
 	s := miniredis.RunT(t)

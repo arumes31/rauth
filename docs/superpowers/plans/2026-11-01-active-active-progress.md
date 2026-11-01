@@ -1,41 +1,38 @@
 # Active-active implementation checkpoint
 
-The complete approved goal remains active. This public checkpoint contains
-technical progress only; live host identities, addresses, bridge subnets,
+The complete approved goal remains active. Live host identities, addresses,
 operational paths and detailed evidence remain in a private deployment inventory.
 No secrets belong in Git.
 
-- Country and IP-feed implementation: PR #778. Includes the requested managed
-  Eworx default, rule inheritance/explicit opt-out, pre-session blocking, bounded
-  fetch/parse, last-good data, admin menu and URL/IP preview.
-- Real-source integration test loaded 4,771 entries and blocked a listed IP.
-  Deterministic tests and desktop/mobile visual checks also passed.
-- Linux Go/race, static/security/dependency checks passed before the latest PR
-  review fixes; final current-head CI remains the merge gate.
-- Latest review fixes preserve required default-feed references after a failed
-  initial reload and promptly schedule refresh after a source change. Targeted
-  core policy/feed/bypass tests, template rendering and lint passed.
+- Country and IP-feed implementation merged in PR #778 after functional, Linux
+  race, build and security checks passed. The advisory scan runs separately.
+  This includes the managed Eworx default, rule inheritance/explicit opt-out,
+  pre-session blocking, bounded last-good snapshots, admin menu and URL/IP preview.
+- Real-source integration denied a listed IP. The production bootstrap has a
+  ready snapshot with 4,827 entries after a full database backup. The runtime
+  release is pending, so this is not yet a production enforcement claim.
+- Original-client-IP proxy migration is applied to the existing integrations,
+  including the RAuth login/admin/profile paths. All 73 before/after root/admin/
+  WebDAV probes matched. Syntax/render tests and RAuth application-log probes
+  verify spoof rejection through LAN, Tailscale and actual public Cloudflare
+  routes. A forged Cloudflare visitor header was rejected at the edge.
 - Dedicated persistent Tailscale identities are enrolled on two hosts and passed
-  key-free restart. The identity bootstrap is not a complete worker deployment.
-- SQL session foundation is separate in draft PR #780. Full local regression,
-  lint and vet passed. Its runtime selector and the remaining security-state
-  adapters are deliberately not enabled yet.
-- A complete source-IP migration for 68 existing integrations is privately
-  prepared. Isolated spoof/proxy tests and the full nginx syntax preview passed;
-  non-IP directives matched. It has not been applied to production.
-- Production still uses the prior release. No new country/feed policies, worker
-  applications, HA databases or DNS routing changes have been activated.
+  key-free restart. Identity bootstrap alone is not a complete worker deployment.
+- SQL sessions, encrypted one-use proofs, atomic enrollment/invitation flows and
+  global security counters/replay markers are implemented separately in draft
+  PR #780. Real PostgreSQL and no-Redis adapter tests pass; callback cancellation
+  and browser-bound registration regressions pass; lint and vet report no issues.
+  The remaining session/grant/runtime migration is not enabled in production.
+- CodeRabbit's included milestone reviews were used and their verified findings
+  fixed. No paid reviews were started; honor quota/cooldown reports.
 
-Remaining work: finish SQL authority and all call sites, shared challenges,
-replay/grants/invites/counters, cross-node and cross-domain flows, HA quorum and
+Remaining work: finish the session/grant adapters and all call sites, runtime
+selection and readiness, cross-node and cross-domain flows, HA quorum and
 storage/fencing gates, dedicated networking and node lifecycle checks, signed
 persistent policy synchronization with bounded freshness, durable RAuth-only
 event forwarding, worker/public-rule rollout, and controlled outage tests.
 
-Before deployment, bootstrap the default feed and verify the authorization IP
-chain; preserve existing login requirements and application-native challenges.
-All persistence uses host bind mounts. The third state host's application data
-must remain below /mnt/usb1/rauth after verifying that filesystem is mounted.
-
-CodeRabbit's free hourly quota was exhausted at the SQL milestone; no paid
-review was started. Continue useful local review/testing and respect cooldowns.
+Preserve existing login requirements and application-native challenges. All
+persistence uses host bind mounts. The third state host's application data must
+remain below /mnt/usb1/rauth after verifying that filesystem is mounted. No HA
+routing or DNS activation is implied by source or identity-only milestones.

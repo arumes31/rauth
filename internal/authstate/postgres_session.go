@@ -61,7 +61,8 @@ func NewPostgresSessions(ctx context.Context, pool *pgxpool.Pool, keys *Keyring)
 			}
 		}
 		rows, err := tx.Query(ctx, `SELECT DISTINCT s.key_id FROM auth_sessions s JOIN auth_session_families f ON f.id=s.family_id
-   WHERE f.revoked_at IS NULL AND f.absolute_expires_at>clock_timestamp() AND s.idle_expires_at>clock_timestamp()`)
+   WHERE f.revoked_at IS NULL AND f.absolute_expires_at>clock_timestamp() AND s.idle_expires_at>clock_timestamp()
+   UNION SELECT key_id FROM auth_artifacts WHERE consumed_at IS NULL AND expires_at>clock_timestamp()`)
 		if err != nil {
 			return err
 		}
@@ -72,7 +73,7 @@ func NewPostgresSessions(ctx context.Context, pool *pgxpool.Pool, keys *Keyring)
 				return err
 			}
 			if keys.keys[id] == nil {
-				return errors.New("a live session encryption key is missing")
+				return errors.New("a live session or challenge encryption key is missing")
 			}
 		}
 		return rows.Err()
@@ -460,6 +461,13 @@ func (s *PostgresSessions) Cleanup(ctx context.Context) error {
 		return err
 	}
 	queries := []string{
+
+		`WITH doomed AS (SELECT kind,token_hash FROM auth_artifacts WHERE expires_at<=$1 ORDER BY expires_at LIMIT 1000 FOR UPDATE SKIP LOCKED)
+         DELETE FROM auth_artifacts a USING doomed d WHERE a.kind=d.kind AND a.token_hash=d.token_hash`,
+		`WITH doomed AS (SELECT key_hash FROM auth_security_counters WHERE expires_at<=$1 ORDER BY expires_at LIMIT 1000 FOR UPDATE SKIP LOCKED)
+         DELETE FROM auth_security_counters a USING doomed d WHERE a.key_hash=d.key_hash`,
+		`WITH doomed AS (SELECT key_hash FROM auth_replay_markers WHERE expires_at<=$1 ORDER BY expires_at LIMIT 1000 FOR UPDATE SKIP LOCKED)
+         DELETE FROM auth_replay_markers a USING doomed d WHERE a.key_hash=d.key_hash`,
 		`WITH doomed AS (SELECT token_hash FROM auth_sessions WHERE idle_expires_at<=$1 ORDER BY idle_expires_at LIMIT 1000 FOR UPDATE SKIP LOCKED)
    DELETE FROM auth_sessions s USING doomed d WHERE s.token_hash=d.token_hash`,
 		`WITH doomed AS (SELECT s.token_hash FROM auth_session_families f JOIN auth_sessions s ON s.family_id=f.id WHERE f.absolute_expires_at<=$1

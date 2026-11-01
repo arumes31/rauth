@@ -26,7 +26,7 @@ The new internal/authstate package and additive 0004 schema provide a typed sess
 
 Issue locks the same auth_generations row as current credential changes. Families share revocation and absolute expiry across rotation/replacement and future SSO sessions. Reads join current account/generation and enforce both expiries. Rotation takes generation/family/session locks in that order; retired grace tokens return before acquiring a family lock, and live operations encountering a locked family return explicit ErrBusy so an adapter can retain/retry the current token instead of reporting expiry. Revoke cannot leave a concurrently committed successor active. Refresh writes at most once per 30 seconds (or quarter of a shorter idle lifetime) and cannot extend a retired token or absolute deadline. Authorization reads and single-statement refreshes have a three-second cancellation deadline; multi-statement mutations have a ten-second budget, and startup key validation has a separate fifteen-second budget. All use PostgreSQL time. Parallel full-suite traffic through the remote SSH test tunnel exposed that the earlier uniform three-second mutation budget was too small for its multiple round trips; reads retain the short deadline.
 
-Still required before this store can be selected: Redis development adapter and runtime call-site migration; family listing/revoke-others/IP-session queries; challenge/invite/replay/grant/counter stores; atomic cross-state operations; configuration and key provisioning; startup/readiness separation; real two-process/race/load/failover testing; coordinated cutover that deliberately expires legacy transient state. No active-active acceptance claim follows from this foundation alone.
+Still required before this store can be selected: session adapter and runtime call-site migration; family listing/revoke-others/IP-session queries; step-up grants; remaining atomic cross-state operations; configuration and key provisioning; startup/readiness separation; real two-process/race/load/failover testing; coordinated cutover that deliberately expires legacy transient state. No active-active acceptance claim follows from this foundation alone.
 
 
 Cleanup uses independent batches of at most 1,000 rows with one fixed database
@@ -35,3 +35,39 @@ of absolute-expired families are removed before deleting empty expired families,
 so cascade work cannot turn one family batch into an unbounded delete. A later
 failure preserves progress from already committed batches. Runtime adapter tests
 must preserve ErrBusy semantics in rotation and step-up replacement paths.
+
+
+## SQL one-use proofs and security counters
+
+The additive 0005 schema and typed artifact/counter stores now cover pending
+password-plus-2FA proofs, enrollment proofs and stable temporary TOTP secrets,
+passkey ceremonies, invitations, global fixed-window throttles and TOTP replay
+markers. Payloads are encrypted with purpose/token authenticated binding; their
+IDs and replay/counter keys are keyed digests. Pending proofs bind the original
+account generation. Challenges have bounded TTL/payload limits and consumed
+proofs cannot be restored. Secret slots alone may be replaced after expiry.
+
+Consume supplies its bounded transaction context to every callback statement.
+Enrollment claims the parent proof, writes an eligible account factor and retires
+its temporary secret in one transaction. Invitation redemption creates the
+account and consumes its proof together; account conflicts roll both back.
+Cancellation rolls back the claim and releases locks. Fixed-window counters and
+TOTP markers are atomic across independent pools, use database time, and have
+bounded cleanup.
+
+Core and handler facades now route these paths through one selected authority;
+SQL-focused tests set all Redis clients to nil. Legacy development retains its
+raw challenge format with atomically paired ownership metadata. Registration
+uses a fresh browser nonce and a session-bound proof, preventing another browser
+from consuming it or a credential reset from reusing old step-up. Passkey login
+claims its challenge atomically. Production still uses legacy authority and no
+SQL mode is exposed until session/grant/startup migration is complete.
+
+Validation includes cross-node one-use races, stale-generation and ciphertext
+checks, stable enrollment handoff, invitation/account rollback and redemption
+races, shared throttle/replay races, callback cancellation, and browser-bound
+registration regressions. CodeRabbit's included review found the callback-context
+gap; it was fixed and tested without paid review usage. The full regression
+identified one stale username-keyed passkey fixture; it now exercises the new
+nonce cookie and authenticated browser context while retaining its deletion and
+replay assertions. That test and the other WebAuthn/registration regressions pass.
