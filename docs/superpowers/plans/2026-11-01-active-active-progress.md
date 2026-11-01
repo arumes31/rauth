@@ -61,3 +61,25 @@ Preserve existing login requirements and application-native challenges. All
 persistence uses host bind mounts. The third state host's application data must
 remain below /mnt/usb1/rauth after verifying that filesystem is mounted. No HA
 routing or DNS activation is implied by source or identity-only milestones.
+
+
+## Cross-domain SSO source milestone (not deployed)
+
+Task 6 now has an opt-in SQL-backed SSO transaction/code path, exact origin
+allowlist, browser binding, audience-bound host-only application cookies and
+family-wide logout. Canonical cookie scope becomes host-only in SSO mode while
+WebAuthn RP ID/origins stay fixed. The existing password/TOTP/passkey return path
+can continue to the canonical authorization endpoint on another node.
+
+Real PostgreSQL and HTTP handler checks cover cross-node issuance/redemption,
+one-use concurrency/replay, wrong browser/site, expiry, credential changes,
+rotation, copied-cookie rejection, CSRF and opaque return URI preservation.
+Two independent process tests also passed with the password issuer stopped
+before TOTP and the code issuer stopped before callback. Both origins use verified
+TLS PostgreSQL, per-origin cookie jars, and global logout is visible at both.
+This is forced-origin HTTP API acceptance, not a real-browser/NPM or quorum drill.
+An included CodeRabbit CLI milestone completed with no findings; vet/lint pass.
+The full final regression/CI and normal review gates still apply.
+
+See deploy/ha/SSO.md for activation, proxy/logging and compatible rollback gates.
+Production keeps SSO disabled; no workers, HA cluster or DNS records changed.

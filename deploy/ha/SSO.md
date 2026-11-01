@@ -118,6 +118,13 @@ copied cookies, preserve an opaque WebDAV return URI, and verify global logout.
 Cookie flags, host-only rotation, exact enrollment, reserved paths and sensitive
 log query redaction have regression coverage.
 
+Two actual server processes passed a forced-origin HTTP API fixture with verified
+TLS SQL connections and Redis unavailable. Password issuer termination before
+TOTP and code issuer termination before callback both succeeded. Per-origin cookie
+jars verified audience isolation, cross-process rotation/grace and global logout;
+all process logs omitted the generated codes/transaction IDs. The fixture uses
+loopback worker transport and is not real-browser or NPM acceptance.
+
 Before rollout, also test independent processes through actual NPM routes with
 trusted source headers, real-browser cookie/CSRF/passkey behavior, forced origin
 routing, all target host aliases, logout races and HA leader/outage drills.
