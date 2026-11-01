@@ -65,6 +65,25 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 	clientIP := c.RealIP()
 	rateLimitKey := "validate:" + core.RateLimitIP(clientIP)
 
+	// URL restrictions apply equally to anonymous and authenticated requests.
+	if core.HasRestrictedBypassRulesForHost(c.Request().Header.Get(h.Cfg.AuthBypassHostHeader)) {
+		if !h.Cfg.IsTrustedProxyPeer(c.Request().RemoteAddr) {
+			return denyRequestPolicy(c, "untrusted_proxy")
+		}
+		rule, found, err := core.SelectBypassRule(c.Request().Header.Get(h.Cfg.AuthBypassHostHeader), c.Request().Header.Get(h.Cfg.AuthBypassURIHeader))
+		if err != nil {
+			return denyRequestPolicy(c, "policy_target_invalid")
+		}
+		if found {
+			c.Set("policy_rule", rule.Rule)
+			decision := rule.Evaluate(clientIP, core.GetCountryCode(clientIP))
+			if !decision.Allowed {
+				c.Set("policy_feed_id", decision.FeedID)
+				return denyRequestPolicy(c, decision.Reason)
+			}
+		}
+	}
+
 	cookie, err := c.Cookie("X-rauth-authtoken")
 	if err != nil {
 		return h.denyOrBypass(c, rateLimitKey, true)
@@ -813,4 +832,13 @@ func (h *AuthHandler) issueToken(c echo.Context, username, authGen string) error
 
 	redirect := core.ValidateRedirectURL(getRD(c), "/rauthprofile", username, h.Cfg)
 	return c.Redirect(http.StatusFound, redirect)
+}
+
+func denyRequestPolicy(c echo.Context, reason string) error {
+	c.Set("policy_reason", reason)
+	for _, name := range []string{"X-RAuth-User", "X-RAuth-Groups", "X-RAuth-Anonymous"} {
+		c.Response().Header().Set(name, "")
+	}
+	c.Response().Header().Set("X-RAuth-Admin", "0")
+	return c.NoContent(http.StatusForbidden)
 }

@@ -70,10 +70,15 @@ func main() {
 		slog.Error("Postgres initialization failed", "error", err)
 		os.Exit(1)
 	}
+
 	// Move durable data from Redis on the first start with Postgres. Starting
 	// without it would present an empty user database, so a failure is fatal.
 	if err := core.ImportFromRedis(cfg); err != nil {
 		slog.Error("Importing data from Redis failed", "error", err)
+		os.Exit(1)
+	}
+	if err := core.EnsureDefaultIPFeed(core.Ctx); err != nil {
+		slog.Error("Default IP feed initialization failed; refusing unrestricted public startup", "error", err)
 		os.Exit(1)
 	}
 
@@ -505,6 +510,7 @@ func setupRoutes(e *echo.Echo, cfg *core.Config) {
 	admin.Use(middleware.AdminMiddleware)
 	admin.GET("", adminHandler.Dashboard)
 	admin.GET("/live-feed", adminHandler.LiveFeed)
+	admin.POST("/policy/preview", adminHandler.PreviewPolicy)
 	admin.POST("/user/create", adminHandler.CreateUser)
 	admin.POST("/user/delete", adminHandler.DeleteUser)
 	admin.POST("/user/reset-2fa", adminHandler.ResetUser2FA)
@@ -517,6 +523,10 @@ func setupRoutes(e *echo.Echo, cfg *core.Config) {
 	admin.POST("/bypass/add", adminHandler.AddBypassRule)
 	admin.POST("/bypass/update", adminHandler.UpdateBypassRule)
 	admin.POST("/bypass/delete", adminHandler.DeleteBypassRule)
+	admin.POST("/ip-feeds/add", adminHandler.AddIPFeed)
+	admin.POST("/ip-feeds/update", adminHandler.UpdateIPFeed)
+	admin.POST("/ip-feeds/delete", adminHandler.DeleteIPFeed)
+	admin.POST("/ip-feeds/refresh", adminHandler.RefreshIPFeed)
 }
 
 // bypassRefreshInterval bounds how long another instance keeps serving a rule
@@ -584,6 +594,7 @@ func initializeSystem(cfg *core.Config) func() {
 
 	// Auth bypass rules: read-only ones from AUTH_BYPASS_RULES plus UI-managed
 	// ones from Postgres, refreshed so every instance sees admin changes.
+	stopIPFeeds := core.StartIPFeedService(ctx, true)
 	core.SetEnvBypassRules(cfg.AuthBypassRules)
 	core.StartBypassRefresher(ctx, bypassRefreshInterval)
 	done := make(chan struct{})
@@ -609,6 +620,7 @@ func initializeSystem(cfg *core.Config) func() {
 
 	return func() {
 		cancel()
+		stopIPFeeds()
 		<-done
 	}
 }

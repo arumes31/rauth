@@ -1,0 +1,43 @@
+# Dedicated tailnet identity for one RAuth node. No named/anonymous volumes.
+services:
+  tailscale:
+    image: ${RAUTH_TAILSCALE_IMAGE:?set an official Tailscale image pinned by digest}
+    container_name: rauth-tailscale
+    hostname: ${RAUTH_NODE_NAME:?set a unique per-node name}
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN, NET_RAW]
+    security_opt: [no-new-privileges:true]
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m
+      - /run:rw,noexec,nosuid,nodev,size=8m
+    environment:
+      TS_HOSTNAME: ${RAUTH_NODE_NAME}
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_SOCKET: /tmp/tailscaled.sock
+      TS_AUTH_ONCE: "true"
+      TS_USERSPACE: "false"
+      TS_ACCEPT_DNS: "false"
+    volumes:
+      - type: bind
+        source: ${RAUTH_STATE_ROOT:?set an absolute host storage directory}/tailscale
+        target: /var/lib/tailscale
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: ["CMD", "tailscale", "--socket=/tmp/tailscaled.sock", "status"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+    networks: [rauth-local]
+    labels:
+      io.rauth.role: tailscale
+networks:
+  rauth-local:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${RAUTH_DOCKER_SUBNET:?set a verified non-overlapping dedicated subnet}

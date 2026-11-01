@@ -763,3 +763,42 @@ A: Modern browsers enforce the `Secure` attribute on cookies and block them over
 
 ---
 Built with ❤️ for secure, fast, and private self-hosting.
+
+
+### Public Access country policies and IP feeds
+
+Public Access rules can restrict allowed countries and attach IPv4/IPv6 blocklists.
+Restrictions apply before session authorization: logging in does not override a
+country or feed block. The most specific matching rule supplies the policy;
+a failed condition does not fall through to a broader public rule.
+
+The **IP Feeds** admin section manages HTTPS text feeds, refresh status and URL
+references. A feed must load before it can be attached. Failed, malformed,
+oversized or suspiciously empty updates keep the previous valid version.
+Disabling/deleting an attached feed requires removing its URL references first.
+Use Public Access's existing password/2FA unlock for mutations.
+
+The managed default is https://blocklist.eworx.at/api/v1/raw. Existing public
+rules receive it once; new public rules select it by default. An administrator
+may explicitly uncheck it for an individual rule. Existing login-required rules
+are not automatically changed. The built-in source remains enabled and cannot
+be deleted/repointed through feed CRUD.
+
+Before activating this release, run the packaged **rauth-feed-bootstrap**
+command with the intended PostgreSQL configuration while the prior RAuth/feed
+route is still available. It creates the catalog, validates the real HTTPS
+feed and stores its first version. This pre-cutover step avoids a startup loop
+when the feed URL itself is behind RAuth. Do not activate routes until the
+bootstrap reports ready. Missing default data denies affected public URLs;
+it never silently permits unrestricted access.
+
+Downloads are bounded to 10 MiB decompressed / 500,000 prefixes per feed,
+32 feeds and 2 million active prefixes per worker. Only HTTPS public
+destinations are accepted, including after DNS resolution and redirects.
+Private sources need a separately reviewed narrow egress policy; they are
+not enabled by a generic private-address override.
+
+Run the opt-in real-source test with RAUTH_TEST_DEFAULT_FEED_LIVE=1 and
+RAUTH_TEST_DATABASE_URL set to an isolated test PostgreSQL instance:
+`go test ./internal/core -run TestDefaultIPFeedLive -v -count=1`.
+Ordinary CI tests use deterministic fixtures.

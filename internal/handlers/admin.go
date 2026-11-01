@@ -91,22 +91,28 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 		}
 	}
 
+	feeds, feedErr := core.ListIPFeeds(c.Request().Context())
+	if feedErr != nil {
+		slog.Error("Failed to list IP feeds", "error", feedErr)
+	}
 	rules := bypassRuleViews()
 	userViews, stats := buildAdminView(users, sessions, logs, rules)
 
 	return c.Render(http.StatusOK, "management.html", map[string]interface{}{
-		"username":        c.Get("username"),
-		"root_user":       h.Cfg.InitialUser,
-		"users":           userViews,
-		"stats":           stats,
-		"sessions":        sessions,
-		"logs":            logs,
-		"csrf":            c.Get("csrf"),
-		"bypass_rules":    rules,
-		"bypass_host_hdr": h.Cfg.AuthBypassHostHeader,
-		"bypass_uri_hdr":  h.Cfg.AuthBypassURIHeader,
-		"admin_has_2fa":   adminHas2FA,
-		"bypass_unlock_m": bypassUnlockMinutes(c),
+		"username":         c.Get("username"),
+		"root_user":        h.Cfg.InitialUser,
+		"users":            userViews,
+		"stats":            stats,
+		"sessions":         sessions,
+		"logs":             logs,
+		"csrf":             c.Get("csrf"),
+		"bypass_rules":     rules,
+		"policy_countries": core.PolicyCountries(),
+		"ip_feeds":         feeds,
+		"bypass_host_hdr":  h.Cfg.AuthBypassHostHeader,
+		"bypass_uri_hdr":   h.Cfg.AuthBypassURIHeader,
+		"admin_has_2fa":    adminHas2FA,
+		"bypass_unlock_m":  bypassUnlockMinutes(c),
 	})
 }
 

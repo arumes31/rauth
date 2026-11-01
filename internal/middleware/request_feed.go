@@ -52,7 +52,10 @@ func RequestFeed(cfg *core.Config) echo.MiddlewareFunc {
 					}
 				}
 			}
-			core.LiveRequests.Append(core.RequestEvent{URL: target, Source: source, Country: core.GetCountryCode(source), Action: action, Status: status})
+			reason, _ := c.Get("policy_reason").(string)
+			rule, _ := c.Get("policy_rule").(string)
+			feedID, _ := c.Get("policy_feed_id").(string)
+			core.LiveRequests.Append(core.RequestEvent{Reason: reason, Rule: rule, FeedID: feedID, URL: target, Source: source, Country: core.GetCountryCode(source), Action: action, Status: status})
 			return err
 		}
 	}

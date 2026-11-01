@@ -51,6 +51,7 @@ const (
 
 // BypassRule is one normalized bypass rule.
 type BypassRule struct {
+	RulePolicy
 	// Rule is the canonical text form ("host", "host/" or "host/path"),
 	// without the "!" deny marker.
 	Rule string `json:"rule"`
@@ -326,20 +327,40 @@ func init() {
 // as reported by the reverse proxy, and whether it allows anonymous access.
 // It fails closed on anything unclear.
 func MatchBypass(rawHost, rawURI string) (BypassRule, bool) {
+	rule, found, err := SelectBypassRule(rawHost, rawURI)
+	return rule, err == nil && found && rule.Allows()
+}
+
+// SelectBypassRule selects the winning rule, including login-required rules.
+// An ambiguous target returns an error so restrictions cannot be skipped by
+// authenticating with a valid cookie.
+func SelectBypassRule(rawHost, rawURI string) (BypassRule, bool, error) {
 	set := activeBypass.Load()
 	if len(set.env) == 0 && len(set.ui) == 0 {
-		return BypassRule{}, false
+		return BypassRule{}, false, nil
 	}
 	host := normalizeRequestHost(rawHost)
 	if host == "" {
-		return BypassRule{}, false
+		return BypassRule{}, false, nil
+	}
+	matchingHost := false
+	for _, list := range [][]BypassRule{set.env, set.ui} {
+		for _, rule := range list {
+			if rule.matchesHost(host) {
+				matchingHost = true
+				break
+			}
+		}
+	}
+	if !matchingHost {
+		return BypassRule{}, false, nil
 	}
 	reqPath, ok := safeRequestPath(rawURI)
 	opaquePath := !ok
 	if !ok {
 		reqPath, ok = requestPath(rawURI, true)
 		if !ok {
-			return BypassRule{}, false
+			return BypassRule{}, false, errBypassPath
 		}
 	}
 	var best BypassRule
@@ -351,7 +372,7 @@ func MatchBypass(rawHost, rawURI string) (BypassRule, bool) {
 			// Keep failing closed whenever this host has any path-scoped policy,
 			// even if the literal path would not match that rule.
 			if opaquePath && r.Path != "" && r.matchesHost(host) {
-				return BypassRule{}, false
+				return BypassRule{}, false, errBypassPath
 			}
 			if r.matches(host, reqPath) && (!found || r.moreSpecific(best)) {
 				best, found = r, true
@@ -359,9 +380,9 @@ func MatchBypass(rawHost, rawURI string) (BypassRule, bool) {
 		}
 	}
 	if !found {
-		return BypassRule{}, false
+		return BypassRule{}, false, nil
 	}
-	return best, best.Allows()
+	return best, true, nil
 }
 
 // HasBypassRules reports whether any allow rule is active (deny rules alone
@@ -399,6 +420,10 @@ func SetEnvBypassRules(raw []string) {
 			continue
 		}
 		r.Source = "env"
+		if r.Allows() && defaultFeedRequired() {
+			r.DefaultFeedConfigured = true
+			r.BlockedFeedIDs = appendFeedID(r.BlockedFeedIDs, DefaultIPFeedID)
+		}
 		rules = append(rules, r)
 	}
 	cur := activeBypass.Load()
@@ -439,13 +464,20 @@ func ReloadBypassRules() error {
 			continue
 		}
 		var m BypassRule
-		_ = json.Unmarshal(meta, &m)
+		if err := json.Unmarshal(meta, &m); err != nil {
+			return fmt.Errorf("invalid bypass metadata for %s: %w", field, err)
+		}
 		action, err := normalizeAction(m.Action)
 		if err != nil {
 			// Unknown action: fail closed rather than open the path.
 			action = BypassDeny
 		}
 		r.Action = action
+		policy, err := NormalizeRulePolicy(m.RulePolicy)
+		if err != nil {
+			return fmt.Errorf("invalid bypass policy for %s: %w", field, err)
+		}
+		r.RulePolicy = policy
 		r.Source = "ui"
 		r.Note, r.CreatedBy, r.CreatedAt = m.Note, m.CreatedBy, m.CreatedAt
 		r.UpdatedBy, r.UpdatedAt = m.UpdatedBy, m.UpdatedAt
@@ -512,25 +544,42 @@ func reloadAfter(op string) {
 
 // AddBypassRule stores a new UI-managed rule and reloads the active set. An
 // existing rule for the same host and path is not overwritten.
-func AddBypassRule(raw, action, note, createdBy string) (BypassRule, error) {
+func AddBypassRule(raw, action, note, createdBy string, policies ...RulePolicy) (BypassRule, error) {
 	r, err := parseRuleInput(raw, action)
 	if err != nil {
 		return BypassRule{}, err
 	}
-	var n int
-	if err := PG.QueryRow(Ctx, "SELECT count(*) FROM bypass_rules").Scan(&n); err != nil {
-		return BypassRule{}, err
-	}
-	if n >= maxBypassRules {
-		return BypassRule{}, errBypassTooMany
-	}
-	meta, _ := json.Marshal(BypassRule{Action: r.Action, Note: trimNote(note), CreatedBy: createdBy, CreatedAt: time.Now().Unix()})
-	tag, err := PG.Exec(Ctx, "INSERT INTO bypass_rules (rule, meta) VALUES ($1, $2) ON CONFLICT (rule) DO NOTHING", r.Rule, meta)
+	policy, err := optionalRulePolicy(policies, RulePolicy{})
 	if err != nil {
 		return BypassRule{}, err
 	}
-	if tag.RowsAffected() == 0 {
-		return BypassRule{}, errBypassExists
+	r.RulePolicy = policy
+	err = policyMutation(Ctx, func(tx pgx.Tx) error {
+		var err error
+		policy, err = applyDefaultRulePolicy(Ctx, tx, r, policy)
+		if err != nil {
+			return err
+		}
+		r.RulePolicy = policy
+		var count int
+		if err := tx.QueryRow(Ctx, "SELECT count(*) FROM bypass_rules").Scan(&count); err != nil {
+			return err
+		}
+		if count >= maxBypassRules {
+			return errBypassTooMany
+		}
+		meta, _ := json.Marshal(BypassRule{RulePolicy: policy, Action: r.Action, Note: trimNote(note), CreatedBy: createdBy, CreatedAt: time.Now().Unix()})
+		tag, err := tx.Exec(Ctx, "INSERT INTO bypass_rules(rule,meta) VALUES($1,$2) ON CONFLICT(rule) DO NOTHING", r.Rule, meta)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return errBypassExists
+		}
+		return syncRuleFeedReferences(Ctx, tx, r.Rule, policy.BlockedFeedIDs)
+	})
+	if err != nil {
+		return BypassRule{}, err
 	}
 	reloadAfter("add")
 	return r, nil
@@ -538,7 +587,7 @@ func AddBypassRule(raw, action, note, createdBy string) (BypassRule, error) {
 
 // UpdateBypassRule changes the rule text, action and note of a UI-managed
 // rule, keeping its creation metadata. It returns the old and new rule.
-func UpdateBypassRule(oldRaw, newRaw, action, note, updatedBy string) (BypassRule, BypassRule, error) {
+func UpdateBypassRule(oldRaw, newRaw, action, note, updatedBy string, policies ...RulePolicy) (BypassRule, BypassRule, error) {
 	old, err := ParseBypassRule(oldRaw)
 	if err != nil {
 		return BypassRule{}, BypassRule{}, err
@@ -547,7 +596,7 @@ func UpdateBypassRule(oldRaw, newRaw, action, note, updatedBy string) (BypassRul
 	if err != nil {
 		return BypassRule{}, BypassRule{}, err
 	}
-	err = pgx.BeginFunc(Ctx, PG, func(tx pgx.Tx) error {
+	err = policyMutation(Ctx, func(tx pgx.Tx) error {
 		var prevMeta []byte
 		err := tx.QueryRow(Ctx, "SELECT meta FROM bypass_rules WHERE rule = $1 FOR UPDATE", old.Rule).Scan(&prevMeta)
 		if isNoRows(err) {
@@ -556,17 +605,36 @@ func UpdateBypassRule(oldRaw, newRaw, action, note, updatedBy string) (BypassRul
 			return err
 		}
 		var prev BypassRule
-		_ = json.Unmarshal(prevMeta, &prev)
+		if err := json.Unmarshal(prevMeta, &prev); err != nil {
+			return err
+		}
+		old.RulePolicy = prev.RulePolicy
+		policy, err := optionalRulePolicy(policies, prev.RulePolicy)
+		if err != nil {
+			return err
+		}
+		previousAction, _ := normalizeAction(prev.Action)
+		if len(policies) == 0 && previousAction == BypassDeny && r.Allows() {
+			policy.DefaultFeedConfigured = false
+		}
+		policy, err = applyDefaultRulePolicy(Ctx, tx, r, policy)
+		if err != nil {
+			return err
+		}
+		r.RulePolicy = policy
 		old.Action, _ = normalizeAction(prev.Action)
 
 		meta, _ := json.Marshal(BypassRule{
-			Action: r.Action, Note: trimNote(note),
+			RulePolicy: policy,
+			Action:     r.Action, Note: trimNote(note),
 			CreatedBy: prev.CreatedBy, CreatedAt: prev.CreatedAt,
 			UpdatedBy: updatedBy, UpdatedAt: time.Now().Unix(),
 		})
 		if r.Rule == old.Rule {
-			_, err := tx.Exec(Ctx, "UPDATE bypass_rules SET meta = $2 WHERE rule = $1", r.Rule, meta)
-			return err
+			if _, err := tx.Exec(Ctx, "UPDATE bypass_rules SET meta=$2 WHERE rule=$1", r.Rule, meta); err != nil {
+				return err
+			}
+			return syncRuleFeedReferences(Ctx, tx, r.Rule, policy.BlockedFeedIDs)
 		}
 		tag, err := tx.Exec(Ctx, "INSERT INTO bypass_rules (rule, meta) VALUES ($1, $2) ON CONFLICT (rule) DO NOTHING", r.Rule, meta)
 		if err != nil {
@@ -575,7 +643,10 @@ func UpdateBypassRule(oldRaw, newRaw, action, note, updatedBy string) (BypassRul
 		if tag.RowsAffected() == 0 {
 			return errBypassExists
 		}
-		_, err = tx.Exec(Ctx, "DELETE FROM bypass_rules WHERE rule = $1", old.Rule)
+		if err := syncRuleFeedReferences(Ctx, tx, r.Rule, policy.BlockedFeedIDs); err != nil {
+			return err
+		}
+		_, err = tx.Exec(Ctx, "DELETE FROM bypass_rules WHERE rule=$1", old.Rule)
 		return err
 	})
 	if err != nil {
@@ -592,12 +663,18 @@ func DeleteBypassRule(raw string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	tag, err := PG.Exec(Ctx, "DELETE FROM bypass_rules WHERE rule = $1", r.Rule)
-	if err != nil {
-		return false, err
+	removed := false
+	err = policyMutation(Ctx, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(Ctx, "DELETE FROM bypass_rules WHERE rule=$1", r.Rule)
+		if err == nil {
+			removed = tag.RowsAffected() > 0
+		}
+		return err
+	})
+	if err == nil {
+		reloadAfter("delete")
 	}
-	reloadAfter("delete")
-	return tag.RowsAffected() > 0, nil
+	return removed, err
 }
 
 // DescribeBypassRule renders the rule scope for the admin UI.
@@ -631,4 +708,15 @@ func ruleTexts(rules []BypassRule) []string {
 		}
 	}
 	return out
+}
+
+// Legacy non-policy callers preserve existing restrictions when editing.
+func optionalRulePolicy(policies []RulePolicy, fallback RulePolicy) (RulePolicy, error) {
+	if len(policies) > 1 {
+		return RulePolicy{}, fmt.Errorf("expected at most one policy")
+	}
+	if len(policies) == 1 {
+		fallback = policies[0]
+	}
+	return NormalizeRulePolicy(fallback)
 }

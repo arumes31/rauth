@@ -41,8 +41,11 @@ export function initLiveFeed() {
         const country = typeof event.country === 'string' ? event.country : 'unknown';
         const url = typeof event.url === 'string' ? event.url : '';
         const source = typeof event.source === 'string' ? event.source : 'unknown';
+        const reason = typeof event.reason === 'string' ? event.reason : '';
+        const rule = typeof event.rule === 'string' ? event.rule : '';
+        const feed = typeof event.feed_id === 'string' ? event.feed_id : '';
         row.dataset.action = actions.has(event.action) ? event.action : 'error';
-        row.dataset.search = [url, source, country, label].join(' ').toLowerCase();
+        row.dataset.search = [url, source, country, label, reason, rule, feed].join(' ').toLowerCase();
         const cell = (name, text, cls = '') => {
             const td = document.createElement('td');
             td.dataset.label = name; td.className = cls; td.textContent = text;
@@ -62,6 +65,13 @@ export function initLiveFeed() {
         const action = cell('Action', '');
         const chip = document.createElement('span'); chip.className = `chip ${kind}`; chip.textContent = label;
         action.append(chip);
+        if (reason) {
+            const detail = document.createElement('div');
+            detail.className = 'small text-muted mt-1';
+            detail.textContent = reason.replaceAll('_', ' ');
+            detail.title = [rule, feed].filter(Boolean).join(' · ');
+            action.append(detail);
+        }
         return row;
     }
 

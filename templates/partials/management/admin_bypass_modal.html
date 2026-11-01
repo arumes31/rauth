@@ -26,6 +26,40 @@
                         <label class="form-label" for="editBypassNote">Note <span class="text-faint fw-normal">(optional)</span></label>
                         <input type="text" name="note" id="editBypassNote" class="form-control" maxlength="200">
                     </div>
+
+ <fieldset class="col-12 mt-3" data-policy-fields>
+  <legend class="fs-6">Country restrictions</legend>
+  <input type="hidden" name="policy_fields" value="1">
+  <label class="form-label" for="editCountryMode">Allowed countries</label>
+  <select class="form-select" name="country_mode" id="editCountryMode">
+   <option value="all">All countries</option>
+   <option value="selected">Only selected countries</option>
+  </select>
+  <div data-country-selection hidden>
+   <p class="small text-muted mt-2">Unchecked and unknown countries are blocked, including for signed-in users.</p>
+   <label class="form-label" for="editCountrySearch">Find a country</label>
+   <input class="form-control mb-2" type="search" id="editCountrySearch" data-country-search autocomplete="off">
+   <p class="small text-muted" data-country-count>0 selected</p>
+   <div class="border rounded p-2" style="max-height: 240px; overflow-y: auto;">
+   {{range .policy_countries}}
+    <label class="d-block py-1" data-country-option>
+     <input class="form-check-input me-2" type="checkbox" name="allowed_countries" value="{{.Code}}"> {{.Name}} ({{.Code}})
+    </label>
+   {{end}}
+   </div>
+   <label class="d-block mt-2">
+    <input class="form-check-input me-2" type="checkbox" name="allow_private_networks"> Also allow private and Tailscale networks
+   </label>
+  </div>
+ <div class="mt-3" data-feed-selection>
+ <div class="form-label">Block IPs from these feeds</div>
+ <p class="small text-muted">Attached feeds block matching IPs even for signed-in users and allowed countries.</p>
+ {{range .ip_feeds}}
+ {{if .IsDefault}}<input type="hidden" name="default_feed_present" value="1">{{end}}
+ <label class="d-block py-1"><input class="form-check-input me-2" type="checkbox" name="blocked_feed_ids" value="{{.ID}}" {{if .IsDefault}}data-default-feed checked{{else if not .Ready}}disabled{{end}}> {{.Name}}{{if .IsDefault}} (default){{end}}{{if not .Ready}} (load the feed first){{end}}</label>
+ {{else}}<p class="small text-muted">Add and refresh a feed in IP Feeds first.</p>{{end}}
+</div>
+ </fieldset>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-ghost" data-bs-dismiss="modal">Cancel</button>
