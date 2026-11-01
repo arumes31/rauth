@@ -118,6 +118,10 @@ func TestIPFeedColdStartRetryIsPrompt(t *testing.T) {
 
 func TestDefaultIPFeedRespectsCatalogLimit(t *testing.T) {
 	newRegressionRedis(t)
+	t.Cleanup(func() {
+		activeFeeds.Store(&feedSnapshot{indexes: map[string]*compiledIPFeed{}, versions: map[string]int64{}})
+		activeBypass.Store(&bypassSet{})
+	})
 	ctx := context.Background()
 	for i := 0; i < MaxIPFeeds; i++ {
 		_, err := AddIPFeed(ctx, fmt.Sprintf("Custom %d", i), "https://feeds.example.com/list", 60, "admin")
