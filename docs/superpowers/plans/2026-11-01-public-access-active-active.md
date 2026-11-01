@@ -32,13 +32,13 @@ Policy/feed UI work can ship independently in single-node mode after its own che
 
 Existing inputs:
 - Current source under internal/core, internal/handlers, internal/middleware, main.go and docker-compose.ghcr.yml.
-- Prior hodus monitoring verification at C:/DR/rauth-monitoring-20261101/verification-final.json.
-- Read-only discovery in the design: four NPM instances; nine public entries on nl-bluehost; oracle and massivgrid need authenticated host-rule inspection.
+- Prior the control host monitoring verification at the private verified rollout report.
+- Read-only discovery in the design: four NPM instances; nine public entries on second state host; worker host C and worker host D need authenticated host-rule inspection.
 
 Actions:
-1. Obtain existing authorized management access to oracle and massivgrid; inventory proxy entries, aliases, custom locations, RAuth/login rules, NPM ACLs, Basic Auth, SSL and backend targets.
-2. Verify hodus/nl inventory remains current. Record auth/admin self-reference and pure redirect/dead/stream exceptions separately.
-3. Measure resources, architecture, storage durability and pairwise latency on candidate state hosts. Confirm three independent failure domains and that no auth routing/DNS/TLS prerequisite relies only on hodus.
+1. Obtain existing authorized management access to worker host C and worker host D; inventory proxy entries, aliases, custom locations, RAuth/login rules, NPM ACLs, Basic Auth, SSL and backend targets.
+2. Verify the control host/nl inventory remains current. Record auth/admin self-reference and pure redirect/dead/stream exceptions separately.
+3. Measure resources, architecture, storage durability and pairwise latency on candidate state hosts. Confirm three independent failure domains and that no auth routing/DNS/TLS prerequisite relies only on the control host.
 4. Identify current external DNS provider/proxy modes, health-routing capabilities and existing entitlement. Do not purchase a service.
 5. Measure typical/peak auth request rate, especially WebDAV traffic, and current latency. Obtain representative intended feed URLs without enabling them.
 6. Record a per-host backup/restore method and test restores in an isolated environment.
@@ -46,7 +46,7 @@ Actions:
 Deliverables:
 - Sanitized deployment inventory and compatibility matrix.
 - Fixed state-host placement, resource budgets, failure detection settings and measurable routing plan.
-- Explicit list of applications whose backend prevents surviving a hodus outage.
+- Explicit list of applications whose backend prevents surviving a the control host outage.
 
 Gate: do not schedule production cluster or DNS work while host access, backend equivalence or safe fencing remains unverified.
 
@@ -191,18 +191,18 @@ Actions:
 1. Define control and worker roles in the same image. Authentication remains available on both; worker admin mutations are disabled.
 2. Enroll per-node mutual-TLS identities; private APIs authorize policy fetch and event submission separately.
 3. Stage and verify signed, versioned manifests plus all feed/GeoIP dependencies before activation.
-4. Persist active/previous generation and anti-rollback metadata. Restore after restart without contacting hodus.
+4. Persist active/previous generation and anti-rollback metadata. Restore after restart without contacting the control host.
 5. Push change notifications plus periodic reconciliation; expose desired/applied version and stale status.
 6. Keep original-IP trust explicit; migrate frontend headers only after spoofing and session-binding tests.
-7. Make database endpoint discovery and TLS independent of hodus. No runtime Docker socket mounts.
+7. Make database endpoint discovery and TLS independent of the control host. No runtime Docker socket mounts.
 
 Tests:
 - Invalid/revoked node identity, unauthorized writes, old revision replay, corrupt/incomplete payload, aborted activation and restart.
-- hodus offline before/after worker restart, with healthy HA auth state.
+- the control host offline before/after worker restart, with healthy HA auth state.
 - Public degraded-start behavior versus protected-route fail-closed behavior.
 - Frontend IP normalization parity.
 
-Gate: a worker cannot activate partial rules, silently open a protected route or depend on hodus for startup of an already configured public policy.
+Gate: a worker cannot activate partial rules, silently open a protected route or depend on the control host for startup of an already configured public policy.
 
 ## Task 8: Add durable RAuth event forwarding and central SSE
 
@@ -213,7 +213,7 @@ Proposed additions: local spool, authenticated ingestion handler, central reques
 Actions:
 1. Extend the bounded event schema with worker, timestamps, rule/version and denial reason. Continue excluding sensitive URL/body/header content.
 2. Add bounded asynchronous local persistence, stable event IDs and restart recovery.
-3. Deliver acknowledged batches to hodus; deduplicate durable inserts. Separate catch-up and live delivery budgets.
+3. Deliver acknowledged batches to the control host; deduplicate durable inserts. Separate catch-up and live delivery budgets.
 4. Add retention/storage caps, drop/gap accounting and spool health. Do not couple auth availability to collector health.
 5. Persist central cursors and stream accepted events instantly over existing admin-only SSE.
 6. Add node/reason filters and delayed-replay indication while preserving pause/search/mobile behavior.
@@ -240,7 +240,7 @@ Actions:
 2. Configure local database routing to only the current leader with TLS verification.
 3. Add backups, restore/PITR procedures, disk monitoring, certificate/key rotation and time synchronization.
 4. Load representative traffic and test the performance/recovery objectives from the design.
-5. Simulate loss of hodus, each data leader/follower, a worker, collector and network links.
+5. Simulate loss of the control host, each data leader/follower, a worker, collector and network links.
 6. Verify that an isolated former leader cannot keep accepting security writes and that committed revocation/consumption survives the supported single-host failure.
 7. Document quorum-loss behavior and operator recovery without data-loss promotion.
 
@@ -273,7 +273,7 @@ Actions:
 3. Preserve auth requirements, access lists and app-native challenges. Treat canonical auth/admin/validate endpoints as explicit recursion exceptions.
 4. Verify IPv4/IPv6/Cloudflare/direct traffic, native 401s, WebSockets, uploads, custom locations, callbacks and percent/semicolon paths.
 5. Use supported persistent NPM configuration hooks, validate nginx -t, then reload and compare baseline behavior.
-6. Expand host by host, adding exact public aliases and retaining all private rules. Include oracle compatibility work if preflight requires it.
+6. Expand host by host, adding exact public aliases and retaining all private rules. Include worker host C compatibility work if preflight requires it.
 7. Verify every eligible entry against the coverage manifest; record justified non-app exceptions.
 
 Gate: coverage is verified per actual enabled route, not inferred from having one RAuth container on a server. Rollback is per host/rule and preserves required authentication.
@@ -284,9 +284,9 @@ Actions:
 1. Verify the canonical auth hostname and each candidate application hostname through every intended origin with correct Host/SNI/TLS.
 2. Configure health-aware external routing using existing capabilities. Plain round-robin records may distribute traffic but do not satisfy withdrawal/failover acceptance by themselves.
 3. Ensure auth readiness checks include the shared state and key/policy compatibility; public-app checks include the local policy and independent backend where appropriate.
-4. Disable hodus in a controlled drill while preserving two healthy state voters/data nodes. Perform fresh password + 2FA login, validate an existing session, and open public and protected canaries from another frontend.
+4. Disable the control host in a controlled drill while preserving two healthy state voters/data nodes. Perform fresh password + 2FA login, validate an existing session, and open public and protected canaries from another frontend.
 5. Confirm central UI unavailability does not stop auth, buffered RAuth events replay with deduplication, and application-backend dependencies are correctly reported.
-6. Measure failover, DNS/cache behavior, latency and backlog recovery; restore hodus safely and verify no split brain or automatic stale-policy downgrade.
+6. Measure failover, DNS/cache behavior, latency and backlog recovery; restore the control host safely and verify no split brain or automatic stale-policy downgrade.
 7. Save sanitized evidence and rollback instructions.
 
 Completion evidence:
@@ -294,7 +294,7 @@ Completion evidence:
 - Per-NPM-host integration manifest with preserved private/public modes.
 - Cross-node and cross-domain auth test results.
 - Country/feed policy test matrix and update-failure behavior.
-- Actual hodus-outage and leader-failover results, with measured recovery interval.
+- Actual the control host-outage and leader-failover results, with measured recovery interval.
 - Event backlog/replay/gap behavior and capacity.
 - DNS/routing health checks plus documented backend limitations.
 
@@ -313,12 +313,34 @@ No implementation, feed activation, NPM edits or DNS changes should be inferred 
 
 In Task 1 inventory existing tailnet policy and verify enrollment-key reuse/expiry without printing its value. In Tasks 7 and 9 add one official, pinned Tailscale service and persistent identity per RAuth node; carry policy, events and replicated state through those service addresses. Preserve private local NPM ingress, restrict tailnet peers/ports, keep TLS, and test restart/re-enrollment, sidecar outage and distinct identities. Store the supplied join key only as a bootstrap secret outside Git, remove it from the runtime after enrollment, and never clone node state. In Tasks 11/12 verify there is no dependency on the host's existing Tailscale daemon for RAuth cluster traffic.
 
-## User additions: pi3 and host bind mounts
+## User additions: third state host and host bind mounts
 
-Use pi3 as the third state-node candidate after live storage/latency checks, with every RAuth persistent path under /mnt/usb1/rauth. Live mount, free-space, memory and TUN evidence is saved outside Git at C:/DR/rauth-deployment/pi3-storage-preflight.json. All deployment templates and tests must cover image VOLUME destinations with explicit host bind mounts; do not create named or anonymous volumes. Check the expected filesystem before creating a directory so an absent USB device cannot redirect writes to the system disk. Include state, WAL, etcd, GeoIP/feed snapshots, event databases/spools, Tailscale identity, certificates, configuration and backups in the path manifest and restore tests.
+Use third state host as the third state-node candidate after live storage/latency checks, with every RAuth persistent path under /mnt/usb1/rauth. Live mount, free-space, memory and TUN evidence is saved outside Git at the private storage preflight. All deployment templates and tests must cover image VOLUME destinations with explicit host bind mounts; do not create named or anonymous volumes. Check the expected filesystem before creating a directory so an absent USB device cannot redirect writes to the system disk. Include state, WAL, etcd, GeoIP/feed snapshots, event databases/spools, Tailscale identity, certificates, configuration and backups in the path manifest and restore tests.
 
 ## User addition: default Eworx IP feed
 
 Use https://blocklist.eworx.at/api/v1/raw as the managed built-in IP feed. Existing public rules are backfilled once, and new public rules inherit it by default; an administrator can explicitly change an individual rule selection through the step-up-protected UI. Login-required rules are not automatically changed. Keep the built-in catalog entry enabled at this fixed source; normal last-good update behavior applies.
 
 Bootstrap and validate its snapshot before switching the runtime/NPM routes, using the packaged rauth-feed-bootstrap command while the previous feed-serving route remains available. This avoids a cold-start loop if the feed URL itself is behind RAuth. A pending/missing default snapshot must deny affected public rules rather than permit unrestricted access. Preserve explicit per-rule choices on subsequent starts. Validate using the actual HTTPS response as well as deterministic fixtures; ordinary CI tests remain independent of external feed uptime.
+
+
+## Explicit worker networking and policy freshness gates
+
+Tasks 7 and 9 use network_mode: service:tailscale for workers and colocated state
+services. Private state/API listeners bind service tailnet addresses with
+peer/port ACLs and TLS authorization. Local NPM ingress uses only a host-gateway
+bound auth-port publication plus source/destination firewall rules for the NPM
+container. Keep the sidecar off the shared NPM network. Validate positive and
+negative routes, bindings, ACLs, TLS, independent health and namespace-owner
+recreation before rollout. These identity-only bootstrap Compose files do not
+provide an application forwarding path on their own.
+
+Task 7 also implements HA-authoritative policy-head checks every ten seconds
+and a 120-second freshness lease (maximum configured 300 seconds). A current
+matching head renews the lease without the control host. A newer head withdraws
+public readiness until fully applied; an unreachable head permits only the
+remaining lease, then public requests return 503. Restarts require a fresh head
+check. Task 10 tests disconnected-but-reachable workers, public-rule removal,
+country/feed changes, expired leases and restart during controller outage. A
+failed external feed download alone keeps last-good data while the unchanged
+HA policy head continues renewing freshness.

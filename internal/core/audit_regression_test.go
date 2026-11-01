@@ -17,6 +17,8 @@ import (
 
 func newRegressionRedis(t *testing.T) {
 	t.Helper()
+	defaultIPFeedInstalled.Store(false)
+	t.Cleanup(func() { defaultIPFeedInstalled.Store(false) })
 	s := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: s.Addr()})
 	TokenDB, RateLimitDB, InviteDB = client, client, client

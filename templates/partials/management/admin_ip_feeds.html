@@ -21,7 +21,7 @@
  <article class="panel mb-3">
   <div class="panel-header flex-wrap gap-2">
    <div><h2>{{.Name}}{{if .IsDefault}} <span class="chip info">Public-access default</span>{{end}}</h2><div class="sub text-break">{{.DisplayURL}}</div></div>
-   <div>{{if not .Enabled}}<span class="chip">Disabled</span>{{else if .Ready}}<span class="chip ok">Ready</span>{{else}}<span class="chip warn">Not loaded</span>{{end}}{{if .Stale}} <span class="chip warn">Stale</span>{{end}}</div>
+   <div>{{if not .Enabled}}<span class="chip">Disabled</span>{{else if .RefreshPending}}<span class="chip warn">Refresh queued · last good active</span>{{else if .Ready}}<span class="chip ok">Ready</span>{{else}}<span class="chip warn">Not loaded</span>{{end}}{{if .Stale}} <span class="chip warn">Stale</span>{{end}}</div>
   </div>
   <div class="panel-body">
    <p class="small text-muted">{{.EntryCount}} {{if eq .EntryCount 1}}entry{{else}}entries{{end}} · version {{.Version}} · every {{.RefreshMinutes}} minutes{{if .LastSuccess}} · updated <time data-ts="{{.LastSuccess}}">{{formatTime .LastSuccess}}</time>{{end}}</p>
