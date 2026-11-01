@@ -51,6 +51,7 @@ type Session struct {
 	Generation        int64
 	IP                string
 	FamilyID          string
+	Audience          string // Empty for the canonical login; exact HTTPS origin for an app.
 	Fields            map[string]string
 	Successor         string
 	IssuedAt          time.Time

@@ -43,7 +43,7 @@ func getRD(c echo.Context) string {
 }
 
 func (h *AuthHandler) Root(c echo.Context) error {
-	cookie, err := c.Cookie("X-rauth-authtoken")
+	cookie, err := c.Cookie(h.Cfg.SessionCookieName())
 	if err != nil {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
@@ -57,7 +57,7 @@ func (h *AuthHandler) Root(c echo.Context) error {
 	if err != nil && !errors.Is(err, authstate.ErrNotFound) {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "Session service is temporarily unavailable")
 	}
-	if err != nil || data["status"] != "valid" {
+	if err != nil || data["status"] != "valid" || !core.SessionAudienceValid(data, "") {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
 
@@ -87,7 +87,11 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 		}
 	}
 
-	cookie, err := c.Cookie("X-rauth-authtoken")
+	cookieName, audience, err := h.validationCookie(c)
+	if err != nil {
+		return h.denyOrBypass(c, rateLimitKey, true)
+	}
+	cookie, err := c.Cookie(cookieName)
 	if err != nil {
 		return h.denyOrBypass(c, rateLimitKey, true)
 	}
@@ -102,7 +106,7 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 	if err != nil && !errors.Is(err, authstate.ErrNotFound) {
 		return h.sessionAuthorityUnavailable(c)
 	}
-	if err != nil || len(data) == 0 || data["status"] != "valid" {
+	if err != nil || len(data) == 0 || data["status"] != "valid" || !core.SessionAudienceValid(data, audience) {
 		return h.denyOrBypass(c, rateLimitKey, true)
 	}
 
@@ -207,13 +211,22 @@ func (h *AuthHandler) setSessionCookie(c echo.Context, value string, validity ti
 	writeSessionCookie(c, h.Cfg, value, validity)
 }
 
-// writeSessionCookie writes the domain-wide session cookie.
+// writeSessionCookie preserves legacy scope, or uses host-only scope in SSO.
 func writeSessionCookie(c echo.Context, cfg *core.Config, value string, validity time.Duration) {
+	if c.Get("session_cookie_name") == core.SSOAppCookie {
+		writeAppSessionCookie(c, value, validity)
+		return
+	}
+	if cfg.SSOCanonicalOrigin != "" && len(cfg.CookieDomains) > 0 {
+		// Clear the old broad cookie before setting the prefixed, host-only
+		// successor. SSO reads only the protected name, never a legacy fallback.
+		c.SetCookie(&http.Cookie{Name: "X-rauth-authtoken", Value: "", Path: "/", Domain: cfg.CookieDomains[0], MaxAge: -1, Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
+	}
 	c.SetCookie(&http.Cookie{
-		Name:     "X-rauth-authtoken",
+		Name:     cfg.SessionCookieName(),
 		Value:    value,
 		Path:     "/",
-		Domain:   cfg.CookieDomains[0],
+		Domain:   cfg.SessionCookieDomain(),
 		Expires:  time.Now().Add(validity),
 		HttpOnly: true,
 		Secure:   true,
@@ -525,7 +538,7 @@ func (h *AuthHandler) checkLoginIPRateLimits(c echo.Context, clientIP, template 
 
 // validatePendingToken resolves a pending 2FA/setup cookie to its username,
 // token and the auth generation the first factor was checked under.
-func (h *AuthHandler) validatePendingToken(c echo.Context, cookieName, prefix string) (string, string, string, error) {
+func (h *AuthHandler) validatePendingToken(c echo.Context, cookieName string, kind core.AuthArtifactKind) (string, string, string, error) {
 	cookie, err := c.Cookie(cookieName)
 	if err != nil {
 		return "", "", "", err
@@ -534,7 +547,7 @@ func (h *AuthHandler) validatePendingToken(c echo.Context, cookieName, prefix st
 	if err != nil {
 		return "", "", "", err
 	}
-	valueBytes, err := core.GetAuthArtifact(core.AuthArtifactKind(prefix), token)
+	valueBytes, err := core.GetAuthArtifact(kind, token)
 	value := string(valueBytes)
 	if err != nil {
 		return "", "", "", err
@@ -543,7 +556,7 @@ func (h *AuthHandler) validatePendingToken(c echo.Context, cookieName, prefix st
 	// change, 2FA reset, deletion) is dead even if its TTL has not run out.
 	username, gen, current := core.ResolvePendingToken(value)
 	if !current {
-		_ = core.DeleteAuthArtifact(core.AuthArtifactKind(prefix), token)
+		_ = core.DeleteAuthArtifact(kind, token)
 		_ = core.DeleteAuthArtifact(core.EnrollmentSecret, token)
 		return "", "", "", errStalePendingToken
 	}
@@ -616,7 +629,7 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 	}
 
 	code := c.FormValue("totp_code")
-	username, pendingToken, authGen, err := h.validatePendingToken(c, "rauth_2fa_pending", "pending_2fa")
+	username, pendingToken, authGen, err := h.validatePendingToken(c, "rauth_2fa_pending", core.PendingSecondFactor)
 	if err != nil {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
@@ -658,7 +671,7 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 }
 
 func (h *AuthHandler) Setup2FA(c echo.Context) error {
-	username, setupToken, authGen, err := h.validatePendingToken(c, "rauth_setup_pending", "pending_setup")
+	username, setupToken, authGen, err := h.validatePendingToken(c, "rauth_setup_pending", core.PendingEnrollment)
 	if err != nil {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
@@ -692,7 +705,7 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 		return err
 	}
 
-	username, setupToken, authGen, err := h.validatePendingToken(c, "rauth_setup_pending", "pending_setup")
+	username, setupToken, authGen, err := h.validatePendingToken(c, "rauth_setup_pending", core.PendingEnrollment)
 	if err != nil {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
@@ -789,7 +802,7 @@ func (h *AuthHandler) issueTempToken(username, authGen string) string {
 		return ""
 	}
 	token := hex.EncodeToString(b)
-	if err := core.StoreAuthArtifact(core.AuthArtifactKind("pending_2fa"), token, []byte(core.PendingTokenValue(username, authGen)), username, authGen, 5*time.Minute); err != nil {
+	if err := core.StoreAuthArtifact(core.PendingSecondFactor, token, []byte(core.PendingTokenValue(username, authGen)), username, authGen, 5*time.Minute); err != nil {
 		slog.Error("Failed to store login challenge", "error", err)
 		return ""
 	}
@@ -803,7 +816,7 @@ func (h *AuthHandler) issueSetupToken(username, authGen string) string {
 		return ""
 	}
 	token := hex.EncodeToString(b)
-	if err := core.StoreAuthArtifact(core.AuthArtifactKind("pending_setup"), token, []byte(core.PendingTokenValue(username, authGen)), username, authGen, 10*time.Minute); err != nil {
+	if err := core.StoreAuthArtifact(core.PendingEnrollment, token, []byte(core.PendingTokenValue(username, authGen)), username, authGen, 10*time.Minute); err != nil {
 		slog.Error("Failed to store login challenge", "error", err)
 		return ""
 	}

@@ -30,6 +30,7 @@ func ReadAuthSession(ctx context.Context, token string) (map[string]string, erro
 		delete(fields, "token")
 		fields["status"] = "valid"
 		fields["session_family"] = value.FamilyID
+		fields["audience"] = value.Audience
 		fields["username"] = value.Username
 		fields["auth_gen"] = strconv.FormatInt(value.Generation, 10)
 		fields["ip"] = value.IP

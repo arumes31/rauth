@@ -150,7 +150,7 @@ func (s *PostgresSessions) List(ctx context.Context, user, after string, limit i
 	for rows.Next() {
 		var r sessionRow
 		var familyCreated time.Time
-		if err := rows.Scan(&r.hash, &r.family, &r.username, &r.generation, &r.key, &r.payload, &r.issued, &r.idle, &r.absolute, &r.retired, &familyCreated, &page.ObservedAt); err != nil {
+		if err := rows.Scan(&r.hash, &r.family, &r.username, &r.generation, &r.key, &r.payload, &r.issued, &r.idle, &r.absolute, &r.retired, &r.audience, &familyCreated, &page.ObservedAt); err != nil {
 			return SessionPage{}, err
 		}
 		if len(page.Sessions) == limit {

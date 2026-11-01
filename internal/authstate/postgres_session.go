@@ -62,7 +62,8 @@ func NewPostgresSessions(ctx context.Context, pool *pgxpool.Pool, keys *Keyring)
 		}
 		rows, err := tx.Query(ctx, `SELECT DISTINCT s.key_id FROM auth_sessions s JOIN auth_session_families f ON f.id=s.family_id
    WHERE f.revoked_at IS NULL AND f.absolute_expires_at>clock_timestamp() AND s.idle_expires_at>clock_timestamp()
-   UNION SELECT key_id FROM auth_artifacts WHERE consumed_at IS NULL AND expires_at>clock_timestamp()`)
+   UNION SELECT key_id FROM auth_artifacts WHERE consumed_at IS NULL AND expires_at>clock_timestamp()
+   UNION SELECT key_id FROM auth_sso_transactions WHERE consumed_at IS NULL AND expires_at>clock_timestamp()`)
 		if err != nil {
 			return err
 		}
@@ -103,7 +104,7 @@ func (s *PostgresSessions) decode(r sessionRow) (Session, error) {
 	if err := json.Unmarshal(b, &p); err != nil {
 		return Session{}, errors.New("invalid session payload")
 	}
-	return Session{Username: r.username, Generation: r.generation, IP: p.IP, FamilyID: r.family, Fields: p.Fields, Successor: p.Successor, IssuedAt: r.issued, IdleExpiresAt: r.idle, AbsoluteExpiresAt: r.absolute}, nil
+	return Session{Username: r.username, Generation: r.generation, IP: p.IP, FamilyID: r.family, Audience: r.audience, Fields: p.Fields, Successor: p.Successor, IssuedAt: r.issued, IdleExpiresAt: r.idle, AbsoluteExpiresAt: r.absolute}, nil
 }
 func sqlError(err error) error {
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -189,6 +190,7 @@ func (s *PostgresSessions) Issue(ctx context.Context, token string, p IssueSessi
 type sessionRow struct {
 	hash                   []byte
 	family, username, key  string
+	audience               string
 	generation             int64
 	payload                []byte
 	issued, idle, absolute time.Time
@@ -197,11 +199,11 @@ type sessionRow struct {
 
 func scanSession(row pgx.Row) (sessionRow, error) {
 	var r sessionRow
-	err := row.Scan(&r.hash, &r.family, &r.username, &r.generation, &r.key, &r.payload, &r.issued, &r.idle, &r.absolute, &r.retired)
+	err := row.Scan(&r.hash, &r.family, &r.username, &r.generation, &r.key, &r.payload, &r.issued, &r.idle, &r.absolute, &r.retired, &r.audience)
 	return r, sqlError(err)
 }
 
-const sessionColumns = "s.token_hash,s.family_id::text,f.username,f.auth_gen,s.key_id,s.payload,s.issued_at,s.idle_expires_at,f.absolute_expires_at,s.retired"
+const sessionColumns = "s.token_hash,s.family_id::text,f.username,f.auth_gen,s.key_id,s.payload,s.issued_at,s.idle_expires_at,f.absolute_expires_at,s.retired,s.audience"
 
 func (s *PostgresSessions) Get(ctx context.Context, token string) (Session, error) {
 	hash, err := s.keys.tokenHash(token)
@@ -324,7 +326,7 @@ func (s *PostgresSessions) move(ctx context.Context, oldToken, newToken string, 
 			}
 			issued = now
 		}
-		if _, err := tx.Exec(ctx, "INSERT INTO auth_sessions(token_hash,family_id,key_id,payload,issued_at,idle_expires_at,last_refreshed_at,ip_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8)", newHash, r.family, key, body, issued, idle, refreshed, ipHash); err != nil {
+		if _, err := tx.Exec(ctx, "INSERT INTO auth_sessions(token_hash,family_id,key_id,payload,issued_at,idle_expires_at,last_refreshed_at,ip_hash,audience) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)", newHash, r.family, key, body, issued, idle, refreshed, ipHash, r.audience); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, "INSERT INTO auth_session_tokens(token_hash,family_id) VALUES($1,$2)", newHash, r.family); err != nil {
@@ -507,6 +509,8 @@ func (s *PostgresSessions) Cleanup(ctx context.Context) error {
 		return err
 	}
 	queries := []string{
+		`WITH doomed AS (SELECT transaction_hash FROM auth_sso_transactions WHERE expires_at<=$1 ORDER BY expires_at LIMIT 1000 FOR UPDATE SKIP LOCKED)
+ DELETE FROM auth_sso_transactions a USING doomed d WHERE a.transaction_hash=d.transaction_hash`,
 		`WITH doomed AS (SELECT token_hash FROM auth_step_up_grants WHERE expires_at<=$1 ORDER BY expires_at LIMIT 1000 FOR UPDATE SKIP LOCKED)
  DELETE FROM auth_step_up_grants g USING doomed d WHERE g.token_hash=d.token_hash`,
 

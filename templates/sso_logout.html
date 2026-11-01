@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign out · RAuth</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+    body { margin: 0; min-height: 100dvh; display: grid; place-items: center; padding: 1.5rem; box-sizing: border-box; }
+    main { width: min(100%, 28rem); }
+    .brand { color: #1688a9; font-weight: 700; }
+    h1 { font-size: 1.8rem; margin: .75rem 0; }
+    p { line-height: 1.6; }
+    button { font: inherit; font-weight: 600; padding: .8rem 1rem; border: 0; border-radius: .5rem; background: #087c9e; color: #fff; cursor: pointer; }
+    button:focus-visible { outline: 3px solid #69c9e6; outline-offset: 3px; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="brand">RAuth</div>
+    <h1>Sign out?</h1>
+    <p>Sign out of this browser on all connected sites.</p>
+    <form method="post" action="/_rauth/logout">
+      <input type="hidden" name="csrf" value="{{.csrf}}">
+      <button type="submit">Sign out of connected sites</button>
+    </form>
+  </main>
+</body>
+</html>

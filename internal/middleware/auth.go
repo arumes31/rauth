@@ -14,7 +14,7 @@ import (
 func AuthMiddleware(cfg *core.Config) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
-			cookie, err := c.Cookie("X-rauth-authtoken")
+			cookie, err := c.Cookie(cfg.SessionCookieName())
 			if err != nil {
 				// Sanitize the redirect URI to prevent open redirect in the rd param itself
 				rd := url.QueryEscape(c.Request().RequestURI)
@@ -39,7 +39,7 @@ func AuthMiddleware(cfg *core.Config) echo.MiddlewareFunc {
 				return echo.NewHTTPError(http.StatusServiceUnavailable, "Session service is temporarily unavailable")
 			}
 
-			if data["status"] != "valid" {
+			if data["status"] != "valid" || !core.SessionAudienceValid(data, "") {
 				return c.Redirect(http.StatusFound, "/rauthlogin")
 			}
 
