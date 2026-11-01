@@ -1,0 +1,12 @@
+# Enrollment only. After joining, recreate with compose.tailscale.yml alone.
+services:
+  tailscale:
+    environment:
+      TS_AUTHKEY: file:/run/secrets/tailscale-authkey
+    volumes:
+      - type: bind
+        source: ${RAUTH_TS_AUTHKEY_FILE:?set an external secret file}
+        target: /run/secrets/tailscale-authkey
+        read_only: true
+        bind:
+          create_host_path: false
