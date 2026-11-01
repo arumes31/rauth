@@ -17,7 +17,7 @@ No secrets belong in Git.
   WebDAV probes matched. Syntax/render tests and RAuth application-log probes
   verify spoof rejection through LAN, Tailscale and actual public Cloudflare
   routes. A forged Cloudflare visitor header was rejected at the edge.
-- Dedicated persistent Tailscale identities are enrolled on two hosts and passed
+- Dedicated persistent Tailscale identities are enrolled on three hosts and passed
   key-free restart. Identity bootstrap alone is not a complete worker deployment.
 - SQL sessions, encrypted one-use proofs, atomic enrollment/invitation flows and
   global security counters/replay markers are implemented separately in draft
@@ -25,8 +25,9 @@ No secrets belong in Git.
   and browser-bound registration regressions pass; lint and vet report no issues.
   SQL family listing/revocation/IP queries and atomic step-up grants now also pass
   their real-database tests. Stable keyed aliases preserve logout across token
-  replacement and grace cleanup. Remaining facades/runtime migration are not
-  enabled in production.
+  replacement and grace cleanup. Primary authorization/logout/binding/grant adapters now pass the full local
+  suite with SQL/no-Redis tests. Admin/profile and runtime migration remain
+  pending; SQL authority is not enabled in production.
 - CodeRabbit's included milestone reviews were used and their verified findings
   fixed. No paid reviews were started; honor quota/cooldown reports.
 

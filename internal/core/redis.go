@@ -53,6 +53,9 @@ func InitRedis(cfg *Config) error {
 // revoke for security reasons should also BumpAuthGeneration, which catches
 // sessions the index missed.
 func InvalidateUserSessions(username string) error {
+	if securitySessions != nil {
+		return securitySessions.RevokeUserFamilies(Ctx, username)
+	}
 	if TokenDB == nil {
 		return nil
 	}
@@ -82,6 +85,12 @@ func InvalidateUserSessions(username string) error {
 }
 
 func InvalidateOtherUserSessions(username, currentToken string) {
+	if securitySessions != nil {
+		if err := securitySessions.RevokeOthers(Ctx, username, currentToken); err != nil {
+			slog.Error("Failed to revoke other session families", "error", err)
+		}
+		return
+	}
 	indexKey := "user_sessions:" + username
 	tokens, err := TokenDB.SMembers(Ctx, indexKey).Result()
 	if err != nil {
@@ -113,6 +122,10 @@ func InvalidateOtherUserSessions(username, currentToken string) {
 // It consults the per-IP index (maintained at session issue time) rather than
 // scanning the entire token keyspace, and prunes stale members it encounters.
 func HasActiveSessions(ip string) bool {
+	if securitySessions != nil {
+		active, err := securitySessions.HasActiveForIP(Ctx, ip)
+		return err == nil && active
+	}
 	indexKey := "ip_sessions:" + ip
 	tokens, err := TokenDB.SMembers(Ctx, indexKey).Result()
 	if err != nil {
@@ -152,21 +165,33 @@ func HasActiveSessions(ip string) bool {
 }
 
 func AddSessionIndex(username, token string) {
+	if securitySessions != nil {
+		return
+	}
 	TokenDB.SAdd(Ctx, "user_sessions:"+username, token)
 }
 
 func RemoveSessionIndex(username, token string) {
+	if securitySessions != nil {
+		return
+	}
 	TokenDB.SRem(Ctx, "user_sessions:"+username, token)
 }
 
 // AddIPSessionIndex records a session token under its origin IP so brute-force
 // checks can look up active sessions for an IP without a full keyspace scan.
 func AddIPSessionIndex(ip, token string) {
+	if securitySessions != nil {
+		return
+	}
 	TokenDB.SAdd(Ctx, "ip_sessions:"+ip, token)
 }
 
 // RemoveIPSessionIndex removes a token from its per-IP session index.
 func RemoveIPSessionIndex(ip, token string) {
+	if securitySessions != nil {
+		return
+	}
 	TokenDB.SRem(Ctx, "ip_sessions:"+ip, token)
 }
 
@@ -175,6 +200,14 @@ func RemoveIPSessionIndex(ip, token string) {
 // the entire token keyspace, prunes entries whose tokens have expired or been
 // invalidated, and returns the number of live sessions for the gauge.
 func SyncSessionIndexes() int64 {
+	if securitySessions != nil {
+		count, err := securitySessions.ActiveCount(Ctx)
+		if err != nil {
+			slog.Error("Failed to count session families", "error", err)
+			return 0
+		}
+		return count
+	}
 	var count int64
 	count += reconcileIndexSets("user_sessions:*")
 	count += reconcileIndexSets("ip_sessions:*")

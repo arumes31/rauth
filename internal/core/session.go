@@ -23,6 +23,12 @@ func SessionBindingValid(cfg *Config, req *http.Request, token, redisKey string,
 // The session's origin IP entry is removed as well when it differs from the
 // current request IP.
 func invalidateSession(token, redisKey string, data map[string]string, clientIP string) {
+	if securitySessions != nil {
+		if err := RevokeAuthSession(Ctx, token); err != nil {
+			slog.Error("Failed to revoke bound session", "error", err)
+		}
+		return
+	}
 	RemoveSessionIndex(data["username"], token)
 	RemoveIPSessionIndex(clientIP, token)
 	if data["ip"] != "" && data["ip"] != clientIP {
@@ -52,7 +58,14 @@ func sessionGeoAllowed(cfg *Config, token, redisKey string, data map[string]stri
 		// spurious logouts for roaming/VPN/CGNAT users.
 		if cfg.GeoChangeMode == "lenient" {
 			LogAudit("COUNTRY_CHANGE_TOLERATED", data["username"], clientIP, details)
-			TokenDB.HSet(Ctx, redisKey, "country", currentCountry)
+			if securitySessions != nil {
+				changed, err := securitySessions.UpdateCountry(Ctx, token, currentCountry)
+				if err != nil || !changed {
+					return false
+				}
+			} else {
+				TokenDB.HSet(Ctx, redisKey, "country", currentCountry)
+			}
 			return true
 		}
 

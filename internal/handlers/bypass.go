@@ -42,7 +42,8 @@ func bypassUnlockRemaining(c echo.Context) time.Duration {
 	if token == "" {
 		return 0
 	}
-	ttl, err := core.TokenDB.TTL(core.Ctx, bypassUnlockKey(token)).Result()
+	user, _ := c.Get("username").(string)
+	ttl, err := core.PublicAccessGrantRemaining(c.Request().Context(), token, user)
 	if err != nil || ttl <= 0 {
 		return 0
 	}
@@ -92,19 +93,14 @@ func (h *AdminHandler) UnlockBypass(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to unlock")
 	}
-	replaced, err := core.ReplaceSession(token, newToken)
+	generation, _ := c.Get("auth_gen").(string)
+	replaced, err := core.ReplaceSessionWithPublicAccessGrant(c.Request().Context(), token, newToken, admin, generation, bypassUnlockTTL)
 	if err != nil || !replaced {
 		slog.Error("Failed to replace session for bypass unlock", "admin", admin, "error", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to unlock")
 	}
-	core.TokenDB.Del(core.Ctx, bypassUnlockKey(token))
 	writeSessionCookie(c, h.Cfg, encrypted, time.Duration(h.Cfg.TokenValidityMinutes)*time.Minute)
-	token = newToken
 
-	if err := core.TokenDB.Set(core.Ctx, bypassUnlockKey(token), admin, bypassUnlockTTL).Err(); err != nil {
-		slog.Error("Failed to store bypass unlock", "admin", admin, "error", err)
-		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to unlock")
-	}
 	core.LogAudit("ADMIN_BYPASS_UNLOCK", admin, c.RealIP(), map[string]interface{}{"minutes": int(bypassUnlockTTL.Minutes())})
 	return c.Redirect(http.StatusFound, "/rauthmgmt?success=bypass_unlocked#bypass")
 }
@@ -112,7 +108,9 @@ func (h *AdminHandler) UnlockBypass(c echo.Context) error {
 // LockBypass ends the unlock early.
 func (h *AdminHandler) LockBypass(c echo.Context) error {
 	if token, _ := c.Get("token").(string); token != "" {
-		core.TokenDB.Del(core.Ctx, bypassUnlockKey(token))
+		if err := core.LockPublicAccessGrant(c.Request().Context(), token); err != nil {
+			return echo.NewHTTPError(http.StatusServiceUnavailable, "Failed to lock public access management")
+		}
 	}
 	return c.Redirect(http.StatusFound, "/rauthmgmt?success=bypass_locked#bypass")
 }

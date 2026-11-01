@@ -53,8 +53,8 @@ func (h *AuthHandler) Root(c echo.Context) error {
 	}
 
 	// ⚡ Bolt optimization: Use HMGet instead of HGetAll since we only need the status field.
-	vals, err := core.TokenDB.HMGet(core.Ctx, "X-rauth-authtoken="+token, "status").Result()
-	if err != nil || len(vals) == 0 || vals[0] == nil || vals[0].(string) != "valid" {
+	data, err := core.ReadAuthSession(c.Request().Context(), token)
+	if err != nil || data["status"] != "valid" {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
 
@@ -95,7 +95,7 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 	}
 
 	redisKey := "X-rauth-authtoken=" + token
-	data, err := core.TokenDB.HGetAll(core.Ctx, redisKey).Result()
+	data, err := core.ReadAuthSession(c.Request().Context(), token)
 	if err != nil || len(data) == 0 || data["status"] != "valid" {
 		return h.denyOrBypass(c, rateLimitKey, true)
 	}

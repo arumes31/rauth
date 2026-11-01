@@ -235,3 +235,15 @@ func (s *PostgresSessions) UpdateCountry(ctx context.Context, token, country str
 	})
 	return changed && err == nil, err
 }
+
+// RevokeUserFamilies is the physical sweep after an already-committed account
+// generation change. It must not bump that generation a second time.
+func (s *PostgresSessions) RevokeUserFamilies(ctx context.Context, user string) error {
+	if user == "" {
+		return errors.New("username is required")
+	}
+	ctx, cancel := context.WithTimeout(ctx, mutationTimeout)
+	defer cancel()
+	_, err := s.pool.Exec(ctx, "UPDATE auth_session_families SET revoked_at=COALESCE(revoked_at,clock_timestamp()) WHERE username=$1", user)
+	return err
+}

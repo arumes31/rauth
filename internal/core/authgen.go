@@ -27,8 +27,10 @@ import (
 
 // AuthGeneration returns the user's current auth generation ("0" if never bumped).
 func AuthGeneration(username string) (string, error) {
+	ctx, cancel := context.WithTimeout(Ctx, 3*time.Second)
+	defer cancel()
 	var gen int64
-	err := PG.QueryRow(Ctx, "SELECT gen FROM auth_generations WHERE username = $1", username).Scan(&gen)
+	err := PG.QueryRow(ctx, "SELECT gen FROM auth_generations WHERE username = $1", username).Scan(&gen)
 	if isNoRows(err) {
 		return "0", nil
 	}
@@ -111,13 +113,15 @@ func SessionGen(data map[string]string) string {
 // SessionAuthorized reports whether a session hash still belongs to a live
 // account at the current auth generation. It fails closed on database errors.
 func SessionAuthorized(data map[string]string) bool {
+	ctx, cancel := context.WithTimeout(Ctx, 3*time.Second)
+	defer cancel()
 	username := data["username"]
 	if username == "" {
 		return false
 	}
 	var exists bool
 	var gen int64
-	err := PG.QueryRow(Ctx, `SELECT EXISTS (SELECT 1 FROM users WHERE username = $1),
+	err := PG.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM users WHERE username = $1),
 		COALESCE((SELECT gen FROM auth_generations WHERE username = $1), 0)`, username).Scan(&exists, &gen)
 	if err != nil {
 		slog.Error("Failed to check session authorization", "user", username, "error", err)
@@ -140,6 +144,16 @@ return 0
 // returned by BumpAuthGeneration), used after a self-service credential change
 // keeps the caller signed in.
 func RestampSession(token, gen string) {
+	if securitySessions != nil {
+		next, err := strconv.ParseInt(gen, 10, 64)
+		if err == nil {
+			_, err = securitySessions.Restamp(Ctx, token, next-1, next)
+		}
+		if err != nil {
+			slog.Error("Failed to restamp session generation", "error", err)
+		}
+		return
+	}
 	if err := restampScript.Run(Ctx, TokenDB, []string{"X-rauth-authtoken=" + token}, gen).Err(); err != nil {
 		slog.Error("Failed to restamp session generation", "error", err)
 	}
@@ -172,6 +186,9 @@ return 1
 // RotateSession moves the session oldToken to newToken (see rotateScript),
 // reporting whether it rotated. username and ip pick the index entries.
 func RotateSession(oldToken, newToken, username, ip string, createdAt int64, validity, grace time.Duration) (bool, error) {
+	if securitySessions != nil {
+		return securitySessions.Rotate(Ctx, oldToken, newToken, validity, grace)
+	}
 	n, err := rotateScript.Run(Ctx, TokenDB,
 		[]string{"X-rauth-authtoken=" + oldToken, "X-rauth-authtoken=" + newToken, "user_sessions:" + username, "ip_sessions:" + ip},
 		newToken, createdAt, int64(validity.Seconds()), int64(grace.Seconds())).Int()
@@ -206,6 +223,9 @@ return 1
 // step-up so the elevated session is bound to a token only the browser that
 // passed the step-up holds.
 func ReplaceSession(oldToken, newToken string) (bool, error) {
+	if securitySessions != nil {
+		return securitySessions.Replace(Ctx, oldToken, newToken)
+	}
 	oldKey := "X-rauth-authtoken=" + oldToken
 	fields, err := TokenDB.HMGet(Ctx, oldKey, "username", "ip").Result()
 	if err != nil {
@@ -234,6 +254,12 @@ return redis.call("EXPIRE", KEYS[1], ARGV[1])
 
 // RefreshSession extends the session's TTL to validity (see refreshScript).
 func RefreshSession(token string, validity time.Duration) {
+	if securitySessions != nil {
+		if _, err := securitySessions.Refresh(Ctx, token, validity); err != nil {
+			slog.Error("Failed to refresh session", "error", err)
+		}
+		return
+	}
 	if err := refreshScript.Run(Ctx, TokenDB, []string{"X-rauth-authtoken=" + token}, int64(validity.Seconds())).Err(); err != nil {
 		slog.Error("Failed to refresh session", "error", err)
 	}
@@ -243,6 +269,9 @@ func RefreshSession(token string, validity time.Duration) {
 // indexes. A partial failure would leave a valid session that index-based
 // revocation cannot find, so callers must not issue a cookie on error.
 func StoreSession(token, username, ip string, fields map[string]interface{}, validity time.Duration) error {
+	if securitySessions != nil {
+		return storeSQLSession(token, username, ip, fields, validity)
+	}
 	redisKey := "X-rauth-authtoken=" + token
 	pipe := TokenDB.TxPipeline()
 	pipe.HSet(Ctx, redisKey, fields)

@@ -108,3 +108,31 @@ Five unparseable-IP cases passed after the review fix. Final vet and lint pass.
 CodeRabbit's included review found the optional-index compatibility issues; both
 were fixed and tested. Two scanner warnings on challenge-purpose enum strings
 were false positives and now carry explicit credential-free justifications.
+
+
+## Primary application adapters
+
+Primary session reads (root, forward-auth, own-page middleware and SSE
+revalidation), issue/rotate/replace/refresh/restamp, logout, binding revocation,
+active-IP shortcuts and physical sweeps now route through the selected session
+authority. SQL errors never authorize from a Redis fallback. Boolean identity
+fields retain the legacy 0/1 representation, and authoritative owner/generation
+fields cannot be overridden by payload metadata.
+
+Public Access unlock now replaces the session and creates its grant through one
+operation in both adapters. The legacy adapter uses one Lua transaction and
+preserves original session expiry; owner/generation mismatches and token
+collisions fail without elevation. Unlock checks its owner, and lock errors are
+explicit. A credential-change sweep does not bump SQL generation twice.
+
+Real SQL tests run these facades with every Redis client nil, including token
+rotation, grant lock, binding invalidation and surviving-session restamp. A
+separate test supplies forged valid Redis state while the selected SQL pool is
+closed and proves there is no fallback. The complete local suite passed after
+this integration; static checks pass and the included CodeRabbit review had no
+findings.
+
+Still pending: admin/profile session listing and handle-based revocation,
+explicit backend-error HTTP behavior, full runtime selection/key provisioning,
+Redis-independent startup/readiness and maintenance, cross-node HTTP/SSO and
+coordinated cutover. No production SQL selector is exposed by these adapters.

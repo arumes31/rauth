@@ -57,7 +57,7 @@ func feedCursor(raw string) (string, uint64, bool) {
 }
 
 func (h *AdminHandler) feedSessionValid(c echo.Context, user, token string) bool {
-	data, err := core.TokenDB.HGetAll(c.Request().Context(), "X-rauth-authtoken="+token).Result()
+	data, err := core.ReadAuthSession(c.Request().Context(), token)
 	if err != nil || data["status"] != "valid" || data["username"] != user || !core.SessionAuthorized(data) {
 		return false
 	}

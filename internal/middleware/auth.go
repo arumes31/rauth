@@ -28,9 +28,9 @@ func AuthMiddleware(cfg *core.Config) echo.MiddlewareFunc {
 			// Fetch the full session so the same geo/device binding enforced on
 			// /rauthvalidate can be applied to rauth's own pages.
 			redisKey := "X-rauth-authtoken=" + token
-			data, err := core.TokenDB.HGetAll(core.Ctx, redisKey).Result()
+			data, err := core.ReadAuthSession(c.Request().Context(), token)
 			if err != nil {
-				slog.Error("Redis error in auth middleware", "error", err)
+				slog.Error("Session authority error in auth middleware", "error", err)
 				return c.Redirect(http.StatusFound, "/rauthlogin")
 			}
 

@@ -474,10 +474,9 @@ func setupRoutes(e *echo.Echo, cfg *core.Config) {
 	protected.POST("/logout", func(c echo.Context) error {
 		// Get token from context (set by AuthMiddleware)
 		if token, ok := c.Get("token").(string); ok {
-			if username, ok := c.Get("username").(string); ok {
-				core.RemoveSessionIndex(username, token)
+			if err := core.RevokeAuthSession(c.Request().Context(), token); err != nil {
+				return echo.NewHTTPError(http.StatusServiceUnavailable, "Logout could not be completed; retry")
 			}
-			core.TokenDB.Del(core.Ctx, "X-rauth-authtoken="+token)
 		}
 
 		cookie := &http.Cookie{

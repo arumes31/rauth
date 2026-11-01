@@ -18,6 +18,8 @@ func sqlSecurityFixture(t *testing.T) {
 	require.NoError(t, err)
 	s, err := authstate.NewPostgresSessions(Ctx, PG, k)
 	require.NoError(t, err)
+	securitySessions = s
+	securitySessionAbsoluteTTL = 2 * time.Hour
 	securityArtifacts = s.Artifacts()
 	securityCounters = s.Counters()
 	// These paths must use the selected SQL authority without any Redis client.

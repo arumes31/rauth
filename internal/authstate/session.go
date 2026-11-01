@@ -25,6 +25,7 @@ type SessionStore interface {
 	Refresh(context.Context, string, time.Duration) (bool, error)
 	Revoke(context.Context, string) error
 	RevokeUser(context.Context, string) error
+	RevokeUserFamilies(context.Context, string) error
 	Restamp(context.Context, string, int64, int64) (bool, error)
 	ReplaceWithGrant(context.Context, string, string, PublicAccessGrant) (bool, error)
 	GrantRemaining(context.Context, string, string) (time.Duration, error)
