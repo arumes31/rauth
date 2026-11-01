@@ -16,7 +16,7 @@ func LoadKeyring(path string) (*Keyring, error) {
 	if !filepath.IsAbs(path) {
 		return nil, errors.New("authentication key file must use an absolute path")
 	}
-	file, err := os.Open(path)
+	file, err := os.Open(path) // #nosec G304 -- Operator-only startup path, never HTTP input; absolute, regular-file and size checks bound this intended key read.
 	if err != nil {
 		return nil, errors.New("authentication key file cannot be opened")
 	}
