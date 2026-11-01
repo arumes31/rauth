@@ -83,3 +83,8 @@ authoritative registry authorization and private API handlers, validate Tailscal
 source addresses on the wire, test key/revocation rotation, and exercise namespace
 owner/dependent-service restart before worker rollout. The current application
 still has no worker-role/control transport activation from this package.
+
+Local credential checks include the intermediate certificates supplied in the
+TLS pair (up to eight certificates total). Intermediates never substitute for
+the configured root trust. An actual mutual-TLS test covers root -> intermediate
+-> node leaf on both ends, plus missing/malformed/untrusted chain rejection.

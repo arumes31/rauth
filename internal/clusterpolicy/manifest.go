@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 )
 
+const verifierScopeVersion = "rauth-policy-verifier-v1"
 const SchemaVersion = 1
 const MaxManifestBytes = 64 << 10
 const MaxEnvelopeBytes = 96 << 10
@@ -201,7 +202,7 @@ func NewVerifier(clusterID string, keys map[string]ed25519.PublicKey) (*Verifier
 	}
 	sort.Strings(ids)
 	h := sha256.New()
-	_, _ = h.Write([]byte("rauth-policy-verifier-v1\x00" + clusterID + "\x00"))
+	_, _ = h.Write([]byte(verifierScopeVersion + "\x00" + clusterID + "\x00"))
 	for _, id := range ids {
 		_, _ = h.Write([]byte(id + "\x00"))
 		_, _ = h.Write(v.keys[id])
