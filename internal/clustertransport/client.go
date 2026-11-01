@@ -1,6 +1,7 @@
 package clustertransport
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"net"
@@ -57,7 +58,16 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 		return nil, err
 	}
 	dialer := &net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second, LocalAddr: &net.TCPAddr{IP: net.IP(local.AsSlice())}}
-	tr := &http.Transport{Proxy: nil, DialContext: dialer.DialContext, TLSClientConfig: secure, TLSHandshakeTimeout: 5 * time.Second, ResponseHeaderTimeout: 10 * time.Second, IdleConnTimeout: 90 * time.Second, MaxConnsPerHost: 8, MaxIdleConns: 8, MaxIdleConnsPerHost: 4, DisableCompression: true}
+	destination := endpoint.Host
+	// Enforce the enrolled socket destination independently of URL validation.
+	// This also protects future callers/changes from an accidental alternate URL.
+	dial := func(ctx context.Context, network, address string) (net.Conn, error) {
+		if address != destination {
+			return nil, ErrConfiguration
+		}
+		return dialer.DialContext(ctx, network, address)
+	}
+	tr := &http.Transport{Proxy: nil, DialContext: dial, TLSClientConfig: secure, TLSHandshakeTimeout: 5 * time.Second, ResponseHeaderTimeout: 10 * time.Second, IdleConnTimeout: 90 * time.Second, MaxConnsPerHost: 8, MaxIdleConns: 8, MaxIdleConnsPerHost: 4, DisableCompression: true}
 	c := &Client{endpoint: endpoint, transport: tr}
 	c.http = &http.Client{Transport: tr, Timeout: timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	return c, nil
@@ -75,7 +85,11 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 		return nil, ErrConfiguration
 	}
 	outgoing := req.Clone(req.Context())
+	// Rebuild the URL from our owned enrollment, never carry the caller's URL
+	// object through to the transport after validation.
+	outgoing.URL = &url.URL{Scheme: c.endpoint.Scheme, Host: c.endpoint.Host, Path: u.Path}
 	outgoing.Host = c.endpoint.Host
+	// #nosec G704 -- Only the validated RPC path is caller-controlled. URL host/scheme are rebuilt from enrollment, the dialer independently pins the literal socket destination, and proxies/redirects are disabled.
 	return c.http.Do(outgoing)
 }
 func (c *Client) CloseIdleConnections() {

@@ -103,6 +103,11 @@ func TestPrivateClientRejectsUnenrolledSourceAndWrongLocalCertificateIP(t *testi
 	base.Certificate = client
 	c, err := NewClient(base)
 	require.NoError(t, err)
+	for _, destination := range []string{"public.example.test:443", "127.0.0.1:443", "100.64.0.13:9443"} {
+		conn, err := c.transport.DialContext(context.Background(), "tcp", destination)
+		require.Nil(t, conn)
+		require.ErrorIs(t, err, ErrConfiguration, "the actual dialer also rejects non-enrolled destinations before opening a socket")
+	}
 	c.CloseIdleConnections()
 	for _, change := range []func(*ClientConfig){func(c *ClientConfig) { c.LocalServiceIP = "127.0.0.1" }, func(c *ClientConfig) { c.Endpoint = "https://127.0.0.1:9443" }, func(c *ClientConfig) { c.Timeout = 10 * time.Minute }, func(c *ClientConfig) { c.Timeout = time.Millisecond }} {
 		copy := base
