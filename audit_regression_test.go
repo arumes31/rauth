@@ -87,7 +87,7 @@ func TestRegression_ValidateServerSecret(t *testing.T) {
 
 func TestRegression_RedactURI(t *testing.T) {
 	assert.Equal(t, "/rauthredeem?token=REDACTED", redactURI("/rauthredeem?token=s3cr3t"))
-	assert.Equal(t, "/rauthlogin?rd=%2Fx", redactURI("/rauthlogin?rd=%2Fx"))
+	assert.Equal(t, "/rauthlogin?rd=REDACTED", redactURI("/rauthlogin?rd=%2Fx"))
 	assert.Equal(t, "/health", redactURI("/health"))
 }
 

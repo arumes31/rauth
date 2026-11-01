@@ -57,7 +57,7 @@ func (h *AuthHandler) Root(c echo.Context) error {
 	if err != nil && !errors.Is(err, authstate.ErrNotFound) {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "Session service is temporarily unavailable")
 	}
-	if err != nil || data["status"] != "valid" {
+	if err != nil || data["status"] != "valid" || !core.SessionAudienceValid(data, "") {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
 
@@ -87,7 +87,11 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 		}
 	}
 
-	cookie, err := c.Cookie("X-rauth-authtoken")
+	cookieName, audience, err := h.validationCookie(c)
+	if err != nil {
+		return h.denyOrBypass(c, rateLimitKey, true)
+	}
+	cookie, err := c.Cookie(cookieName)
 	if err != nil {
 		return h.denyOrBypass(c, rateLimitKey, true)
 	}
@@ -102,7 +106,7 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 	if err != nil && !errors.Is(err, authstate.ErrNotFound) {
 		return h.sessionAuthorityUnavailable(c)
 	}
-	if err != nil || len(data) == 0 || data["status"] != "valid" {
+	if err != nil || len(data) == 0 || data["status"] != "valid" || !core.SessionAudienceValid(data, audience) {
 		return h.denyOrBypass(c, rateLimitKey, true)
 	}
 
@@ -207,13 +211,22 @@ func (h *AuthHandler) setSessionCookie(c echo.Context, value string, validity ti
 	writeSessionCookie(c, h.Cfg, value, validity)
 }
 
-// writeSessionCookie writes the domain-wide session cookie.
+// writeSessionCookie preserves legacy scope, or uses host-only scope in SSO.
 func writeSessionCookie(c echo.Context, cfg *core.Config, value string, validity time.Duration) {
+	if c.Get("session_cookie_name") == core.SSOAppCookie {
+		writeAppSessionCookie(c, value, validity)
+		return
+	}
+	if cfg.SSOCanonicalOrigin != "" && len(cfg.CookieDomains) > 0 {
+		// Clear the old broad cookie before setting its host-only successor. Both
+		// may have the same name but browsers distinguish their domain scopes.
+		c.SetCookie(&http.Cookie{Name: "X-rauth-authtoken", Value: "", Path: "/", Domain: cfg.CookieDomains[0], MaxAge: -1, Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
+	}
 	c.SetCookie(&http.Cookie{
 		Name:     "X-rauth-authtoken",
 		Value:    value,
 		Path:     "/",
-		Domain:   cfg.CookieDomains[0],
+		Domain:   cfg.SessionCookieDomain(),
 		Expires:  time.Now().Add(validity),
 		HttpOnly: true,
 		Secure:   true,

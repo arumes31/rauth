@@ -29,6 +29,8 @@ type Config struct {
 	AuthStateMode            string
 	AuthStateKeyFile         string
 	AuthStateAbsoluteMinutes int
+	SSOCanonicalOrigin       string
+	SSOApplicationOrigins    []string
 	// AuditRetentionDays bounds how long audit entries are kept (0 = forever).
 	AuditRetentionDays   int
 	CookieDomains        []string
@@ -147,6 +149,8 @@ func LoadConfig() *Config {
 		RedisPassword:            getEnv("REDIS_PASSWORD", ""),
 		PostgresURL:              postgresURLFromEnv(),
 		AuthStateMode:            getEnv("AUTH_STATE_MODE", "redis"),
+		SSOCanonicalOrigin:       getEnv("SSO_CANONICAL_ORIGIN", ""),
+		SSOApplicationOrigins:    getEnvSlice("SSO_APPLICATION_ORIGINS", []string{}),
 		AuthStateKeyFile:         getEnv("AUTH_STATE_KEY_FILE", ""),
 		AuthStateAbsoluteMinutes: getEnvInt("AUTH_STATE_ABSOLUTE_MINUTES", 43200),
 		AuditRetentionDays:       getEnvInt("AUDIT_RETENTION_DAYS", 365),

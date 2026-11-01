@@ -39,7 +39,7 @@ func AuthMiddleware(cfg *core.Config) echo.MiddlewareFunc {
 				return echo.NewHTTPError(http.StatusServiceUnavailable, "Session service is temporarily unavailable")
 			}
 
-			if data["status"] != "valid" {
+			if data["status"] != "valid" || !core.SessionAudienceValid(data, "") {
 				return c.Redirect(http.StatusFound, "/rauthlogin")
 			}
 

@@ -208,7 +208,7 @@ func CommitSQLAuthenticationCutover(ctx context.Context, cfg *Config) (time.Time
 		if _, err := tx.Exec(ctx, `INSERT INTO auth_generations(username,gen) SELECT username,1 FROM users ON CONFLICT(username) DO UPDATE SET gen=auth_generations.gen+1`); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, "TRUNCATE auth_session_families,auth_sessions,auth_session_tokens,auth_step_up_grants,auth_artifacts,auth_security_counters"); err != nil {
+		if _, err := tx.Exec(ctx, "TRUNCATE auth_session_families,auth_sessions,auth_session_tokens,auth_step_up_grants,auth_artifacts,auth_security_counters,auth_sso_transactions"); err != nil {
 			return err
 		}
 		readyAfter = now.Add(authStateCutoverQuarantine)

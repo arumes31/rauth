@@ -55,6 +55,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := cfg.ValidateSSO(); err != nil {
+		slog.Error("Invalid SSO enrollment configuration", "error", err)
+		os.Exit(1)
+	}
+
 	// Apply the configurable bcrypt cost (BCRYPT_COST).
 	core.SetBcryptCost(cfg.BcryptCost)
 
@@ -297,7 +302,7 @@ func setupLoggingMiddleware(e *echo.Echo) {
 
 // sensitiveQueryParams are query parameters that carry bearer secrets (e.g.
 // single-use invite tokens) and must never reach the logs.
-var sensitiveQueryParams = []string{"token"}
+var sensitiveQueryParams = []string{"token", "code", "state", "transaction", "rd"}
 
 // redactURI masks sensitive query parameter values in a request URI.
 func redactURI(uri string) string {
@@ -431,6 +436,10 @@ func setupRoutes(e *echo.Echo, cfg *core.Config) {
 	// Public Routes
 	e.GET("/", authHandler.Root)
 	e.GET("/rauthvalidate", authHandler.Validate)
+	e.GET("/_rauth/start", authHandler.SSOStart)
+	e.GET("/_rauth/authorize", authHandler.SSOAuthorize)
+	e.GET("/_rauth/callback", authHandler.SSOCallback)
+	e.POST("/_rauth/logout", authHandler.SSOSignOut)
 	e.GET("/rauthlogin", authHandler.Login)
 	e.POST("/rauthlogin", authHandler.Login)
 	e.POST("/verify-2fa", authHandler.Verify2FA)
@@ -475,12 +484,17 @@ func setupRoutes(e *echo.Echo, cfg *core.Config) {
 			Name:     "X-rauth-authtoken",
 			Value:    "",
 			Path:     "/",
-			Domain:   cfg.CookieDomains[0],
+			Domain:   cfg.SessionCookieDomain(),
 			Expires:  time.Unix(0, 0),
 			MaxAge:   -1,
 			HttpOnly: true,
 			Secure:   true,
 			SameSite: http.SameSiteLaxMode,
+		}
+		if cfg.SSOCanonicalOrigin != "" && len(cfg.CookieDomains) > 0 {
+			legacy := *cookie
+			legacy.Domain = cfg.CookieDomains[0]
+			c.SetCookie(&legacy)
 		}
 		c.SetCookie(cookie)
 		return c.Redirect(http.StatusFound, "/rauthlogin")

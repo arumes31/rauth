@@ -446,17 +446,7 @@ func (h *WebAuthnHandler) issuePasskeyToken(c echo.Context, username string, use
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to create session")
 	}
 
-	cookie := &http.Cookie{
-		Name:     "X-rauth-authtoken",
-		Value:    encryptedToken,
-		Path:     "/",
-		Domain:   h.Cfg.CookieDomains[0],
-		Expires:  time.Now().Add(tokenValidity),
-		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteLaxMode,
-	}
-	c.SetCookie(cookie)
+	writeSessionCookie(c, h.Cfg, encryptedToken, tokenValidity)
 
 	// Send Login Notification Email (Asynchronous)
 	if userRecord.Email != "" {
