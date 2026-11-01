@@ -79,3 +79,8 @@ are initialized in package init and worker feed snapshots are embedded non-nil
 values. The managed Eworx ID is already a canonical UUID. An additional positive
 regression compiles a configured managed-default bundle and verifies both listed
 IP denial and an unlisted control. No compatibility relaxation is required.
+
+Concrete Validate/Finish receive the reconciliation context, check cancellation
+and retain resource ownership on failure. Complete metadata validation is factored
+privately for the controller's in-transaction final validation; every dependency
+still needs its own exact size/hash verification before that path is used.

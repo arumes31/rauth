@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
@@ -109,7 +110,7 @@ type testCompiler struct {
 	closeCalls int
 }
 
-func (c *testCompiler) Validate(b clusterpolicy.Blob, r io.Reader) error {
+func (c *testCompiler) Validate(_ context.Context, b clusterpolicy.Blob, r io.Reader) error {
 	if b.Kind != "policy" {
 		return errors.New("unexpected blob")
 	}
@@ -128,7 +129,7 @@ func (c *testCompiler) Validate(b clusterpolicy.Blob, r io.Reader) error {
 	c.draft.rule = document.Rule
 	return nil
 }
-func (c *testCompiler) Finish(bundle clusterpolicy.VerifiedBundle) (*testValue, error) {
+func (c *testCompiler) Finish(ctx context.Context, bundle clusterpolicy.VerifiedBundle) (*testValue, error) {
 	if c.draft == nil || len(bundle.Manifest().Blobs) != 1 {
 		return nil, errors.New("missing dependency")
 	}
@@ -506,11 +507,11 @@ func TestWorkerCorruptActiveBlobStartsUnreadyForVerifiedRepair(t *testing.T) {
 
 type rejectOldCompiler struct{ testCompiler }
 
-func (c *rejectOldCompiler) Finish(bundle clusterpolicy.VerifiedBundle) (*testValue, error) {
+func (c *rejectOldCompiler) Finish(ctx context.Context, bundle clusterpolicy.VerifiedBundle) (*testValue, error) {
 	if c.draft != nil && c.draft.rule == "one" {
 		return nil, errors.New("old policy cannot compile under the new node profile")
 	}
-	return c.testCompiler.Finish(bundle)
+	return c.testCompiler.Finish(ctx, bundle)
 }
 func TestWorkerChangedCompilerCanStartAndAwaitNewCompatiblePolicy(t *testing.T) {
 	one, b1 := signed(t, 1, `{"rule":"one"}`)
@@ -529,4 +530,63 @@ func TestWorkerChangedCompilerCanStartAndAwaitNewCompatiblePolicy(t *testing.T) 
 	source.set(two, b2)
 	activate(t, restarted)
 	require.Equal(t, "two", rule(t, restarted))
+}
+
+type blockingFinalCompiler struct {
+	testCompiler
+	entered chan<- struct{}
+}
+
+func (c *blockingFinalCompiler) Finish(ctx context.Context, bundle clusterpolicy.VerifiedBundle) (*testValue, error) {
+	if c.draft != nil && c.draft.rule == "two" {
+		select {
+		case c.entered <- struct{}{}:
+		default:
+		}
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	return c.testCompiler.Finish(ctx, bundle)
+}
+func TestWorkerFinalCompilationCancelsForNewHeadAndShutdown(t *testing.T) {
+	for _, shutdown := range []bool{false, true} {
+		t.Run(fmt.Sprintf("shutdown=%t", shutdown), func(t *testing.T) {
+			one, b1 := signed(t, 1, `{"rule":"one"}`)
+			source := &fakeAuthority{}
+			source.set(one, b1)
+			entered := make(chan struct{}, 1)
+			cacheRoot := rootDir(t)
+			w, err := New(cacheRoot, trust(t), source, func() Compiler[*testValue] { return &blockingFinalCompiler{entered: entered} }, 10*time.Second)
+			require.NoError(t, err)
+			defer func() { _ = w.Close() }()
+			w.interval = 10 * time.Millisecond
+			done := make(chan error, 1)
+			go func() { done <- w.Run(background) }()
+			require.Eventually(t, func() bool { return w.Status().Policy.Ready }, 2*time.Second, 10*time.Millisecond)
+			two, b2 := signed(t, 2, `{"rule":"two"}`)
+			source.set(two, b2)
+			select {
+			case <-entered:
+			case <-time.After(2 * time.Second):
+				t.Fatal("final compile did not begin")
+			}
+			if shutdown {
+				closed := make(chan error, 1)
+				go func() { closed <- w.Close() }()
+				select {
+				case err := <-closed:
+					require.NoError(t, err)
+				case <-time.After(time.Second):
+					t.Fatal("shutdown did not cancel final compilation")
+				}
+			} else {
+				three, b3 := signed(t, 3, `{"rule":"three"}`)
+				source.set(three, b3)
+				require.Eventually(t, func() bool { return w.Status().Policy.Ready && w.Status().Policy.Applied == three.Verified.Identity() }, 2*time.Second, 10*time.Millisecond)
+				require.Equal(t, "three", rule(t, w))
+				require.NoError(t, w.Close())
+			}
+			require.ErrorIs(t, <-done, context.Canceled)
+		})
+	}
 }
