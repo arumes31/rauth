@@ -420,6 +420,10 @@ func SetEnvBypassRules(raw []string) {
 			continue
 		}
 		r.Source = "env"
+		if r.Allows() && activeFeeds.Load().defaultConfigured {
+			r.DefaultFeedConfigured = true
+			r.BlockedFeedIDs = appendFeedID(r.BlockedFeedIDs, DefaultIPFeedID)
+		}
 		rules = append(rules, r)
 	}
 	cur := activeBypass.Load()
@@ -550,20 +554,32 @@ func AddBypassRule(raw, action, note, createdBy string, policies ...RulePolicy) 
 		return BypassRule{}, err
 	}
 	r.RulePolicy = policy
-	var n int
-	if err := PG.QueryRow(Ctx, "SELECT count(*) FROM bypass_rules").Scan(&n); err != nil {
-		return BypassRule{}, err
-	}
-	if n >= maxBypassRules {
-		return BypassRule{}, errBypassTooMany
-	}
-	meta, _ := json.Marshal(BypassRule{RulePolicy: policy, Action: r.Action, Note: trimNote(note), CreatedBy: createdBy, CreatedAt: time.Now().Unix()})
-	tag, err := PG.Exec(Ctx, "INSERT INTO bypass_rules (rule, meta) VALUES ($1, $2) ON CONFLICT (rule) DO NOTHING", r.Rule, meta)
+	err = policyMutation(Ctx, func(tx pgx.Tx) error {
+		var err error
+		policy, err = applyDefaultRulePolicy(Ctx, tx, r, policy)
+		if err != nil {
+			return err
+		}
+		r.RulePolicy = policy
+		var count int
+		if err := tx.QueryRow(Ctx, "SELECT count(*) FROM bypass_rules").Scan(&count); err != nil {
+			return err
+		}
+		if count >= maxBypassRules {
+			return errBypassTooMany
+		}
+		meta, _ := json.Marshal(BypassRule{RulePolicy: policy, Action: r.Action, Note: trimNote(note), CreatedBy: createdBy, CreatedAt: time.Now().Unix()})
+		tag, err := tx.Exec(Ctx, "INSERT INTO bypass_rules(rule,meta) VALUES($1,$2) ON CONFLICT(rule) DO NOTHING", r.Rule, meta)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return errBypassExists
+		}
+		return syncRuleFeedReferences(Ctx, tx, r.Rule, policy.BlockedFeedIDs)
+	})
 	if err != nil {
 		return BypassRule{}, err
-	}
-	if tag.RowsAffected() == 0 {
-		return BypassRule{}, errBypassExists
 	}
 	reloadAfter("add")
 	return r, nil
@@ -580,7 +596,7 @@ func UpdateBypassRule(oldRaw, newRaw, action, note, updatedBy string, policies .
 	if err != nil {
 		return BypassRule{}, BypassRule{}, err
 	}
-	err = pgx.BeginFunc(Ctx, PG, func(tx pgx.Tx) error {
+	err = policyMutation(Ctx, func(tx pgx.Tx) error {
 		var prevMeta []byte
 		err := tx.QueryRow(Ctx, "SELECT meta FROM bypass_rules WHERE rule = $1 FOR UPDATE", old.Rule).Scan(&prevMeta)
 		if isNoRows(err) {
@@ -597,6 +613,14 @@ func UpdateBypassRule(oldRaw, newRaw, action, note, updatedBy string, policies .
 		if err != nil {
 			return err
 		}
+		previousAction, _ := normalizeAction(prev.Action)
+		if len(policies) == 0 && previousAction == BypassDeny && r.Allows() {
+			policy.DefaultFeedConfigured = false
+		}
+		policy, err = applyDefaultRulePolicy(Ctx, tx, r, policy)
+		if err != nil {
+			return err
+		}
 		r.RulePolicy = policy
 		old.Action, _ = normalizeAction(prev.Action)
 
@@ -607,8 +631,10 @@ func UpdateBypassRule(oldRaw, newRaw, action, note, updatedBy string, policies .
 			UpdatedBy: updatedBy, UpdatedAt: time.Now().Unix(),
 		})
 		if r.Rule == old.Rule {
-			_, err := tx.Exec(Ctx, "UPDATE bypass_rules SET meta = $2 WHERE rule = $1", r.Rule, meta)
-			return err
+			if _, err := tx.Exec(Ctx, "UPDATE bypass_rules SET meta=$2 WHERE rule=$1", r.Rule, meta); err != nil {
+				return err
+			}
+			return syncRuleFeedReferences(Ctx, tx, r.Rule, policy.BlockedFeedIDs)
 		}
 		tag, err := tx.Exec(Ctx, "INSERT INTO bypass_rules (rule, meta) VALUES ($1, $2) ON CONFLICT (rule) DO NOTHING", r.Rule, meta)
 		if err != nil {
@@ -617,7 +643,10 @@ func UpdateBypassRule(oldRaw, newRaw, action, note, updatedBy string, policies .
 		if tag.RowsAffected() == 0 {
 			return errBypassExists
 		}
-		_, err = tx.Exec(Ctx, "DELETE FROM bypass_rules WHERE rule = $1", old.Rule)
+		if err := syncRuleFeedReferences(Ctx, tx, r.Rule, policy.BlockedFeedIDs); err != nil {
+			return err
+		}
+		_, err = tx.Exec(Ctx, "DELETE FROM bypass_rules WHERE rule=$1", old.Rule)
 		return err
 	})
 	if err != nil {
@@ -634,12 +663,18 @@ func DeleteBypassRule(raw string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	tag, err := PG.Exec(Ctx, "DELETE FROM bypass_rules WHERE rule = $1", r.Rule)
-	if err != nil {
-		return false, err
+	removed := false
+	err = policyMutation(Ctx, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(Ctx, "DELETE FROM bypass_rules WHERE rule=$1", r.Rule)
+		if err == nil {
+			removed = tag.RowsAffected() > 0
+		}
+		return err
+	})
+	if err == nil {
+		reloadAfter("delete")
 	}
-	reloadAfter("delete")
-	return tag.RowsAffected() > 0, nil
+	return removed, err
 }
 
 // DescribeBypassRule renders the rule scope for the admin UI.

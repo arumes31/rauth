@@ -316,3 +316,9 @@ In Task 1 inventory existing tailnet policy and verify enrollment-key reuse/expi
 ## User additions: pi3 and host bind mounts
 
 Use pi3 as the third state-node candidate after live storage/latency checks, with every RAuth persistent path under /mnt/usb1/rauth. Live mount, free-space, memory and TUN evidence is saved outside Git at C:/DR/rauth-deployment/pi3-storage-preflight.json. All deployment templates and tests must cover image VOLUME destinations with explicit host bind mounts; do not create named or anonymous volumes. Check the expected filesystem before creating a directory so an absent USB device cannot redirect writes to the system disk. Include state, WAL, etcd, GeoIP/feed snapshots, event databases/spools, Tailscale identity, certificates, configuration and backups in the path manifest and restore tests.
+
+## User addition: default Eworx IP feed
+
+Use https://blocklist.eworx.at/api/v1/raw as the managed built-in IP feed. Existing public rules are backfilled once, and new public rules inherit it by default; an administrator can explicitly change an individual rule selection through the step-up-protected UI. Login-required rules are not automatically changed. Keep the built-in catalog entry enabled at this fixed source; normal last-good update behavior applies.
+
+Bootstrap and validate its snapshot before switching the runtime/NPM routes, using the packaged rauth-feed-bootstrap command while the previous feed-serving route remains available. This avoids a cold-start loop if the feed URL itself is behind RAuth. A pending/missing default snapshot must deny affected public rules rather than permit unrestricted access. Preserve explicit per-rule choices on subsequent starts. Validate using the actual HTTPS response as well as deterministic fixtures; ordinary CI tests remain independent of external feed uptime.

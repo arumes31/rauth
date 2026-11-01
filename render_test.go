@@ -136,3 +136,41 @@ func TestFormatSeconds(t *testing.T) {
 	assert.Equal(t, "1h 0m", formatSeconds("3600"))
 	assert.Equal(t, "1d 1h", formatSeconds("90000"))
 }
+
+func TestIPFeedManagementRenderingAndSourceRedaction(t *testing.T) {
+	e := echo.New()
+	setupRenderer(e)
+	var page bytes.Buffer
+	err := e.Renderer.Render(&page, "management.html", map[string]interface{}{
+		"username": "admin", "users": []handlers.AdminUserView{}, "sessions": []map[string]string{}, "stats": handlers.AdminStats{},
+		"csrf": "preview-csrf", "bypass_unlock_m": 5,
+		"policy_countries": core.PolicyCountries(),
+		"bypass_rules":     []handlers.BypassRuleView{},
+		"logs":             []core.AuditLog{},
+		"ip_feeds":         []core.IPFeed{{ID: "12345678-1234-1234-1234-123456789abc", Name: "<script>feed</script>", SourceURL: "https://example.org/list?token=DO_NOT_LEAK", Enabled: true, Version: 1, EntryCount: 10}},
+	}, nil)
+	require.NoError(t, err)
+	body := page.String()
+	assert.Contains(t, body, `data-panel="ip-feeds"`)
+	assert.Contains(t, body, `name="blocked_feed_ids"`)
+	assert.Contains(t, body, `id="policyPreviewForm"`)
+	assert.NotContains(t, body, "DO_NOT_LEAK")
+	assert.NotContains(t, body, "<script>feed</script>")
+	assert.Contains(t, body, "&lt;script&gt;feed&lt;/script&gt;")
+}
+
+func TestDefaultFeedCheckboxIsSelectedForNewPublicRules(t *testing.T) {
+	e := echo.New()
+	setupRenderer(e)
+	var page bytes.Buffer
+	err := e.Renderer.Render(&page, "management.html", map[string]interface{}{
+		"username": "admin", "users": []handlers.AdminUserView{}, "sessions": []map[string]string{}, "stats": handlers.AdminStats{},
+		"csrf": "test", "bypass_unlock_m": 5, "policy_countries": core.PolicyCountries(),
+		"bypass_rules": []handlers.BypassRuleView{}, "logs": []core.AuditLog{},
+		"ip_feeds": []core.IPFeed{{ID: core.DefaultIPFeedID, Name: "Eworx default blocklist", SourceURL: core.DefaultIPFeedURL, Enabled: true, Version: 1}},
+	}, nil)
+	require.NoError(t, err)
+	assert.Contains(t, page.String(), "data-default-feed checked")
+	assert.Contains(t, page.String(), "Public-access default")
+	assert.Contains(t, page.String(), "Default feed stays enabled")
+}

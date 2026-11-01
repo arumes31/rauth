@@ -19,15 +19,20 @@ const (
 // RulePolicy restricts the winning URL rule before session authorization.
 // Zero values preserve the behavior of rules created before policies existed.
 type RulePolicy struct {
-	CountryMode          string   `json:"country_mode,omitempty"`
-	AllowedCountries     []string `json:"allowed_countries,omitempty"`
-	AllowPrivateNetworks bool     `json:"allow_private_networks,omitempty"`
-	BlockedFeedIDs       []string `json:"blocked_feed_ids,omitempty"`
+	DefaultFeedConfigured bool     `json:"default_feed_configured,omitempty"`
+	CountryMode           string   `json:"country_mode,omitempty"`
+	AllowedCountries      []string `json:"allowed_countries,omitempty"`
+	AllowPrivateNetworks  bool     `json:"allow_private_networks,omitempty"`
+	BlockedFeedIDs        []string `json:"blocked_feed_ids,omitempty"`
 }
 
 type CountryOption struct{ Code, Name string }
 
 var policyCountries = buildPolicyCountries()
+
+// Deprecated alpha-2 aliases from Unicode CLDR territoryAlias. Some split
+// territories (for example SU) cannot be canonicalized to a single successor.
+const obsoleteCountryAliases = " AN BU CS CT DD DY FQ FX HV JT MI NH NQ NT PC PU PZ QU RH SU TP UK VD WK YD YU ZR "
 
 func buildPolicyCountries() []CountryOption {
 	var out []CountryOption
@@ -36,7 +41,7 @@ func buildPolicyCountries() []CountryOption {
 		for b := 'A'; b <= 'Z'; b++ {
 			code := string([]rune{a, b})
 			region, err := language.ParseRegion(code)
-			if err == nil && region.IsCountry() && !region.IsPrivateUse() && region.String() == code {
+			if !strings.Contains(obsoleteCountryAliases, " "+code+" ") && err == nil && region.IsCountry() && !region.IsPrivateUse() && region.String() == code && region.Canonicalize() == region {
 				out = append(out, CountryOption{code, names.Name(region)})
 			}
 		}
@@ -83,11 +88,11 @@ func NormalizeRulePolicy(p RulePolicy) (RulePolicy, error) {
 		}
 		sort.Strings(p.AllowedCountries)
 	}
-	// Feed references become configurable when the feed registry is available.
-	// Never accept references that cannot yet be validated.
-	if len(p.BlockedFeedIDs) > 0 {
-		return RulePolicy{}, errors.New("IP feed registry is not available")
+	ids, err := normalizeFeedIDs(p.BlockedFeedIDs)
+	if err != nil {
+		return RulePolicy{}, err
 	}
+	p.BlockedFeedIDs = ids
 	return p, nil
 }
 
@@ -110,36 +115,44 @@ func (p RulePolicy) CountrySummary() string {
 type PolicyDecision struct {
 	Allowed bool
 	Reason  string
+	FeedID  string
 }
 
 func (p RulePolicy) Evaluate(clientIP, country string) PolicyDecision {
 	if len(p.BlockedFeedIDs) > 0 {
-		return PolicyDecision{false, "ip_feed_unavailable"}
+		ip, err := netip.ParseAddr(clientIP)
+		if err != nil || ip.Zone() != "" {
+			return PolicyDecision{Allowed: false, Reason: "invalid_client_ip"}
+		}
+		result := matchPolicyFeeds(p.BlockedFeedIDs, ip.Unmap())
+		if !result.Allowed {
+			return result
+		}
 	}
 	if p.CountryMode == "" || p.CountryMode == CountryAll {
-		return PolicyDecision{true, ""}
+		return PolicyDecision{Allowed: true}
 	}
 	if p.CountryMode != CountrySelected {
-		return PolicyDecision{false, "policy_invalid"}
+		return PolicyDecision{Allowed: false, Reason: "policy_invalid"}
 	}
 	ip, err := netip.ParseAddr(clientIP)
 	if err != nil || ip.Zone() != "" {
-		return PolicyDecision{false, "invalid_client_ip"}
+		return PolicyDecision{Allowed: false, Reason: "invalid_client_ip"}
 	}
 	ip = ip.Unmap()
 	private := ip.IsPrivate() || ip.IsLoopback() || netip.MustParsePrefix("100.64.0.0/10").Contains(ip)
 	if private {
 		if p.AllowPrivateNetworks {
-			return PolicyDecision{true, ""}
+			return PolicyDecision{Allowed: true}
 		}
-		return PolicyDecision{false, "country_blocked"}
+		return PolicyDecision{Allowed: false, Reason: "country_blocked"}
 	}
 	for _, allowed := range p.AllowedCountries {
 		if strings.EqualFold(allowed, country) {
-			return PolicyDecision{true, ""}
+			return PolicyDecision{Allowed: true}
 		}
 	}
-	return PolicyDecision{false, "country_blocked"}
+	return PolicyDecision{Allowed: false, Reason: "country_blocked"}
 }
 
 func HasRestrictedBypassRules() bool {
@@ -174,3 +187,5 @@ func HasRestrictedBypassRulesForHost(rawHost string) bool {
 	}
 	return false
 }
+
+func (p RulePolicy) FeedCodes() string { return strings.Join(p.BlockedFeedIDs, ",") }

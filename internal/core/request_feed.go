@@ -25,6 +25,9 @@ type RequestEvent struct {
 	Country string    `json:"country"`
 	Action  string    `json:"action"`
 	Status  int       `json:"status"`
+	Reason  string    `json:"reason,omitempty"`
+	Rule    string    `json:"rule,omitempty"`
+	FeedID  string    `json:"feed_id,omitempty"`
 }
 
 // RequestFeed retains a bounded history. Notifications wake readers without
@@ -58,6 +61,9 @@ func (f *RequestFeed) Epoch() string { return f.epoch }
 
 func (f *RequestFeed) Append(event RequestEvent) {
 	event.URL = boundedFeedText(event.URL, 2048)
+	event.Reason = boundedFeedText(event.Reason, 64)
+	event.Rule = boundedFeedText(event.Rule, 300)
+	event.FeedID = boundedFeedText(event.FeedID, 64)
 	if ip := net.ParseIP(event.Source); ip != nil {
 		event.Source = ip.String()
 	} else {

@@ -1,9 +1,14 @@
+import { initPolicyPreview } from './management/policy-preview.js';
 import { initPolicyForms } from './management/policies.js';
 import { initLiveFeed } from './management/live-feed.js';
 // Management console (/rauthmgmt).
 import { $, $$, alertDialog, initConsole, setFieldValue, showModal, showSection } from './console/index.js';
 
 const messages = {
+ 'feed_added':'IP feed added. It must load before use.',
+ 'feed_updated':'IP feed updated.',
+ 'feed_deleted':'IP feed deleted.',
+ 'feed_refreshed':'IP feed refreshed.',
     '2fa_reset': 'Two-factor authentication was reset for the user.',
     'password_changed': 'The user\'s password was updated.',
     'email_updated': 'The user\'s email address was updated.',
@@ -18,6 +23,7 @@ const messages = {
 };
 
 const successSection = {
+ 'feed_added':'ip-feeds','feed_updated':'ip-feeds','feed_deleted':'ip-feeds','feed_refreshed':'ip-feeds',
     '2fa_reset': 'users', 'password_changed': 'users', 'email_updated': 'users',
     'user_created': 'users', 'user_deleted': 'users', 'session_terminated': 'sessions',
     'bypass_added': 'bypass', 'bypass_deleted': 'bypass', 'bypass_updated': 'bypass',
@@ -40,6 +46,7 @@ const commands = [
     { name: 'Go to Sessions', cmd: 'sessions', icon: 'bi-broadcast', run: () => showSection('sessions') },
     { name: 'Go to Invitations', cmd: 'invites', icon: 'bi-envelope-plus', run: () => showSection('invites') },
     { name: 'Go to Public Access', cmd: 'public', icon: 'bi-globe2', run: () => showSection('bypass') },
+    { name: 'Go to IP Feeds', cmd:'feeds', icon:'bi-shield-slash', run:()=>showSection('ip-feeds') },
     { name: 'Go to Live Feed', cmd: 'live', icon: 'bi-activity', run: () => showSection('live-feed') },
     { name: 'Go to Audit Log', cmd: 'audit', icon: 'bi-journal-text', run: () => showSection('audit') },
     { name: 'Add user', cmd: 'new', icon: 'bi-person-plus', run: () => showModal('createUserModal') },
@@ -91,6 +98,8 @@ function initBypassEditor() {
         const fields = $('#editBypassModal [data-policy-fields]');
         fields.querySelector('[name="country_mode"]').value = btn.dataset.countryMode || 'all';
         const selected = new Set((btn.dataset.countries || '').split(','));
+        const feeds = new Set((btn.dataset.feeds || '').split(','));
+        fields.querySelectorAll('[name="blocked_feed_ids"]').forEach(input => { input.checked = feeds.has(input.value); });
         fields.querySelectorAll('[name="allowed_countries"]').forEach(input => { input.checked = selected.has(input.value); });
         fields.querySelector('[name="allow_private_networks"]').checked = btn.dataset.privateNetworks === 'true';
         fields.querySelector('[data-country-search]').value = '';
@@ -134,6 +143,7 @@ initConsole({ messages, successSection, commands });
 initAttentionList();
 initUserEditor();
 initPolicyForms();
+initPolicyPreview();
 initBypassEditor();
 initInvites();
 

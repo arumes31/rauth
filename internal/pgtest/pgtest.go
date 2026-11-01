@@ -3,7 +3,7 @@
 // Tests need RAUTH_TEST_DATABASE_URL pointing at a server where the user may
 // create schemas, e.g.
 //
-//	docker run -d --name rauth-test-pg -e POSTGRES_PASSWORD=test -p 55432:5432 postgres:18-alpine
+//	docker run -d --name rauth-test-pg -e POSTGRES_PASSWORD=test -p 55432:5432 --mount type=bind,source=/absolute/test-pg,target=/var/lib/postgresql postgres:18-alpine
 //	RAUTH_TEST_DATABASE_URL=postgres://postgres:test@localhost:55432/postgres?sslmode=disable go test ./...
 //
 // Without it, tests that need the database are skipped locally and fail in CI.

@@ -88,6 +88,15 @@ func (h *HealthHandler) Check(c echo.Context) error {
 		}
 	}
 
+	if core.IPFeedPolicyReady() {
+		checks["ip_feed_policy"] = "OK"
+	} else {
+		checks["ip_feed_policy"] = "WARN: Default snapshot not loaded"
+		if status == "OK" {
+			status = "DEGRADED"
+		}
+	}
+
 	// System Info (trusted clients only)
 	var systemInfo map[string]interface{}
 	if detailed {

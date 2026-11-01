@@ -195,6 +195,9 @@ func bypassPolicyForm(c echo.Context) ([]core.RulePolicy, error) {
 	if c.FormValue("policy_fields") != "1" {
 		return nil, errors.New("invalid policy form")
 	}
+	if v := c.FormValue("default_feed_present"); v != "" && v != "1" {
+		return nil, errors.New("invalid default feed selection marker")
+	}
 	private := c.FormValue("allow_private_networks")
 	if private != "" && private != "on" {
 		return nil, errors.New("invalid private network option")
@@ -203,9 +206,11 @@ func bypassPolicyForm(c echo.Context) ([]core.RulePolicy, error) {
 		return nil, err
 	}
 	policy, err := core.NormalizeRulePolicy(core.RulePolicy{
-		CountryMode:          c.FormValue("country_mode"),
-		AllowedCountries:     c.Request().PostForm["allowed_countries"],
-		AllowPrivateNetworks: private == "on",
+		DefaultFeedConfigured: c.FormValue("default_feed_present") == "1",
+		CountryMode:           c.FormValue("country_mode"),
+		AllowedCountries:      c.Request().PostForm["allowed_countries"],
+		BlockedFeedIDs:        c.Request().PostForm["blocked_feed_ids"],
+		AllowPrivateNetworks:  private == "on",
 	})
 	if err != nil {
 		return nil, err

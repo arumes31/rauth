@@ -12,6 +12,11 @@ export function initPolicyForms() {
             selection.querySelectorAll('input').forEach(input => { input.disabled = !restricted; });
             count.textContent = countries.filter(input => input.checked).length + ' selected';
         };
+        const access = fields.form?.querySelector('[name="action"]');
+        const defaultFeed = fields.querySelector('[data-default-feed]');
+        access?.addEventListener('change', () => {
+            if (defaultFeed) defaultFeed.checked = access.value === 'allow';
+        });
         mode.addEventListener('change', sync);
         fields.addEventListener('change', sync);
         search.addEventListener('input', () => {

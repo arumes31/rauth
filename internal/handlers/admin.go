@@ -91,6 +91,10 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 		}
 	}
 
+	feeds, feedErr := core.ListIPFeeds(c.Request().Context())
+	if feedErr != nil {
+		slog.Error("Failed to list IP feeds", "error", feedErr)
+	}
 	rules := bypassRuleViews()
 	userViews, stats := buildAdminView(users, sessions, logs, rules)
 
@@ -104,6 +108,7 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 		"csrf":             c.Get("csrf"),
 		"bypass_rules":     rules,
 		"policy_countries": core.PolicyCountries(),
+		"ip_feeds":         feeds,
 		"bypass_host_hdr":  h.Cfg.AuthBypassHostHeader,
 		"bypass_uri_hdr":   h.Cfg.AuthBypassURIHeader,
 		"admin_has_2fa":    adminHas2FA,

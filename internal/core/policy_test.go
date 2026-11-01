@@ -117,3 +117,11 @@ func TestRulePolicySelectorIgnoresUnrelatedTargets(t *testing.T) {
 	assert.True(t, HasRestrictedBypassRulesForHost("POLICY.example.com:443"))
 	assert.False(t, HasRestrictedBypassRulesForHost("other.example.com"))
 }
+
+func TestPolicyCountriesExcludeObsoleteAliases(t *testing.T) {
+	for _, code := range []string{"DD", "SU", "FX", "BU", "TP", "ZR"} {
+		for _, option := range PolicyCountries() {
+			assert.NotEqual(t, code, option.Code, "obsolete country aliases must not create duplicate checkbox entries")
+		}
+	}
+}

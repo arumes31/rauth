@@ -14,9 +14,9 @@ Goal remains active: implement the complete approved plan, deploy workers on the
 
 ## Implemented and tested
 
-Country policy engine, persistence, checkbox/search admin controls, pre-session enforcement, private-network option and legacy defaults are implemented. IP feed references intentionally fail closed until the registry is implemented; the feed feature is not yet available.
+Country policy engine, persistence, checkbox/search admin controls, pre-session enforcement, private-network option and legacy defaults are implemented. The IP feed registry, bounded HTTPS fetch/parser, immutable last-good snapshots, rule attachments, separate admin menu and effective URL/IP preview are now implemented in source. Production still runs the prior release.
 
-A full go test ./... -count=1 -timeout 10m run passed with disposable PostgreSQL. CodeRabbit then found two scope regressions and encoding issues; these were fixed, and the relevant policy/bypass/handler/template tests plus go vet passed afterward. The major regression tests prove restricted rules do not lock out unrelated applications. Browser visual QA and remote CI have not yet been run for this batch.
+A full go test ./... -count=1 -timeout 10m run passed with disposable PostgreSQL. CodeRabbit then found two scope regressions and encoding issues; these were fixed, and the relevant policy/bypass/handler/template tests plus go vet passed afterward. The major regression tests prove restricted rules do not lock out unrelated applications. Country/feed desktop and mobile visual QA has passed; remote CI for the combined milestone is the next publishing gate.
 
 CodeRabbit completed one included review (4 findings); no paid credits were used. Do not repeatedly review this unchanged milestone.
 
@@ -69,9 +69,33 @@ Pi3 fsync/latency, final resource budgets, fencing and location/failure-domain c
 
 ## Next work
 
-1. Finish source-policy review/visual QA and continue IP feed registry/parser/fetching/snapshots/admin menu.
+1. Publish the reviewed country/feed milestone and verify remote CI; bootstrap the default feed and verify original-client-IP authorization before production activation.
 2. Implement transactional SQL auth state, cross-node flows and cross-domain SSO per approved plan.
 3. Provision dedicated Tailscale services on the remaining RAuth/state nodes with unique persistent state. Check the supplied key's reuse/expiry during enrollment; never clone state directories.
 4. Build/test HA PostgreSQL+quorum and required worker roles/control/event collection with host bind mounts.
 5. Deploy worker applications, preserve existing login requirements, add current public host aliases, and test all routing/auth/failover acceptance.
 6. Only after all gates pass, merge/publish/deploy exact reviewed releases and apply health-aware routing.
+
+
+## Default-feed milestone and NL enrollment
+
+The user requested https://blocklist.eworx.at/api/v1/raw as the default blocked feed for Public Access and as a real integration-test source. Source now installs a deterministic managed default, backfills existing public rules once, attaches new public rules by default, preserves explicit opt-outs and leaves login-required rules unchanged. Pending referenced data fails closed. The included rauth-feed-bootstrap command must seed the feed before cutover because the feed-serving route may itself pass through RAuth. The current request-feed observed-IP header is telemetry only; deployment must verify the authorization IP chain separately.
+
+Feed bounds: HTTPS public destinations only, validated DNS/dial and redirects, no ambient proxy, 20-second request deadline, 10 MiB payload/canonical limit, 500,000 prefixes per feed, 32 feeds and 2,000,000 combined prefixes. SQL refresh leases and revision checks prevent duplicate/stale publishers; malformed/empty/large-drop updates preserve last-good data unless explicitly accepted. In-use feeds cannot be disabled/deleted. The built-in default cannot be removed, disabled or repointed. Query credentials stay out of rendered HTML/JSON/audit metadata.
+
+Verification:
+- Full go test ./... -count=1 -timeout 10m passed against disposable PostgreSQL (core 167.515s, handlers 247.161s, middleware 10.078s).
+- CodeRabbit included review completed with three minor findings. Fixed cold first-download retry (60 seconds rather than a full refresh interval), alternate UUID spelling in default deletion guard, and preview JSON error negotiation. Targeted review-fix tests and go vet passed.
+- Default catalog-cap rollback regression passed after manual review.
+- Explicit real-source integration test passed: 4,771 entries, 82,452 normalized bytes, ready version 1; a real listed IP was denied by an inherited public rule. Counts change with provider updates.
+- Desktop and 390px mobile QA passed for IP Feeds, country search, edit round-trips, feed checkbox retention, and actual allowed/blocked preview responses. Fixed deprecated duplicate country aliases found during QA. The temporary preview process, file and browser tab were removed.
+- No new policies, worker applications or HA state services are live in production yet.
+
+NL dedicated Tailscale service is now also live and verified:
+- Host orderotto-dev / nl-bluehost-ubnt-1; /opt/rauth, project rauth-ha, isolated bridge 10.253.43.0/28.
+- Identity rauth-nl-bluehost: 100.124.226.67, fd7a:115c:a1e0::402a:e244.
+- Same official pinned image as hodus; Running with no health warnings after a key-free restart.
+- Only persistent mount is host bind /opt/rauth/tailscale; no Docker volumes or published ports. Enrollment key removed from mount and host.
+- Server evidence: /opt/rauth/tailscale-enrollment-verification.json.
+
+The full active-active goal remains active. SQL auth authority, cross-node/cross-domain authentication, remaining node enrollment, HA database/quorum, durable event forwarding, workers, NPM rollout and outage tests are still required.

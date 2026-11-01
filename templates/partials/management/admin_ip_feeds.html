@@ -1,0 +1,58 @@
+{{define "admin_ip_feeds"}}
+<section data-panel="ip-feeds" data-title="IP Feeds" hidden>
+ <p class="section-intro">The Eworx blocklist is enabled by default for public URL rules. Administrators can explicitly change a rule’s selection. Manage additional IP blocklists, then attach them to URL rules in <a href="#bypass" data-nav="bypass">Public Access</a>. Adding a feed alone does not block every site.</p>
+ {{if not .bypass_unlock_m}}
+ <div class="callout warn mb-4"><i class="bi bi-lock-fill"></i><div>Unlock <a href="#bypass" data-nav="bypass">Public Access management</a> to change feeds. Changes require your current 2FA code or password.</div></div>
+ {{else}}
+ <div class="panel mb-4">
+  <div class="panel-header"><div><h2>Add IP feed</h2><div class="sub">HTTPS text with one IP address or CIDR per line</div></div></div>
+  <div class="panel-body">
+   <form method="POST" action="/rauthmgmt/ip-feeds/add" class="row g-3">
+    <input type="hidden" name="csrf" value="{{.csrf}}">
+    <div class="col-md-4"><label class="form-label" for="feedName">Name</label><input class="form-control" id="feedName" name="name" required maxlength="120"></div>
+    <div class="col-md-8"><label class="form-label" for="feedSource">Feed URL</label><input class="form-control" type="url" id="feedSource" name="source_url" placeholder="https://example.org/blocklist.txt" required maxlength="2048"></div>
+    <div class="col-md-4"><label class="form-label" for="feedInterval">Refresh every (minutes)</label><input class="form-control" type="number" id="feedInterval" name="refresh_minutes" value="60" min="15" max="1440" required></div>
+    <div class="col-md-8 d-flex align-items-end"><button class="btn btn-primary" type="submit">Add feed</button></div>
+   </form>
+  </div>
+ </div>
+ {{end}}
+ {{range .ip_feeds}}
+ <article class="panel mb-3">
+  <div class="panel-header flex-wrap gap-2">
+   <div><h2>{{.Name}}{{if .IsDefault}} <span class="chip info">Public-access default</span>{{end}}</h2><div class="sub text-break">{{.DisplayURL}}</div></div>
+   <div>{{if not .Enabled}}<span class="chip">Disabled</span>{{else if .Ready}}<span class="chip ok">Ready</span>{{else}}<span class="chip warn">Not loaded</span>{{end}}{{if .Stale}} <span class="chip warn">Stale</span>{{end}}</div>
+  </div>
+  <div class="panel-body">
+   <p class="small text-muted">{{.EntryCount}} {{if eq .EntryCount 1}}entry{{else}}entries{{end}} · version {{.Version}} · every {{.RefreshMinutes}} minutes{{if .LastSuccess}} · updated <time data-ts="{{.LastSuccess}}">{{formatTime .LastSuccess}}</time>{{end}}</p>
+   {{if .LastError}}<p class="text-warning small">{{.LastError}}. The last valid list remains active.</p>{{end}}
+   <div class="small mb-3">Used by: {{range .Rules}}<code class="me-2">{{.}}</code>{{else}}No URL rules{{end}}</div>
+   {{if $.bypass_unlock_m}}
+   <form method="POST" action="/rauthmgmt/ip-feeds/refresh" class="d-flex flex-wrap align-items-center gap-3 mb-3">
+    <input type="hidden" name="csrf" value="{{$.csrf}}"><input type="hidden" name="feed_id" value="{{.ID}}">
+    <button class="btn btn-ghost btn-sm" type="submit" {{if not .Enabled}}disabled{{end}}>Refresh now</button>
+    <label class="small"><input type="checkbox" class="form-check-input me-1" name="accept_empty"> Accept an empty list</label>
+    <label class="small"><input type="checkbox" class="form-check-input me-1" name="accept_large_drop"> Accept a drop over 50%</label>
+   </form>
+   <details>
+    <summary class="small">Edit feed</summary>
+    <form method="POST" action="/rauthmgmt/ip-feeds/update" class="row g-3 mt-1">
+     <input type="hidden" name="csrf" value="{{$.csrf}}"><input type="hidden" name="feed_id" value="{{.ID}}">
+     <div class="col-md-6"><label class="form-label" for="feed-name-{{.ID}}">Name</label><input class="form-control" id="feed-name-{{.ID}}" name="name" value="{{.Name}}" maxlength="120" required></div>
+     <div class="col-md-6"><label class="form-label" for="feed-url-{{.ID}}">New URL (blank keeps current)</label><input class="form-control" type="url" id="feed-url-{{.ID}}" name="source_url" maxlength="2048" {{if .IsDefault}}readonly{{end}}> </div>
+     <div class="col-md-4"><label class="form-label" for="feed-minutes-{{.ID}}">Refresh every (minutes)</label><input class="form-control" id="feed-minutes-{{.ID}}" name="refresh_minutes" type="number" min="15" max="1440" value="{{.RefreshMinutes}}" required></div>
+     <div class="col-md-8 d-flex flex-wrap gap-3 align-items-end">{{if .IsDefault}}<input type="hidden" name="enabled" value="on"><span class="small">Default feed stays enabled</span>{{else}}<label><input class="form-check-input me-1" type="checkbox" name="enabled" {{if .Enabled}}checked{{end}}>Enabled</label>{{end}}<button class="btn btn-primary btn-sm">Save feed</button></div>
+    </form>
+    <form method="POST" action="/rauthmgmt/ip-feeds/delete" class="mt-3" data-confirm="Delete this IP feed? Feeds in use cannot be deleted.">
+     <input type="hidden" name="csrf" value="{{$.csrf}}"><input type="hidden" name="feed_id" value="{{.ID}}">
+     <button class="btn btn-ghost btn-sm text-danger" type="submit" {{if or .Rules .IsDefault}}disabled{{end}}>Delete feed</button>
+    </form>
+   </details>
+   {{end}}
+  </div>
+ </article>
+ {{else}}
+ <div class="panel"><div class="panel-body text-muted">No IP feeds configured. Add an HTTPS feed and let it load successfully before attaching it to a URL rule.</div></div>
+ {{end}}
+</section>
+{{end}}
