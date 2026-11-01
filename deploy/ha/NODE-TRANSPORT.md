@@ -88,3 +88,11 @@ Local credential checks include the intermediate certificates supplied in the
 TLS pair (up to eight certificates total). Intermediates never substitute for
 the configured root trust. An actual mutual-TLS test covers root -> intermediate
 -> node leaf on both ends, plus missing/malformed/untrusted chain rejection.
+
+The socket dialer independently rejects any address other than the configured
+literal endpoint. Do also rebuilds the outgoing URL from the owned enrollment
+and validated RPC path. Gosec G704 treats the caller-controlled path as a complete
+URL taint and cannot model these constraints; its narrow call-site annotation
+records the endpoint, socket, proxy and redirect controls. Tests cover rejection
+both before Do dials and directly at the actual socket dialer. No project-wide
+rule or security check is disabled.
