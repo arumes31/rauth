@@ -67,8 +67,8 @@ func TestSQLSessionRestampAndSweepWithoutDoubleGeneration(t *testing.T) {
 	}
 	nextGen, err := BumpAuthGeneration("restamp-user")
 	require.NoError(t, err)
-	RestampSession(keep, nextGen)
-	InvalidateOtherUserSessions("restamp-user", keep)
+	require.NoError(t, RestampSession(keep, nextGen))
+	require.NoError(t, InvalidateOtherUserSessions("restamp-user", keep))
 	_, err = ReadAuthSession(Ctx, keep)
 	require.NoError(t, err)
 	_, err = ReadAuthSession(Ctx, drop)
@@ -112,4 +112,9 @@ func TestSelectedSQLSessionErrorNeverUsesRedisFallback(t *testing.T) {
 	data, err := ReadAuthSession(Ctx, tok)
 	require.Error(t, err)
 	assert.Nil(t, data, "unavailable SQL authority must never authorize from Redis")
+	_, err = ListManagedSessions(Ctx, "", "", "", 200)
+	require.Error(t, err)
+	_, err = RevokeManagedSession(Ctx, "00000000-0000-4000-8000-000000000001", "")
+	require.Error(t, err)
+	assert.Equal(t, int64(1), TokenDB.Exists(Ctx, "X-rauth-authtoken="+tok).Val(), "management must not fall back to a different authority")
 }

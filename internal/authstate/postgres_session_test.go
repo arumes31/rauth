@@ -370,3 +370,26 @@ func TestPostgresSessionsCleanupDrainsBacklogInBatches(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, a.Cleanup(ctx), "cleanup is idempotent")
 }
+
+func TestPostgresRestampDoesNotKeepEarlierFamilyTokens(t *testing.T) {
+	_, a, b := fixture(t)
+	ctx := context.Background()
+	old, current := token("pre-change-grace"), token("kept-after-change")
+	require.NoError(t, a.Issue(ctx, old, params()))
+	changed, err := b.Rotate(ctx, old, current, 10*time.Minute, time.Minute)
+	require.NoError(t, err)
+	require.True(t, changed)
+	_, err = core.RevokeAuth("alice", nil)
+	require.NoError(t, err)
+	changed, err = a.Restamp(ctx, current, 0, 1)
+	require.NoError(t, err)
+	require.True(t, changed)
+	kept, err := b.Get(ctx, current)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), kept.Generation)
+	_, err = b.Get(ctx, old)
+	require.ErrorIs(t, err, authstate.ErrNotFound, "keeping the caller must not re-authorize a pre-change grace token")
+	require.NoError(t, a.Revoke(ctx, old))
+	_, err = b.Get(ctx, current)
+	require.ErrorIs(t, err, authstate.ErrNotFound, "revocation aliases must remain even when old sessions are removed")
+}

@@ -14,9 +14,9 @@ type ArtifactKind string
 const (
 	Pending2FA          ArtifactKind = "pending_2fa"
 	PendingEnrollment   ArtifactKind = "pending_setup"
-	EnrollmentSecret    ArtifactKind = "pending_setup_secret" // #nosec G101 -- Public challenge-purpose identifier, not a credential.
-	PasskeyRegistration ArtifactKind = "webauthn_reg"         // #nosec G101 -- Public challenge-purpose identifier, not a credential.
-	PasskeyLogin        ArtifactKind = "webauthn_login_session"
+	EnrollmentSecret    ArtifactKind = "pending_setup_secret"   // #nosec G101 -- Public challenge-purpose identifier, not a credential.
+	PasskeyRegistration ArtifactKind = "webauthn_reg"           // #nosec G101 -- Public challenge-purpose identifier, not a credential.
+	PasskeyLogin        ArtifactKind = "webauthn_login_session" // #nosec G101 -- Public challenge-purpose identifier, not a credential.
 	Invitation          ArtifactKind = "invite"
 )
 

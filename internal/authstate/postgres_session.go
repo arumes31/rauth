@@ -481,6 +481,12 @@ func (s *PostgresSessions) Restamp(ctx context.Context, token string, oldGenerat
 		if r.retired || !r.idle.After(now) || !r.absolute.After(now) {
 			return nil
 		}
+		// A credential change keeps only the caller. Restamping the family alone
+		// would also reauthorize retired grace tokens (and linked app sessions).
+		// Keep stable token aliases so racing logout still reaches this family.
+		if _, err := tx.Exec(ctx, "DELETE FROM auth_sessions WHERE family_id=$1 AND token_hash<>$2", family, hash); err != nil {
+			return err
+		}
 		_, err = tx.Exec(ctx, "UPDATE auth_session_families SET auth_gen=$2 WHERE id=$1", family, newGeneration)
 		changed = err == nil
 		return err

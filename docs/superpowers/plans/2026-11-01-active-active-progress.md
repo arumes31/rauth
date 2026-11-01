@@ -29,8 +29,12 @@ No secrets belong in Git.
   SQL family listing/revocation/IP queries and atomic step-up grants now also pass
   their real-database tests. Stable keyed aliases preserve logout across token
   replacement and grace cleanup. Primary authorization/logout/binding/grant adapters now pass the full local
-  suite with SQL/no-Redis tests. Admin/profile and runtime migration remain
-  pending; SQL authority is not enabled in production.
+  suite with SQL/no-Redis tests. Admin/profile now use the selected authority
+  for paginated metadata and owned revocation, with non-bearer handles in both
+  modes. Backend errors are visible. Committed credential changes keep their
+  audit/notification even if retaining the caller fails. A real-database
+  regression also prevents credential restamp from reviving retired siblings.
+  Runtime migration remains pending; SQL authority is not enabled in production.
 - CodeRabbit's included milestone reviews were used and their verified findings
   fixed. No paid reviews were started; honor quota/cooldown reports.
 

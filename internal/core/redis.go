@@ -84,38 +84,34 @@ func InvalidateUserSessions(username string) error {
 	return nil
 }
 
-func InvalidateOtherUserSessions(username, currentToken string) {
+func InvalidateOtherUserSessions(username, currentToken string) error {
 	if securitySessions != nil {
-		if err := securitySessions.RevokeOthers(Ctx, username, currentToken); err != nil {
-			slog.Error("Failed to revoke other session families", "error", err)
-		}
-		return
+		return securitySessions.RevokeOthers(Ctx, username, currentToken)
+	}
+	if TokenDB == nil {
+		return fmt.Errorf("session authority unavailable")
 	}
 	indexKey := "user_sessions:" + username
 	tokens, err := TokenDB.SMembers(Ctx, indexKey).Result()
 	if err != nil {
-		return
+		return err
 	}
-
-	// ⚡ Bolt optimization: Accumulate keys and batch delete/remove with variadic commands.
 	var toDel []string
 	var toRem []interface{}
 	for _, token := range tokens {
-		if token == currentToken {
-			continue
-		}
-		toDel = append(toDel, "X-rauth-authtoken="+token)
-		toRem = append(toRem, token)
-	}
-
-	if len(toDel) > 0 {
-		pipe := TokenDB.Pipeline()
-		pipe.Del(Ctx, toDel...)
-		pipe.SRem(Ctx, indexKey, toRem...)
-		if _, err := pipe.Exec(Ctx); err != nil {
-			slog.Error("Failed to execute InvalidateOtherUserSessions pipeline", "error", err)
+		if token != currentToken {
+			toDel = append(toDel, "X-rauth-authtoken="+token, "bypass_unlock:"+token)
+			toRem = append(toRem, token)
 		}
 	}
+	if len(toDel) == 0 {
+		return nil
+	}
+	pipe := TokenDB.Pipeline()
+	pipe.Del(Ctx, toDel...)
+	pipe.SRem(Ctx, indexKey, toRem...)
+	_, err = pipe.Exec(Ctx)
+	return err
 }
 
 // HasActiveSessions reports whether the given IP currently has a valid session.

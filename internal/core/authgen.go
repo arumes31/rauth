@@ -2,7 +2,9 @@ package core
 
 import (
 	"context"
+	"errors"
 	"log/slog"
+	"rauth/internal/authstate"
 	"strconv"
 	"strings"
 	"time"
@@ -143,20 +145,32 @@ return 0
 // RestampSession moves a surviving session to generation gen (the value
 // returned by BumpAuthGeneration), used after a self-service credential change
 // keeps the caller signed in.
-func RestampSession(token, gen string) {
+func RestampSession(token, gen string) error {
+	next, err := strconv.ParseInt(gen, 10, 64)
+	if err != nil || next < 1 {
+		return errors.New("invalid session generation")
+	}
 	if securitySessions != nil {
-		next, err := strconv.ParseInt(gen, 10, 64)
-		if err == nil {
-			_, err = securitySessions.Restamp(Ctx, token, next-1, next)
-		}
+		changed, err := securitySessions.Restamp(Ctx, token, next-1, next)
 		if err != nil {
-			slog.Error("Failed to restamp session generation", "error", err)
+			return err
 		}
-		return
+		if !changed {
+			return authstate.ErrNotFound
+		}
+		return nil
 	}
-	if err := restampScript.Run(Ctx, TokenDB, []string{"X-rauth-authtoken=" + token}, gen).Err(); err != nil {
-		slog.Error("Failed to restamp session generation", "error", err)
+	if TokenDB == nil {
+		return errors.New("session authority unavailable")
 	}
+	changed, err := restampScript.Run(Ctx, TokenDB, []string{"X-rauth-authtoken=" + token}, gen).Int()
+	if err != nil {
+		return err
+	}
+	if changed == 0 {
+		return authstate.ErrNotFound
+	}
+	return nil
 }
 
 // rotateScript copies a live session to a new token and retires the old one

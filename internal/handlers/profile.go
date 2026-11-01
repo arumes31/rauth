@@ -6,9 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 	"rauth/internal/core"
-	"strings"
-
-	"github.com/redis/go-redis/v9"
 
 	"github.com/labstack/echo/v4"
 	"github.com/pquerna/otp/totp"
@@ -27,61 +24,12 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to load profile")
 	}
 
-	// Fetch sessions for this user efficiently
-	tokens, err := core.TokenDB.SMembers(core.Ctx, "user_sessions:"+username).Result()
+	sessionPage, err := core.ListManagedSessions(c.Request().Context(), username, currentToken, c.QueryParam("session_cursor"), 200)
 	if err != nil {
-		slog.Error("Failed to fetch sessions from Redis", "error", err)
+		return sessionManagementError(err)
 	}
-
-	var sessions []map[string]string
-	pipe := core.TokenDB.Pipeline()
-	cmds := make(map[string]*redis.MapStringStringCmd)
-	ttlCmds := make(map[string]*redis.DurationCmd)
-
-	for _, token := range tokens {
-		redisKey := "X-rauth-authtoken=" + token
-		cmds[token] = pipe.HGetAll(core.Ctx, redisKey)
-		ttlCmds[token] = pipe.TTL(core.Ctx, redisKey)
-	}
-	_, pipeErr := pipe.Exec(core.Ctx)
-	if pipeErr != nil {
-		slog.Error("Failed to execute session details pipeline", "error", pipeErr)
-	}
-
-	for _, token := range tokens {
-		data, err := cmds[token].Result()
-		if err != nil || len(data) == 0 {
-			// Only clean up stale index entries if the pipeline succeeded
-			// (individual key miss), not on a wholesale pipeline failure.
-			if pipeErr == nil {
-				core.RemoveSessionIndex(username, token)
-			}
-			continue
-		}
-		data["token"] = token
-		data["is_current"] = "0"
-		if token == currentToken {
-			data["is_current"] = "1"
-		}
-		ttl := ttlCmds[token].Val()
-		data["ttl"] = fmt.Sprintf("%d", int(ttl.Seconds()))
-
-		// Use Client Hints if available to enhance the friendly UA
-		ua := data["user_agent"]
-		friendlyUA := core.FormatUserAgent(ua)
-		if model := data["ua_ch_model"]; model != "" && model != "Unknown" {
-			friendlyUA += fmt.Sprintf(" [%s]", strings.Trim(model, "\""))
-		}
-		if mobile := data["ua_ch_mobile"]; mobile == "?1" {
-			if !strings.Contains(friendlyUA, "[Mobile]") {
-				friendlyUA += " [Mobile]"
-			}
-		}
-
-		data["friendly_ua"] = friendlyUA
-		data["device_icon"] = core.GetDeviceIcon(ua)
-		sessions = append(sessions, data)
-	}
+	sessions := sessionPage.Sessions
+	prepareSessionViews(sessions)
 
 	// Personal Logs
 	logs, err := core.UserAuditLogs(username, 100)
@@ -101,6 +49,8 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 		"has2FA":        userData.TwoFactor != "",
 		"recoveryCount": core.CountRecoveryCodes(username),
 		"sessions":      sessions,
+		"session_next":  sessionPage.Next,
+		"session_paged": sessionPage.Next != "" || c.QueryParam("session_cursor") != "",
 		"logs":          logs,
 		"passkeys":      passkeys,
 		"csrf":          c.Get("csrf"),
@@ -213,7 +163,7 @@ func (h *ProfileHandler) DisableTOTP(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to disable TOTP")
 	}
 	currentToken, _ := c.Get("token").(string)
-	keepOnlySession(username, currentToken, gen)
+	keepErr := keepOnlySession(username, currentToken, gen)
 
 	// Send notification email
 	if email != "" {
@@ -225,6 +175,9 @@ func (h *ProfileHandler) DisableTOTP(c echo.Context) error {
 	}
 
 	core.LogAudit("USER_DISABLE_TOTP", username, c.RealIP(), nil)
+	if keepErr != nil {
+		return retainedSessionError(keepErr)
+	}
 	return c.Redirect(http.StatusFound, "/rauthprofile?success=totp_disabled")
 }
 
@@ -235,26 +188,14 @@ func (h *ProfileHandler) TerminateSession(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "Token is required")
 	}
 
-	redisKey := "X-rauth-authtoken=" + token
-	// ⚡ Bolt optimization: Use HGet instead of HGetAll since we only need the username
-	tokenOwner, err := core.TokenDB.HGet(core.Ctx, redisKey, "username").Result()
-	if err != nil || tokenOwner == "" {
-		return c.Redirect(http.StatusFound, "/rauthprofile")
+	changed, err := core.RevokeManagedSession(c.Request().Context(), token, username)
+	if err != nil {
+		return sessionManagementError(err)
 	}
-
-	// Security: Ensure user owns this session
-	if tokenOwner != username {
-		slog.Warn("Unauthorized session termination attempt", "user", username, "target_token", token)
+	if !changed {
 		return echo.NewHTTPError(http.StatusForbidden, "You can only terminate your own sessions")
 	}
-
-	core.RemoveSessionIndex(username, token)
-	core.TokenDB.Del(core.Ctx, redisKey)
-	logToken := token
-	if len(logToken) > 8 {
-		logToken = logToken[:8] + "..."
-	}
-	core.LogAudit("USER_TERMINATE_SESSION", username, c.RealIP(), map[string]interface{}{"token": logToken})
+	core.LogAudit("USER_TERMINATE_SESSION", username, c.RealIP(), nil)
 
 	return c.Redirect(http.StatusFound, "/rauthprofile?success=session_terminated")
 }
@@ -263,8 +204,15 @@ func (h *ProfileHandler) TerminateAllOtherSessions(c echo.Context) error {
 	username := c.Get("username").(string)
 	currentToken := c.Get("token").(string)
 
-	revokeOtherAccess(username, currentToken)
+	gen, err := core.BumpAuthGeneration(username)
+	if err != nil {
+		return sessionManagementError(err)
+	}
+	keepErr := keepOnlySession(username, currentToken, gen)
 	core.LogAudit("USER_TERMINATE_ALL_OTHER_SESSIONS", username, c.RealIP(), nil)
+	if keepErr != nil {
+		return retainedSessionError(keepErr)
+	}
 
 	return c.Redirect(http.StatusFound, "/rauthprofile?success=sessions_terminated")
 }
@@ -323,7 +271,7 @@ func (h *ProfileHandler) ChangePassword(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to update password")
 	}
 	currentToken, _ := c.Get("token").(string)
-	keepOnlySession(username, currentToken, gen)
+	keepErr := keepOnlySession(username, currentToken, gen)
 
 	// Send notification email
 	if userData.Email != "" {
@@ -336,6 +284,9 @@ func (h *ProfileHandler) ChangePassword(c echo.Context) error {
 
 	slog.Info("Password changed by user", "user", username)
 	core.LogAudit("USER_CHANGE_PASSWORD", username, c.RealIP(), nil)
+	if keepErr != nil {
+		return retainedSessionError(keepErr)
+	}
 
 	return c.Redirect(http.StatusFound, "/rauthprofile?success=password_changed")
 }
@@ -368,22 +319,18 @@ func (h *ProfileHandler) validateTOTP(username, otpCode, encryptedSecret string)
 	return nil
 }
 
-// revokeOtherAccess ends every session and pending login of the user except
-// the caller's current session, which is re-stamped to the new generation.
-func revokeOtherAccess(username, currentToken string) {
-	gen, err := core.BumpAuthGeneration(username)
-	if err != nil {
-		gen = ""
+// A committed generation bump has already invalidated old proofs. If keeping
+// the caller fails, report it instead of presenting an incomplete revocation as
+// success. No failed restamp may restore an expired or concurrently revoked token.
+func keepOnlySession(username, currentToken, gen string) error {
+	if gen == "" {
+		return fmt.Errorf("missing committed auth generation")
 	}
-	keepOnlySession(username, currentToken, gen)
-}
-
-// keepOnlySession follows a revocation that produced generation gen: the
-// caller's session moves to gen and every other indexed session is deleted.
-// An empty gen (the bump failed) still sweeps the other sessions.
-func keepOnlySession(username, currentToken, gen string) {
-	if gen != "" && currentToken != "" {
-		core.RestampSession(currentToken, gen)
+	if currentToken == "" {
+		return core.InvalidateUserSessions(username)
 	}
-	core.InvalidateOtherUserSessions(username, currentToken)
+	if err := core.RestampSession(currentToken, gen); err != nil {
+		return err
+	}
+	return core.InvalidateOtherUserSessions(username, currentToken)
 }
