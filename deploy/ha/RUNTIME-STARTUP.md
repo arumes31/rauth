@@ -87,3 +87,9 @@ Country lookup is database-only. The master supplies its existing local MMDB in
 the signed policy; workers use their verified local copy. No external GeoIP API
 is queried, including for unknown results or missing data. Only the master runs
 database maintenance, and country-restricted requests fail closed when needed.
+
+Public health requests read a bounded cached observation instead of querying
+authentication or private authorization pools. One background loop refreshes
+authority/enrollment every two seconds with a shared three-second deadline;
+uninitialized or older-than-six-second observations are unready. This cache
+does not authorize private RPCs, which still check current enrollment per request.

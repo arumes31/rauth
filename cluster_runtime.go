@@ -48,6 +48,7 @@ type clusterRuntime struct {
 	closeOnce    sync.Once
 	notices      *policyNoticeHub
 	policyState  *clusterPolicyState
+	health       *clusterHealth
 }
 
 // loadClusterBootstrap runs before database/authority initialization. Legacy
@@ -124,6 +125,7 @@ func newClusterRuntime(parent context.Context, cfg *core.Config, material *clust
 		return nil, errClusterRuntime
 	}
 	r.relayClient = r.client
+	r.health = newClusterHealth(core.CheckAuthenticationAuthority, func(ctx context.Context) error { return r.registry.Authorize(ctx, r.self, clustertransport.PolicyRead) })
 	source, err := clusterstate.NewReader(heads, blobs, material.Verifier())
 	if err != nil {
 		return nil, errClusterRuntime
@@ -181,6 +183,7 @@ func newClusterRuntime(parent context.Context, cfg *core.Config, material *clust
 	return r, nil
 }
 func (r *clusterRuntime) Start() {
+	r.wg.Go(func() { r.health.run(r.ctx) })
 	r.wg.Go(func() { _ = r.worker.Run(r.ctx) })
 	r.wg.Go(r.reportPolicyStatus)
 	if r.publisher == nil {
@@ -236,8 +239,7 @@ func (r *clusterRuntime) Health(c echo.Context) error {
 	status := r.worker.Status()
 	ready := status.Policy.Ready
 	checks := map[string]bool{"policy": ready}
-	checks["auth_state"] = core.CheckAuthenticationAuthority(c.Request().Context()) == nil
-	checks["node_enrollment"] = r.registry.Authorize(c.Request().Context(), r.self, clustertransport.PolicyRead) == nil
+	checks["auth_state"], checks["node_enrollment"] = r.health.status()
 	ready = ready && checks["auth_state"] && checks["node_enrollment"]
 	code := http.StatusOK
 	if !ready {

@@ -1,8 +1,9 @@
 # Opt-in Linux host configuration
 
-`internal/clusterconfig` parses and loads existing private node files. It is
-not connected to main startup yet and does not enroll nodes, open listeners,
-migrate databases or change production traffic.
+`internal/clusterconfig` parses and loads existing private node files. When
+`CLUSTER_CONFIG_FILE` is set, role-aware startup consumes this configuration
+and performs the documented authority, listener and schema checks. Standalone
+startup remains unchanged.
 
 A schema-1 node document specifies control/worker role, cluster/node UUIDs,
 the node's own literal Tailscale service address and private port, exact data

@@ -15,7 +15,7 @@ exchange. The server derives node identity and SPKI from the authenticated
 certificate and rejects a submitted node ID. Only assigned nodes can submit.
 Reports refer only to known committed manifest identities. Ready reports require
 matching applied/desired identities and an unexpired bounded lease. The SQL
-upsert checks current enrollment, pin and scope again. A 204 follows transaction
+upsert checks current enrollment, service address, pin and scope again. A 204 follows transaction
 commit. A five-second asynchronous heartbeat uses a dedicated one-connection
 pool on control and a bounded private request on workers; receipt failures never
 block authentication or determine worker readiness.
@@ -39,9 +39,11 @@ no external country lookup service is introduced.
 
 ## Migration and grants
 
-Migration 0011 creates the source singleton and receipt table. Workers continue
+Migration 0011 creates the source singleton and receipt table; 0012 binds receipts
+to the observed service IP. Existing address-less reports remain unconfirmed until
+a new matching report arrives. Workers continue
 to check the exact migrated schema without DDL; upgrade control/schema before
-starting the matching new workers. Older binaries that require exactly ten
+starting the matching new workers. Older binaries that require the earlier schema
 versions cannot be used as a restart rollback after this migration without a
 compatible schema restore or a reviewed compatibility release.
 

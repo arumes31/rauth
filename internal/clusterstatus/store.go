@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"net/netip"
 	"rauth/internal/clusterpolicy"
 	"rauth/internal/clustertransport"
 	"slices"
@@ -62,6 +63,14 @@ func identityValid(id clusterpolicy.Identity) bool {
 }
 func (s *Store) Record(parent context.Context, peer clustertransport.Peer, report Report) error {
 	now := s.now()
+	if peer.ServiceIP.Zone() != "" {
+		return ErrInvalid
+	}
+	peer.ServiceIP = peer.ServiceIP.Unmap()
+	allowedAddress := netip.MustParsePrefix("100.64.0.0/10").Contains(peer.ServiceIP) || netip.MustParsePrefix("fd7a:115c:a1e0::/48").Contains(peer.ServiceIP)
+	if !peer.ServiceIP.IsValid() || !allowedAddress {
+		return ErrInvalid
+	}
 	node, err := uuid.Parse(peer.NodeID)
 	if err != nil || node == uuid.Nil || node.String() != peer.NodeID || peer.ClusterID != s.cluster || peer.SPKI == ([32]byte{}) || !now.Before(peer.ExpiresAt) || !identityValid(report.Applied) || !identityValid(report.Desired) {
 		return ErrInvalid
@@ -87,10 +96,10 @@ func (s *Store) Record(parent context.Context, peer clustertransport.Peer, repor
 				return ErrInvalid
 			}
 		}
-		tag, err := tx.Exec(ctx, `INSERT INTO cluster_policy_receipts(cluster_id,node_id,spki_sha256,applied_revision,applied_sha256,desired_revision,desired_sha256,ready,lease_expires_at,received_at)
-   SELECT $1,n.node_id,$3,$4,$5,$6,$7,$8,$9,clock_timestamp() FROM cluster_nodes n
-   WHERE n.cluster_id=$1 AND n.node_id=$2 AND n.enabled AND n.expires_at>clock_timestamp() AND 'policy:read'=ANY(n.scopes) AND $3=ANY(n.spki_pins)
-   ON CONFLICT(cluster_id,node_id) DO UPDATE SET spki_sha256=excluded.spki_sha256,applied_revision=excluded.applied_revision,applied_sha256=excluded.applied_sha256,desired_revision=excluded.desired_revision,desired_sha256=excluded.desired_sha256,ready=excluded.ready,lease_expires_at=excluded.lease_expires_at,received_at=excluded.received_at`, s.cluster, peer.NodeID, peer.SPKI[:], report.Applied.Revision, report.Applied.SHA256, report.Desired.Revision, report.Desired.SHA256, report.Ready, report.LeaseExpiresAt)
+		tag, err := tx.Exec(ctx, `INSERT INTO cluster_policy_receipts(cluster_id,node_id,spki_sha256,applied_revision,applied_sha256,desired_revision,desired_sha256,ready,lease_expires_at,received_at,service_ip)
+   SELECT $1,n.node_id,$3,$4,$5,$6,$7,$8,$9,clock_timestamp(),$10::inet FROM cluster_nodes n
+   WHERE n.cluster_id=$1 AND n.node_id=$2 AND n.enabled AND n.expires_at>clock_timestamp() AND 'policy:read'=ANY(n.scopes) AND $3=ANY(n.spki_pins) AND n.service_ip=$10::inet
+   ON CONFLICT(cluster_id,node_id) DO UPDATE SET spki_sha256=excluded.spki_sha256,applied_revision=excluded.applied_revision,applied_sha256=excluded.applied_sha256,desired_revision=excluded.desired_revision,desired_sha256=excluded.desired_sha256,ready=excluded.ready,lease_expires_at=excluded.lease_expires_at,received_at=excluded.received_at,service_ip=excluded.service_ip`, s.cluster, peer.NodeID, peer.SPKI[:], report.Applied.Revision, report.Applied.SHA256, report.Desired.Revision, report.Desired.SHA256, report.Ready, report.LeaseExpiresAt, peer.ServiceIP.String())
 		if err != nil {
 			return err
 		}
@@ -138,7 +147,7 @@ func (s *Store) View(parent context.Context, assigned []string) (View, error) {
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return out, err
 	}
-	rows, err := tx.Query(ctx, `SELECT a.node_id::text,COALESCE(n.role,''),COALESCE(n.enabled AND n.expires_at>clock_timestamp() AND 'policy:read'=ANY(n.scopes) AND r.spki_sha256=ANY(n.spki_pins),false),
+	rows, err := tx.Query(ctx, `SELECT a.node_id::text,COALESCE(n.role,''),COALESCE(n.enabled AND n.expires_at>clock_timestamp() AND 'policy:read'=ANY(n.scopes) AND r.spki_sha256=ANY(n.spki_pins) AND r.service_ip=n.service_ip,false),
   COALESCE(r.applied_revision,0),COALESCE(r.applied_sha256,''),COALESCE(r.desired_revision,0),COALESCE(r.desired_sha256,''),COALESCE(r.ready,false),COALESCE(r.lease_expires_at,'epoch'::timestamptz),COALESCE(r.received_at,'epoch'::timestamptz)
   FROM unnest($2::uuid[]) a(node_id) LEFT JOIN cluster_nodes n ON n.cluster_id=$1 AND n.node_id=a.node_id LEFT JOIN cluster_policy_receipts r ON r.cluster_id=$1 AND r.node_id=a.node_id ORDER BY a.node_id`, s.cluster, nodes)
 	if err != nil {

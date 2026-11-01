@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"net/netip"
 	"rauth/internal/clusterpolicy"
 	"rauth/internal/clustertransport"
 	"rauth/internal/core"
@@ -31,7 +32,7 @@ func setup(t *testing.T) *fixture {
 	cluster, node := uuid.NewString(), uuid.NewString()
 	now := time.Now().UTC()
 	pin := sha256.Sum256([]byte(node))
-	peer := clustertransport.Peer{ClusterID: cluster, NodeID: node, SPKI: pin, ExpiresAt: now.Add(time.Hour)}
+	peer := clustertransport.Peer{ClusterID: cluster, NodeID: node, SPKI: pin, ExpiresAt: now.Add(time.Hour), ServiceIP: netip.MustParseAddr("100.72.1.2")}
 	_, err := pool.Exec(context.Background(), `INSERT INTO cluster_nodes(cluster_id,node_id,revision,role,service_ip,spki_pins,scopes,enabled,expires_at) VALUES($1,$2,1,'worker','100.72.1.2',ARRAY[$3::bytea],ARRAY['policy:read'],true,$4)`, cluster, node, pin[:], now.Add(time.Hour))
 	require.NoError(t, err)
 	id := clusterpolicy.Identity{Revision: 1, SHA256: strings.Repeat("a", 64)}
@@ -151,4 +152,19 @@ func TestPolicyReceiptBounds(t *testing.T) {
 	assert.ErrorIs(t, err, ErrInvalid)
 	_, err = New(f.pool, uuid.Nil.String())
 	assert.True(t, errors.Is(err, ErrInvalid))
+}
+
+func TestPolicyReceiptServiceAddressChangeRejectsLocalAndPriorReports(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	require.NoError(t, f.store.Record(ctx, f.peer, f.report()))
+	assert.True(t, f.view(t).Nodes[0].Confirmed)
+	_, err := f.pool.Exec(ctx, "UPDATE cluster_nodes SET service_ip='100.72.1.3',revision=revision+1 WHERE cluster_id=$1 AND node_id=$2", f.peer.ClusterID, f.peer.NodeID)
+	require.NoError(t, err)
+	assert.False(t, f.view(t).Nodes[0].Eligible)
+	assert.False(t, f.view(t).Nodes[0].Confirmed)
+	assert.ErrorIs(t, f.store.Record(ctx, f.peer, f.report()), clustertransport.ErrDenied)
+	f.peer.ServiceIP = netip.MustParseAddr("100.72.1.3")
+	require.NoError(t, f.store.Record(ctx, f.peer, f.report()))
+	assert.True(t, f.view(t).Nodes[0].Confirmed)
 }
