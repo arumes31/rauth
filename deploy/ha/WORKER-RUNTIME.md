@@ -63,3 +63,10 @@ ObserveHead invalidates the lease on rejection. Its implementation already clear
 the deadline on every error. An additional ready-worker regression explicitly
 checks lower revisions and same-revision equivocation; no duplicate invalidation
 or change to lease behavior is required. No paid review was used.
+
+A structurally valid store whose active payload cannot load/compile starts
+unready and reports the restore error while retaining its watermark. It can
+rehydrate verified content or await a newer compatible policy. This permits a
+coordinated configuration/compiler update without making startup depend on an
+old policy compiling under the new settings. Invalid roots/journals and invalid
+runtime configuration still fail construction; no stale authorization is restored.
