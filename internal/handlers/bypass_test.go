@@ -66,6 +66,18 @@ func TestValidate_BypassRules(t *testing.T) {
 		assert.Equal(t, "0", hdr.Get("X-RAuth-Admin"))
 	})
 
+	t.Run("whole host WebDAV semicolon filenames are anonymous", func(t *testing.T) {
+		for _, uri := range []string{
+			"/remote.php/dav/files/admin/BUILD/hackwerk/scripts/ops;C",
+			"/remote.php/dav/files/admin/BUILD/hackwerk/scripts/ops%3BC",
+		} {
+			code, hdr := validateWith(t, h, "cloud.example.com", uri, "127.0.0.1:5000", nil)
+			assert.Equal(t, http.StatusOK, code, uri)
+			assert.Equal(t, "1", hdr.Get("X-RAuth-Anonymous"), uri)
+			assert.Empty(t, hdr.Get("X-RAuth-User"), uri)
+		}
+	})
+
 	t.Run("path prefix and subpaths are anonymous", func(t *testing.T) {
 		for _, uri := range []string{"/webhook", "/webhook/github?x=1"} {
 			code, _ := validateWith(t, h, "web.example.com", uri, "", nil)
@@ -74,7 +86,7 @@ func TestValidate_BypassRules(t *testing.T) {
 	})
 
 	t.Run("other paths still require auth", func(t *testing.T) {
-		for _, uri := range []string{"/", "/admin", "/webhooks", "/webhook/../admin", "/webhook%2f..%2fadmin"} {
+		for _, uri := range []string{"/", "/admin", "/webhooks", "/webhook/../admin", "/webhook%2f..%2fadmin", "/webhook/file;C", "/webhook/file%3BC"} {
 			code, _ := validateWith(t, h, "web.example.com", uri, "", nil)
 			assert.Equal(t, http.StatusUnauthorized, code, uri)
 		}

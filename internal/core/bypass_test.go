@@ -238,3 +238,42 @@ func TestMatchBypassPrecedence(t *testing.T) {
 	SetEnvBypassRules([]string{"!only.example.com"})
 	assert.False(t, HasBypassRules(), "deny rules alone open nothing")
 }
+
+func TestMatchBypassSemicolonFilenames(t *testing.T) {
+	t.Cleanup(func() { activeBypass.Store(&bypassSet{}) })
+	const davPath = "/remote.php/dav/files/admin/BUILD/hackwerk/scripts/ops;C"
+	cases := []struct {
+		name      string
+		rules     []string
+		host, uri string
+		want      bool
+	}{
+		{"whole host literal", []string{"cloud.example.com"}, "cloud.example.com", davPath, true},
+		{"whole host encoded", []string{"cloud.example.com"}, "cloud.example.com", "/remote.php/dav/files/admin/ops%3BC", true},
+		{"whole host absolute target", []string{"cloud.example.com"}, "cloud.example.com", "https://cloud.example.com" + davPath, true},
+		{"wildcard host", []string{"*.example.com"}, "cloud.example.com", davPath, true},
+		{"unrelated path policy", []string{"cloud.example.com", "!other.example.com/admin"}, "cloud.example.com", davPath, true},
+		{"unmatched host", []string{"cloud.example.com"}, "other.example.com", davPath, false},
+		{"path allow stays strict", []string{"cloud.example.com/remote.php/dav"}, "cloud.example.com", davPath, false},
+		{"whole host with path deny", []string{"cloud.example.com", "!cloud.example.com/admin"}, "cloud.example.com", "/admin;parameter/file", false},
+		{"whole host with path allow", []string{"cloud.example.com", "cloud.example.com/remote.php/dav"}, "cloud.example.com", davPath, false},
+		{"whole host with exact root", []string{"cloud.example.com", "cloud.example.com/"}, "cloud.example.com", davPath, false},
+		{"wildcard path deny", []string{"cloud.example.com", "!*.example.com/admin"}, "cloud.example.com", davPath, false},
+		{"specific host deny", []string{"*.example.com", "!cloud.example.com"}, "cloud.example.com", davPath, false},
+		{"deny tie wins", []string{"cloud.example.com", "!cloud.example.com"}, "cloud.example.com", davPath, false},
+		{"semicolon with traversal", []string{"cloud.example.com"}, "cloud.example.com", "/public;C/../admin", false},
+		{"semicolon with encoded slash", []string{"cloud.example.com"}, "cloud.example.com", "/public%2fadmin;C", false},
+		{"semicolon with encoded dot", []string{"cloud.example.com"}, "cloud.example.com", "/public/%2e%2e/admin;C", false},
+		{"semicolon with backslash", []string{"cloud.example.com"}, "cloud.example.com", `/public\admin;C`, false},
+		{"semicolon with encoded NUL", []string{"cloud.example.com"}, "cloud.example.com", "/public/%00;C", false},
+		{"semicolon with double encoding", []string{"cloud.example.com"}, "cloud.example.com", "/public%252fadmin;C", false},
+		{"semicolon with bad escape", []string{"cloud.example.com"}, "cloud.example.com", "/public/%zz;C", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			SetEnvBypassRules(tc.rules)
+			_, allowed := MatchBypass(tc.host, tc.uri)
+			assert.Equal(t, tc.want, allowed)
+		})
+	}
+}

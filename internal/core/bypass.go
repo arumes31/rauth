@@ -39,8 +39,9 @@ import (
 // auth subrequest (AUTH_BYPASS_HOST_HEADER / AUTH_BYPASS_URI_HEADER). The proxy
 // MUST overwrite those headers, otherwise a client could forge them. Matching
 // fails closed: missing headers, unparseable values or paths that could be
-// reinterpreted by a backend (dot segments, encoded slashes, backslashes, ';')
-// never bypass.
+// reinterpreted by a backend (dot segments, encoded slashes, backslashes)
+// never bypass. Semicolons are allowed only when every rule matching the host
+// applies to the whole host, so no path-specific policy can be sidestepped.
 
 // Bypass rule actions.
 const (
@@ -198,6 +199,12 @@ func normalizeRulePath(p string) (string, bool, bool) {
 // second decoding pass downstream could turn into "%2e"/"%2f") and
 // unparseable escapes.
 func safeRequestPath(uri string) (string, bool) {
+	return requestPath(uri, false)
+}
+
+// requestPath may accept semicolon filenames for whole-host policies. Callers
+// must still reject them if any matching host rule makes a path decision.
+func requestPath(uri string, allowSemicolons bool) (string, bool) {
 	if uri == "" {
 		return "", false
 	}
@@ -223,7 +230,7 @@ func safeRequestPath(uri string) (string, bool) {
 	if uri == "" {
 		uri = "/"
 	}
-	if !strings.HasPrefix(uri, "/") || strings.ContainsAny(uri, "\\;") {
+	if !strings.HasPrefix(uri, "/") || strings.Contains(uri, "\\") || (!allowSemicolons && strings.Contains(uri, ";")) {
 		return "", false
 	}
 	lower := strings.ToLower(uri)
@@ -231,7 +238,7 @@ func safeRequestPath(uri string) (string, bool) {
 		return "", false
 	}
 	decoded, err := url.PathUnescape(uri)
-	if err != nil || strings.ContainsAny(decoded, "\\\x00;") {
+	if err != nil || strings.ContainsAny(decoded, "\\\x00") || (!allowSemicolons && strings.Contains(decoded, ";")) {
 		return "", false
 	}
 	for _, seg := range strings.Split(decoded, "/") {
@@ -261,12 +268,19 @@ func normalizeRequestHost(h string) string {
 	return h
 }
 
-func (r BypassRule) matches(host, reqPath string) bool {
+func (r BypassRule) matchesHost(host string) bool {
 	if r.Wildcard {
 		if !strings.HasSuffix(host, "."+r.Host) {
 			return false
 		}
 	} else if host != r.Host {
+		return false
+	}
+	return true
+}
+
+func (r BypassRule) matches(host, reqPath string) bool {
+	if !r.matchesHost(host) {
 		return false
 	}
 	if r.Exact {
@@ -321,13 +335,23 @@ func MatchBypass(rawHost, rawURI string) (BypassRule, bool) {
 		return BypassRule{}, false
 	}
 	reqPath, ok := safeRequestPath(rawURI)
+	semicolonPath := !ok
 	if !ok {
-		return BypassRule{}, false
+		reqPath, ok = requestPath(rawURI, true)
+		if !ok {
+			return BypassRule{}, false
+		}
 	}
 	var best BypassRule
 	found := false
 	for _, list := range [][]BypassRule{set.env, set.ui} {
 		for _, r := range list {
+			// Semicolon path parameters may be interpreted differently upstream.
+			// Keep failing closed whenever this host has any path-scoped policy,
+			// even if the literal path would not match that rule.
+			if semicolonPath && r.Path != "" && r.matchesHost(host) {
+				return BypassRule{}, false
+			}
 			if r.matches(host, reqPath) && (!found || r.moreSpecific(best)) {
 				best, found = r, true
 			}
