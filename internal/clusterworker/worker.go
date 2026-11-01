@@ -28,8 +28,8 @@ type Authority interface {
 // Close always releases any untransferred resources, including after validation
 // failure. Neither method may mutate application globals. Value is immutable.
 type Compiler[T io.Closer] interface {
-	Validate(clusterpolicy.Blob, io.Reader) error
-	Finish(clusterpolicy.VerifiedBundle) (T, error)
+	Validate(context.Context, clusterpolicy.Blob, io.Reader) error
+	Finish(context.Context, clusterpolicy.VerifiedBundle) (T, error)
 	Close() error
 }
 type snapshot[T io.Closer] struct {
@@ -73,6 +73,17 @@ type Status struct {
 // active cache. A restart never restores a persisted lease; it starts unready.
 // The caller still must verify the physical mount before invoking this method.
 func New[T io.Closer](root string, v *clusterpolicy.Verifier, source Authority, factory func() Compiler[T], lease time.Duration) (*Worker[T], error) {
+	return NewWithContext(context.Background(), root, v, source, factory, lease)
+}
+
+// NewWithContext also bounds/cancels cache compilation during startup.
+func NewWithContext[T io.Closer](parent context.Context, root string, v *clusterpolicy.Verifier, source Authority, factory func() Compiler[T], lease time.Duration) (*Worker[T], error) {
+	if parent == nil {
+		return nil, clusterpolicy.ErrInvalid
+	}
+	if err := parent.Err(); err != nil {
+		return nil, err
+	}
 	if source == nil || factory == nil {
 		return nil, clusterpolicy.ErrInvalid
 	}
@@ -96,12 +107,14 @@ func New[T io.Closer](root string, v *clusterpolicy.Verifier, source Authority, 
 		if compiler == nil {
 			return fail(clusterpolicy.ErrInvalid)
 		}
-		bundle, e := store.LoadActive(compiler.Validate)
+		restoreCtx, cancelRestore := context.WithTimeout(parent, 120*time.Second)
+		defer cancelRestore()
+		bundle, e := store.LoadActive(func(b clusterpolicy.Blob, r io.Reader) error { return compiler.Validate(restoreCtx, b, r) })
 		if e != nil {
 			w.stageErr = errors.Join(e, compiler.Close())
 			return w, nil // retained watermark + unready runtime can reconcile
 		}
-		value, e := compiler.Finish(bundle)
+		value, e := compiler.Finish(restoreCtx, bundle)
 		closeErr := compiler.Close()
 		if e != nil {
 			w.stageErr = errors.Join(e, closeErr)
@@ -218,11 +231,11 @@ func (w *Worker[T]) apply(ctx context.Context) error {
 	defer func() { _ = closeCompiler() }()
 	bundle, err := w.store.Stage(stageCtx, wanted.Envelope, func(fetchCtx context.Context, b clusterpolicy.Blob) (io.ReadCloser, error) {
 		return w.source.OpenBlob(fetchCtx, wanted.Verified.Identity(), b)
-	}, compiler.Validate)
+	}, func(b clusterpolicy.Blob, r io.Reader) error { return compiler.Validate(stageCtx, b, r) })
 	if err != nil {
 		return err
 	}
-	value, err := compiler.Finish(bundle)
+	value, err := compiler.Finish(stageCtx, bundle)
 	if err != nil {
 		return err
 	}

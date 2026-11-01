@@ -70,3 +70,9 @@ rehydrate verified content or await a newer compatible policy. This permits a
 coordinated configuration/compiler update without making startup depend on an
 old policy compiling under the new settings. Invalid roots/journals and invalid
 runtime configuration still fail construction; no stale authorization is restored.
+
+Compiler Validate and Finish both receive the staging context; implementations
+must honor cancellation and its 120-second deadline. NewWithContext provides the
+startup context for cache compilation too. Blocking-finalizer regressions verify
+that a newer head and shutdown interrupt compilation without detaching work or
+closing resources still in use. This fixes the review's cancellation gap.
