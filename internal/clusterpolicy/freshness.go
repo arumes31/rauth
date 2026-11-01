@@ -38,6 +38,7 @@ func NewFreshness(v *Verifier, minimum Identity, lease time.Duration) (*Freshnes
 	if lease == 0 {
 		lease = DefaultLease
 	}
+	// A zero scope denotes an uninitialized verifier without configured trust.
 	if v == nil || v.scope == ([32]byte{}) || lease < HeadCheckInterval || lease > MaxLease || (minimum != (Identity{}) && !minimum.valid()) {
 		return nil, ErrInvalid
 	}

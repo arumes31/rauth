@@ -18,6 +18,7 @@ import (
 var ErrStoreCorrupt = errors.New("policy cache is corrupt")
 var ErrStoreClosed = errors.New("policy cache is closed or requires reopening")
 var ErrStoreIndeterminate = errors.New("policy cache commit needs recovery before further writes")
+var ErrStoreLocked = errors.New("policy cache already has an exclusive writer")
 var ErrStoreUnsupported = errors.New("durable policy cache requires a Linux host bind mount")
 
 // CacheState is one atomically committed journal. HighWater may be newer than
@@ -436,14 +437,37 @@ func (s *Store) Stage(ctx context.Context, raw []byte, fetch func(context.Contex
 		s.stateMu.Unlock()
 		return VerifiedBundle{}, ErrRollback
 	}
+	if head.Identity() == s.state.Staged {
+		s.stateMu.Unlock()
+		cached, err := s.loadManifest(head.Identity())
+		if err != nil {
+			return VerifiedBundle{}, err
+		}
+		bundle, err := VerifyBundle(cached, s.openBlob, validate)
+		if err != nil {
+			return VerifiedBundle{}, err
+		}
+		s.stateMu.Lock()
+		defer s.stateMu.Unlock()
+		if err = s.usable(); err != nil {
+			return VerifiedBundle{}, err
+		}
+		if !newerOrSame(head.Identity(), s.state.HighWater) {
+			return VerifiedBundle{}, ErrRollback
+		}
+		return bundle, nil
+	}
 	next := s.state
 	next.Staged = Identity{}
 	err = s.writeState(next)
+	if err == nil {
+		// Include root temporaries while holding stateMu: no concurrent head
+		// journal is in flight, and successful reclamation clears its health.
+		s.cleanupErr = s.gc(next, true)
+		err = s.cleanupErr
+	}
 	s.stateMu.Unlock()
 	if err != nil {
-		return VerifiedBundle{}, err
-	}
-	if err = s.gc(next, false); err != nil {
 		return VerifiedBundle{}, err
 	}
 	created := []string{}

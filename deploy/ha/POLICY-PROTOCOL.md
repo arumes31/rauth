@@ -131,3 +131,11 @@ races and idempotent commit/cleanup separation. They also reject evidence verifi
 under a different key set even when its cluster or envelope identity matches.
 These checks do not certify the physical disk's power-loss behavior, HA fencing,
 transport identity, production filesystem mounts, or worker request admission.
+
+An identical durable staged generation is re-verified and reused after restart;
+it is not cleared/reclaimed before activation. Successful complete pre-stage
+cleanup clears the previous cleanup health signal. Root temporary reclamation
+holds the journal lock; network staging does not. A second writer reports the
+explicit ErrStoreLocked sentinel. Changing the cluster UUID intentionally changes
+the trust scope and invalidates cached policies; re-registration into a different
+cluster requires its own verified state rather than reusing the old cache.

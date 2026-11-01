@@ -98,7 +98,7 @@ func TestCacheRequiresExistingPrivateRootAndExclusiveWriter(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = s.Close() }()
 	_, err = OpenStore(root, v)
-	require.Error(t, err, "a second writer must not overwrite the journal")
+	require.ErrorIs(t, err, ErrStoreLocked, "a second writer must not overwrite the journal")
 	other := t.TempDir()
 	require.NoError(t, os.Chmod(other, 0o777))
 	_, err = OpenStore(other, v)
@@ -478,4 +478,59 @@ func TestCacheFailedAtomicRenameKeepsPriorActiveAndAllowsRetry(t *testing.T) {
 	assert.Equal(t, bundle.Identity(), st.Staged)
 	s.beforeRename = nil
 	require.NoError(t, s.Activate(bundle))
+}
+
+func TestCacheRestartReusesCompleteStagedGenerationWithoutFetch(t *testing.T) {
+	root, v := cacheFixture(t)
+	s, err := OpenStore(root, v)
+	require.NoError(t, err)
+	activateCache(t, s, v, 1)
+	raw, head, content := cacheGeneration(t, v, 2)
+	require.NoError(t, s.RecordHead(head))
+	_, err = s.Stage(context.Background(), raw, cacheFetcher(content), cacheValidator)
+	require.NoError(t, err)
+	require.NoError(t, s.Close())
+	s, err = OpenStore(root, v)
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+	validated := 0
+	bundle, err := s.Stage(context.Background(), raw, func(context.Context, Blob) (io.ReadCloser, error) {
+		t.Error("complete staged data was discarded")
+		return nil, io.ErrUnexpectedEOF
+	}, func(b Blob, r io.Reader) error { validated++; return cacheValidator(b, r) })
+	require.NoError(t, err)
+	assert.Equal(t, len(head.Manifest().Blobs), validated)
+	require.NoError(t, s.Activate(bundle))
+	state, err := s.State()
+	require.NoError(t, err)
+	assert.Equal(t, head.Identity(), state.Active)
+}
+func TestCacheSuccessfulPrestageCleanupClearsResolvedHealth(t *testing.T) {
+	root, v := cacheFixture(t)
+	s, err := OpenStore(root, v)
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+	activateCache(t, s, v, 1)
+	raw, head, content := cacheGeneration(t, v, 2)
+	require.NoError(t, s.RecordHead(head))
+	bundle, err := s.Stage(context.Background(), raw, cacheFetcher(content), cacheValidator)
+	require.NoError(t, err)
+	realSync := s.syncDir
+	s.syncDir = func(dir string) error {
+		if dir == "blobs" {
+			return errors.New("cleanup failure")
+		}
+		return realSync(dir)
+	}
+	require.NoError(t, s.Activate(bundle))
+	require.Error(t, s.CleanupError())
+	s.syncDir = realSync
+	raw, head, content = cacheGeneration(t, v, 3)
+	require.NoError(t, s.RecordHead(head))
+	_, err = s.Stage(context.Background(), raw, cacheFetcher(content), cacheValidator)
+	require.NoError(t, err)
+	require.NoError(t, s.CleanupError(), "health clears after complete successful pre-stage reclamation")
+	state, err := s.State()
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, state.Active.Revision, "no new activation was needed to clear cleanup health")
 }
