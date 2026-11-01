@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -101,4 +102,24 @@ func TestLegacyManagedSessionsUseNonBearerHandles(t *testing.T) {
 	require.Error(t, err)
 	_, err = RevokeManagedSession(Ctx, view["handle"], "")
 	require.Error(t, err)
+}
+
+func TestLegacyRevocationDoesNotInheritListingCap(t *testing.T) {
+	newRegressionRedis(t)
+	pipe := TokenDB.Pipeline()
+	for i := 0; i < 10010; i++ {
+		raw := fmt.Sprintf("legacy-large-%05d", i)
+		pipe.HSet(Ctx, "X-rauth-authtoken="+raw, "username", "legacy-large-user", "status", "valid")
+		pipe.SAdd(Ctx, "user_sessions:legacy-large-user", raw)
+	}
+	_, err := pipe.Exec(Ctx)
+	require.NoError(t, err)
+	_, err = ListManagedSessions(Ctx, "", "", "", 200)
+	require.ErrorContains(t, err, "listing exceeds limit", "display limit remains in force")
+	for _, test := range []struct{ raw, owner string }{{"legacy-large-10009", ""}, {"legacy-large-10008", "legacy-large-user"}} {
+		changed, err := RevokeManagedSession(Ctx, legacyManagedHandle(test.raw), test.owner)
+		require.NoError(t, err)
+		require.True(t, changed)
+		assert.Zero(t, TokenDB.Exists(Ctx, "X-rauth-authtoken="+test.raw).Val())
+	}
 }

@@ -3,8 +3,8 @@ package core
 import (
 	"encoding/base64"
 	"encoding/json"
-	"os"
 	"path/filepath"
+	"rauth/internal/testfile"
 	"strings"
 	"sync"
 	"testing"
@@ -22,7 +22,7 @@ func runtimeAuthStateFixture(t *testing.T) *Config {
 	data, err := json.Marshal(map[string]any{"index_key": base64.StdEncoding.EncodeToString([]byte(strings.Repeat("i", 32))), "active_key_id": "v1", "encryption_keys": map[string]string{"v1": base64.StdEncoding.EncodeToString([]byte(strings.Repeat("e", 32)))}})
 	require.NoError(t, err)
 	file := filepath.Join(t.TempDir(), "auth-state.json")
-	require.NoError(t, os.WriteFile(file, data, 0600))
+	testfile.WritePrivate(t, file, data)
 	return &Config{ServerSecret: ServerSecret, AuthStateMode: "postgres", AuthStateKeyFile: file, TokenValidityMinutes: 30, AuthStateAbsoluteMinutes: 60, RedisHost: "must-not-be-used.invalid", RedisPort: "6379"}
 }
 func TestSQLAuthStateCutoverIsExplicitAtomicAndIdempotent(t *testing.T) {

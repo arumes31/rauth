@@ -24,7 +24,11 @@ Retain all still-used key IDs during rotation. Missing/mismatched/live omitted
 keys abort startup; there is no trial-key or Redis fallback.
 
 Bind-mount the private file read-only from the node's host persistence tree.
-Use restrictive owner permissions. Keep it out of Git, logs and Docker volumes.
+Unix startup rejects other-user access or group-write permissions (0600 and
+trusted-group-read 0640 are supported). Windows validates the opened file's NTFS
+owner/DACL and permits only the service identity, SYSTEM and local Administrators;
+mode bits alone are insufficient. Unknown access entries fail closed. Keep it out
+of Git, logs and Docker volumes.
 The third state node's source path must remain below /mnt/usb1/rauth, after a
 mountpoint check. The loader requires an absolute regular file, bounded JSON,
 known fields and exactly decoded key sizes. It never reports secret contents.

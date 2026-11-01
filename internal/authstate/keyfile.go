@@ -25,6 +25,9 @@ func LoadKeyring(path string) (*Keyring, error) {
 	if err != nil || !stat.Mode().IsRegular() {
 		return nil, errors.New("authentication key file must be a regular file")
 	}
+	if err := validateKeyFilePermissions(file, stat); err != nil {
+		return nil, err
+	}
 	const maxBytes = 16384
 	data, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
 	if err != nil || len(data) > maxBytes {

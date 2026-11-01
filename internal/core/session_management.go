@@ -152,6 +152,37 @@ func legacyManagedTokens(ctx context.Context, user string) ([]string, error) {
 	}
 }
 
+// Revocation searches incrementally and is independent of the display cap.
+// Both SCAN/SSCAN retain bounded memory and the caller's operation deadline.
+func findLegacyManagedToken(ctx context.Context, owner, handle string) (string, error) {
+	var cursor uint64
+	for {
+		var candidates []string
+		var next uint64
+		var err error
+		if owner != "" {
+			candidates, next, err = TokenDB.SScan(ctx, "user_sessions:"+owner, cursor, "*", 200).Result()
+		} else {
+			candidates, next, err = TokenDB.Scan(ctx, cursor, "X-rauth-authtoken=*", 200).Result()
+		}
+		if err != nil {
+			return "", err
+		}
+		for _, candidate := range candidates {
+			if owner == "" {
+				candidate = strings.TrimPrefix(candidate, "X-rauth-authtoken=")
+			}
+			if hmac.Equal([]byte(legacyManagedHandle(candidate)), []byte(handle)) {
+				return candidate, nil
+			}
+		}
+		cursor = next
+		if cursor == 0 {
+			return "", nil
+		}
+	}
+}
+
 var revokeManagedSessionScript = redis.NewScript(`
 local owner=redis.call("HGET",KEYS[1],"username")
 if not owner or (ARGV[1]~="" and owner~=ARGV[1]) then return 0 end
@@ -182,16 +213,10 @@ func RevokeManagedSession(ctx context.Context, handle, owner string) (bool, erro
 		if len(handle) != len("legacy:")+64 {
 			return false, ErrInvalidSessionHandle
 		}
-		tokens, err := legacyManagedTokens(ctx, owner)
+		var err error
+		token, err = findLegacyManagedToken(ctx, owner, handle)
 		if err != nil {
 			return false, err
-		}
-		token = ""
-		for _, candidate := range tokens {
-			if hmac.Equal([]byte(legacyManagedHandle(candidate)), []byte(handle)) {
-				token = candidate
-				break
-			}
 		}
 		if token == "" {
 			return false, nil

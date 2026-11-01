@@ -4,9 +4,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
-	"os"
 	"path/filepath"
 	"rauth/internal/core"
+	"rauth/internal/testfile"
 	"strings"
 	"testing"
 
@@ -83,7 +83,7 @@ func setupSQLRuntimeTest(t *testing.T) *core.Config {
 	data, err := json.Marshal(map[string]any{"index_key": base64.StdEncoding.EncodeToString([]byte(strings.Repeat("i", 32))), "active_key_id": "v1", "encryption_keys": map[string]string{"v1": base64.StdEncoding.EncodeToString([]byte(strings.Repeat("e", 32)))}})
 	require.NoError(t, err)
 	cfg.AuthStateKeyFile = filepath.Join(t.TempDir(), "auth-state.json")
-	require.NoError(t, os.WriteFile(cfg.AuthStateKeyFile, data, 0600))
+	testfile.WritePrivate(t, cfg.AuthStateKeyFile, data)
 	_, err = core.PG.Exec(core.Ctx, "INSERT INTO app_meta(key,value) VALUES('redis_import','already imported')")
 	require.NoError(t, err)
 	_, err = core.CommitSQLAuthenticationCutover(core.Ctx, cfg)

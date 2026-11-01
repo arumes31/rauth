@@ -3,8 +3,8 @@ package authstate
 import (
 	"encoding/base64"
 	"encoding/json"
-	"os"
 	"path/filepath"
+	"rauth/internal/testfile"
 	"strings"
 	"testing"
 
@@ -32,7 +32,7 @@ func TestLoadKeyringRequiresBoundedPrivateFile(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "auth-state.json")
-			require.NoError(t, os.WriteFile(path, []byte(test.data), 0600))
+			testfile.WritePrivate(t, path, []byte(test.data))
 			keys, err := LoadKeyring(path)
 			if test.valid {
 				require.NoError(t, err)
@@ -51,4 +51,13 @@ func TestLoadKeyringRequiresBoundedPrivateFile(t *testing.T) {
 	require.Error(t, err)
 	_, err = LoadKeyring(filepath.Join(t.TempDir(), "missing.json"))
 	require.Error(t, err)
+}
+
+func keyfilePermissionFixture(t testing.TB) []byte {
+	t.Helper()
+	data, err := json.Marshal(map[string]any{"index_key": base64.StdEncoding.EncodeToString([]byte(strings.Repeat("i", 32))), "active_key_id": "v1", "encryption_keys": map[string]string{"v1": base64.StdEncoding.EncodeToString([]byte(strings.Repeat("e", 32)))}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
 }
