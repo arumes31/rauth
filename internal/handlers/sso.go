@@ -145,7 +145,7 @@ func (h *AuthHandler) SSOAuthorize(c echo.Context) error {
 	if !ok {
 		return ssoFailure(authstate.ErrSSOInvalid)
 	}
-	token, err := h.ssoSession(c, "X-rauth-authtoken", "")
+	token, err := h.ssoSession(c, h.Cfg.SessionCookieName(), "")
 	if errors.Is(err, authstate.ErrNotFound) {
 		return c.Redirect(http.StatusFound, "/rauthlogin?rd="+url.QueryEscape("/_rauth/authorize?transaction="+id))
 	}
@@ -230,14 +230,14 @@ func writeAppSessionCookie(c echo.Context, value string, validity time.Duration)
 // merely because COOKIE_DOMAIN also covers that application.
 func (h *AuthHandler) validationCookie(c echo.Context) (string, string, error) {
 	if h.Cfg.SSOCanonicalOrigin == "" {
-		return "X-rauth-authtoken", "", nil
+		return h.Cfg.SessionCookieName(), "", nil
 	}
 	if !h.Cfg.IsTrustedProxyPeer(c.Request().RemoteAddr) {
 		return "", "", authstate.ErrSSOInvalid
 	}
 	origin := "https://" + c.Request().Header.Get(h.Cfg.AuthBypassHostHeader)
 	if origin == h.Cfg.SSOCanonicalOrigin {
-		return "X-rauth-authtoken", "", nil
+		return h.Cfg.SessionCookieName(), "", nil
 	}
 	if !h.Cfg.SSOApplication(origin) {
 		return "", "", authstate.ErrSSOInvalid

@@ -73,9 +73,18 @@ func TestSSOHTTPPasswordAndTOTPOnDifferentNodesCrossDomainAndGlobalLogout(t *tes
 	c.Request().AddCookie(pending)
 	require.NoError(t, b.Verify2FA(c))
 	require.Equal(t, http.StatusFound, completed.Code)
-	central := responseCookie(t, completed, "X-rauth-authtoken")
+	central := responseCookie(t, completed, core.SSOAuthCookie)
 	assert.Empty(t, central.Domain, "canonical SSO login must not share a domain cookie with application backends")
 	assert.Equal(t, startURL.RequestURI(), completed.Header().Get("Location"))
+	// A valid token planted under the old broad-domain cookie name must not
+	// establish canonical SSO, even before a legitimate prefixed cookie exists.
+	planted := *central
+	planted.Name = "X-rauth-authtoken"
+	planted.Domain = "example.com"
+	c, plantAttempt := ssoHTTPContext(e, http.MethodGet, cfg.SSOCanonicalOrigin, startURL.RequestURI(), &planted)
+	require.NoError(t, a.SSOAuthorize(c))
+	require.Equal(t, http.StatusFound, plantAttempt.Code)
+	assert.Contains(t, plantAttempt.Header().Get("Location"), "/rauthlogin?rd=")
 	c, authorized := ssoHTTPContext(e, http.MethodGet, cfg.SSOCanonicalOrigin, startURL.RequestURI(), central)
 	require.NoError(t, a.SSOAuthorize(c))
 	require.Equal(t, http.StatusFound, authorized.Code)
@@ -121,7 +130,7 @@ func TestSSOHTTPPasswordAndTOTPOnDifferentNodesCrossDomainAndGlobalLogout(t *tes
 	assert.Equal(t, http.StatusUnauthorized, validate(b, "app.other.test", central).Code, "a central domain cookie does not authorize an app directly")
 	// Even renaming an app cookie cannot turn it into a canonical/profile cookie.
 	copied := *app
-	copied.Name = "X-rauth-authtoken"
+	copied.Name = core.SSOAuthCookie
 	c, root := ssoHTTPContext(e, http.MethodGet, cfg.SSOCanonicalOrigin, "/", &copied)
 	require.NoError(t, a.Root(c))
 	assert.Equal(t, "/rauthlogin", root.Header().Get("Location"))
@@ -189,7 +198,7 @@ func TestSSORoutesRejectUnknownHostsAndUnsafeReturns(t *testing.T) {
 	generation, err := core.AuthGeneration("sso-header-user")
 	require.NoError(t, err)
 	require.NoError(t, h.issueToken(c, "sso-header-user", generation))
-	central := responseCookie(t, issued, "X-rauth-authtoken")
+	central := responseCookie(t, issued, core.SSOAuthCookie)
 	c, authorized := ssoHTTPContext(e, http.MethodGet, cfg.SSOCanonicalOrigin, target.RequestURI(), central)
 	require.NoError(t, h.SSOAuthorize(c))
 	callback, err := url.Parse(authorized.Header().Get("Location"))

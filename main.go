@@ -481,7 +481,7 @@ func setupRoutes(e *echo.Echo, cfg *core.Config) {
 		}
 
 		cookie := &http.Cookie{
-			Name:     "X-rauth-authtoken",
+			Name:     cfg.SessionCookieName(),
 			Value:    "",
 			Path:     "/",
 			Domain:   cfg.SessionCookieDomain(),

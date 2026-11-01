@@ -62,8 +62,14 @@ SSO-compatible binary/security authority. Never restore old Redis authorizations
    cookies is unnecessary for revocation. Credential generation changes also
    invalidate outstanding codes; retaining the caller never revives old codes.
 
-With SSO enabled, new canonical cookies are host-only too. Cookie writes clear
-an older COOKIE_DOMAIN-scoped cookie before setting the host-only successor.
+With SSO enabled, the canonical cookie is Secure/HttpOnly/Path=/ and named
+__Host-rauth-auth. It has no Domain attribute. SSO reads only this full name and
+never falls back to X-rauth-authtoken, which a sibling could plant using a broad
+Domain attribute. Cookie writes clear the older COOKIE_DOMAIN-scoped name before
+setting the prefixed successor. Enabling SSO therefore requires a fresh canonical
+login; combine this with the already planned SQL authority re-login window.
+[Browser cookie-prefix rules](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Set-Cookie)
+
 Pending login and WebAuthn ceremony cookies retain their existing host scope;
 WebAuthn RP identity stays unchanged. With SSO disabled, legacy cookie behavior
 and existing integrations remain unchanged. All nodes must agree on the mode.

@@ -34,3 +34,12 @@ func TestSSOPreservesPasskeyRealm(t *testing.T) {
 	c.AllowedHosts = []string{"auth.example.com"}
 	assert.NoError(t, c.ValidateSSO())
 }
+
+func TestSSOCookieScopeAndName(t *testing.T) {
+	legacy := Config{CookieDomains: []string{"example.com"}}
+	assert.Equal(t, "X-rauth-authtoken", legacy.SessionCookieName())
+	assert.Equal(t, "example.com", legacy.SessionCookieDomain())
+	legacy.SSOCanonicalOrigin = "https://auth.example.com"
+	assert.Equal(t, SSOAuthCookie, legacy.SessionCookieName())
+	assert.Empty(t, legacy.SessionCookieDomain())
+}

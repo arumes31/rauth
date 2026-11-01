@@ -14,7 +14,7 @@ import (
 func AuthMiddleware(cfg *core.Config) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
-			cookie, err := c.Cookie("X-rauth-authtoken")
+			cookie, err := c.Cookie(cfg.SessionCookieName())
 			if err != nil {
 				// Sanitize the redirect URI to prevent open redirect in the rd param itself
 				rd := url.QueryEscape(c.Request().RequestURI)
