@@ -74,9 +74,7 @@ listener or a host-published wildcard port. Workers must not gain Docker sockets
 Real mutual-TLS loopback tests cover valid identity/scope, spoofed headers/cookies,
 revocation on an existing connection, expired credentials, no CommonName fallback,
 wrong CA/hostname/node/key, TLS 1.2 rejection, endpoint/source constraints, alternate
-URL and redirect rejection, and private diagnostic response handling. All 14 tests
-pass on Windows and natively on Linux. Vet/lint pass for both platform package
-loading. Included CodeRabbit review completed with no findings.
+URL and redirect rejection, and private diagnostic response handling.
 
 These are local protocol tests. Enroll real host-mounted certificates, implement
 authoritative registry authorization and private API handlers, validate Tailscale
