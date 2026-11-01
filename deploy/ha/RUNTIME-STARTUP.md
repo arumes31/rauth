@@ -82,3 +82,8 @@ it makes no database connection and can run before private material is installed
 Cluster client-IP extraction uses the frozen configured Cloudflare prefixes,
 which must be canonical networks, without relying on a mutable process-global
 updater. Actual peer/source measurements remain a deployment preflight.
+
+Country lookup is database-only. The master supplies its existing local MMDB in
+the signed policy; workers use their verified local copy. No external GeoIP API
+is queried, including for unknown results or missing data. Only the master runs
+database maintenance, and country-restricted requests fail closed when needed.

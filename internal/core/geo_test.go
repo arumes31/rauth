@@ -3,6 +3,8 @@ package core
 import (
 	"fmt"
 	"net"
+	"net/http"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -281,4 +283,52 @@ func TestNewGeoLRUCache(t *testing.T) {
 	assert.Empty(t, cache.cache)
 	assert.NotNil(t, cache.list)
 	assert.Equal(t, 0, cache.list.Len())
+}
+
+// GeoIP decisions must never disclose client addresses to a remote lookup API.
+type geoHTTPTrap struct{ calls atomic.Int32 }
+
+func (t *geoHTTPTrap) RoundTrip(r *http.Request) (*http.Response, error) {
+	t.calls.Add(1)
+	return nil, fmt.Errorf("unexpected GeoIP HTTP request to %s", r.URL.Host)
+}
+
+func TestCountryLookupDatabaseOnlyWithoutHTTPFallback(t *testing.T) {
+	t.Setenv("GEO_API_HOST", "geo.example.invalid")
+	t.Setenv("GEO_API_PORT", "3000")
+	trap := &geoHTTPTrap{}
+	oldTransport := http.DefaultTransport
+	http.DefaultTransport = trap
+	geoLock.Lock()
+	oldReader, oldCache := geoReader, GeoCache
+	GeoCache = NewGeoLRUCache(geoCacheCapacity)
+	geoLock.Unlock()
+	t.Cleanup(func() {
+		http.DefaultTransport = oldTransport
+		geoLock.Lock()
+		geoReader, GeoCache = oldReader, oldCache
+		geoLock.Unlock()
+	})
+	cases := []struct {
+		name   string
+		reader geoCountryReader
+		want   string
+	}{
+		{name: "missing", want: "unknown"},
+		{name: "read_error", reader: &mockGeoReader{countryFunc: func(net.IP) (*geoip2.Country, error) { return nil, fmt.Errorf("database lookup failed") }}, want: "unknown"},
+		{name: "no_country", reader: &mockGeoReader{}, want: "unknown"},
+		{name: "local_result", reader: &mockGeoReader{countryFunc: func(net.IP) (*geoip2.Country, error) { r := &geoip2.Country{}; r.Country.IsoCode = "AT"; return r, nil }}, want: "AT"},
+	}
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			geoLock.Lock()
+			geoReader = tc.reader
+			geoLock.Unlock()
+			ip := fmt.Sprintf("198.51.100.%d", i+51)
+			assert.Equal(t, tc.want, GetCountryCode(ip))
+			snapshot := &PolicySnapshot{geo: tc.reader, countries: NewGeoLRUCache(geoCacheCapacity)}
+			assert.Equal(t, tc.want, snapshot.CountryCode(ip))
+			assert.Zero(t, trap.calls.Load(), "country lookup must not issue an HTTP request")
+		})
+	}
 }
