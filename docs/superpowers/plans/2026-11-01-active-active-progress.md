@@ -17,8 +17,11 @@ No secrets belong in Git.
   WebDAV probes matched. Syntax/render tests and RAuth application-log probes
   verify spoof rejection through LAN, Tailscale and actual public Cloudflare
   routes. A forged Cloudflare visitor header was rejected at the edge.
-- Dedicated persistent Tailscale identities are enrolled on three hosts and passed
-  key-free restart. Identity bootstrap alone is not a complete worker deployment.
+- Dedicated persistent Tailscale identities are enrolled on five hosts and passed
+  key-free restart. All 20 directed IPv4 kernel/discovery checks and two state-node
+  IPv6 checks passed. Expiry-disabled policy was verified from each authorized
+  live control map against the pinned client schema. Identity bootstrap alone is
+  not a complete worker deployment.
 - SQL sessions, encrypted one-use proofs, atomic enrollment/invitation flows and
   global security counters/replay markers are implemented separately in draft
   PR #780. Real PostgreSQL and no-Redis adapter tests pass; callback cancellation
