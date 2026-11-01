@@ -317,3 +317,41 @@ func TestEndpointAndScopeValidation(t *testing.T) {
 	_, ok := PeerForScope(context.Background(), PolicyRead)
 	assert.False(t, ok)
 }
+
+func TestMutualTLSIncludesSuppliedIntermediateChain(t *testing.T) {
+	root := newIssuer(t, "root-for-intermediate")
+	private := key("intermediate-ca")
+	template := &x509.Certificate{SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: "synthetic-intermediate"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), IsCA: true, BasicConstraintsValid: true, MaxPathLenZero: true, KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageCRLSign}
+	der, err := x509.CreateCertificate(rand.Reader, template, root.cert, private.Public(), root.key)
+	require.NoError(t, err)
+	parsed, err := x509.ParseCertificate(der)
+	require.NoError(t, err)
+	intermediate := &issuer{cert: parsed, key: private, roots: root.roots, serial: 2}
+	server := intermediate.issue(t, serverID, "server-with-intermediate", nil)
+	client := intermediate.issue(t, clientID, "client-with-intermediate", nil)
+	_, err = ServerTLS(server, root.roots, clusterID, serverID)
+	require.ErrorIs(t, err, ErrConfiguration, "missing intermediate cannot validate")
+	_, err = ClientTLS(client, root.roots, "node.example.test", clusterID, clientID, serverID, [][32]byte{pin(t, server)})
+	require.ErrorIs(t, err, ErrConfiguration)
+	server.Certificate = append(server.Certificate, der)
+	client.Certificate = append(client.Certificate, der)
+	serverConfig, err := ServerTLS(server, root.roots, clusterID, serverID)
+	require.NoError(t, err)
+	clientConfig, err := ClientTLS(client, root.roots, "node.example.test", clusterID, clientID, serverID, [][32]byte{pin(t, server)})
+	require.NoError(t, err)
+	endpoint := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	endpoint.TLS = serverConfig
+	endpoint.StartTLS()
+	defer endpoint.Close()
+	transport := &http.Transport{TLSClientConfig: clientConfig}
+	defer transport.CloseIdleConnections()
+	status, _, _ := get(t, &http.Client{Transport: transport, Timeout: 3 * time.Second}, endpoint.URL)
+	assert.Equal(t, http.StatusNoContent, status)
+	malformed := server
+	malformed.Certificate = [][]byte{server.Certificate[0], []byte("invalid DER")}
+	_, err = ServerTLS(malformed, root.roots, clusterID, serverID)
+	require.ErrorIs(t, err, ErrConfiguration)
+	unrelated := newIssuer(t, "unrelated-root")
+	_, err = ServerTLS(server, unrelated.roots, clusterID, serverID)
+	require.ErrorIs(t, err, ErrConfiguration, "intermediates do not replace explicit root trust")
+}
