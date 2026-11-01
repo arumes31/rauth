@@ -1,0 +1,65 @@
+name: OpenRabbit Reviewer
+
+on:
+  pull_request:
+    types: [opened, reopened, edited, synchronize]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openrabbit-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: OpenRabbit (advisory)
+    permissions:
+      contents: read
+      # Required only for posting COMMENT reviews and inline suggestions via the API.
+      pull-requests: write
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 15
+    steps:
+      # Review PR data via the API; never check out or execute pull request code.
+      - name: Prepare Strix model configuration
+        id: configuration
+        env:
+          STRIX_LLM: ${{ secrets.STRIX_LLM }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+        shell: bash
+        run: |
+          if [[ -z "$STRIX_LLM" || -z "$LLM_API_KEY" ]]; then
+            echo "::warning::OpenRabbit skipped: STRIX_LLM or LLM_API_KEY is unavailable."
+            echo "OpenRabbit was not run because the Strix model or key is unavailable." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # LiteLLM's transport prefix is not part of the OpenAI-compatible model ID.
+          model="${STRIX_LLM#openai/}"
+          if [[ -z "$model" || "$model" == *$'\n'* || "$model" == *$'\r'* ]]; then
+            echo "::warning::OpenRabbit skipped: invalid Strix model configuration."
+            exit 0
+          fi
+          echo "::add-mask::$model"
+          printf 'model=%s\n' "$model" >> "$GITHUB_OUTPUT"
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: OpenRabbit
+        id: openrabbit
+        if: steps.configuration.outputs.ready == 'true'
+        continue-on-error: true
+        timeout-minutes: 12
+        uses: aryanbrite/openrabbit@0350c5ff79e6efb3ba92898a46a2e420ae1c526c
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          llm_api_key: ${{ secrets.LLM_API_KEY }}
+          llm_provider: openrouter
+          llm_api_url: https://nimbusroute.wowcraft.pw/v1
+          llm_model: ${{ steps.configuration.outputs.model }}
+          review_mode: both
+          tone_mode: balanced
+
+      - name: Report advisory failure
+        if: always() && steps.openrabbit.outcome == 'failure'
+        run: echo '::warning::OpenRabbit could not complete; its review is advisory.'

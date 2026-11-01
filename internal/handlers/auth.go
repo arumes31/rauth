@@ -538,7 +538,7 @@ func (h *AuthHandler) checkLoginIPRateLimits(c echo.Context, clientIP, template 
 
 // validatePendingToken resolves a pending 2FA/setup cookie to its username,
 // token and the auth generation the first factor was checked under.
-func (h *AuthHandler) validatePendingToken(c echo.Context, cookieName, prefix string) (string, string, string, error) {
+func (h *AuthHandler) validatePendingToken(c echo.Context, cookieName string, kind core.AuthArtifactKind) (string, string, string, error) {
 	cookie, err := c.Cookie(cookieName)
 	if err != nil {
 		return "", "", "", err
@@ -547,7 +547,7 @@ func (h *AuthHandler) validatePendingToken(c echo.Context, cookieName, prefix st
 	if err != nil {
 		return "", "", "", err
 	}
-	valueBytes, err := core.GetAuthArtifact(core.AuthArtifactKind(prefix), token)
+	valueBytes, err := core.GetAuthArtifact(kind, token)
 	value := string(valueBytes)
 	if err != nil {
 		return "", "", "", err
@@ -556,7 +556,7 @@ func (h *AuthHandler) validatePendingToken(c echo.Context, cookieName, prefix st
 	// change, 2FA reset, deletion) is dead even if its TTL has not run out.
 	username, gen, current := core.ResolvePendingToken(value)
 	if !current {
-		_ = core.DeleteAuthArtifact(core.AuthArtifactKind(prefix), token)
+		_ = core.DeleteAuthArtifact(kind, token)
 		_ = core.DeleteAuthArtifact(core.EnrollmentSecret, token)
 		return "", "", "", errStalePendingToken
 	}
@@ -629,7 +629,7 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 	}
 
 	code := c.FormValue("totp_code")
-	username, pendingToken, authGen, err := h.validatePendingToken(c, "rauth_2fa_pending", "pending_2fa")
+	username, pendingToken, authGen, err := h.validatePendingToken(c, "rauth_2fa_pending", core.PendingSecondFactor)
 	if err != nil {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
@@ -671,7 +671,7 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 }
 
 func (h *AuthHandler) Setup2FA(c echo.Context) error {
-	username, setupToken, authGen, err := h.validatePendingToken(c, "rauth_setup_pending", "pending_setup")
+	username, setupToken, authGen, err := h.validatePendingToken(c, "rauth_setup_pending", core.PendingEnrollment)
 	if err != nil {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
@@ -705,7 +705,7 @@ func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
 		return err
 	}
 
-	username, setupToken, authGen, err := h.validatePendingToken(c, "rauth_setup_pending", "pending_setup")
+	username, setupToken, authGen, err := h.validatePendingToken(c, "rauth_setup_pending", core.PendingEnrollment)
 	if err != nil {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
 	}
@@ -802,7 +802,7 @@ func (h *AuthHandler) issueTempToken(username, authGen string) string {
 		return ""
 	}
 	token := hex.EncodeToString(b)
-	if err := core.StoreAuthArtifact(core.AuthArtifactKind("pending_2fa"), token, []byte(core.PendingTokenValue(username, authGen)), username, authGen, 5*time.Minute); err != nil {
+	if err := core.StoreAuthArtifact(core.PendingSecondFactor, token, []byte(core.PendingTokenValue(username, authGen)), username, authGen, 5*time.Minute); err != nil {
 		slog.Error("Failed to store login challenge", "error", err)
 		return ""
 	}
@@ -816,7 +816,7 @@ func (h *AuthHandler) issueSetupToken(username, authGen string) string {
 		return ""
 	}
 	token := hex.EncodeToString(b)
-	if err := core.StoreAuthArtifact(core.AuthArtifactKind("pending_setup"), token, []byte(core.PendingTokenValue(username, authGen)), username, authGen, 10*time.Minute); err != nil {
+	if err := core.StoreAuthArtifact(core.PendingEnrollment, token, []byte(core.PendingTokenValue(username, authGen)), username, authGen, 10*time.Minute); err != nil {
 		slog.Error("Failed to store login challenge", "error", err)
 		return ""
 	}

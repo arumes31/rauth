@@ -402,7 +402,16 @@ func TestRegistrationProofBoundToBrowserAndGeneration(t *testing.T) {
 	id := seedRegistrationProof(t, c, cfg, "proof-user", `{"challenge":"aGVsbG8=","user_id":"dGVzdA=="}`, false)
 	wrong, _ := createTestContext(e, http.MethodPost, "/webauthn/register/finish", nil)
 	setRegistrationIdentity(t, wrong, "proof-user")
-	wrong.Set("token", strings.Repeat("other-browser", 4))
+	other := strings.Repeat("other-browser", 4)
+	require.NoError(t, core.StoreSession(other, "proof-user", "127.0.0.1", map[string]interface{}{"username": "proof-user", "status": "valid", "auth_gen": wrong.Get("auth_gen")}, time.Hour))
+	wrong.Set("token", other)
+	// This must reach the distinct-browser comparison, not fail because the
+	// second session is absent or belongs to a different account/generation.
+	otherBinding, bindingErr := core.RegistrationSessionBinding(wrong.Request().Context(), other, cfg.ServerSecret)
+	require.NoError(t, bindingErr)
+	originalBinding, bindingErr := core.RegistrationSessionBinding(c.Request().Context(), c.Get("token").(string), cfg.ServerSecret)
+	require.NoError(t, bindingErr)
+	require.NotEqual(t, originalBinding, otherBinding)
 	wrong.Request().AddCookie(&http.Cookie{Name: registrationCookie, Value: id})
 	err := h.FinishRegistration(wrong)
 	require.Error(t, err)

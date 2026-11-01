@@ -50,6 +50,19 @@ func configuredAuthStateMode(cfg *Config) (string, error) {
 	}
 	return mode, nil
 }
+
+// parseAuthStateAuthority keeps offline cutover and runtime activation on the
+// same authority-marker contract.
+func parseAuthStateAuthority(data string) (authStateAuthorityRecord, bool) {
+	var record authStateAuthorityRecord
+	if err := json.Unmarshal([]byte(data), &record); err != nil {
+		return authStateAuthorityRecord{}, false
+	}
+	if record.Mode != "postgres-v1" || !validServerKeyCheck(record.ServerKeyCheck) || !record.LegacyExpired || record.CutoverAt.IsZero() || record.ReadyAfter.Before(record.CutoverAt.Add(authStateCutoverQuarantine)) {
+		return authStateAuthorityRecord{}, false
+	}
+	return record, true
+}
 func readAuthStateAuthority(ctx context.Context) (authStateAuthorityRecord, error) {
 	var record authStateAuthorityRecord
 	if PG == nil {
@@ -65,7 +78,8 @@ func readAuthStateAuthority(ctx context.Context) (authStateAuthorityRecord, erro
 	if err != nil {
 		return record, err
 	}
-	if err := json.Unmarshal([]byte(data), &record); err != nil || record.Mode != "postgres-v1" || !validServerKeyCheck(record.ServerKeyCheck) || !record.LegacyExpired || record.CutoverAt.IsZero() || record.ReadyAfter.Before(record.CutoverAt.Add(authStateCutoverQuarantine)) {
+	record, valid := parseAuthStateAuthority(data)
+	if !valid {
 		return authStateAuthorityRecord{}, errors.New("invalid durable authentication authority marker")
 	}
 	return record, nil
@@ -186,8 +200,8 @@ func CommitSQLAuthenticationCutover(ctx context.Context, cfg *Config) (time.Time
 		var previous string
 		err := tx.QueryRow(ctx, "SELECT value FROM app_meta WHERE key=$1", authStateAuthorityKey).Scan(&previous)
 		if err == nil {
-			var record authStateAuthorityRecord
-			if err := json.Unmarshal([]byte(previous), &record); err != nil || record.Mode != "postgres-v1" || !validServerKeyCheck(record.ServerKeyCheck) || !record.LegacyExpired || record.CutoverAt.IsZero() || record.ReadyAfter.Before(record.CutoverAt.Add(authStateCutoverQuarantine)) {
+			record, valid := parseAuthStateAuthority(previous)
+			if !valid {
 				return errors.New("invalid existing authentication authority marker")
 			}
 			if !hmac.Equal([]byte(record.ServerKeyCheck), []byte(serverKeyCheck(cfg.ServerSecret))) {
