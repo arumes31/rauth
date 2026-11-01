@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"sort"
 	"strings"
 	"time"
 
@@ -180,6 +181,7 @@ func Sign(m Manifest, keyID string, key ed25519.PrivateKey) ([]byte, error) {
 type Verifier struct {
 	cluster string
 	keys    map[string]ed25519.PublicKey
+	scope   [32]byte
 }
 
 func NewVerifier(clusterID string, keys map[string]ed25519.PublicKey) (*Verifier, error) {
@@ -193,6 +195,18 @@ func NewVerifier(clusterID string, keys map[string]ed25519.PublicKey) (*Verifier
 		}
 		v.keys[id] = bytes.Clone(key)
 	}
+	ids := make([]string, 0, len(v.keys))
+	for id := range v.keys {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	h := sha256.New()
+	_, _ = h.Write([]byte("rauth-policy-verifier-v1\x00" + clusterID + "\x00"))
+	for _, id := range ids {
+		_, _ = h.Write([]byte(id + "\x00"))
+		_, _ = h.Write(v.keys[id])
+	}
+	copy(v.scope[:], h.Sum(nil))
 	return v, nil
 }
 
@@ -203,6 +217,7 @@ type VerifiedManifest struct {
 	manifest Manifest
 	identity Identity
 	valid    bool
+	scope    [32]byte
 }
 
 func (v VerifiedManifest) Identity() Identity { return v.identity }
@@ -245,7 +260,7 @@ func (v *Verifier) Verify(raw []byte) (VerifiedManifest, error) {
 		return invalid, ErrInvalid
 	}
 	sum := sha256.Sum256(raw)
-	return VerifiedManifest{manifest: m, identity: Identity{Revision: m.Revision, SHA256: hex.EncodeToString(sum[:])}, valid: true}, nil
+	return VerifiedManifest{manifest: m, identity: Identity{Revision: m.Revision, SHA256: hex.EncodeToString(sum[:])}, valid: true, scope: v.scope}, nil
 }
 
 // VerifyBlob streams bounded content, detects truncation and excess bytes, and
