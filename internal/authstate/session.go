@@ -1,0 +1,51 @@
+package authstate
+
+import (
+	"context"
+	"errors"
+	"time"
+)
+
+var ErrNotFound = errors.New("authentication state not found or expired")
+var ErrStaleGeneration = errors.New("authentication proof was revoked")
+var ErrConflict = errors.New("session token already exists")
+
+// SessionStore is deliberately separate from challenge/grant/counter stores.
+// Every operation uses SQL authority; there is no positive authorization cache.
+// Revoke invalidates the entire family, including concurrent rotations and
+// future app sessions linked by SSO. Refresh cannot extend absolute expiry.
+type SessionStore interface {
+	Issue(context.Context, string, IssueSession) error
+	Get(context.Context, string) (Session, error)
+	Rotate(context.Context, string, string, time.Duration, time.Duration) (bool, error)
+	Replace(context.Context, string, string) (bool, error)
+	Refresh(context.Context, string, time.Duration) (bool, error)
+	Revoke(context.Context, string) error
+	RevokeUser(context.Context, string) error
+	Restamp(context.Context, string, int64, int64) (bool, error)
+}
+
+type IssueSession struct {
+	Username    string
+	Generation  int64
+	IP          string
+	Fields      map[string]string
+	IdleTTL     time.Duration
+	AbsoluteTTL time.Duration
+}
+type Session struct {
+	Username          string
+	Generation        int64
+	IP                string
+	FamilyID          string
+	Fields            map[string]string
+	Successor         string
+	IssuedAt          time.Time
+	IdleExpiresAt     time.Time
+	AbsoluteExpiresAt time.Time
+}
+type sessionPayload struct {
+	IP        string            `json:"ip"`
+	Fields    map[string]string `json:"fields"`
+	Successor string            `json:"successor,omitempty"`
+}

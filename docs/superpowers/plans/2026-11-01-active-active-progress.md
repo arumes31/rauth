@@ -6,7 +6,8 @@ Goal remains active: implement the complete approved plan, deploy workers on the
 ## Authoritative source
 
 - Worktree: C:/DR/worktrees/rauth-ha-design
-- Branch: feat/public-access-policies-ha
+- Current development branch: feat/sql-auth-state (stacked on feat/public-access-policies-ha).
+- Country/feed PR: https://github.com/arumes31/rauth/pull/778, head 31557ab74603f4f564cbcbe40c2d4502e7e437ab. The feature branch remains separate from the SQL foundation.
 - Country-policy milestone: 272179ed9ba57dd24a2646d57cc5ee9b579ec6fc
 - Approved design/plan remain under docs/superpowers/specs and plans.
 - User additions: dedicated per-node Tailscale services; pi3 is the third HA-node candidate; all pi3 RAuth data below /mnt/usb1/rauth; all RAuth persistent files must use explicit host bind mounts, no named/anonymous Docker volumes.
@@ -99,3 +100,31 @@ NL dedicated Tailscale service is now also live and verified:
 - Server evidence: /opt/rauth/tailscale-enrollment-verification.json.
 
 The full active-active goal remains active. SQL auth authority, cross-node/cross-domain authentication, remaining node enrollment, HA database/quorum, durable event forwarding, workers, NPM rollout and outage tests are still required.
+
+
+## SQL session foundation and source-IP rollout preparation
+
+The next source milestone introduces internal/authstate and additive migration 0004_auth_sessions.sql. The legacy production runtime still uses Redis; there is deliberately no SQL/HA runtime selector or mixed-store fallback yet. See 2026-11-01-auth-state-migration-inventory.md for the complete direct Redis authority inventory and integration work remaining.
+
+The SQL foundation includes session families, atomic issue/rotate/replace/revoke/restamp, current account-generation validation, absolute and idle expiry, bounded refresh writes, encrypted session metadata and rotation successors, stable keyed token digests, and explicit encryption-key IDs/fingerprint checks. Concurrent losing rotations use a nonblocking family lock. Read/refresh deadlines remain three seconds, multi-statement mutations have ten seconds, and startup key validation has fifteen seconds; remote-tunnel full-suite load showed why a single short deadline was unsuitable for startup and multiple-round-trip writes. This is a builder implementation choice, not a new user requirement.
+
+Independent-pool PostgreSQL tests cover cross-node reads, single rotation winner, logout versus rotation, credential revocation versus issue, non-reviving restamps, expiry caps, key rotation/mismatch, ciphertext tampering and cross-token payload swapping. Static validation: golangci-lint 2.14.0 reports zero issues; go vet passes. The final full regression passed package-serially against the remote disposable PostgreSQL: root 17.879s, authstate 107.285s, core 152.679s, handlers 279.683s, middleware 9.879s. Command: go test -json -p 1 ./... -count=1 -timeout 10m. Log: C:/DR/rauth-deployment/sql-foundation-tests.jsonl. Exec session 80525 completed successfully; no old test handles remain active.
+
+CodeRabbit's included hourly quota was exhausted (0/3; reported next availability in 33 minutes at about 04:06 UTC). No paid review was started. Continue local review/testing and honor that cooldown; do not retry in a loop.
+
+PR 778 CI found eight lint issues and then a new catalog-limit test leaking the global bypass cache. Both were fixed in follow-up commits a215906 and 31557ab. Latest Linux Go/race, lint/vulnerability, CodeQL, container, dependency, secrets and license jobs passed; the image-build workflow and Strix job still remained at the last check. Wait for the exact current head checks before merge; do not waive a failed check.
+
+Production source-IP inventory on hodus found 67 auth_request locations: 35 already use the monitoring client-IP variable as authorization input, while 32 legacy locations use remote_addr plus legacy forwarding headers. The public RAuth validate relay is the 68th integration and uses the shared proxy include. All need one explicitly verified authorization IP chain before activating country/feed policy.
+
+Prepared, NOT APPLIED:
+- /root/rauth-ip-policy-prepared-20261101-042208/plan.json and npm-hosts-before.json.
+- Candidate uses realip_remote_addr (the original socket peer) by default, accepting CF-Connecting-IP only for a verified Cloudflare socket peer; it overwrites the forwarded authorization/observation IP headers and clears the raw CF header sent to RAuth.
+- A dedicated relay proxy include preserves the existing proxy directives while avoiding duplicate inherited IP headers.
+- All 68 NPM candidates were rendered through the actual NPM renderer into an isolated tree. Non-IP directives matched their current generated configuration, and the complete nginx -t candidate passed.
+- Evidence: nginx-preview-verification.json, nginx-preview-syntax.log, nginx-preview/ in that prepared directory.
+- Six isolated nginx tests passed: direct forged X-Real-IP/CF/XFF rejection, direct XFF rejection, verified-proxy IPv4 and IPv6, and missing/bad visitor-header fallback. /root/rauth-source-ip-policy-functional-tests.json.
+- Both temporary nginx fixture trees were removed; their separate loopback-only process was stopped. No live NPM rows/files or production RAuth runtime were changed by this preparation.
+
+Before applying the prepared plan, verify all live fingerprints again, capture per-host root/WebDAV baselines, and use NPM's persistent model/render/test/audit/reload path with exact rollback. Verify live direct/Cloudflare/LAN/Tailscale source parity in RAuth logs. Bootstrap the requested default feed before activating the new runtime.
+
+Remaining full goal: finish every security-state adapter and call-site migration, cross-node/cross-domain flows, remaining node enrollment, HA state/quorum and durability checks, signed persistent policy synchronization, durable RAuth-only event forwarding, worker deployment on all NPM hosts, public-rule rollout and controlled outage/failover tests. The full goal remains active.
