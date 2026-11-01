@@ -39,7 +39,7 @@ func ssoFailure(err error) error {
 	if errors.Is(err, authstate.ErrSSOInvalid) || errors.Is(err, authstate.ErrNotFound) || errors.Is(err, authstate.ErrStaleGeneration) {
 		return echo.NewHTTPError(http.StatusBadRequest, "Login transfer is invalid or expired; start again from the application")
 	}
-	return echo.NewHTTPError(http.StatusServiceUnavailable, "Login transfer is temporarily unavailable; retry")
+	return echo.NewHTTPError(http.StatusServiceUnavailable, "Login transfer is temporarily unavailable; retry").SetInternal(err)
 }
 func (h *AuthHandler) ssoOrigin(c echo.Context, canonical bool) (string, error) {
 	ssoHeaders(c)
@@ -199,6 +199,28 @@ func (h *AuthHandler) SSOCallback(c echo.Context) error {
 	writeAppSessionCookie(c, encrypted, validity)
 	c.SetCookie(&http.Cookie{Name: ssoBrowserCookiePrefix + id, Value: "", Path: "/", MaxAge: -1, Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
 	return c.Redirect(http.StatusFound, target)
+}
+
+// SSOLogoutPage exposes the middleware's HttpOnly-cookie CSRF proof through a
+// same-origin confirmation form. Legacy clients need this explicit token path;
+// merely reading the confirmation page never revokes a session.
+func (h *AuthHandler) SSOLogoutPage(c echo.Context) error {
+	origin, err := h.ssoOrigin(c, false)
+	if err != nil {
+		return err
+	}
+	_, err = h.ssoSession(c, core.SSOAppCookie, origin)
+	if errors.Is(err, authstate.ErrNotFound) {
+		return echo.NewHTTPError(http.StatusUnauthorized, "Login required")
+	}
+	if err != nil {
+		return ssoFailure(err)
+	}
+	csrf, ok := c.Get("csrf").(string)
+	if !ok || csrf == "" {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "Sign-out form is temporarily unavailable; retry")
+	}
+	return c.Render(http.StatusOK, "sso_logout.html", map[string]interface{}{"csrf": csrf})
 }
 
 // SSOSignOut revokes the common family before clearing this host's cookie.

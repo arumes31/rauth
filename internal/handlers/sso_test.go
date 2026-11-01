@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -162,6 +163,13 @@ func TestSSOHTTPPasswordAndTOTPOnDifferentNodesCrossDomainAndGlobalLogout(t *tes
 	require.NoError(t, a.SSOCallback(c))
 	second := responseCookie(t, secondAccepted, core.SSOAppCookie)
 	assert.Equal(t, http.StatusOK, validate(b, "second.example.net", second).Code)
+	c, confirmation := ssoHTTPContext(e, http.MethodGet, cfg.SSOApplicationOrigins[1], "/_rauth/logout", second)
+	c.Set("csrf", "same-origin-form-proof")
+	require.NoError(t, b.SSOLogoutPage(c))
+	assert.Equal(t, http.StatusOK, confirmation.Code)
+	assert.Equal(t, "same-origin-form-proof", e.Renderer.(*mockRenderer).LastData.(map[string]interface{})["csrf"])
+	assert.Equal(t, "no-store", confirmation.Header().Get("Cache-Control"))
+	assert.Equal(t, http.StatusOK, validate(a, "app.other.test", replacement).Code, "GET confirmation must not revoke the family")
 	c, signedOut := ssoHTTPContext(e, http.MethodPost, cfg.SSOApplicationOrigins[1], "/_rauth/logout", second)
 	require.NoError(t, a.SSOSignOut(c))
 	assert.Equal(t, http.StatusFound, signedOut.Code)
@@ -211,4 +219,19 @@ func TestSSORoutesRejectUnknownHostsAndUnsafeReturns(t *testing.T) {
 	cfg.SSOCanonicalOrigin = ""
 	c, _ = ssoHTTPContext(e, http.MethodGet, "https://app.other.test", "/_rauth/start")
 	ssoHTTPError(t, h.SSOStart(c), http.StatusNotFound)
+}
+
+func TestSSOOperationalFailureKeepsResponsePrivateAndLogsCause(t *testing.T) {
+	cause := errors.New("synthetic backend diagnostic")
+	err := ssoFailure(cause)
+	var he *echo.HTTPError
+	require.ErrorAs(t, err, &he)
+	require.ErrorIs(t, he.Internal, cause)
+	assert.Contains(t, he.Error(), cause.Error())
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/_rauth/authorize", nil)
+	rec := httptest.NewRecorder()
+	e.HTTPErrorHandler(err, e.NewContext(req, rec))
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assert.NotContains(t, rec.Body.String(), cause.Error())
 }
