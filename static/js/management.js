@@ -1,3 +1,4 @@
+import { initLiveFeed } from './management/live-feed.js';
 // Management console (/rauthmgmt).
 import { $, $$, alertDialog, initConsole, setFieldValue, showModal, showSection } from './console/index.js';
 
@@ -38,6 +39,7 @@ const commands = [
     { name: 'Go to Sessions', cmd: 'sessions', icon: 'bi-broadcast', run: () => showSection('sessions') },
     { name: 'Go to Invitations', cmd: 'invites', icon: 'bi-envelope-plus', run: () => showSection('invites') },
     { name: 'Go to Public Access', cmd: 'public', icon: 'bi-globe2', run: () => showSection('bypass') },
+    { name: 'Go to Live Feed', cmd: 'live', icon: 'bi-activity', run: () => showSection('live-feed') },
     { name: 'Go to Audit Log', cmd: 'audit', icon: 'bi-journal-text', run: () => showSection('audit') },
     { name: 'Add user', cmd: 'new', icon: 'bi-person-plus', run: () => showModal('createUserModal') },
     { name: 'Show failed sign-ins', cmd: 'failed', icon: 'bi-exclamation-octagon', run: () => showAuditKind('bad') },
@@ -123,3 +125,5 @@ initAttentionList();
 initUserEditor();
 initBypassEditor();
 initInvites();
+
+initLiveFeed();

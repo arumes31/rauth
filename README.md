@@ -326,14 +326,24 @@ Manage rules in **`/rauthmgmt` → Public Access**. Before you can add, edit or 
 How matching works:
 - Hosts match exactly and ignore case and port. Path rules match on whole segments and are case-sensitive.
 - The query string is ignored.
-- A URI with dot segments (`.` or `..`), a backslash, encoded `/`, `\`, `.` or NUL, double encoding, or invalid escapes is never bypassed, so tricks like `/webhook/..%2fadmin` cannot reach other paths.
-- Literal and encoded semicolons in filenames (for example WebDAV `/files/ops;C` or `/files/ops%3BC`) are accepted when **all rules matching the requested host apply to the whole host**. If any matching host rule is path-specific, semicolon paths still require authentication to prevent path-parameter interpretation from sidestepping that policy.
+- A URI with dot segments (`.` or `..`), a backslash, encoded `/`, `\`, `.` or NUL, or invalid escapes is never bypassed, so tricks like `/webhook/..%2fadmin` cannot reach other paths.
+- Literal/encoded semicolons and encoded percent signs in filenames (for example WebDAV `/files/ops;C`, `/files/ops%3BC`, or `/files/Understanding%252bThe%252bManifest.psd1`) are accepted when **all rules matching the requested host apply to the whole host**. If any matching host rule is path-specific, semicolon and double-encoded paths still require authentication so differing backend decoding cannot sidestep that policy.
 - Anonymous responses carry `X-RAuth-Anonymous: 1` and an empty `X-RAuth-User`. Backends must not treat an empty user as authenticated.
 
 The host and URI come from `X-Forwarded-Host` and `X-Forwarded-Uri` on the auth subrequest. Caddy (`forward_auth`) and Traefik (`forwardAuth`) send these headers by default. With nginx, add `proxy_set_header X-Forwarded-Host $host;` and `proxy_set_header X-Forwarded-Uri $request_uri;` to the `/rauth-verify` location. Setups that only send `X-Original-URI` can set `AUTH_BYPASS_URI_HEADER=X-Original-URI` instead. If a request is missing either header, it is never bypassed.
 
 > [!WARNING]
 > These headers decide who skips authentication. Your proxy must overwrite them (Traefik: keep `trustForwardHeader` off), and RAuth must only be reachable through the proxy. Set `TRUSTED_PROXIES`: once it is set, RAuth honours the bypass headers only from those peers. Without it, they are honoured only from private or loopback addresses.
+
+### Live request feed
+
+The administration console's **Live Feed** streams forward-auth decisions instantly over server-sent events. It shows the protected URL, original source IP, country, and labeled action colors for authenticated access, anonymous bypass, login required, blocked, rate limited, and errors. Search, action filters, pause/resume, reconnect state, and a mobile card layout are built in.
+
+The latest 1,000 decisions are retained in memory per instance; the browser displays up to 300. Reconnects resume from an event cursor and report expired history or restarts. The feed is operational telemetry, not a durable replacement for the audit log. It sees requests reaching `/rauthvalidate`; nginx redirects or IP denials occurring before forward-auth are outside this feed.
+
+The stream requires a current administrator session, rechecks session/account/admin status every five seconds, and closes on revocation or demotion. Per-admin/global stream limits and write deadlines prevent slow viewers from holding up authentication. URL userinfo, query strings, fragments, cookies, tokens and request bodies are not captured.
+
+By default, source IP/country use RAuth's configured client-IP extraction. If the proxy can provide a more accurate address without changing authentication behavior, set `REQUEST_FEED_IP_HEADER` to a dedicated header such as `X-RAuth-Observed-IP`. **Every trusted proxy must overwrite that header**; never forward a client-supplied value. For Cloudflare, accept `CF-Connecting-IP` only from verified Cloudflare socket peers. This optional header affects only feed metadata, never auth, geo-fencing or session binding.
 
 ---
 
@@ -411,6 +421,7 @@ RAuth is configured via Environment Variables.
 | **Proxy**  | `CLOUDFLARE_IP_RANGES` | Cloudflare edge CIDRs used for that check (comma separated) | Built-in list |
 | **Proxy**  | `CLOUDFLARE_IP_AUTO_UPDATE` | Refresh the edge list from `cloudflare.com/ips-v4` / `ips-v6` at startup and daily (keeps the current list on failure). Only active with `TRUST_CLOUDFLARE_IP=true` | `true` |
 | **Proxy**  | `AUTH_BYPASS_RULES` | Comma-separated hosts, `*.domain` wildcards or `host/path` prefixes that pass forward-auth without a login (see [Public Access / Auth Bypass Rules](#-public-access--auth-bypass-rules)). Additional rules can be managed in the admin UI | (Empty) |
+| **Proxy**  | `REQUEST_FEED_IP_HEADER` | Optional original-client-IP header for the admin live feed only; accepted exclusively from trusted proxy peers. The proxy must overwrite it on every request. Empty uses the normal resolved client IP; authentication/session binding are unaffected | (Empty) |
 | **Proxy**  | `AUTH_BYPASS_HOST_HEADER` | Header carrying the original host on the auth subrequest | `X-Forwarded-Host` |
 | **Proxy**  | `AUTH_BYPASS_URI_HEADER` | Header carrying the original request URI on the auth subrequest | `X-Forwarded-Uri` |
 | **Policy** | `PWD_MIN_LENGTH` | Minimum required password length | `8` |

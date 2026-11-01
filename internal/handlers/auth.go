@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/url"
 	"rauth/internal/core"
@@ -224,15 +223,7 @@ func (h *AuthHandler) matchBypass(c echo.Context) (core.BypassRule, bool) {
 		return core.BypassRule{}, false
 	}
 	req := c.Request()
-	peer, _, err := net.SplitHostPort(req.RemoteAddr)
-	if err != nil {
-		peer = req.RemoteAddr
-	}
-	if len(h.Cfg.TrustedProxies) > 0 {
-		if !h.Cfg.IsIPAllowed(peer, h.Cfg.TrustedProxies) {
-			return core.BypassRule{}, false
-		}
-	} else if ip := net.ParseIP(peer); ip == nil || (!ip.IsPrivate() && !ip.IsLoopback()) {
+	if !h.Cfg.IsTrustedProxyPeer(req.RemoteAddr) {
 		return core.BypassRule{}, false
 	}
 	return core.MatchBypass(req.Header.Get(h.Cfg.AuthBypassHostHeader), req.Header.Get(h.Cfg.AuthBypassURIHeader))
