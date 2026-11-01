@@ -186,7 +186,9 @@ func TestSSORoutesRejectUnknownHostsAndUnsafeReturns(t *testing.T) {
 	// sequence is covered above; preserve the exact URI including all ampersands.
 	require.NoError(t, core.CreateUser("sso-header-user", "Password123!", "", false, ""))
 	c, issued := ssoHTTPContext(e, http.MethodGet, cfg.SSOCanonicalOrigin, "/rauthlogin")
-	require.NoError(t, h.issueToken(c, "sso-header-user", "0"))
+	generation, err := core.AuthGeneration("sso-header-user")
+	require.NoError(t, err)
+	require.NoError(t, h.issueToken(c, "sso-header-user", generation))
 	central := responseCookie(t, issued, "X-rauth-authtoken")
 	c, authorized := ssoHTTPContext(e, http.MethodGet, cfg.SSOCanonicalOrigin, target.RequestURI(), central)
 	require.NoError(t, h.SSOAuthorize(c))
