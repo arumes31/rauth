@@ -85,3 +85,8 @@ for both platform loads. Included CodeRabbit CLI review completed with no findin
 A test-only identity collision between two concurrent platform binaries was fixed
 by assigning each process its own synthetic cluster UUID; production lock
 semantics remain unchanged. No actual HA or worker admission is certified here.
+
+CI prepares the existing disposable PostgreSQL service with a short-lived test
+certificate and verify-full URL before race tests. It does not install CA trust
+in the OS or weaken production TLS requirements. Server certificate permissions
+and reload behavior follow the [PostgreSQL TLS setup documentation](https://www.postgresql.org/docs/18/ssl-tcp.html).
