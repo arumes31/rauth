@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
@@ -66,9 +67,9 @@ func handlerSnapshot(t *testing.T) *core.PolicySnapshot {
 	defer func() { _ = compiler.Close() }()
 	bundle, err := clusterpolicy.VerifyBundle(head, func(b clusterpolicy.Blob) (io.ReadCloser, error) {
 		return io.NopCloser(bytes.NewReader(bodies[b.SHA256])), nil
-	}, compiler.Validate)
+	}, func(b clusterpolicy.Blob, r io.Reader) error { return compiler.Validate(context.Background(), b, r) })
 	require.NoError(t, err)
-	snapshot, err := compiler.Finish(bundle)
+	snapshot, err := compiler.Finish(context.Background(), bundle)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = snapshot.Close() })
 	return snapshot
