@@ -1,3 +1,4 @@
+import { initPolicySync } from './management/policy-sync.js';
 import { initPolicyPreview } from './management/policy-preview.js';
 import { initPolicyForms } from './management/policies.js';
 import { initLiveFeed } from './management/live-feed.js';
@@ -139,6 +140,10 @@ function initInvites() {
     });
 }
 
+if (document.querySelector('[data-policy-sync]')) {
+ for (const key of ['feed_added','feed_updated','feed_deleted','feed_refreshed','bypass_added','bypass_updated','bypass_deleted']) messages[key] += ' Check Policy Sync for node confirmations.';
+ commands.push({ name: 'Go to Policy Sync', cmd: 'sync', icon: 'bi-hdd-network', run: () => showSection('policy-sync') });
+}
 initConsole({ messages, successSection, commands });
 initAttentionList();
 initUserEditor();
@@ -148,3 +153,5 @@ initBypassEditor();
 initInvites();
 
 initLiveFeed();
+
+initPolicySync();

@@ -284,3 +284,14 @@ inventory, not a committed live address. Rollout requires positive/negative
 connectivity, listener binding, ACL/TLS, independent health and namespace
 restart/recreation tests. Recreating the namespace owner must recreate/recheck
 its dependent services before traffic is restored.
+
+
+## User requirement: master database only for GeoIP
+
+Country lookup must never query an external geolocation service. The master uses
+its local GeoIP database as the authoritative source. Workers receive a verified,
+versioned copy through signed policy distribution and perform local lookups; no
+request-time call to the master or any third-party service is required. Missing,
+invalid or unknown country data must retain the existing fail-closed behavior
+for country-restricted rules. Database maintenance belongs only to the master.
+Legacy GEO_API_HOST/GEO_API_PORT settings do not enable a lookup fallback.

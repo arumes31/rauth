@@ -335,7 +335,10 @@ func MatchBypass(rawHost, rawURI string) (BypassRule, bool) {
 // An ambiguous target returns an error so restrictions cannot be skipped by
 // authenticating with a valid cookie.
 func SelectBypassRule(rawHost, rawURI string) (BypassRule, bool, error) {
-	set := activeBypass.Load()
+	return selectBypassRule(activeBypass.Load(), rawHost, rawURI)
+}
+
+func selectBypassRule(set *bypassSet, rawHost, rawURI string) (BypassRule, bool, error) {
 	if len(set.env) == 0 && len(set.ui) == 0 {
 		return BypassRule{}, false, nil
 	}

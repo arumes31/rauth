@@ -414,7 +414,7 @@ func (h *WebAuthnHandler) issuePasskeyToken(c echo.Context, username string, use
 	if encErr != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to encrypt token")
 	}
-	countryCode := core.GetCountryCode(clientIP)
+	countryCode := core.CountryCodeForContext(c.Request().Context(), clientIP)
 
 	if !h.Cfg.IsCountryAllowed(countryCode) {
 		slog.Warn("Passkey login attempt from blocked country", "country", countryCode, "ip", clientIP, "user", username)

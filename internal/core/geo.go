@@ -75,10 +75,11 @@ func (c *GeoLRUCache) Put(key, value string) {
 const geoCacheCapacity = 1000
 
 var (
-	GeoCache  = NewGeoLRUCache(geoCacheCapacity)
-	geoReader geoCountryReader
-	geoLock   sync.RWMutex
-	once      sync.Once
+	GeoCache      = NewGeoLRUCache(geoCacheCapacity)
+	geoReader     geoCountryReader
+	geoReaderPath string
+	geoLock       sync.RWMutex
+	once          sync.Once
 
 	// For testing
 	geoUpdateFunc = UpdateGeoDB
@@ -106,6 +107,7 @@ func reloadReader(path string) {
 	geoLock.Lock()
 	old := geoReader
 	geoReader = reader
+	geoReaderPath = path
 	if old != nil {
 		if err := old.Close(); err != nil {
 			slog.Warn("Failed to close MaxMind database", "error", err)
@@ -143,7 +145,7 @@ func StartGeoUpdater(cfg *Config) {
 		}
 	} else {
 		slog.Info("GeoIP database exists, skipping initial download")
-		InitGeoReader()
+		reloadReader(cfg.MaxMindDBPath)
 	}
 
 	// 2. Update only every 72h
@@ -256,8 +258,7 @@ func GetGeoMetadata() map[string]interface{} {
 	if loaded {
 		m := geoReader.Metadata()
 		buildDate = uint64(m.BuildEpoch)
-		cfg := LoadConfig()
-		path = cfg.MaxMindDBPath
+		path = geoReaderPath
 	}
 
 	return map[string]interface{}{

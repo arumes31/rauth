@@ -69,17 +69,17 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 	rateLimitKey := "validate:" + core.RateLimitIP(clientIP)
 
 	// URL restrictions apply equally to anonymous and authenticated requests.
-	if core.HasRestrictedBypassRulesForHost(c.Request().Header.Get(h.Cfg.AuthBypassHostHeader)) {
+	if core.RestrictedBypassHostForContext(c.Request().Context(), c.Request().Header.Get(h.Cfg.AuthBypassHostHeader)) {
 		if !h.Cfg.IsTrustedProxyPeer(c.Request().RemoteAddr) {
 			return denyRequestPolicy(c, "untrusted_proxy")
 		}
-		rule, found, err := core.SelectBypassRule(c.Request().Header.Get(h.Cfg.AuthBypassHostHeader), c.Request().Header.Get(h.Cfg.AuthBypassURIHeader))
+		rule, found, err := core.SelectBypassRuleForContext(c.Request().Context(), c.Request().Header.Get(h.Cfg.AuthBypassHostHeader), c.Request().Header.Get(h.Cfg.AuthBypassURIHeader))
 		if err != nil {
 			return denyRequestPolicy(c, "policy_target_invalid")
 		}
 		if found {
 			c.Set("policy_rule", rule.Rule)
-			decision := rule.Evaluate(clientIP, core.GetCountryCode(clientIP))
+			decision := core.EvaluateRuleForContext(c.Request().Context(), rule.RulePolicy, clientIP)
 			if !decision.Allowed {
 				c.Set("policy_feed_id", decision.FeedID)
 				return denyRequestPolicy(c, decision.Reason)
@@ -274,14 +274,14 @@ func (h *AuthHandler) sessionAuthorityUnavailable(c echo.Context) error {
 // mode), from private/loopback peers, so a client reaching rauth directly
 // over a public address cannot pick a bypassed host.
 func (h *AuthHandler) matchBypass(c echo.Context) (core.BypassRule, bool) {
-	if !core.HasBypassRules() {
+	if !core.HasBypassRulesForContext(c.Request().Context()) {
 		return core.BypassRule{}, false
 	}
 	req := c.Request()
 	if !h.Cfg.IsTrustedProxyPeer(req.RemoteAddr) {
 		return core.BypassRule{}, false
 	}
-	return core.MatchBypass(req.Header.Get(h.Cfg.AuthBypassHostHeader), req.Header.Get(h.Cfg.AuthBypassURIHeader))
+	return core.MatchBypassForContext(req.Context(), req.Header.Get(h.Cfg.AuthBypassHostHeader), req.Header.Get(h.Cfg.AuthBypassURIHeader))
 }
 
 // rateLimitedUnauthorized applies the validate rate limit and returns 429 once
@@ -840,7 +840,7 @@ func (h *AuthHandler) issueToken(c echo.Context, username, authGen string) error
 		return echo.NewHTTPError(http.StatusInternalServerError, "Internal Server Error")
 	}
 	clientIP := c.RealIP()
-	country := core.GetCountryCode(clientIP)
+	country := core.CountryCodeForContext(c.Request().Context(), clientIP)
 
 	if !h.Cfg.IsCountryAllowed(country) {
 		slog.Warn("Login attempt from blocked country", "country", country, "ip", clientIP, "user", username)

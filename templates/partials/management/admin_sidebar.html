@@ -14,6 +14,7 @@
         <a href="#invites" class="nav-item-link" data-nav="invites"><i class="bi bi-envelope-plus"></i><span>Invitations</span></a>
         <a href="#bypass" class="nav-item-link" data-nav="bypass"><i class="bi bi-globe2"></i><span>Public Access</span><span class="count">{{len .bypass_rules}}</span></a>
         <a href="#ip-feeds" class="nav-item-link" data-nav="ip-feeds"><i class="bi bi-shield-slash"></i><span>IP Feeds</span><span class="count">{{if .ip_feeds}}{{len .ip_feeds}}{{else}}0{{end}}</span></a>
+        {{if .cluster_enabled}}<a href="#policy-sync" class="nav-item-link" data-nav="policy-sync"><i class="bi bi-hdd-network"></i><span>Policy Sync</span></a>{{end}}
         <a href="#live-feed" class="nav-item-link" data-nav="live-feed"><i class="bi bi-activity"></i><span>Live Feed</span></a>
         <a href="#audit" class="nav-item-link" data-nav="audit"><i class="bi bi-journal-text"></i><span>Audit Log</span></a>
     </nav>

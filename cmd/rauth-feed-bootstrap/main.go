@@ -7,12 +7,18 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"rauth/internal/clusterconfig"
 	"rauth/internal/core"
 	"time"
 )
 
 func main() {
 	cfg := core.LoadConfig()
+	material, err := core.LoadClusterBootstrap(cfg)
+	if err != nil || (material != nil && material.Config().Role != clusterconfig.Control) {
+		slog.Error("Offline control configuration failed")
+		os.Exit(1)
+	}
 	if err := core.InitPostgres(cfg); err != nil {
 		slog.Error("Default feed bootstrap database initialization failed", "error", err)
 		os.Exit(1)

@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"rauth/internal/clusterconfig"
 	"rauth/internal/core"
 	"rauth/internal/handlers"
 	"rauth/internal/middleware"
@@ -39,6 +40,11 @@ func main() {
 	slog.SetDefault(logger)
 
 	cfg := core.LoadConfig()
+	nodeMaterial, err := loadClusterBootstrap(cfg)
+	if err != nil {
+		slog.Error("Cluster host configuration failed", "error", err)
+		os.Exit(1)
+	}
 
 	// Fail fast on a missing/weak server secret: it derives the AES key for
 	// session tokens and 2FA secrets, so an empty value is catastrophic.
@@ -66,7 +72,11 @@ func main() {
 	// Load the common-password blocklist if enabled (PWD_CHECK_COMMON).
 	core.InitCommonPasswords(cfg.CheckCommonPasswords)
 
-	if err := core.InitPostgres(cfg); err != nil {
+	initializeDatabase := core.InitPostgres
+	if nodeMaterial != nil && nodeMaterial.Config().Role == clusterconfig.Worker {
+		initializeDatabase = core.InitPostgresWorker
+	}
+	if err := initializeDatabase(cfg); err != nil {
 		slog.Error("Postgres initialization failed", "error", err)
 		os.Exit(1)
 	}
@@ -74,17 +84,37 @@ func main() {
 		slog.Error("Authentication authority initialization failed", "error", err)
 		os.Exit(1)
 	}
-	if err := core.EnsureDefaultIPFeed(core.Ctx); err != nil {
-		slog.Error("Default IP feed initialization failed; refusing unrestricted public startup", "error", err)
-		os.Exit(1)
-	}
 
 	if err := core.InitWebAuthn(cfg); err != nil {
 		slog.Error("WebAuthn initialization failed", "error", err)
+		if nodeMaterial != nil {
+			os.Exit(1)
+		}
 	}
 
 	// Startup Initialization
-	stopSync := initializeSystem(cfg)
+	var cluster *clusterRuntime
+	if nodeMaterial != nil {
+		cluster, err = newClusterRuntime(context.Background(), cfg, nodeMaterial)
+		if err != nil {
+			slog.Error("Cluster runtime could not start")
+			os.Exit(1)
+		}
+		defer cluster.Close()
+	}
+	if nodeMaterial == nil || nodeMaterial.Config().Role == clusterconfig.Control {
+		if err := core.EnsureDefaultIPFeed(core.Ctx); err != nil {
+			slog.Error("Default IP feed initialization failed; refusing unrestricted public startup", "error", err)
+			os.Exit(1)
+		}
+
+	}
+	stopSync := func() {}
+	if nodeMaterial == nil {
+		stopSync = initializeSystem(cfg)
+	} else if nodeMaterial.Config().Role == clusterconfig.Control {
+		stopSync = initializeSystemMode(cfg, true)
+	}
 	defer stopSync()
 
 	e := echo.New()
@@ -97,26 +127,64 @@ func main() {
 	e.IPExtractor = CreateIPExtractor(cfg)
 
 	// Setup everything
-	setupMiddleware(e, cfg)
+	if cluster == nil {
+		setupMiddleware(e, cfg)
+	} else {
+		e.Use(cluster.AdminRelay(cfg))
+		setupMiddlewarePolicy(e, cfg, cluster.worker)
+	}
 	setupRenderer(e)
-	setupRoutes(e, cfg)
+	var policyStatus func(context.Context) (any, error)
+	if cluster != nil && cluster.policyState != nil {
+		policyStatus = cluster.policyState.overview
+	}
+	setupRoutesWithPolicyStatus(e, cfg, cluster != nil && cluster.spec.Role == clusterconfig.Worker, policyStatus)
+	if cluster != nil {
+		e.GET("/health", cluster.Health)
+		e.GET("/livez", func(c echo.Context) error { return c.NoContent(http.StatusOK) })
+	}
 
 	configureServerTimeouts(e.Server)
 
-	go func() {
-		if err := e.Start(cfg.ListenAddr); err != nil && err != http.ErrServerClosed {
-			e.Logger.Fatal("shutting down the server")
+	var privateServer *http.Server
+	if cluster == nil {
+		go func() {
+			if err := e.Start(cfg.ListenAddr); err != nil && err != http.ErrServerClosed {
+				e.Logger.Fatal("shutting down the server")
+			}
+		}()
+	} else {
+		privateServer, err = cluster.StartHTTP(e)
+		if err != nil {
+			slog.Error("Cluster listeners could not bind")
+			os.Exit(1)
 		}
-	}()
+	}
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
-	<-quit
+	if cluster == nil {
+		<-quit
+	} else {
+		select {
+		case <-quit:
+		case <-cluster.ctx.Done():
+		}
+	}
 	slog.Info("Shutdown signal received, draining connections")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	if privateServer != nil {
+		if privateServer.Shutdown(ctx) != nil {
+			_ = privateServer.Close()
+		}
+	}
 	if err := e.Shutdown(ctx); err != nil {
-		e.Logger.Fatal(err)
+		if cluster == nil {
+			e.Logger.Fatal(err)
+		} else {
+			_ = e.Server.Close()
+		}
 	}
 }
 
@@ -178,7 +246,8 @@ func parseLogLevel(level string) slog.Level {
 	}
 }
 
-func setupMiddleware(e *echo.Echo, cfg *core.Config) {
+func setupMiddleware(e *echo.Echo, cfg *core.Config) { setupMiddlewarePolicy(e, cfg, nil) }
+func setupMiddlewarePolicy(e *echo.Echo, cfg *core.Config, pinner middleware.PolicyPinner) {
 	// The bounded request-feed observer wraps the security chain so rejected
 	// forward-auth requests are visible too. Secure headers and BodyLimit then
 	// run first, followed by Client Hints
@@ -186,6 +255,19 @@ func setupMiddleware(e *echo.Echo, cfg *core.Config) {
 	// ahead of Recover/CSRF ensures every request — including CSRF rejections —
 	// is logged.
 	e.Use(middleware.RequestFeed(cfg))
+	if pinner != nil {
+		admission := middleware.WorkerPolicyAdmission(cfg, pinner)
+		e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+			pinned := admission(next)
+			return func(c echo.Context) error {
+				path := c.Request().URL.Path
+				if path == "/health" || path == "/livez" || path == "/metrics" || strings.HasPrefix(path, "/static/") {
+					return next(c)
+				}
+				return pinned(c)
+			}
+		})
+	}
 	setupSecurityMiddleware(e, cfg)
 	setupClientHintsMiddleware(e)
 	setupLoggingMiddleware(e)
@@ -423,11 +505,15 @@ func wantsJSON(r *http.Request) bool {
 	return strings.Contains(r.Header.Get("Accept"), "application/json")
 }
 
-func setupRoutes(e *echo.Echo, cfg *core.Config) {
+func setupRoutes(e *echo.Echo, cfg *core.Config) { setupRoutesRole(e, cfg, false) }
+func setupRoutesRole(e *echo.Echo, cfg *core.Config, worker bool) {
+	setupRoutesWithPolicyStatus(e, cfg, worker, nil)
+}
+func setupRoutesWithPolicyStatus(e *echo.Echo, cfg *core.Config, worker bool, readStatus func(context.Context) (any, error)) {
 	e.GET("/static/*", echo.WrapHandler(http.FileServer(http.FS(noDirListingFS{staticFS}))))
 
 	authHandler := &handlers.AuthHandler{Cfg: cfg}
-	adminHandler := &handlers.AdminHandler{Cfg: cfg}
+	adminHandler := &handlers.AdminHandler{Cfg: cfg, ReadPolicyStatus: readStatus}
 	profileHandler := &handlers.ProfileHandler{Cfg: cfg}
 	webauthnHandler := &handlers.WebAuthnHandler{Cfg: cfg}
 	healthHandler := &handlers.HealthHandler{Cfg: cfg}
@@ -512,28 +598,33 @@ func setupRoutes(e *echo.Echo, cfg *core.Config) {
 	protected.POST("/rauthprofile/disable-totp", profileHandler.DisableTOTP)
 	protected.POST("/rauthprofile/recovery/generate", profileHandler.GenerateRecoveryCodes)
 
-	// Admin Routes
-	admin := protected.Group("/rauthmgmt")
-	admin.Use(middleware.AdminMiddleware)
-	admin.GET("", adminHandler.Dashboard)
-	admin.GET("/live-feed", adminHandler.LiveFeed)
-	admin.POST("/policy/preview", adminHandler.PreviewPolicy)
-	admin.POST("/user/create", adminHandler.CreateUser)
-	admin.POST("/user/delete", adminHandler.DeleteUser)
-	admin.POST("/user/reset-2fa", adminHandler.ResetUser2FA)
-	admin.POST("/user/change-password", adminHandler.ChangeUserPassword)
-	admin.POST("/user/update-email", adminHandler.UpdateUserEmail)
-	admin.POST("/session/invalidate", adminHandler.InvalidateSession)
-	admin.POST("/invite/create", inviteHandler.Create)
-	admin.POST("/bypass/unlock", adminHandler.UnlockBypass)
-	admin.POST("/bypass/lock", adminHandler.LockBypass)
-	admin.POST("/bypass/add", adminHandler.AddBypassRule)
-	admin.POST("/bypass/update", adminHandler.UpdateBypassRule)
-	admin.POST("/bypass/delete", adminHandler.DeleteBypassRule)
-	admin.POST("/ip-feeds/add", adminHandler.AddIPFeed)
-	admin.POST("/ip-feeds/update", adminHandler.UpdateIPFeed)
-	admin.POST("/ip-feeds/delete", adminHandler.DeleteIPFeed)
-	admin.POST("/ip-feeds/refresh", adminHandler.RefreshIPFeed)
+	if !worker {
+		// Admin Routes
+		admin := protected.Group("/rauthmgmt")
+		admin.Use(middleware.AdminMiddleware)
+		admin.GET("", adminHandler.Dashboard)
+		if readStatus != nil {
+			admin.GET("/policy-status", adminHandler.PolicyStatus)
+		}
+		admin.GET("/live-feed", adminHandler.LiveFeed)
+		admin.POST("/policy/preview", adminHandler.PreviewPolicy)
+		admin.POST("/user/create", adminHandler.CreateUser)
+		admin.POST("/user/delete", adminHandler.DeleteUser)
+		admin.POST("/user/reset-2fa", adminHandler.ResetUser2FA)
+		admin.POST("/user/change-password", adminHandler.ChangeUserPassword)
+		admin.POST("/user/update-email", adminHandler.UpdateUserEmail)
+		admin.POST("/session/invalidate", adminHandler.InvalidateSession)
+		admin.POST("/invite/create", inviteHandler.Create)
+		admin.POST("/bypass/unlock", adminHandler.UnlockBypass)
+		admin.POST("/bypass/lock", adminHandler.LockBypass)
+		admin.POST("/bypass/add", adminHandler.AddBypassRule)
+		admin.POST("/bypass/update", adminHandler.UpdateBypassRule)
+		admin.POST("/bypass/delete", adminHandler.DeleteBypassRule)
+		admin.POST("/ip-feeds/add", adminHandler.AddIPFeed)
+		admin.POST("/ip-feeds/update", adminHandler.UpdateIPFeed)
+		admin.POST("/ip-feeds/delete", adminHandler.DeleteIPFeed)
+		admin.POST("/ip-feeds/refresh", adminHandler.RefreshIPFeed)
+	}
 }
 
 // bypassRefreshInterval bounds how long another instance keeps serving a rule
@@ -563,9 +654,12 @@ func (n noDirListingFS) Open(name string) (fs.File, error) {
 // metrics/index synchronization loop. It returns a stop function that signals
 // the background goroutine to exit and blocks until it has fully stopped — this
 // lets callers (notably tests) tear down shared state without racing the loop.
-func initializeSystem(cfg *core.Config) func() {
+func initializeSystem(cfg *core.Config) func() { return initializeSystemMode(cfg, false) }
+func initializeSystemMode(cfg *core.Config, cluster bool) func() {
 	// Start GeoIP Updater
-	core.StartGeoUpdater(cfg)
+	if !cluster || cfg.MaxMindDBPath != "" {
+		core.StartGeoUpdater(cfg)
+	}
 
 	// Backfill UIDs for legacy users so GetUser stays read-only at runtime.
 	core.EnsureUserUIDs()
@@ -597,13 +691,19 @@ func initializeSystem(cfg *core.Config) func() {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Cloudflare edge ranges: seeded from config, refreshed at boot and daily.
-	core.StartCloudflareUpdater(ctx, cfg)
+	if !cluster {
+		core.StartCloudflareUpdater(ctx, cfg)
+	}
 
 	// Auth bypass rules: read-only ones from AUTH_BYPASS_RULES plus UI-managed
 	// ones from Postgres, refreshed so every instance sees admin changes.
 	stopIPFeeds := core.StartIPFeedService(ctx, true)
 	core.SetEnvBypassRules(cfg.AuthBypassRules)
-	core.StartBypassRefresher(ctx, bypassRefreshInterval)
+	if !cluster {
+		core.StartBypassRefresher(ctx, bypassRefreshInterval)
+	} else {
+		_ = core.ReloadBypassRules()
+	}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -676,7 +776,11 @@ func CreateIPExtractor(cfg *core.Config) echo.IPExtractor {
 					edge = ip.String()
 				}
 			}
-			if core.IsCloudflareIP(edge) {
+			cloudflareEdge := core.IsCloudflareIP(edge)
+			if cfg.ClusterConfigFile != "" {
+				cloudflareEdge = cfg.IsIPAllowed(edge, cfg.CloudflareIPRanges)
+			}
+			if cloudflareEdge {
 				if ip := net.ParseIP(strings.TrimSpace(req.Header.Get("CF-Connecting-IP"))); ip != nil {
 					return ip.String()
 				}

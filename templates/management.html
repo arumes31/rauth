@@ -18,6 +18,7 @@
 
         <div class="content">
             {{template "admin_overview" .}}
+ {{if .cluster_enabled}}{{template "admin_policy_sync" .}}{{end}}
             {{template "admin_users" .}}
             {{template "admin_sessions" .}}
             {{template "admin_invites" .}}

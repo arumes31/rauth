@@ -12,7 +12,7 @@ import (
 // way on rauth's own pages. On any violation the session is invalidated and
 // false is returned.
 func SessionBindingValid(cfg *Config, req *http.Request, token, redisKey string, data map[string]string, clientIP string) bool {
-	if !sessionGeoAllowed(cfg, token, redisKey, data, clientIP) {
+	if !sessionGeoAllowedWithCountry(cfg, token, redisKey, data, clientIP, CountryCodeForContext(req.Context(), clientIP)) {
 		return false
 	}
 	return sessionUAMatches(req, token, redisKey, data, clientIP)
@@ -37,11 +37,10 @@ func invalidateSession(token, redisKey string, data map[string]string, clientIP 
 	TokenDB.Del(Ctx, redisKey)
 }
 
-// sessionGeoAllowed enforces the geo-fence: it blocks access from disallowed
+// sessionGeoAllowedWithCountry enforces the geo-fence: it blocks access from disallowed
 // countries and invalidates a session whose origin country has changed.
 // On any violation it invalidates the session and returns false.
-func sessionGeoAllowed(cfg *Config, token, redisKey string, data map[string]string, clientIP string) bool {
-	currentCountry := GetCountryCode(clientIP)
+func sessionGeoAllowedWithCountry(cfg *Config, token, redisKey string, data map[string]string, clientIP, currentCountry string) bool {
 
 	if !cfg.IsCountryAllowed(currentCountry) {
 		slog.Warn("Access from blocked country", "country", currentCountry, "ip", clientIP)

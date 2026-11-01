@@ -344,3 +344,13 @@ check. Task 10 tests disconnected-but-reachable workers, public-rule removal,
 country/feed changes, expired leases and restart during controller outage. A
 failed external feed download alone keeps last-good data while the unchanged
 HA policy head continues renewing freshness.
+
+
+## User requirement: master database only for GeoIP
+
+Tasks 7/9: distribute only the master's local GeoIP database through the verified
+policy bundle. Keep all country lookups local on each node, with no external GeoIP
+API or per-request dependency on the master. Retain the last complete verified
+copy during source outages and fail closed where a country restriction cannot be
+evaluated. Test absent/error/empty country data with HTTP egress trapped; verify
+that workers never run the database updater.

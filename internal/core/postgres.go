@@ -29,7 +29,21 @@ var migrationFS embed.FS
 // container started alongside Postgres survives its initialization.
 const postgresConnectTimeout = 60 * time.Second
 
-func InitPostgres(cfg *Config) error {
+func InitPostgres(cfg *Config) error { return initPostgres(cfg, true) }
+
+// InitPostgresWorker requires coordinated SQL authority and an already migrated
+// compatible schema. A worker never receives a schema-creation capability.
+func InitPostgresWorker(cfg *Config) error {
+	if cfg == nil {
+		return errors.New("worker startup requires configuration")
+	}
+	mode, err := configuredAuthStateMode(cfg)
+	if err != nil || mode != "postgres" {
+		return errors.New("worker startup requires PostgreSQL authentication authority")
+	}
+	return initPostgres(cfg, false)
+}
+func initPostgres(cfg *Config, migrate bool) error {
 	poolCfg, err := pgxpool.ParseConfig(cfg.PostgresURL)
 	if err != nil {
 		return fmt.Errorf("invalid Postgres connection settings: %w", err)
@@ -59,9 +73,13 @@ func InitPostgres(cfg *Config) error {
 		time.Sleep(2 * time.Second)
 	}
 
-	if err := Migrate(Ctx, pool); err != nil {
+	check := VerifyWorkerSchema
+	if migrate {
+		check = Migrate
+	}
+	if err := check(Ctx, pool); err != nil {
 		pool.Close()
-		return fmt.Errorf("failed to migrate Postgres schema: %w", err)
+		return fmt.Errorf("postgres schema initialization failed: %w", err)
 	}
 	PG = pool
 	return nil

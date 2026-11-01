@@ -434,8 +434,6 @@ RAuth is configured via Environment Variables.
 | **Geo-IP** | `MAXMIND_LICENSE_KEY` | Your License Key for Geo-IP updates | **REQUIRED** |
 | **Geo-IP** | `GEOIP_EDITION_IDS` | Databases to download | `GeoLite2-Country` |
 | **Geo-IP** | `MAXMIND_DB_PATH` | Path to local MaxMind .mmdb file | `/app/geoip/GeoLite2-Country.mmdb` |
-| **Geo-IP** | `GEO_API_HOST` | Hostname of local Geo-IP service | `rauth-geo-service` |
-| **Geo-IP** | `GEO_API_PORT` | Port of local Geo-IP service | `3000` |
 | **Email**  | `SMTP_HOST` | SMTP server hostname | (None) |
 | **Email**  | `SMTP_PORT` | SMTP server port (e.g., 587) | `587` |
 | **Email**  | `SMTP_USER` | SMTP username | (None) |
@@ -455,6 +453,8 @@ RAuth is configured via Environment Variables.
 | **Throttle**| `RATE_LIMIT_LOGIN_FAIL_IP_MAX`| Max global IP failures before block | `50` |
 | **Throttle**| `RATE_LIMIT_LOGIN_FAIL_IP_DECAY`| Global IP block duration (seconds) | `600` |
 | **Regional**| `TZ` | Container Timezone (e.g., `Europe/Berlin`) | `UTC` |
+
+GeoIP lookups use the local MaxMind database only. No IP-geolocation API is queried, including when the database is missing or has no result. In a cluster, the master supplies the database and workers use its verified local copy.
 
 </details>
 
