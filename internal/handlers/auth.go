@@ -76,7 +76,7 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 		}
 		if found {
 			c.Set("policy_rule", rule.Rule)
-			decision := rule.RulePolicy.Evaluate(clientIP, core.GetCountryCode(clientIP))
+			decision := rule.Evaluate(clientIP, core.GetCountryCode(clientIP))
 			if !decision.Allowed {
 				c.Set("policy_feed_id", decision.FeedID)
 				return denyRequestPolicy(c, decision.Reason)

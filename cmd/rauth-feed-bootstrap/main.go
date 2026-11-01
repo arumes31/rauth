@@ -33,5 +33,8 @@ func main() {
 		slog.Error("Default feed read failed", "error", err)
 		os.Exit(1)
 	}
-	json.NewEncoder(os.Stdout).Encode(map[string]interface{}{"feed_id": feed.ID, "version": feed.Version, "entries": feed.EntryCount, "ready": feed.Ready()})
+	if err := json.NewEncoder(os.Stdout).Encode(map[string]interface{}{"feed_id": feed.ID, "version": feed.Version, "entries": feed.EntryCount, "ready": feed.Ready()}); err != nil {
+		slog.Error("Default feed bootstrap result could not be written")
+		os.Exit(1)
+	}
 }

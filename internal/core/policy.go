@@ -159,7 +159,7 @@ func HasRestrictedBypassRules() bool {
 	set := activeBypass.Load()
 	for _, list := range [][]BypassRule{set.env, set.ui} {
 		for _, rule := range list {
-			if rule.RulePolicy.Restricted() {
+			if rule.Restricted() {
 				return true
 			}
 		}
@@ -180,7 +180,7 @@ func HasRestrictedBypassRulesForHost(rawHost string) bool {
 	set := activeBypass.Load()
 	for _, list := range [][]BypassRule{set.env, set.ui} {
 		for _, rule := range list {
-			if rule.matchesHost(host) && rule.RulePolicy.Restricted() {
+			if rule.matchesHost(host) && rule.Restricted() {
 				return true
 			}
 		}

@@ -73,8 +73,8 @@ func TestIPFeedFetchDestinationBoundary(t *testing.T) {
 	assert.Error(t, err)
 	assert.Empty(t, d.calls, "mixed DNS must fail before any connection")
 	a, b := net.Pipe()
-	defer a.Close()
-	defer b.Close()
+	defer func() { require.NoError(t, a.Close()) }()
+	defer func() { require.NoError(t, b.Close()) }()
 	d = &stubFeedDialer{conn: a}
 	dial = dialPublicFeed(stubFeedResolver{addresses: []netip.Addr{netip.MustParseAddr("8.8.8.8")}}, d)
 	c, err := dial(context.Background(), "tcp", "example.org:443")

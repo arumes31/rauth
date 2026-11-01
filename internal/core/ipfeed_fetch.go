@@ -123,7 +123,7 @@ func fetchIPFeed(ctx context.Context, client *http.Client, raw string) ([]byte, 
 	if err != nil {
 		return nil, errors.New("feed HTTPS request failed")
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		return nil, errors.New("feed server did not return HTTP 200")
 	}

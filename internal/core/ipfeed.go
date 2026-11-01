@@ -365,7 +365,7 @@ func refreshIPFeed(ctx context.Context, id string, options FeedRefreshOptions, c
 	if err != nil {
 		return err
 	}
-	if f.EntryCount > 0 && index.count*2 < f.EntryCount && !options.AcceptLargeDrop && !(index.count == 0 && options.AcceptEmpty) {
+	if f.EntryCount > 0 && index.count*2 < f.EntryCount && !options.AcceptLargeDrop && (index.count != 0 || !options.AcceptEmpty) {
 		return errors.New("feed lost over half its entries; explicit acceptance required")
 	}
 	checksum := sha256.Sum256(normalized)
