@@ -103,3 +103,11 @@ func (f *Freshness) Status(bundle VerifiedBundle) Status {
 	defer f.mu.Unlock()
 	return Status{Ready: bundle.valid && bundle.head.scope == f.scope && bundle.Identity() == f.active && f.active.valid() && f.active == f.desired && f.now().Before(f.headUntil), Applied: f.active, Desired: f.desired, LeaseExpiresAt: f.headUntil}
 }
+
+// Invalidate withdraws readiness immediately after a local integrity/persistence
+// failure or shutdown. It preserves the high-water mark and desired identity.
+func (f *Freshness) Invalidate() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.headUntil = time.Time{}
+}

@@ -296,6 +296,9 @@ type VerifiedBundle struct {
 
 func (b VerifiedBundle) Identity() Identity { return b.head.identity }
 
+// Manifest returns copied metadata for compiling this exact complete bundle.
+func (b VerifiedBundle) Manifest() Manifest { return b.head.Manifest() }
+
 // VerifyBundle requires every signed dependency and a semantic validator. The
 // callback must stage parsing results, never publish process-wide policy while
 // later resources could still fail. It must reject malformed/trailing input.
