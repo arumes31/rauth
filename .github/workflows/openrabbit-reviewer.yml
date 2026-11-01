@@ -20,7 +20,7 @@ jobs:
       pull-requests: write
     runs-on: ubuntu-latest
     continue-on-error: true
-    timeout-minutes: 15
+    timeout-minutes: 90
     steps:
       # Review PR data via the API; never check out or execute pull request code.
       - name: Prepare Strix model configuration
@@ -45,12 +45,52 @@ jobs:
           printf 'model=%s\n' "$model" >> "$GITHUB_OUTPUT"
           echo "ready=true" >> "$GITHUB_OUTPUT"
 
+      - name: Prepare scoped OpenRabbit request timeouts
+        if: steps.configuration.outputs.ready == 'true'
+        shell: bash
+        run: |
+          cat > "$RUNNER_TEMP/openrabbit-timeout.cjs" <<'OPENRABBIT_TIMEOUT_CJS'
+          'use strict';
+          const { resolve } = require('node:path');
+          // Composite setup, npm, tsc and post-action processes must remain untouched.
+          if (process.env.LLM_API_URL && process.argv[1] &&
+              resolve(process.argv[1]) === resolve(process.cwd(), 'dist/action.js')) {
+            const actionRequire = require('node:module').createRequire(resolve(process.cwd(), 'package.json'));
+            const { Agent, setGlobalDispatcher } = actionRequire('undici');
+            let api;
+            try { api = new URL(process.env.LLM_API_URL); }
+            catch { throw new Error('OpenRabbit LLM API URL is invalid.'); }
+            const basePath = api.pathname.replace(/\/$/, '');
+            const paths = new Set(basePath.endsWith('/v1')
+              ? [`${basePath}/chat/completions`]
+              : [`${basePath}/v1/chat/completions`, `${basePath}/chat/completions`]);
+            class OpenRabbitTimeoutAgent extends Agent {
+              dispatch(options, handler) {
+                let llmRequest = false;
+                try {
+                  const origin = new URL(options.origin).origin;
+                  const target = new URL(options.path, origin);
+                  llmRequest = options.method === 'POST' && origin === api.origin &&
+                    target.origin === api.origin && paths.has(target.pathname);
+                } catch { /* Preserve the dispatcher's normal validation for other requests. */ }
+                return super.dispatch(llmRequest
+                  ? { ...options, headersTimeout: 3600000, bodyTimeout: 3600000 }
+                  : options, handler);
+              }
+            }
+            setGlobalDispatcher(new OpenRabbitTimeoutAgent());
+            console.log('[openrabbit] LLM header/body timeouts set to 3600 seconds.');
+          }
+          OPENRABBIT_TIMEOUT_CJS
+
       - name: OpenRabbit
         id: openrabbit
         if: steps.configuration.outputs.ready == 'true'
         continue-on-error: true
-        timeout-minutes: 12
+        timeout-minutes: 75
         uses: aryanbrite/openrabbit@0350c5ff79e6efb3ba92898a46a2e420ae1c526c
+        env:
+          NODE_OPTIONS: --require=${{ runner.temp }}/openrabbit-timeout.cjs
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           llm_api_key: ${{ secrets.LLM_API_KEY }}
