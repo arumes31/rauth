@@ -143,7 +143,7 @@ func StartGeoUpdater(cfg *Config) {
 		}
 	} else {
 		slog.Info("GeoIP database exists, skipping initial download")
-		InitGeoReader()
+		reloadReader(cfg.MaxMindDBPath)
 	}
 
 	// 2. Update only every 72h

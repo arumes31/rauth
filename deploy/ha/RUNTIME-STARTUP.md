@@ -65,11 +65,13 @@ chunks are flushed immediately; the bounded private client connection may renew
 through the browser's normal reconnect behavior. If control is down admin returns
 503 while local login/2FA/profile/forward-auth remain independent.
 
-This source still needs complete Linux main-process/mount/PKI integration,
-positive real-MMDB resource tests, fleet desired/applied UI and acknowledgments,
-policy notices, durable event spooling/collection and actual
-three-host strict-sync/fencing infrastructure before worker/NPM cutover. Existing
-unit/SQL/relay checks are not a proof of deployed host-loss or physical passkey
+The two-host Linux container canary verifies real host mounts, private service
+PKI, read-only worker schema startup, live default-feed enforcement, cross-node
+login/2FA/SSO, control-application outage and real-MMDB country updates. See
+CONTAINER-CANARY.md for evidence and the measurement limits. Fleet desired/applied
+UI and acknowledgments, policy notices, durable event spooling/collection and
+actual three-host strict-sync/fencing infrastructure remain required before
+worker/NPM cutover. This does not prove deployed host loss or physical passkey
 acceptance. Never enable an incomplete rollout merely because source compiles.
 
 Offline helpers in the image use the same guarded bootstrap when
