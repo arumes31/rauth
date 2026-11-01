@@ -112,9 +112,71 @@ func TestSelectedSQLSessionErrorNeverUsesRedisFallback(t *testing.T) {
 	data, err := ReadAuthSession(Ctx, tok)
 	require.Error(t, err)
 	assert.Nil(t, data, "unavailable SQL authority must never authorize from Redis")
+	_, err = RegistrationSessionBinding(Ctx, tok, ServerSecret)
+	require.Error(t, err)
 	_, err = ListManagedSessions(Ctx, "", "", "", 200)
 	require.Error(t, err)
 	_, err = RevokeManagedSession(Ctx, "00000000-0000-4000-8000-000000000001", "")
 	require.Error(t, err)
 	assert.Equal(t, int64(1), TokenDB.Exists(Ctx, "X-rauth-authtoken="+tok).Val(), "management must not fall back to a different authority")
+}
+
+func TestRegistrationBindingUsesStableAuthoritativeSession(t *testing.T) {
+	for _, sqlMode := range []bool{false, true} {
+		name := "legacy"
+		if sqlMode {
+			name = "postgres"
+		}
+		t.Run(name, func(t *testing.T) {
+			if sqlMode {
+				sqlSecurityFixture(t)
+			} else {
+				newRegressionRedis(t)
+			}
+			SetBcryptCost(4)
+			t.Cleanup(func() { SetBcryptCost(12) })
+			user := "stable-browser-user"
+			require.NoError(t, CreateUser(user, "Password123!", "", true, ""))
+			gen := currentGen(t, user)
+			first, next, replacement, other := strings.Repeat("c", 64), strings.Repeat("d", 64), strings.Repeat("e", 64), strings.Repeat("f", 64)
+			fields := map[string]interface{}{"username": user, "ip": "203.0.113.44", "status": "valid", "auth_gen": gen, "session_family": "CUSTOM-FORGED-FAMILY"}
+			if !sqlMode {
+				// Sessions created before the identity field existed must also retain
+				// a ceremony started immediately before their first rotation.
+				require.NoError(t, TokenDB.HSet(Ctx, "X-rauth-authtoken="+first, "username", user, "ip", "203.0.113.44", "status", "valid", "auth_gen", gen).Err())
+				require.NoError(t, TokenDB.Expire(Ctx, "X-rauth-authtoken="+first, time.Hour).Err())
+			} else {
+				require.NoError(t, StoreSession(first, user, "203.0.113.44", fields, time.Hour))
+			}
+			before, err := RegistrationSessionBinding(Ctx, first, ServerSecret)
+			require.NoError(t, err)
+			require.NotEmpty(t, before)
+			changed, err := RotateSession(first, next, user, "203.0.113.44", time.Now().Unix(), time.Hour, time.Minute)
+			require.NoError(t, err)
+			require.True(t, changed)
+			after, err := RegistrationSessionBinding(Ctx, next, ServerSecret)
+			require.NoError(t, err)
+			assert.Equal(t, before, after)
+			require.NoError(t, StoreSession(other, user, "203.0.113.44", fields, time.Hour))
+			different, err := RegistrationSessionBinding(Ctx, other, ServerSecret)
+			require.NoError(t, err)
+			assert.NotEqual(t, before, different, "another browser for the same account must not share the binding")
+			changed, err = ReplaceSessionWithPublicAccessGrant(Ctx, next, replacement, user, gen, time.Minute)
+			require.NoError(t, err)
+			require.True(t, changed)
+			after, err = RegistrationSessionBinding(Ctx, replacement, ServerSecret)
+			require.NoError(t, err)
+			assert.Equal(t, before, after)
+			_, err = RegistrationSessionBinding(Ctx, next, ServerSecret)
+			require.ErrorIs(t, err, authstate.ErrNotFound)
+			// A hard replacement as well as a normal rotation preserves browser identity.
+			final := strings.Repeat("g", 64)
+			changed, err = ReplaceSession(replacement, final)
+			require.NoError(t, err)
+			require.True(t, changed)
+			after, err = RegistrationSessionBinding(Ctx, final, ServerSecret)
+			require.NoError(t, err)
+			assert.Equal(t, before, after)
+		})
+	}
 }

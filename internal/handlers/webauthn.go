@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"rauth/internal/authstate"
 	"rauth/internal/core"
 	"time"
 
@@ -70,7 +71,14 @@ func (h *WebAuthnHandler) BeginRegistration(c echo.Context) error {
 	if id == "" {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to generate registration challenge")
 	}
-	body, err := json.Marshal(registrationProof{Session: *sessionData, Username: username, Generation: gen, BrowserBinding: core.RegistrationBrowserBinding(token, h.Cfg.ServerSecret)})
+	binding, err := core.RegistrationSessionBinding(c.Request().Context(), token, h.Cfg.ServerSecret)
+	if errors.Is(err, authstate.ErrNotFound) {
+		return echo.NewHTTPError(http.StatusUnauthorized, "Authenticated session required")
+	}
+	if err != nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "Session service is temporarily unavailable")
+	}
+	body, err := json.Marshal(registrationProof{Session: *sessionData, Username: username, Generation: gen, BrowserBinding: binding})
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to store registration challenge")
 	}
@@ -114,8 +122,17 @@ func (h *WebAuthnHandler) FinishRegistration(c echo.Context) error {
 	}
 	token, _ := c.Get("token").(string)
 	generation, _ := c.Get("auth_gen").(string)
-	expected := core.RegistrationBrowserBinding(token, h.Cfg.ServerSecret)
-	if token == "" || generation == "" || proof.Username != username || proof.Generation != generation || !hmac.Equal([]byte(proof.BrowserBinding), []byte(expected)) {
+	if token == "" || generation == "" || proof.Username != username || proof.Generation != generation {
+		return echo.NewHTTPError(http.StatusBadRequest, "Session expired")
+	}
+	expected, err := core.RegistrationSessionBinding(c.Request().Context(), token, h.Cfg.ServerSecret)
+	if errors.Is(err, authstate.ErrNotFound) {
+		return echo.NewHTTPError(http.StatusBadRequest, "Session expired")
+	}
+	if err != nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "Session service is temporarily unavailable")
+	}
+	if !hmac.Equal([]byte(proof.BrowserBinding), []byte(expected)) {
 		return echo.NewHTTPError(http.StatusBadRequest, "Session expired")
 	}
 	claimed, err := core.TakeAuthArtifact(core.PasskeyRegistration, cookie.Value)

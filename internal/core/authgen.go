@@ -182,11 +182,12 @@ func RestampSession(token, gen string) error {
 // successor.
 //
 // KEYS: old hash, new hash, user index, IP index.
-// ARGV: new token, created_at, validity seconds, grace seconds.
+// ARGV: new token, created_at, validity seconds, grace seconds, browser identity.
 var rotateScript = redis.NewScript(`
 if redis.call("EXISTS", KEYS[1]) == 0 or redis.call("HEXISTS", KEYS[1], "rotated_to") == 1 then
 	return 0
 end
+redis.call("HSETNX", KEYS[1], "session_family", ARGV[5])
 redis.call("HSET", KEYS[2], unpack(redis.call("HGETALL", KEYS[1])))
 redis.call("HSET", KEYS[2], "created_at", ARGV[2])
 redis.call("EXPIRE", KEYS[2], ARGV[3])
@@ -205,7 +206,7 @@ func RotateSession(oldToken, newToken, username, ip string, createdAt int64, val
 	}
 	n, err := rotateScript.Run(Ctx, TokenDB,
 		[]string{"X-rauth-authtoken=" + oldToken, "X-rauth-authtoken=" + newToken, "user_sessions:" + username, "ip_sessions:" + ip},
-		newToken, createdAt, int64(validity.Seconds()), int64(grace.Seconds())).Int()
+		newToken, createdAt, int64(validity.Seconds()), int64(grace.Seconds()), legacyManagedHandle(oldToken)).Int()
 	return n == 1, err
 }
 
@@ -214,12 +215,13 @@ func RotateSession(oldToken, newToken, username, ip string, createdAt int64, val
 // grace period: a copy of the old cookie must stop working at once.
 //
 // KEYS: old hash, new hash, user index, IP index of the old session.
-// ARGV: old token, new token.
+// ARGV: old token, new token, browser identity.
 var replaceScript = redis.NewScript(`
 if redis.call("EXISTS", KEYS[1]) == 0 or redis.call("HEXISTS", KEYS[1], "rotated_to") == 1 then
 	return 0
 end
 local ttl = redis.call("PTTL", KEYS[1])
+redis.call("HSETNX", KEYS[1], "session_family", ARGV[3])
 redis.call("HSET", KEYS[2], unpack(redis.call("HGETALL", KEYS[1])))
 if ttl > 0 then
 	redis.call("PEXPIRE", KEYS[2], ttl)
@@ -252,7 +254,7 @@ func ReplaceSession(oldToken, newToken string) (bool, error) {
 	}
 	n, err := replaceScript.Run(Ctx, TokenDB,
 		[]string{oldKey, "X-rauth-authtoken=" + newToken, "user_sessions:" + username, "ip_sessions:" + ip},
-		oldToken, newToken).Int()
+		oldToken, newToken, legacyManagedHandle(oldToken)).Int()
 	return n == 1, err
 }
 
@@ -286,9 +288,15 @@ func StoreSession(token, username, ip string, fields map[string]interface{}, val
 	if securitySessions != nil {
 		return storeSQLSession(token, username, ip, fields, validity)
 	}
+	// Ignore a custom family value; only the authority creates browser identity.
+	stored := make(map[string]interface{}, len(fields)+1)
+	for key, value := range fields {
+		stored[key] = value
+	}
+	stored["session_family"] = legacyManagedHandle(token)
 	redisKey := "X-rauth-authtoken=" + token
 	pipe := TokenDB.TxPipeline()
-	pipe.HSet(Ctx, redisKey, fields)
+	pipe.HSet(Ctx, redisKey, stored)
 	pipe.Expire(Ctx, redisKey, validity)
 	pipe.SAdd(Ctx, "user_sessions:"+username, token)
 	pipe.SAdd(Ctx, "ip_sessions:"+ip, token)

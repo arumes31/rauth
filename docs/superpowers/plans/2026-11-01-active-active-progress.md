@@ -34,6 +34,9 @@ No secrets belong in Git.
   modes. Backend errors are visible. Committed credential changes keep their
   audit/notification even if retaining the caller fails. A real-database
   regression also prevents credential restamp from reviving retired siblings.
+  Passkey registration now follows stable authoritative browser identity across
+  normal rotation and hard replacement; separate-browser and generation/one-use
+  checks remain. Its reproduced regression and both authority adapters pass.
   Runtime migration remains pending; SQL authority is not enabled in production.
 - CodeRabbit's included milestone reviews were used and their verified findings
   fixed. No paid reviews were started; honor quota/cooldown reports.

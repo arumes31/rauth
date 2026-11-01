@@ -365,6 +365,9 @@ func setRegistrationIdentity(t *testing.T, c echo.Context, user string) {
 	c.Set("username", user)
 	c.Set("auth_gen", gen)
 	c.Set("token", strings.Repeat("browser-token-", 4))
+	token := c.Get("token").(string)
+	require.NoError(t, core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken="+token, "username", user, "status", "valid", "auth_gen", gen).Err())
+	require.NoError(t, core.TokenDB.Expire(core.Ctx, "X-rauth-authtoken="+token, time.Hour).Err())
 }
 func seedRegistrationProof(t *testing.T, c echo.Context, cfg *core.Config, user, sessionJSON string, corrupt bool) string {
 	t.Helper()
@@ -376,7 +379,9 @@ func seedRegistrationProof(t *testing.T, c echo.Context, cfg *core.Config, user,
 		var session webauthn.SessionData
 		require.NoError(t, json.Unmarshal([]byte(sessionJSON), &session))
 		var err error
-		body, err = json.Marshal(registrationProof{Session: session, Username: user, Generation: gen, BrowserBinding: core.RegistrationBrowserBinding(tok, cfg.ServerSecret)})
+		binding, bindingErr := core.RegistrationSessionBinding(c.Request().Context(), tok, cfg.ServerSecret)
+		require.NoError(t, bindingErr)
+		body, err = json.Marshal(registrationProof{Session: session, Username: user, Generation: gen, BrowserBinding: binding})
 		require.NoError(t, err)
 	}
 	require.NoError(t, core.StoreAuthArtifact(core.PasskeyRegistration, id, body, user, gen, 5*time.Minute))
@@ -410,4 +415,43 @@ func TestRegistrationProofBoundToBrowserAndGeneration(t *testing.T) {
 	err = h.FinishRegistration(c)
 	require.Error(t, err)
 	assert.Equal(t, http.StatusBadRequest, err.(*echo.HTTPError).Code, "an old step-up cannot register a factor after credential reset")
+}
+
+func TestRegistrationProofSurvivesNormalSessionRotation(t *testing.T) {
+	setupHandlersTest(t)
+	core.SetBcryptCost(4)
+	t.Cleanup(func() { core.SetBcryptCost(12) })
+	user := "rotation-proof-user"
+	require.NoError(t, core.CreateUser(user, "Password123!", "", false, ""))
+	cfg := &core.Config{ServerSecret: strings.Repeat("s", 32), CookieDomains: []string{"localhost"}, RateLimitRegistrationMax: 100, RateLimitRegistrationDecay: 60}
+	require.NoError(t, core.InitWebAuthn(cfg))
+	h := &WebAuthnHandler{Cfg: cfg}
+	e := echo.New()
+	begin, rec := createTestContext(e, http.MethodPost, "/webauthn/register/begin", url.Values{"current_password": {"Password123!"}})
+	setRegistrationIdentity(t, begin, user)
+	old := begin.Get("token").(string)
+	require.NoError(t, core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken="+old, "username", user, "status", "valid", "auth_gen", begin.Get("auth_gen")).Err())
+	require.NoError(t, core.TokenDB.Expire(core.Ctx, "X-rauth-authtoken="+old, time.Hour).Err())
+	require.NoError(t, h.BeginRegistration(begin))
+	var challenge *http.Cookie
+	for _, cookie := range rec.Result().Cookies() {
+		if cookie.Name == registrationCookie {
+			challenge = cookie
+		}
+	}
+	require.NotNil(t, challenge)
+	next := strings.Repeat("rotated-browser-", 4)
+	changed, err := core.RotateSession(old, next, user, "127.0.0.1", time.Now().Unix(), time.Hour, 30*time.Second)
+	require.NoError(t, err)
+	require.True(t, changed)
+	finish, _ := createTestContext(e, http.MethodPost, "/webauthn/register/finish", nil)
+	finish.Set("username", user)
+	finish.Set("auth_gen", begin.Get("auth_gen"))
+	finish.Set("token", next)
+	finish.Request().AddCookie(challenge)
+	// An invalid attestation still claims the matching one-use proof. A normal
+	// cookie rotation must not strand the real browser before that stage.
+	require.Error(t, h.FinishRegistration(finish))
+	_, err = core.GetAuthArtifact(core.PasskeyRegistration, challenge.Value)
+	require.ErrorIs(t, err, core.ErrAuthArtifactMissing, "normal session rotation must preserve this browser's registration binding")
 }

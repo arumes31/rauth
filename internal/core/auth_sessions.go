@@ -29,6 +29,7 @@ func ReadAuthSession(ctx context.Context, token string) (map[string]string, erro
 		delete(fields, "rotated_to")
 		delete(fields, "token")
 		fields["status"] = "valid"
+		fields["session_family"] = value.FamilyID
 		fields["username"] = value.Username
 		fields["auth_gen"] = strconv.FormatInt(value.Generation, 10)
 		fields["ip"] = value.IP
@@ -96,6 +97,7 @@ if redis.call("EXISTS",KEYS[1])==0 or redis.call("HEXISTS",KEYS[1],"rotated_to")
 if redis.call("HGET",KEYS[1],"username")~=ARGV[3] or (redis.call("HGET",KEYS[1],"auth_gen") or "0")~=ARGV[4] then return 0 end
 if redis.call("EXISTS",KEYS[2])==1 then return -1 end
 local ttl=redis.call("PTTL",KEYS[1]);if ttl==0 or ttl==-2 then return 0 end;local grant=tonumber(ARGV[5]);if ttl>0 and ttl<grant then grant=ttl end
+redis.call("HSETNX",KEYS[1],"session_family",ARGV[6])
 redis.call("HSET",KEYS[2],unpack(redis.call("HGETALL",KEYS[1])))
 if ttl>0 then redis.call("PEXPIRE",KEYS[2],ttl) end
 redis.call("DEL",KEYS[1],KEYS[5]);redis.call("SREM",KEYS[3],ARGV[1]);redis.call("SADD",KEYS[3],ARGV[2]);redis.call("SREM",KEYS[4],ARGV[1]);redis.call("SADD",KEYS[4],ARGV[2])
@@ -122,7 +124,7 @@ func ReplaceSessionWithPublicAccessGrant(ctx context.Context, oldToken, newToken
 	if err != nil && !errors.Is(err, redis.Nil) {
 		return false, err
 	}
-	n, err := replaceWithGrantScript.Run(ctx, TokenDB, []string{"X-rauth-authtoken=" + oldToken, "X-rauth-authtoken=" + newToken, "user_sessions:" + user, "ip_sessions:" + ip, "bypass_unlock:" + oldToken, "bypass_unlock:" + newToken}, oldToken, newToken, user, generation, ttl.Milliseconds()).Int()
+	n, err := replaceWithGrantScript.Run(ctx, TokenDB, []string{"X-rauth-authtoken=" + oldToken, "X-rauth-authtoken=" + newToken, "user_sessions:" + user, "ip_sessions:" + ip, "bypass_unlock:" + oldToken, "bypass_unlock:" + newToken}, oldToken, newToken, user, generation, ttl.Milliseconds(), legacyManagedHandle(oldToken)).Int()
 	if err == nil && n < 0 {
 		return false, authstate.ErrConflict
 	}
@@ -152,4 +154,27 @@ func LockPublicAccessGrant(ctx context.Context, token string) error {
 		return errors.New("session authority unavailable")
 	}
 	return TokenDB.Del(ctx, "bypass_unlock:"+token).Err()
+}
+
+// RegistrationSessionBinding follows the stable browser family, never a
+// rotation token. The HttpOnly one-use ceremony cookie and generation remain
+// separate requirements. An authority read error never uses another backend.
+func RegistrationSessionBinding(ctx context.Context, token, secret string) (string, error) {
+	data, err := ReadAuthSession(ctx, token)
+	if err != nil {
+		return "", err
+	}
+	if data["status"] != "valid" || data["username"] == "" {
+		return "", authstate.ErrNotFound
+	}
+	identity := data["session_family"]
+	if identity == "" {
+		if securitySessions != nil {
+			return "", errors.New("session family is missing")
+		}
+		// Older legacy sessions gain this exact value during their next atomic
+		// rotation/replacement, so starting a ceremony before rotation also works.
+		identity = legacyManagedHandle(token)
+	}
+	return RegistrationBrowserBinding(identity, secret), nil
 }

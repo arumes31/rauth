@@ -321,9 +321,9 @@ func RedeemInvitation(id, user, password string) error {
 	return err
 }
 
-func RegistrationBrowserBinding(token, secret string) string {
+func RegistrationBrowserBinding(identity, secret string) string {
 	m := hmac.New(sha256.New, hkdfKey(secret, "rauth-passkey-registration-binding-v1"))
-	m.Write([]byte(token))
+	m.Write([]byte(identity))
 	return hex.EncodeToString(m.Sum(nil))
 }
 
