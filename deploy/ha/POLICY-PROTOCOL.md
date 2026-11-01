@@ -139,3 +139,9 @@ holds the journal lock; network staging does not. A second writer reports the
 explicit ErrStoreLocked sentinel. Changing the cluster UUID intentionally changes
 the trust scope and invalidates cached policies; re-registration into a different
 cluster requires its own verified state rather than reusing the old cache.
+
+The opened root handle is rechecked for identity and private permissions, closing
+the path-resolution race after Lstat. Damaged regular blobs can be refetched and
+atomically replaced only after matching the signed size/hash. Repaired content
+referenced by active/previous/staged generations survives subsequent stage
+failures. Symlink/non-regular targets and non-integrity I/O failures still reject.

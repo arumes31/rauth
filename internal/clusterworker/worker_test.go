@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"io"
 	"os"
+	"path/filepath"
 	"rauth/internal/clusterpolicy"
 	"rauth/internal/clusterstate"
 	"rauth/internal/core"
@@ -481,4 +482,51 @@ func TestWorkerRejectedHeadInvalidatesPreviouslyReadyPolicy(t *testing.T) {
 	require.ErrorIs(t, w.check(background), clusterpolicy.ErrRollback)
 	require.False(t, w.Status().Policy.Ready)
 	require.ErrorIs(t, w.WithPolicy(func(*testValue) error { return nil }), clusterpolicy.ErrNotCurrent)
+}
+
+func TestWorkerCorruptActiveBlobStartsUnreadyForVerifiedRepair(t *testing.T) {
+	one, b1 := signed(t, 1, `{"rule":"one"}`)
+	source := &fakeAuthority{}
+	source.set(one, b1)
+	w, cacheRoot := worker(t, source)
+	activate(t, w)
+	require.NoError(t, w.Close())
+	blob := one.Verified.Manifest().Blobs[0]
+	require.NoError(t, os.WriteFile(filepath.Join(cacheRoot, "blobs", blob.SHA256), []byte("corrupt"), 0o600))
+	restarted, err := New(cacheRoot, trust(t), source, factory, 10*time.Second)
+	require.NoError(t, err)
+	defer func() { _ = restarted.Close() }()
+	require.False(t, restarted.Status().Policy.Ready)
+	require.Error(t, restarted.Status().StageError)
+	require.ErrorIs(t, restarted.WithPolicy(func(*testValue) error { return nil }), clusterpolicy.ErrNotCurrent)
+	activate(t, restarted)
+	require.Equal(t, "one", rule(t, restarted))
+	require.NoError(t, restarted.Status().StageError)
+}
+
+type rejectOldCompiler struct{ testCompiler }
+
+func (c *rejectOldCompiler) Finish(bundle clusterpolicy.VerifiedBundle) (*testValue, error) {
+	if c.draft != nil && c.draft.rule == "one" {
+		return nil, errors.New("old policy cannot compile under the new node profile")
+	}
+	return c.testCompiler.Finish(bundle)
+}
+func TestWorkerChangedCompilerCanStartAndAwaitNewCompatiblePolicy(t *testing.T) {
+	one, b1 := signed(t, 1, `{"rule":"one"}`)
+	source := &fakeAuthority{}
+	source.set(one, b1)
+	w, cacheRoot := worker(t, source)
+	activate(t, w)
+	require.NoError(t, w.Close())
+	changedFactory := func() Compiler[*testValue] { return &rejectOldCompiler{} }
+	restarted, err := New(cacheRoot, trust(t), source, changedFactory, 10*time.Second)
+	require.NoError(t, err)
+	defer func() { _ = restarted.Close() }()
+	require.False(t, restarted.Status().Policy.Ready)
+	require.Error(t, restarted.Status().StageError)
+	two, b2 := signed(t, 2, `{"rule":"two"}`)
+	source.set(two, b2)
+	activate(t, restarted)
+	require.Equal(t, "two", rule(t, restarted))
 }

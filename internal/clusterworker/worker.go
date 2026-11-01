@@ -98,21 +98,24 @@ func New[T io.Closer](root string, v *clusterpolicy.Verifier, source Authority, 
 		}
 		bundle, e := store.LoadActive(compiler.Validate)
 		if e != nil {
-			_ = compiler.Close()
-			return fail(e)
+			w.stageErr = errors.Join(e, compiler.Close())
+			return w, nil // retained watermark + unready runtime can reconcile
 		}
 		value, e := compiler.Finish(bundle)
 		closeErr := compiler.Close()
 		if e != nil {
-			return fail(e)
+			w.stageErr = errors.Join(e, closeErr)
+			return w, nil
 		}
 		if closeErr != nil {
 			_ = value.Close()
-			return fail(closeErr)
+			w.stageErr = closeErr
+			return w, nil
 		}
 		if e = freshness.Restore(bundle); e != nil {
 			_ = value.Close()
-			return fail(e)
+			w.stageErr = e
+			return w, nil
 		}
 		w.active = &snapshot[T]{bundle: bundle, value: value, refs: 1}
 	}
