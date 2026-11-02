@@ -14,6 +14,7 @@ import (
 const MaxWitnessBytes = 64 << 10
 
 var ErrGuard = errors.New("host storage guard verification failed")
+var ErrExec = errors.New("verified child process could not start")
 
 type Target struct {
 	Path       string

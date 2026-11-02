@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -33,7 +34,11 @@ func main() {
 		err = hostguard.ErrGuard
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "host storage guard verification failed")
+		if errors.Is(err, hostguard.ErrExec) {
+			fmt.Fprintln(os.Stderr, "verified child process could not start")
+		} else {
+			fmt.Fprintln(os.Stderr, "host storage guard verification failed")
+		}
 		os.Exit(1)
 	}
 }

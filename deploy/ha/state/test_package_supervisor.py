@@ -83,3 +83,9 @@ class PackageTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "verified-loader-executed")
+
+    def test_versioned_configuration_keeps_bundle_in_its_verified_directory(self):
+        args = self.args()
+        args[-1] = "/mnt/usb1/rauth/rauth-test-state/supervision-next/config.json"
+        _, unit, _ = package_supervisor.build(*args)
+        self.assertIn("/supervision-next/supervisor.bundle.json", unit)

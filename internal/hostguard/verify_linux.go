@@ -102,5 +102,8 @@ func Execute(filename, uuid, role string, args []string) error {
 	if err := Verify(filename, uuid, role); err != nil {
 		return err
 	}
-	return unix.Exec(args[0], args, os.Environ())
+	if unix.Exec(args[0], args, os.Environ()) != nil {
+		return ErrExec
+	}
+	return nil
 }

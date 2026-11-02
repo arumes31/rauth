@@ -1,7 +1,6 @@
 """Opt-in real-host descriptor/bootstrap checks; creates no Docker objects."""
 
 import hashlib
-import contextlib
 import shlex
 import json
 import os
@@ -205,25 +204,27 @@ class LinuxTests(unittest.TestCase):
         data.mkdir(mode=0o700)
         os.chown(data, 10001, 10001)
         ram = supervise.RAM(cfg)
-        ram.path.mkdir(mode=0o700, parents=True)
-        subprocess.run(
-            [
-                "mount",
-                "-t",
-                "tmpfs",
-                "-o",
-                "rw,exec,nosuid,nodev,mode=0700,size=8m",
-                "tmpfs",
-                str(ram.path),
-            ],
-            capture_output=True,
-            check=True,
-            timeout=10,
-        )
-        ram.open()
         previous = os.umask(0o077)
         names = []
+        created_directory = False
         try:
+            ram.path.mkdir(mode=0o700, parents=True)
+            created_directory = True
+            subprocess.run(
+                [
+                    "mount",
+                    "-t",
+                    "tmpfs",
+                    "-o",
+                    "rw,exec,nosuid,nodev,mode=0700,size=8m",
+                    "tmpfs",
+                    str(ram.path),
+                ],
+                capture_output=True,
+                check=True,
+                timeout=10,
+            )
+            ram.open()
             with supervise.Storage(self.expected, capacity=True) as storage:
                 ram.launcher(storage, cfg)
                 ram.attest(
@@ -240,7 +241,7 @@ class LinuxTests(unittest.TestCase):
                 subprocess.check_output(["docker", "image", "inspect", image])
             )[0]
 
-            def run():
+            def run(child=None):
                 name = "rauth-guard-native-" + str(os.getpid()) + "-" + str(len(names))
                 names.append(name)
                 command = [
@@ -288,9 +289,11 @@ class LinuxTests(unittest.TestCase):
                     "--role",
                     "app",
                     "--",
-                    "/bin/sh",
-                    "-c",
-                    "echo executed > /app/data/child",
+                    *(
+                        child
+                        if child is not None
+                        else ["/bin/sh", "-c", "echo executed > /app/data/child"]
+                    ),
                 ]
                 return subprocess.run(command, capture_output=True, timeout=25)
 
@@ -300,6 +303,10 @@ class LinuxTests(unittest.TestCase):
             )
             self.assertEqual((data / "child").read_text().strip(), "executed")
             (data / "child").unlink()
+            missing = run(["/missing/verified-child"])
+            self.assertNotEqual(missing.returncode, 0)
+            self.assertIn(b"verified child process could not start", missing.stderr)
+            self.assertFalse((data / "child").exists())
             witness = json.loads((ram.path / "app.json").read_text())
             witness["targets"][0]["fsid"] = str(int(witness["targets"][0]["fsid"]) ^ 1)
             supervise.atomic(ram.fd, "app.json", json.dumps(witness).encode())
@@ -307,19 +314,56 @@ class LinuxTests(unittest.TestCase):
             self.assertFalse((data / "child").exists())
         finally:
             os.umask(previous)
+            cleanup_errors = []
             for name in names:
-                subprocess.run(
-                    ["docker", "rm", "-f", name],
-                    capture_output=True,
-                    timeout=15,
-                    check=True,
-                )
-            # Only root-owned transient metadata for this unique test scope.
-            for name in ("app.json", "exec"):
-                with contextlib.suppress(FileNotFoundError):
-                    os.unlink(name, dir_fd=ram.fd)
-            ram.close()
-            subprocess.run(
-                ["umount", str(ram.path)], capture_output=True, check=True, timeout=10
-            )
-            os.rmdir(ram.path)
+                try:
+                    result = subprocess.run(
+                        ["docker", "rm", "-f", name], capture_output=True, timeout=15
+                    )
+                    if result.returncode:
+                        cleanup_errors.append("container removal failed: " + name)
+                except (OSError, subprocess.SubprocessError):
+                    cleanup_errors.append("container removal unavailable: " + name)
+            # Attempt every release even if one exited container cannot be removed.
+            try:
+                for name in ("app.json", "exec") if ram.fd is not None else ():
+                    try:
+                        os.unlink(name, dir_fd=ram.fd)
+                    except FileNotFoundError:
+                        pass
+                    except OSError:
+                        cleanup_errors.append("transient metadata removal failed")
+            finally:
+                ram.close()
+                if created_directory:
+                    try:
+                        mounted = subprocess.run(
+                            [
+                                "findmnt",
+                                "-rn",
+                                "--mountpoint",
+                                str(ram.path),
+                                "-o",
+                                "FSTYPE",
+                            ],
+                            capture_output=True,
+                            text=True,
+                            timeout=5,
+                        )
+                        if mounted.returncode == 0:
+                            if mounted.stdout.strip() != "tmpfs":
+                                raise RuntimeError("Unexpected native test mount")
+                            result = subprocess.run(
+                                ["umount", str(ram.path)],
+                                capture_output=True,
+                                timeout=10,
+                            )
+                            if result.returncode:
+                                raise RuntimeError("Native test unmount failed")
+                        elif mounted.returncode != 1:
+                            raise RuntimeError("Native test mount observation failed")
+                        os.rmdir(ram.path)
+                    except (OSError, RuntimeError, subprocess.SubprocessError):
+                        cleanup_errors.append("test RAM release unavailable")
+            if cleanup_errors:
+                self.fail("; ".join(cleanup_errors))

@@ -122,3 +122,19 @@ Run portable policy/model tests with
 python -m unittest discover -s deploy/ha/state -p 'test_*.py'.
 Real Linux acceptance must also cover descriptor identity and refusal before
 child execution; Windows model tests cannot establish Linux mount behavior.
+
+Supervisor configuration schema 2 pins every non-guard bind as exact source,
+target and writable fields in each role's binds array. Those pins cover the
+existing approved data/program directories, including separate Tailscale or
+application directories on the same filesystem. A changed source, sibling
+prefix, extra bind or writable-mode change prevents startup. The held-descriptor
+filesystem checks still apply independently. Pre-release schema 1 configurations
+must be regenerated from the reviewed live bind inventory.
+
+For an update, stage the bundle, launcher and schema 2 configuration in a new
+private versioned directory below the guarded state root. The generated unit
+locates its source bundle next to that configuration. Verify the new unit and
+UUID refusal before replacing the OS service unit, reloading systemd and
+restarting one owned cohort at a time. Preserve its previous bundle/unit,
+current authority and closed spool; do not overwrite a running unit's pinned
+bundle path ahead of the unit update.

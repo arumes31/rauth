@@ -135,7 +135,7 @@ def build(directory, root, mount, uuid, node, config):
     if len(body) > 524288:
         raise ValueError("Bundle exceeds loader budget")
     digest = hashlib.sha256(body).hexdigest()
-    bundle = root / "supervision/supervisor.bundle.json"
+    bundle = config.parent / "supervisor.bundle.json"
     loader = base64.b64encode(zlib.compress(BOOTSTRAP.encode(), 9)).decode()
     command = (
         'import base64,zlib;exec(zlib.decompress(base64.b64decode("' + loader + '")))'

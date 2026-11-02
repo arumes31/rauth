@@ -88,7 +88,7 @@ def validate(config):
             "roles",
         ),
     )
-    if type(config["schema"]) is not int or config["schema"] != 1:
+    if type(config["schema"]) is not int or config["schema"] != 2:
         raise Fault("invalid_configuration_schema")
     s = config["storage"]
     exact(
@@ -146,7 +146,7 @@ def validate(config):
         raise Fault("invalid_cohort")
     names, roles = set(), set()
     for role in config["roles"]:
-        exact(role, ("name", "role", "image", "labels", "remap"))
+        exact(role, ("name", "role", "image", "labels", "binds", "remap"))
         if (
             role["role"] not in ROLES
             or role["role"] in roles
@@ -178,6 +178,24 @@ def validate(config):
                 "isolated-ha-" if s["mode"] == "isolated-test" else "production-ha-"
             ):
                 raise Fault("missing_sql_authority_pin")
+        if not isinstance(role["binds"], list) or not 1 <= len(role["binds"]) <= 64:
+            raise Fault("missing_explicit_bind_pins")
+        targets = set()
+        for pin in role["binds"]:
+            exact(pin, ("source", "target", "writable"))
+            source, target = absolute(pin["source"]), absolute(pin["target"])
+            if (
+                source == PurePosixPath("/")
+                or not source.is_relative_to(mount)
+                or target == PurePosixPath("/")
+                or target.is_relative_to("/guard")
+                or type(pin["writable"]) is not bool
+                or str(target) in targets
+            ):
+                raise Fault("invalid_explicit_bind_pin")
+            if s["usb"] and not source.is_relative_to("/mnt/usb1/rauth"):
+                raise Fault("bind_pin_outside_usb")
+            targets.add(str(target))
         if not isinstance(role["remap"], list) or len(role["remap"]) > 2:
             raise Fault("invalid_remap_scope")
         for edit in role["remap"]:
@@ -441,6 +459,10 @@ def container(role, info, ram, provider=None):
             mounts.append(mount)
     if len(pins) != 2 or not mounts:
         raise Fault("missing_guard_bind")
+    expected = {(p["source"], p["target"], p["writable"]) for p in role["binds"]}
+    observed = {(m["Source"], m["Destination"], m["RW"]) for m in mounts}
+    if len(mounts) != len(role["binds"]) or observed != expected:
+        raise Fault("persistent_bind_pins_changed")
     return mounts
 
 

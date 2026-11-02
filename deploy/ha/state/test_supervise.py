@@ -9,6 +9,26 @@ import subprocess
 import supervise
 
 
+def bindings(kind):
+    targets = {
+        "tailscale": ["/var/lib/tailscale"],
+        "patroni": [
+            "/var/lib/postgresql",
+            "/var/lib/rauth-wal",
+            "/var/lib/rauth-archive",
+        ],
+        "app": ["/app/data"],
+    }[kind]
+    return [
+        {
+            "source": "/opt/rauth/rauth-test-state/data-" + kind + str(i),
+            "target": target,
+            "writable": True,
+        }
+        for i, target in enumerate(targets)
+    ]
+
+
 def config():
     roles = []
     for kind, name in (
@@ -25,11 +45,12 @@ def config():
                 "name": name,
                 "image": "sha256:" + "a" * 64,
                 "labels": labels,
+                "binds": bindings(kind),
                 "remap": [],
             }
         )
     return {
-        "schema": 1,
+        "schema": 2,
         "storage": {
             "node": "state-a",
             "mode": "isolated-test",
@@ -88,23 +109,14 @@ class Docker:
         self.network_equal = True
         for index, role in enumerate(cfg["roles"]):
             kind = role["role"]
-            destinations = {
-                "tailscale": ["/var/lib/tailscale"],
-                "patroni": [
-                    "/var/lib/postgresql",
-                    "/var/lib/rauth-wal",
-                    "/var/lib/rauth-archive",
-                ],
-                "app": ["/app/data"],
-            }[kind]
             mounts = [
                 {
                     "Type": "bind",
-                    "Source": "/opt/rauth/rauth-test-state/data-" + kind + str(i),
-                    "Destination": target,
-                    "RW": True,
+                    "Source": pin["source"],
+                    "Destination": pin["target"],
+                    "RW": pin["writable"],
                 }
-                for i, target in enumerate(destinations)
+                for pin in role["binds"]
             ]
             mounts += [
                 {
@@ -355,3 +367,50 @@ class ModelTests(unittest.TestCase):
                 ("stop", "container-tailscale"),
             ],
         )
+
+    def test_unpinned_source_changes_and_sibling_prefixes_cannot_start(self):
+        for source in ("/etc", "/opt/rauth/rauth-test-state/data-app0-sibling"):
+            _, _, _, docker, _, actor = fixture()
+            docker.rows["rauth-test-app"]["Mounts"][0]["Source"] = source
+            docker.rows["rauth-test-app"]["State"]["Running"] = False
+            with self.subTest(source=source), self.assertRaises(supervise.Fault):
+                actor.run(once=True)
+            self.assertFalse(any(call[0] == "start" for call in docker.calls))
+
+    def test_explicit_bind_pins_allow_approved_sibling_data_roots(self):
+        cfg = config()
+        cfg["roles"][0]["binds"][0]["source"] = "/opt/rauth/tailscale"
+        supervise.validate(cfg)
+        ram, storage = RAM(cfg), Storage()
+        docker = Docker(cfg, ram)
+        docker.rows["rauth-tailscale"]["State"]["Running"] = False
+        actor = supervise.Supervisor(cfg, docker=docker, storage=storage, ram=ram)
+        actor.tick()
+        self.assertIn(("start", "container-tailscale"), docker.calls)
+
+    def test_unapproved_extra_and_writability_changes_are_rejected(self):
+        cfg, ram, _, docker, _, _ = fixture()
+        role = cfg["roles"][2]
+        for edit in [
+            lambda r: r["Mounts"].append(
+                {"Type": "bind", "Source": "/etc", "Destination": "/extra", "RW": False}
+            ),
+            lambda r: r["Mounts"][0].update(RW=False),
+        ]:
+            row = copy.deepcopy(docker.rows[role["name"]])
+            edit(row)
+            with self.assertRaises(supervise.Fault):
+                supervise.container(role, row, ram, docker.rows["rauth-tailscale"])
+        for edit in [
+            lambda c: c.update(schema=1),
+            lambda c: c["roles"][0].update(binds=[]),
+            lambda c: c["roles"][0]["binds"][0].update(writable=1),
+            lambda c: c["roles"][0]["binds"][0].update(source="/"),
+            lambda c: c["roles"][0]["binds"].append(
+                copy.deepcopy(c["roles"][0]["binds"][0])
+            ),
+        ]:
+            changed = config()
+            edit(changed)
+            with self.assertRaises(supervise.Fault):
+                supervise.validate(changed)
