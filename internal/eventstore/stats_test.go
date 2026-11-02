@@ -278,7 +278,14 @@ func TestFullDecisionStoreRejectsOptionalTelemetryWithoutDeletingDecisions(t *te
 	require.ErrorIs(t, err, ErrInvalid)
 	after, err := s.Status(background)
 	require.NoError(t, err)
-	require.Equal(t, before, after)
+	// Physical pg_database_size includes every concurrently tested schema and
+	// maintenance activity. Rejected telemetry must preserve this ledger's
+	// logical history, not freeze allocation for the entire database.
+	require.Equal(t, before.Retained, after.Retained)
+	require.Equal(t, before.PayloadBytes, after.PayloadBytes)
+	require.Equal(t, before.Expired, after.Expired)
+	require.Equal(t, before.Oldest, after.Oldest)
+	require.Positive(t, after.DatabaseBytes)
 }
 func TestVersionTwoAccountingUpgradeAndIPv6Drilldown(t *testing.T) {
 	pool := setup(t)
