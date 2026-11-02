@@ -156,7 +156,20 @@ func Open(ctx context.Context, pool *pgxpool.Pool, o Options) (*Store, error) {
 		cfg := pool.Config()
 		cfg.MaxConns = 2
 		cfg.MinConns = 0
-		cfg.ConnConfig.RuntimeParams["default_transaction_read_only"] = "on"
+		// target_session_attrs=read-write must inspect the leader before this
+		// reader session switches to read-only. A startup read-only parameter
+		// would make the correct primary fail its own leader-selection check.
+		delete(cfg.ConnConfig.RuntimeParams, "default_transaction_read_only")
+		previous := cfg.AfterConnect
+		cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+			if previous != nil {
+				if err := previous(ctx, conn); err != nil {
+					return err
+				}
+			}
+			_, err := conn.Exec(ctx, "SET default_transaction_read_only=on")
+			return err
+		}
 		cfg.ConnConfig.RuntimeParams["statement_timeout"] = "1500"
 		*target, err = pgxpool.NewWithConfig(ctx, cfg)
 		if err != nil {

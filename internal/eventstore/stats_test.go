@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
+	"net/url"
 	"rauth/internal/requestevent"
 	"testing"
 	"time"
@@ -177,4 +178,37 @@ func TestDurableFeedWindowsCountDecisionsIndependentlyOfTelemetry(t *testing.T) 
 	fresh, err := s.After(background, 0, node)
 	require.NoError(t, err)
 	require.Len(t, fresh.Events, 2)
+}
+
+func TestReadOnlyReadersRetainWritableLeaderSelection(t *testing.T) {
+	pool := setup(t)
+	cfg := pool.Config()
+	u, err := url.Parse(cfg.ConnConfig.ConnString())
+	require.NoError(t, err)
+	require.Contains(t, []string{"postgres", "postgresql"}, u.Scheme)
+	query := u.Query()
+	query.Set("target_session_attrs", "read-write")
+	u.RawQuery = query.Encode()
+	leader, err := pgxpool.ParseConfig(u.String())
+	require.NoError(t, err)
+	cfg.ConnConfig.ValidateConnect = leader.ConnConfig.ValidateConnect
+	selected, err := pgxpool.NewWithConfig(background, cfg)
+	require.NoError(t, err)
+	t.Cleanup(selected.Close)
+	o := options()
+	s := open(t, selected, o)
+	node := uuid.NewString()
+	_, err = s.Ingest(background, node, []requestevent.Event{decision(node)})
+	require.NoError(t, err)
+	_, err = s.After(background, 0, "")
+	require.NoError(t, err)
+	_, err = s.Statistics(background, StatsQuery{Range: "5m"})
+	require.NoError(t, err)
+	_, err = s.Decisions(background, StatsQuery{Range: "5m"})
+	require.NoError(t, err)
+	for _, reader := range []*pgxpool.Pool{s.history, s.stats} {
+		var mode string
+		require.NoError(t, reader.QueryRow(background, "SHOW transaction_read_only").Scan(&mode))
+		require.Equal(t, "on", mode)
+	}
 }
