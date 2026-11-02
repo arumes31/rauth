@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -12,10 +13,18 @@ import (
 // way on rauth's own pages. On any violation the session is invalidated and
 // false is returned.
 func SessionBindingValid(cfg *Config, req *http.Request, token, redisKey string, data map[string]string, clientIP string) bool {
-	if !sessionGeoAllowedWithCountry(cfg, token, redisKey, data, clientIP, CountryCodeForContext(req.Context(), clientIP)) {
-		return false
+	valid, err := SessionBindingAuthorization(cfg, req, token, redisKey, data, clientIP)
+	return valid && err == nil
+}
+
+// SessionBindingAuthorization distinguishes a binding violation from a failed
+// persistence operation, without admitting a request in either case.
+func SessionBindingAuthorization(cfg *Config, req *http.Request, token, redisKey string, data map[string]string, clientIP string) (bool, error) {
+	valid, err := sessionGeoAuthorization(req.Context(), cfg, token, redisKey, data, clientIP, CountryCodeForContext(req.Context(), clientIP))
+	if err != nil || !valid {
+		return false, err
 	}
-	return sessionUAMatches(req, token, redisKey, data, clientIP)
+	return sessionUAMatches(req, token, redisKey, data, clientIP), nil
 }
 
 // invalidateSession removes a session token and both its user and per-IP index
@@ -41,12 +50,16 @@ func invalidateSession(token, redisKey string, data map[string]string, clientIP 
 // countries and invalidates a session whose origin country has changed.
 // On any violation it invalidates the session and returns false.
 func sessionGeoAllowedWithCountry(cfg *Config, token, redisKey string, data map[string]string, clientIP, currentCountry string) bool {
+	valid, err := sessionGeoAuthorization(Ctx, cfg, token, redisKey, data, clientIP, currentCountry)
+	return valid && err == nil
+}
 
+func sessionGeoAuthorization(ctx context.Context, cfg *Config, token, redisKey string, data map[string]string, clientIP, currentCountry string) (bool, error) {
 	if !cfg.IsCountryAllowed(currentCountry) {
 		slog.Warn("Access from blocked country", "country", currentCountry, "ip", clientIP)
 		LogAudit("BLOCKED_COUNTRY_ACCESS", data["username"], clientIP, map[string]interface{}{"country": currentCountry})
 		invalidateSession(token, redisKey, data, clientIP)
-		return false
+		return false, nil
 	}
 
 	if data["country"] != "unknown" && currentCountry != "unknown" && data["country"] != currentCountry {
@@ -58,22 +71,25 @@ func sessionGeoAllowedWithCountry(cfg *Config, token, redisKey string, data map[
 		if cfg.GeoChangeMode == "lenient" {
 			LogAudit("COUNTRY_CHANGE_TOLERATED", data["username"], clientIP, details)
 			if securitySessions != nil {
-				changed, err := securitySessions.UpdateCountry(Ctx, token, currentCountry)
-				if err != nil || !changed {
-					return false
+				changed, err := securitySessions.UpdateCountry(ctx, token, currentCountry)
+				if err != nil {
+					return false, err
+				}
+				if !changed {
+					return false, nil
 				}
 			} else {
 				TokenDB.HSet(Ctx, redisKey, "country", currentCountry)
 			}
-			return true
+			return true, nil
 		}
 
 		LogAudit("COUNTRY_CHANGE_DETECTED", data["username"], clientIP, details)
 		invalidateSession(token, redisKey, data, clientIP)
-		return false
+		return false, nil
 	}
 
-	return true
+	return true, nil
 }
 
 // sessionUAMatches runs the dual-layer device check (User-Agent Client Hints

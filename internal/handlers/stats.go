@@ -144,7 +144,9 @@ func (h *AdminHandler) StatsStream(c echo.Context) error {
 	if user == "" || token == "" {
 		return echo.NewHTTPError(http.StatusUnauthorized)
 	}
-	if !h.feedSessionValid(c, user, token) {
+	if valid, err := h.feedSessionValid(c, user, token); err != nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "Authorization temporarily unavailable")
+	} else if !valid {
 		return echo.NewHTTPError(http.StatusForbidden)
 	}
 	q, err := statsQuery(c)
@@ -192,7 +194,12 @@ func (h *AdminHandler) StatsStream(c echo.Context) error {
 			return nil
 		case <-tick.C:
 			if time.Since(lastAuth) >= liveFeedAuthInterval {
-				if !h.feedSessionValid(c, user, token) {
+				valid, authErr := h.feedSessionValid(c, user, token)
+				if authErr != nil {
+					// Retry after a transport/store failure.
+					return nil
+				}
+				if !valid {
 					_ = write("session-ended", map[string]string{"message": "Administrator access ended"})
 					return nil
 				}

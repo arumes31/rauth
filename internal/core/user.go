@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -78,8 +79,13 @@ func UserExists(username string) (bool, error) {
 
 // UserIsAdmin reads the live admin flag. A missing account is not an admin.
 func UserIsAdmin(username string) (bool, error) {
+	return UserIsAdminContext(Ctx, username)
+}
+
+// UserIsAdminContext permits bounded ongoing stream authorization checks.
+func UserIsAdminContext(ctx context.Context, username string) (bool, error) {
 	var admin bool
-	err := PG.QueryRow(Ctx, "SELECT is_admin FROM users WHERE username = $1", username).Scan(&admin)
+	err := PG.QueryRow(ctx, "SELECT is_admin FROM users WHERE username = $1", username).Scan(&admin)
 	if isNoRows(err) {
 		return false, nil
 	}
