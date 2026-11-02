@@ -19,12 +19,14 @@ jobs:
   test:
     name: HA fixture regression tests
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - run: python3 -m unittest discover -s deploy/ha/state -p test_state.py -v
+      - name: Verify real etcd gateway TLS and certificate purposes
+        run: sudo python3 deploy/ha/state/test_etcd_gateway.py
 
   image:
     name: HA state image (amd64 and arm64)

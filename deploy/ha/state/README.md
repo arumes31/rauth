@@ -4,7 +4,7 @@ This fixture implements the approved three-data-node PostgreSQL 18 / Patroni / e
 
 ## Storage and host safety
 
-All state services share their node's existing dedicated Tailscale service namespace. Merge `compose.state.json` with that node's verified, unchanged `compose.tailscale.yml` and existing `.env`, in its existing Compose project. Do not recreate or enroll the Tailscale service. Use `up --no-deps` for only the three new services. The overlay has no host/public port publications, privileges, Docker socket or watchdog device.
+All state services share their node's existing dedicated Tailscale service namespace. Merge `compose.state.json` with that node's verified, unchanged `compose.tailscale.yml` and existing `.env`, in its existing Compose project. Do not recreate or enroll the Tailscale service. Use `up --no-deps` for only the three new services. The overlay has no host/public port publications, privileges, Docker socket or watchdog device. Test services deliberately use `restart: no`: after a host or Docker restart the operator must rerun the UUID guard before starting them. Docker automatic restart must not bypass mount verification. A supervised boot/restart guard is a separate production prerequisite.
 
 1. Record each live host's actual filesystem UUID, mount, free space, currently available memory, clock status and independent failure-domain evidence in a private manifest. Confirm ports 2379/2380/5432/8008/6543 are unused inside its dedicated namespace. Apply peer/port tailnet policy before startup.
 2. Use a root whose final component begins `rauth-test-`, separate from existing node state. All Pi3 persistence, including operator staging, certificates and backups, stays below `/mnt/usb1/rauth`. A USB node must declare `usb: true` and mount `/mnt/usb1`.
@@ -22,9 +22,11 @@ Generate independent private PKI purposes. Never distribute CA private keys to r
 
 | Service directory | Files and purpose |
 | --- | --- |
-| `pki/etcd` | `client-ca.crt` trusts only Patroni/operator DCS clients; `server.crt/key` serves client TLS with the node service IP SAN; `peer-ca.crt` and `peer.crt/key` authenticate only the three etcd peers (client + server EKUs, own IP SAN). |
+| `pki/etcd` | `client-ca.crt` bundles the DCS client and server roots: etcd also uses it to verify its internal gateway connection. `server.crt/key` has server-only EKU and the own service IP SAN; separate client-only `loopback.crt/key` authenticates the gateway via explicit `--client-cert-file`/`--client-key-file` flags; `peer-ca.crt` and `peer.crt/key` authenticate only the three etcd peers (client + server EKUs, own IP SAN). |
 | `pki/patroni` | `dcs-ca.crt` trusts etcd servers, `dcs-client.crt/key` authenticates the Patroni DCS client; `rest-ca.crt`, `rest-server.crt/key`, `rest-client.crt/key` protect Patroni REST and peer probes; `sql-ca.crt`, `sql-server.crt/key` protect PostgreSQL. |
 | `pki/router` | `rest-ca.crt` and combined `health-client.pem` authenticate TLS health checks, without the REST mutation password. |
+
+Do not rely on etcd reusing its server certificate as a client: separate issuers/EKUs require the explicit loopback identity and both trust roots, otherwise the HTTP health/gateway cannot connect to its own gRPC server. Keep server leaves server-only and client leaves client-only.
 
 Each REST server certificate has its own IP and `<node>.rest.<cluster>.internal` SANs. SQL server certificates have their own service IP and the shared logical DNS SAN `<cluster>.sql.rauth.internal`. PostgreSQL connections remain end-to-end TLS: HAProxy passes SQL bytes through and does not terminate SQL TLS. Add the logical SQL name to each RAuth container's `extra_hosts`, mapping to **that node's own** service IP, and use port 6543, `sslmode=verify-full`, the SQL CA and `target_session_attrs=read-write` in private URL files. No runtime DNS dependency on Hodus is introduced. Replication verifies each actual data-node IP.
 
@@ -45,3 +47,5 @@ Record actual observed leader, synchronous standby, etcd voter health, effective
 Primary references: [Patroni configuration](https://patroni.readthedocs.io/en/latest/yaml_configuration.html), [synchronous modes](https://patroni.readthedocs.io/en/latest/replication_modes.html), [watchdog](https://patroni.readthedocs.io/en/latest/watchdog.html), [etcd TLS](https://etcd.io/docs/v3.6/op-guide/security/), [PostgreSQL continuous archiving](https://www.postgresql.org/docs/18/continuous-archiving.html).
 
 Run `python -m unittest discover -s deploy/ha/state -p test_state.py -v`. Native Linux tests cover synced archive retry/conflict/quota behavior and symlink-resistant directory operations; manifest checks run on all platforms. Real multi-host, TLS, restore, load and fencing tests are separate from these regressions.
+
+CI also runs `sudo python3 deploy/ha/state/test_etcd_gateway.py` on a disposable Docker network. It proves the real HTTP/gRPC gateway can commit/read a marker with separated server/client issuers and rejects missing, server-only and peer certificates as clients. This single-member certificate regression does not prove HA or Tailscale routing; those have separate multi-host acceptance.

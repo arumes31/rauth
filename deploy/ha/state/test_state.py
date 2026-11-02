@@ -59,6 +59,7 @@ class ManifestTests(unittest.TestCase):
             for service in services.values():
                 self.assertEqual(service["network_mode"], "service:tailscale")
                 self.assertTrue(service["read_only"])
+                self.assertEqual(service["restart"], "no", "A host restart must not bypass the UUID preflight")
                 self.assertNotIn("ports", service)
                 self.assertNotIn("privileged", service)
                 self.assertNotIn("devices", service)
@@ -80,6 +81,8 @@ class ManifestTests(unittest.TestCase):
                 self.assertEqual(params["synchronous_commit"], "on")
                 self.assertEqual(params["fsync"], "on")
                 self.assertEqual(pg["restapi"]["verify_client"], "required")
+                self.assertIn("--client-cert-file=/etc/etcd/loopback.crt", services["etcd"]["command"])
+                self.assertIn("--client-key-file=/etc/etcd/loopback.key", services["etcd"]["command"])
                 self.assertNotIn('"password":', files["config/patroni.json"])
 
     def test_router_uses_locked_primary_health_and_tls_without_sql_termination(self):

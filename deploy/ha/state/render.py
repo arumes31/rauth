@@ -70,7 +70,7 @@ def bind(root, source, target, readonly=False):
 
 def service(image, uid, memory):
     return {"image": image, "user": f"{uid}:{uid}", "network_mode": "service:tailscale",
-            "restart": "unless-stopped", "read_only": True, "cap_drop": ["ALL"],
+            "restart": "no", "read_only": True, "cap_drop": ["ALL"],
             "security_opt": ["no-new-privileges:true"], "mem_limit": memory,
             "memswap_limit": memory, "pids_limit": 128, "stop_grace_period": "40s",
             "logging": {"driver": "json-file", "options": {"max-size": "5m", "max-file": "2"}},
@@ -112,6 +112,7 @@ def render(manifest, name):
             f"--listen-peer-urls=https://{ip}:2380", f"--initial-advertise-peer-urls=https://{ip}:2380",
             "--client-cert-auth=true", "--trusted-ca-file=/etc/etcd/client-ca.crt",
             "--cert-file=/etc/etcd/server.crt", "--key-file=/etc/etcd/server.key",
+            "--client-cert-file=/etc/etcd/loopback.crt", "--client-key-file=/etc/etcd/loopback.key", "--tls-min-version=TLS1.3",
             "--peer-client-cert-auth=true", "--peer-trusted-ca-file=/etc/etcd/peer-ca.crt",
             "--peer-cert-file=/etc/etcd/peer.crt", "--peer-key-file=/etc/etcd/peer.key",
             "--quota-backend-bytes=67108864", "--auto-compaction-mode=periodic",
