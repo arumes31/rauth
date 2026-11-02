@@ -206,3 +206,10 @@ func openGeoSource(c Config) (*os.File, error) {
 	}
 	return file, nil
 }
+
+func validateEventDirectory(c Config) error {
+	if c.Events == nil {
+		return ErrInvalid
+	}
+	return validateDataDirectory(c.Events.LocalRoot, c.MountDevice)
+}

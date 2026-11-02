@@ -6,18 +6,23 @@ import (
 	"net/http"
 	"rauth/internal/core"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v4"
 )
 
 // RequestFeed observes forward-auth decisions, including rejections by the
 // security middleware inside it. It does not record bodies, cookies or tokens.
-func RequestFeed(cfg *core.Config) echo.MiddlewareFunc {
+func RequestFeed(cfg *core.Config) echo.MiddlewareFunc { return RequestFeedSink(cfg, nil) }
+
+// RequestFeedSink adds an optional nonblocking local observer. It must not do I/O.
+func RequestFeedSink(cfg *core.Config, sink func(core.RequestEvent)) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			if c.Path() != "/rauthvalidate" {
 				return next(c)
 			}
+			started := time.Now()
 			err := next(c)
 			status := c.Response().Status
 			if err != nil && !c.Response().Committed {
@@ -54,7 +59,14 @@ func RequestFeed(cfg *core.Config) echo.MiddlewareFunc {
 			reason, _ := c.Get("policy_reason").(string)
 			rule, _ := c.Get("policy_rule").(string)
 			feedID, _ := c.Get("policy_feed_id").(string)
-			core.LiveRequests.Append(core.RequestEvent{Reason: reason, Rule: rule, FeedID: feedID, URL: target, Source: source, Country: country, Action: action, Status: status})
+			version, _ := c.Get(policyFeedVersionKey).(int64)
+			event := core.RequestEvent{Time: time.Now().UTC(), Reason: reason, Rule: rule, FeedID: feedID, URL: target, Source: source, Country: country, Action: action, Status: status, PolicyVersion: version, ProcessingMicros: max(time.Since(started).Microseconds(), 1)}
+			core.ForwardAuthDecisionsTotal.WithLabelValues(action).Inc()
+			core.ForwardAuthProcessingSeconds.Observe(float64(event.ProcessingMicros) / 1e6)
+			core.LiveRequests.Append(event)
+			if sink != nil {
+				sink(event)
+			}
 			return err
 		}
 	}

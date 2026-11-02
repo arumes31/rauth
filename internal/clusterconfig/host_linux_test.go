@@ -280,3 +280,76 @@ func TestCacheAndGeoSourceDirectoriesStayOnValidatedPersistence(t *testing.T) {
 	c.CacheRoot = link
 	require.ErrorIs(t, validateCacheRoot(c), ErrMount)
 }
+
+func TestEventHostLoadNoWorkerDatabaseAndNoDirectoryFallback(t *testing.T) {
+	for _, role := range []string{Worker, Control} {
+		t.Run(role, func(t *testing.T) {
+			file, c := loadedFixture(t, role)
+			c.Events = &EventConfig{LocalRoot: c.DataRoot + "/events", NodeName: role}
+			if role == Control {
+				c.Databases.Events = c.DataRoot + "/secrets/events.url"
+				writeFixture(t, c.Databases.Events, []byte("postgres://events:synthetic-event-password@100.72.99.1:6543/events?sslmode=verify-full&target_session_attrs=read-write"))
+			}
+			raw, err := json.Marshal(c)
+			require.NoError(t, err)
+			writeFixture(t, file, raw)
+			loaded, err := load(file, func(Config) error { return nil })
+			require.NoError(t, err)
+			if role == Worker {
+				require.Empty(t, loaded.DatabaseURL("events"))
+			} else {
+				require.NotEmpty(t, loaded.DatabaseURL("events"))
+			}
+			require.ErrorIs(t, loaded.CheckEventRoot(), ErrMount)
+			_, err = os.Stat(c.Events.LocalRoot)
+			require.True(t, os.IsNotExist(err))
+			require.NoError(t, os.Mkdir(c.Events.LocalRoot, 0o700))
+			info, err := os.Stat(c.Events.LocalRoot)
+			require.NoError(t, err)
+			stat := info.Sys().(*syscall.Stat_t)
+			loaded.config.MountDevice = fmt.Sprintf("%d:%d", unix.Major(uint64(stat.Dev)), unix.Minor(uint64(stat.Dev)))
+			require.NoError(t, loaded.CheckEventRoot())
+			clone := loaded.Config()
+			clone.Events.NodeName = "mutated"
+			require.Equal(t, role, loaded.Config().Events.NodeName)
+		})
+	}
+}
+
+func TestEventOperatorCredentialIsGuardedAndNeverAvailableToWorkers(t *testing.T) {
+	for _, role := range []string{Control, Worker} {
+		t.Run(role, func(t *testing.T) {
+			file, c := loadedFixture(t, role)
+			c.Events = &EventConfig{LocalRoot: c.DataRoot + "/events", NodeName: role}
+			if role == Control {
+				c.Databases.Events = c.DataRoot + "/secrets/events.url"
+				writeFixture(t, c.Databases.Events, []byte("postgres://events:synthetic-events@100.72.99.1:6543/events?sslmode=verify-full&target_session_attrs=read-write"))
+			}
+			raw, err := json.Marshal(c)
+			require.NoError(t, err)
+			writeFixture(t, file, raw)
+			loaded, err := load(file, func(Config) error { return nil })
+			require.NoError(t, err)
+			operator := c.DataRoot + "/config/event-operator.url"
+			writeFixture(t, operator, []byte("postgres://owner:synthetic-operator@100.72.99.1:6543/events?sslmode=verify-full&target_session_attrs=read-write"))
+			dsn, err := loaded.EventOperatorURL(operator)
+			if role == Worker {
+				require.ErrorIs(t, err, ErrInvalid)
+				require.Empty(t, dsn)
+				return
+			}
+			require.NoError(t, err)
+			require.NotEmpty(t, dsn)
+			for _, bad := range []string{c.CacheRoot + "/operator.url", c.Events.LocalRoot + "/operator.url", "/outside/operator.url"} {
+				_, err = loaded.EventOperatorURL(bad)
+				require.Error(t, err)
+			}
+			require.NoError(t, os.Chmod(operator, 0o644))
+			_, err = loaded.EventOperatorURL(operator)
+			require.ErrorIs(t, err, ErrPrivateFile)
+			writeFixture(t, operator, []byte("postgres://owner:synthetic-operator@100.72.99.1:6543/events?sslmode=disable&target_session_attrs=read-write"))
+			_, err = loaded.EventOperatorURL(operator)
+			require.Error(t, err)
+		})
+	}
+}

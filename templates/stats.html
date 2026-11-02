@@ -1,0 +1,38 @@
+{{define "stats.html"}}
+<!DOCTYPE html><html lang="en" data-bs-theme="dark"><head><title>Stats | RAuth</title>{{template "console_head" .}}<link href="/static/css/console/stats.css" rel="stylesheet"></head>
+<body><div class="app">{{template "admin_sidebar" .}}<main class="main">
+{{template "console_topbar_start"}}<a class="btn btn-sm btn-outline-secondary" href="/rauthmgmt#live-feed">Live feed</a>{{template "console_topbar_end"}}
+<div class="content" data-stats-page>
+<p class="section-intro">RAuth decisions, authentication and node health. Processing time measures RAuth authorization.</p>
+<form id="statsFilters" class="stats-filters" aria-label="Statistics filters">
+<label>Time range<select name="range" class="form-select"><option value="5m">Last 5 minutes</option><option value="1h" selected>Last hour</option><option value="24h">Last 24 hours</option><option value="7d">Last 7 days</option></select></label>
+<label>Processing node<select name="node" id="statsNode" class="form-select"><option value="">All nodes</option></select></label>
+<label>Action<select name="action" class="form-select"><option value="">All actions</option><option value="authenticated">Authenticated</option><option value="bypass">Public access</option><option value="blocked">Blocked</option><option value="login_required">Login required</option><option value="rate_limited">Rate limited</option><option value="error">Error</option></select></label>
+<label>Country<select name="country" id="statsCountry" class="form-select"><option value="">All countries</option></select></label>
+<button type="button" id="statsPause" class="btn btn-outline-secondary" aria-pressed="false">Pause</button><button type="button" id="statsClear" class="btn btn-outline-secondary">Clear filters</button>
+</form>
+<div class="stats-status" role="status" aria-live="polite"><span id="statsConnection">Loading statistics…</span><span id="statsUpdated"></span></div><p id="statsScope" class="text-muted small"></p><p id="statsCoverage" class="stats-coverage"></p>
+<div class="stats" id="statsCards">
+<article class="stat"><span class="label">Decisions</span><strong class="value" id="statTotal">—</strong><span class="hint">Selected traffic window</span></article>
+<article class="stat"><span class="label">Allowed</span><strong class="value" id="statAllowed">—</strong><span class="hint">Authenticated + Public Access</span></article>
+<article class="stat"><span class="label">Blocked</span><strong class="value" id="statBlocked">—</strong><span class="hint">Policy denials</span></article>
+<article class="stat"><span class="label">Login required</span><strong class="value" id="statLogin">—</strong><span class="hint">Authentication requested</span></article>
+<article class="stat"><span class="label">Errors / rate limited</span><strong class="value" id="statErrors">—</strong><span class="hint">RAuth outcomes</span></article>
+<article class="stat"><span class="label">p95 processing</span><strong class="value" id="statLatency">—</strong><span class="hint">Approximate histogram upper bound</span></article>
+
+</div>
+<div class="stats-grid">
+<section class="panel stats-wide"><div class="panel-header"><h2>Decision timeline</h2><span class="sub" id="statsResolution"></span></div><div class="panel-body"><svg id="statsTraffic" viewBox="0 0 960 230" role="img" aria-label="RAuth decisions over time"></svg><div id="statsLegend" class="stats-legend"></div><details><summary>Timeline table</summary><div class="table-wrap"><table class="data-table"><thead><tr><th>Time</th><th>Action</th><th>Decisions</th></tr></thead><tbody id="statsTrafficRows"></tbody></table></div></details></div></section>
+<section class="panel"><div class="panel-header"><h2>Processing latency</h2></div><div class="panel-body"><div id="statsLatencySummary" class="stats-legend"></div><svg id="statsLatencyChart" viewBox="0 0 600 200" role="img" aria-label="RAuth processing latency percentiles over time"></svg><p class="text-muted small">Histogram estimates in milliseconds. Missing duration samples are excluded.</p></div></section>
+<section class="panel"><div class="panel-header"><h2>Decisions by country</h2></div><div class="panel-body"><svg id="statsMap" viewBox="0 0 720 360" role="group" aria-label="Country distribution; use the country table for all entries"></svg><p id="statsMapStatus" class="text-muted small" role="status"></p><p class="text-muted small">Made with Natural Earth. Approximate boundaries; country lookup uses the local MMDB.</p><div id="statsCountries"></div></div></section>
+<section class="panel"><div class="panel-header"><h2>Top URLs</h2></div><div class="panel-body" id="statsTopurls"></div></section>
+<section class="panel"><div class="panel-header"><h2>Top domains</h2></div><div class="panel-body" id="statsTopdomains"></div></section>
+<section class="panel"><div class="panel-header"><h2>Top original client IPs</h2></div><div class="panel-body" id="statsTopips"></div></section>
+<section class="panel"><div class="panel-header"><h2>Denial reasons</h2></div><div class="panel-body" id="statsTopreasons"></div></section>
+<section class="panel"><div class="panel-header"><h2>Matched feeds</h2></div><div class="panel-body" id="statsTopfeeds"></div></section>
+
+<section class="panel stats-wide"><div class="panel-header"><h2>Processing nodes</h2><span class="sub">Current node observations · traffic filters do not change system health</span></div><div class="panel-body stats-nodes" id="statsNodes"></div></section>
+<section class="panel stats-wide"><div class="panel-header"><h2>Authentication, policy and feeds</h2><span class="sub" id="statsOperationsState"></span></div><div class="panel-body"><p id="statsSessions"></p><div id="statsFeedHealth"></div><details><summary>Policy confirmations and HA diagnostics</summary><pre id="statsOperations"></pre></details></div></section>
+<section class="panel stats-wide"><div class="panel-header"><h2>Decision history</h2><span class="sub">Original occurrence time · current traffic filters</span><button class="btn btn-sm btn-outline-secondary" id="statsHistoryRefresh" type="button">Refresh</button></div><div class="table-wrap"><table class="data-table stats-history"><thead><tr><th>Time</th><th>URL</th><th>Original client IP</th><th>Country</th><th>Action</th><th>Processing node</th><th>Processing</th></tr></thead><tbody id="statsHistory"></tbody></table></div><div class="panel-footer"><button class="btn btn-sm btn-outline-secondary" id="statsOlder" type="button" disabled>Older decisions</button><span id="statsHistoryState" role="status"></span></div></section>
+<section class="panel stats-wide"><div class="panel-header"><h2>Registered metric diagnostics</h2><span class="sub">Local numeric Go/process/RAuth series · last durable capture</span></div><div class="panel-body"><label for="statsDiagnosticNode">Processing node</label><select id="statsDiagnosticNode" class="form-select"><option value="">Select a node</option></select><div class="stats-diagnostic-tools"><button type="button" id="statsLoadDiagnostics" class="btn btn-outline-secondary">Load metrics</button><a id="statsDownloadDiagnostics" class="btn btn-outline-secondary" hidden>Download JSON</a><span id="statsDiagnosticsState" role="status"></span></div><pre id="statsDiagnostics"></pre></div></section>
+</div></div></main></div>{{template "console_overlays"}}{{template "console_scripts" "/static/js/stats.js"}}</body></html>{{end}}

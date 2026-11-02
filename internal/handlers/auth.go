@@ -582,6 +582,7 @@ func (h *AuthHandler) handle2FASuccess(c echo.Context, username, clientIP, pendi
 
 	core.ResetRateLimit(loginFailUserKey(username, clientIP))
 	core.ResetRateLimit("2fa_fail_user:" + username)
+	core.SecondFactorTotal.WithLabelValues("success").Inc()
 
 	if usedRecovery {
 		core.RecoveryCodeUsedTotal.Inc()
@@ -608,6 +609,7 @@ func (h *AuthHandler) reserve2FAAttempt(username string) bool {
 }
 
 func (h *AuthHandler) handle2FAFailure(c echo.Context, username, clientIP string) error {
+	core.SecondFactorTotal.WithLabelValues("failed").Inc()
 	core.LogAudit("2FA_FAILED", username, clientIP, nil)
 
 	if !h.checkIPFailureLimit(clientIP) {

@@ -21,6 +21,8 @@ import (
 	"rauth/internal/clustertransport"
 	"rauth/internal/clusterworker"
 	"rauth/internal/core"
+	"rauth/internal/eventrelay"
+	"rauth/internal/requestevent"
 	"strconv"
 	"sync"
 	"time"
@@ -32,23 +34,25 @@ type privateRPCClient interface {
 	Do(*http.Request) (*http.Response, error)
 }
 type clusterRuntime struct {
-	publicConfig *core.Config
-	material     *clusterconfig.Loaded
-	spec         clusterconfig.Config
-	worker       *clusterworker.Worker[*core.PolicySnapshot]
-	registry     *clusterregistry.Reader
-	self         clustertransport.Peer
-	publisher    *core.ControllerPolicyPublisher
-	client       *clustertransport.Client
-	relayClient  privateRPCClient
-	pools        []*pgxpool.Pool
-	ctx          context.Context
-	cancel       context.CancelFunc
-	wg           sync.WaitGroup
-	closeOnce    sync.Once
-	notices      *policyNoticeHub
-	policyState  *clusterPolicyState
-	health       *clusterHealth
+	publicConfig  *core.Config
+	material      *clusterconfig.Loaded
+	spec          clusterconfig.Config
+	worker        *clusterworker.Worker[*core.PolicySnapshot]
+	registry      *clusterregistry.Reader
+	self          clustertransport.Peer
+	publisher     *core.ControllerPolicyPublisher
+	client        *clustertransport.Client
+	relayClient   privateRPCClient
+	pools         []*pgxpool.Pool
+	ctx           context.Context
+	cancel        context.CancelFunc
+	wg            sync.WaitGroup
+	closeOnce     sync.Once
+	notices       *policyNoticeHub
+	policyState   *clusterPolicyState
+	health        *clusterHealth
+	events        *clusterEvents
+	eventRegistry *clusterregistry.Reader
 }
 
 // loadClusterBootstrap runs before database/authority initialization. Legacy
@@ -179,10 +183,31 @@ func newClusterRuntime(parent context.Context, cfg *core.Config, material *clust
 			return nil, errClusterRuntime
 		}
 	}
+	r.events = newClusterEvents(material)
+	if r.events != nil {
+		r.events.nodeHealth = func() requestevent.NodeHealth {
+			p := r.worker.Status().Policy
+			auth, enrollment := r.health.status()
+			return requestevent.NodeHealth{Ready: p.Ready && auth && enrollment, AuthReady: auth, EnrollmentReady: enrollment, PolicyReady: p.Ready, Applied: p.Applied.Revision, Desired: p.Desired.Revision, LeaseExpiresAt: p.LeaseExpiresAt}
+		}
+	}
+	if r.events != nil && spec.Role == clusterconfig.Control {
+		eventsRegistryPool, e := openPool("registry", 1)
+		if e != nil {
+			return nil, e
+		}
+		r.eventRegistry, e = clusterregistry.NewReader(eventsRegistryPool, spec.ClusterID)
+		if e != nil {
+			return nil, errClusterRuntime
+		}
+	}
 	ok = true
 	return r, nil
 }
 func (r *clusterRuntime) Start() {
+	if r.events != nil {
+		r.wg.Go(r.events.run)
+	}
 	r.wg.Go(func() { r.health.run(r.ctx) })
 	r.wg.Go(func() { _ = r.worker.Run(r.ctx) })
 	r.wg.Go(r.reportPolicyStatus)
@@ -223,6 +248,9 @@ func (r *clusterRuntime) Close() {
 	}
 	r.closeOnce.Do(func() {
 		r.cancel()
+		if r.events != nil {
+			r.events.stop()
+		}
 		if r.worker != nil {
 			_ = r.worker.Close()
 		}
@@ -257,7 +285,7 @@ func (r *clusterRuntime) PrivateServer(public http.Handler) (*http.Server, error
 	status, _ := gate.Protect(clustertransport.StatusRead, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		state := r.worker.Status()
 		w.Header().Set("Content-Type", "application/json")
-		_ = writeClusterStatus(w, r.spec.NodeID, state.Policy)
+		_ = writeClusterStatus(w, r.spec.NodeID, state.Policy, r.events.snapshot())
 	}))
 	mux.Handle("GET /v1/status", status)
 	if r.spec.Role == clusterconfig.Control {
@@ -270,6 +298,18 @@ func (r *clusterRuntime) PrivateServer(public http.Handler) (*http.Server, error
 			return nil, noticeErr
 		}
 		mux.Handle("GET /v1/policy-notices", notices)
+		if r.events != nil && r.eventRegistry != nil {
+			eventGate, e := clustertransport.NewGate(r.spec.ClusterID, r.eventRegistry.Authorize)
+			if e != nil {
+				return nil, e
+			}
+			handler, e := eventGate.Protect(clustertransport.EventsWrite, eventrelay.Receiver(r.events.committer, assigned))
+			if e != nil {
+				return nil, e
+			}
+			mux.Handle("POST /v1/events", handler)
+		}
+
 		receipt, receiptErr := gate.Protect(clustertransport.PolicyRead, receiptHandler(r.policyState))
 		if receiptErr != nil {
 			return nil, receiptErr

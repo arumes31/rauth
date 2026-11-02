@@ -49,6 +49,13 @@ func (l *Loaded) CheckCacheRoot() error {
 	}
 	return validateSourceDirectory(l.config)
 }
+func (l *Loaded) CheckEventRoot() error {
+	if l.config.Events == nil {
+		return ErrInvalid
+	}
+	return validateEventDirectory(l.config)
+}
+
 func (l *Loaded) CookieSecret() string { return l.cookieSecret }
 func (l *Loaded) OpenGeoIP(ctx context.Context) (io.ReadCloser, error) {
 	if err := ctx.Err(); err != nil {
@@ -89,7 +96,7 @@ func load(filename string, checkMount func(Config) error) (*Loaded, error) {
 		return nil, err
 	}
 	c, err := Parse(raw)
-	if err != nil || !inside(c.DataRoot, filename) || filename == c.CacheRoot || inside(c.CacheRoot, filename) || inside(filename, c.CacheRoot) {
+	if err != nil || !inside(c.DataRoot, filename) || filename == c.CacheRoot || inside(c.CacheRoot, filename) || inside(filename, c.CacheRoot) || (c.Events != nil && (filename == c.Events.LocalRoot || inside(c.Events.LocalRoot, filename) || inside(filename, c.Events.LocalRoot))) {
 		return nil, ErrInvalid
 	}
 	if err = checkMount(c); err != nil {
@@ -197,37 +204,17 @@ func load(filename string, checkMount func(Config) error) (*Loaded, error) {
 	client.CloseIdleConnections()
 	paths := map[string]string{"auth": c.Databases.Auth, "head": c.Databases.Head, "payload": c.Databases.Payload, "registry": c.Databases.Registry}
 	if c.Role == Control {
+		if c.Events != nil {
+			paths["events"] = c.Databases.Events
+		}
 		paths["source"] = c.Databases.Source
 		paths["registrar"] = c.Databases.Registrar
 		paths["publisher"] = c.Databases.Publisher
 	}
 	for name, filename := range paths {
-		body, e := readPrivate(filename, 8192)
+		dsn, e := databaseFileURL(filename)
 		if e != nil {
 			return nil, e
-		}
-		dsn := strings.TrimSpace(string(body))
-		if dsn == "" {
-			return nil, ErrInvalid
-		}
-		// Require explicit leader selection, rather than allowing a first
-		// reachable standby to become the authority after failover.
-		u, e := url.Parse(dsn)
-		if e != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") || u.Host == "" || u.User == nil || u.User.Username() == "" || (u.Path == "" || u.Path == "/") || u.Fragment != "" {
-			return nil, ErrInvalid
-		}
-		query, e := url.ParseQuery(u.RawQuery)
-		if e != nil || len(query["target_session_attrs"]) != 1 || query.Get("target_session_attrs") != "read-write" || len(query["sslmode"]) != 1 || query.Get("sslmode") != "verify-full" {
-			return nil, ErrInvalid
-		}
-		cfg, e := pgxpool.ParseConfig(dsn)
-		if e != nil || cfg.ConnConfig.TLSConfig == nil || cfg.ConnConfig.TLSConfig.InsecureSkipVerify || cfg.ConnConfig.TLSConfig.ServerName == "" {
-			return nil, ErrInvalid
-		}
-		for _, fallback := range cfg.ConnConfig.Fallbacks {
-			if fallback.TLSConfig == nil || fallback.TLSConfig.InsecureSkipVerify || fallback.TLSConfig.ServerName == "" {
-				return nil, ErrInvalid
-			}
 		}
 		loaded.databases[name] = dsn
 	}
@@ -268,4 +255,45 @@ func load(filename string, checkMount func(Config) error) (*Loaded, error) {
 		}
 	}
 	return loaded, nil
+}
+
+// EventOperatorURL is deliberately separate from runtime database credentials.
+// It reads an existing guarded private host file for offline operator tooling.
+// Worker nodes cannot load an event operator credential.
+func (l *Loaded) EventOperatorURL(filename string) (string, error) {
+	c := l.config
+	if c.Role != Control || c.Events == nil || !inside(c.DataRoot, filename) || filename == c.CacheRoot || inside(c.CacheRoot, filename) || filename == c.Events.LocalRoot || inside(c.Events.LocalRoot, filename) {
+		return "", ErrInvalid
+	}
+	return databaseFileURL(filename)
+}
+func databaseFileURL(filename string) (string, error) {
+	body, e := readPrivate(filename, 8192)
+	if e != nil {
+		return "", e
+	}
+	dsn := strings.TrimSpace(string(body))
+	if dsn == "" {
+		return "", ErrInvalid
+	}
+	// Require explicit leader selection, rather than allowing a first
+	// reachable standby to become the authority after failover.
+	u, e := url.Parse(dsn)
+	if e != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") || u.Host == "" || u.User == nil || u.User.Username() == "" || (u.Path == "" || u.Path == "/") || u.Fragment != "" {
+		return "", ErrInvalid
+	}
+	query, e := url.ParseQuery(u.RawQuery)
+	if e != nil || len(query["target_session_attrs"]) != 1 || query.Get("target_session_attrs") != "read-write" || len(query["sslmode"]) != 1 || query.Get("sslmode") != "verify-full" {
+		return "", ErrInvalid
+	}
+	cfg, e := pgxpool.ParseConfig(dsn)
+	if e != nil || cfg.ConnConfig.TLSConfig == nil || cfg.ConnConfig.TLSConfig.InsecureSkipVerify || cfg.ConnConfig.TLSConfig.ServerName == "" {
+		return "", ErrInvalid
+	}
+	for _, fallback := range cfg.ConnConfig.Fallbacks {
+		if fallback.TLSConfig == nil || fallback.TLSConfig.InsecureSkipVerify || fallback.TLSConfig.ServerName == "" {
+			return "", ErrInvalid
+		}
+	}
+	return dsn, nil
 }

@@ -1,11 +1,14 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"rauth/internal/core"
+	"rauth/internal/eventstore"
+	"rauth/internal/requestevent"
 	"strconv"
 	"strings"
 	"sync"
@@ -89,7 +92,34 @@ func (h *AdminHandler) LiveFeed(c echo.Context) error {
 	defer releaseFeedStream(user)
 
 	feed := core.LiveRequests
-	batch := feed.After(0)
+	node := c.QueryParam("node")
+	if node != "" && (!requestevent.ValidID(node) || h.RequestEvents == nil) {
+		return echo.NewHTTPError(http.StatusBadRequest, "Invalid processing node")
+	}
+	read := func(cursor uint64) (eventstore.Batch, error) {
+		if h.RequestEvents != nil {
+			ctx, cancel := context.WithTimeout(c.Request().Context(), 2*time.Second)
+			defer cancel()
+			return h.RequestEvents.After(ctx, cursor, node)
+		}
+		memory := feed.After(cursor)
+		out := eventstore.Batch{Events: memory.Events, Oldest: memory.Oldest, Latest: memory.Latest, Next: memory.Latest, Changed: memory.Changed}
+		if len(memory.Events) == core.RequestFeedBatch {
+			out.Next = memory.Events[len(memory.Events)-1].ID
+		}
+		return out, nil
+	}
+	batch, readErr := read(0)
+	if readErr != nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "Request history unavailable")
+	}
+	epoch := feed.Epoch()
+	if h.RequestEvents != nil {
+		epoch = h.RequestEvents.Epoch()
+		if epoch == "" {
+			return echo.NewHTTPError(http.StatusServiceUnavailable, "Request history unavailable")
+		}
+	}
 	cursor := uint64(0)
 	raw := c.Request().Header.Get("Last-Event-ID")
 	if raw == "" {
@@ -97,19 +127,49 @@ func (h *AdminHandler) LiveFeed(c echo.Context) error {
 	}
 	reset := false
 	if raw != "" {
-		epoch, n, ok := feedCursor(raw)
+		cursorEpoch, n, ok := feedCursor(raw)
 		if !ok {
 			return echo.NewHTTPError(http.StatusBadRequest, "Invalid feed cursor")
 		}
-		if epoch != feed.Epoch() || n > batch.Latest {
+		if cursorEpoch != epoch || n > batch.Latest {
 			reset = true
 		} else {
 			cursor = n
 		}
 	}
+	tail, hasTail := h.RequestEvents.(interface {
+		FeedStart(context.Context, string, int) (uint64, error)
+	})
+	startFor := func(limit int) (uint64, error) {
+		ctx, cancel := context.WithTimeout(c.Request().Context(), 2*time.Second)
+		defer cancel()
+		return tail.FeedStart(ctx, node, limit)
+	}
 	if raw == "" || reset {
-		if batch.Latest > core.RequestFeedBatch {
+		if hasTail {
+			cursor, readErr = startFor(core.RequestFeedBatch)
+			if readErr != nil {
+				return echo.NewHTTPError(http.StatusServiceUnavailable, "Request history unavailable")
+			}
+		} else if batch.Latest > core.RequestFeedBatch {
 			cursor = batch.Latest - core.RequestFeedBatch
+		}
+	}
+	replayLimited := false
+	const maxReplay = 1000
+	if h.RequestEvents != nil {
+		minimum := uint64(0)
+		if hasTail {
+			minimum, readErr = startFor(maxReplay)
+			if readErr != nil {
+				return echo.NewHTTPError(http.StatusServiceUnavailable, "Request history unavailable")
+			}
+		} else if batch.Latest > maxReplay {
+			minimum = batch.Latest - maxReplay
+		}
+		if cursor < minimum {
+			cursor = minimum
+			replayLimited = true
 		}
 	}
 	hdr := c.Response().Header()
@@ -136,7 +196,7 @@ func (h *AdminHandler) LiveFeed(c echo.Context) error {
 		}
 		return controller.Flush()
 	}
-	state := map[string]string{"epoch": feed.Epoch(), "cursor": fmt.Sprintf("%s:%d", feed.Epoch(), cursor)}
+	state := map[string]string{"epoch": epoch, "cursor": fmt.Sprintf("%s:%d", epoch, cursor)}
 	if reset {
 		if err := write("reset", "", state); err != nil {
 			return nil
@@ -144,6 +204,11 @@ func (h *AdminHandler) LiveFeed(c echo.Context) error {
 	}
 	if err := write("ready", "", state); err != nil {
 		return nil
+	}
+	if replayLimited {
+		if err := write("gap", "", map[string]any{"reason": "display_limited", "message": "Showing the newest retained decisions in the live feed"}); err != nil {
+			return nil
+		}
 	}
 	ticker := time.NewTicker(liveFeedAuthInterval)
 	defer ticker.Stop()
@@ -166,20 +231,49 @@ func (h *AdminHandler) LiveFeed(c echo.Context) error {
 		if !stillAuthorized(false) {
 			return nil
 		}
-		batch = feed.After(cursor)
-		if batch.Oldest > 0 && cursor < batch.Oldest-1 {
-			if err := write("gap", "", map[string]uint64{"dropped": batch.Oldest - 1 - cursor}); err != nil {
+		batch, readErr = read(cursor)
+		if readErr != nil {
+			return nil
+		}
+		if raw != "" && batch.PrunedThrough > cursor {
+			if err := write("gap", "", map[string]any{"reason": "history_expired", "message": "Older request history expired while disconnected"}); err != nil {
 				return nil
 			}
 		}
+		if batch.Oldest > 0 && cursor < batch.Oldest-1 {
+			if h.RequestEvents == nil {
+				if err := write("gap", "", map[string]uint64{"dropped": batch.Oldest - 1 - cursor}); err != nil {
+					return nil
+				}
+			}
+			cursor = batch.Oldest - 1
+		}
+		sentCursor := cursor
 		for _, event := range batch.Events {
+			if event.Kind == "telemetry" {
+				cursor = event.ID
+				continue
+			}
 			if !stillAuthorized(false) {
 				return nil
 			}
-			if err := write("request", fmt.Sprintf("%s:%d", feed.Epoch(), event.ID), event); err != nil {
+			kind := "request"
+			if event.Kind == "gap" {
+				kind = "gap"
+			}
+			if err := write(kind, fmt.Sprintf("%s:%d", epoch, event.ID), event); err != nil {
 				return nil
 			}
 			cursor = event.ID
+			sentCursor = cursor
+		}
+		if cursor < batch.Next {
+			cursor = batch.Next
+		}
+		if cursor > sentCursor {
+			if err := write("cursor", fmt.Sprintf("%s:%d", epoch, cursor), map[string]uint64{"latest": cursor}); err != nil {
+				return nil
+			}
 		}
 		if cursor < batch.Latest {
 			continue

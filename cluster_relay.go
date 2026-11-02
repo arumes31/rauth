@@ -181,6 +181,10 @@ func (f flushRelayWriter) Write(body []byte) (int, error) {
 	}
 	return n, err
 }
-func writeClusterStatus(w io.Writer, node string, status clusterpolicy.Status) error {
-	return json.NewEncoder(w).Encode(map[string]any{"node_id": node, "ready": status.Ready, "applied": status.Applied.Revision, "desired": status.Desired.Revision, "lease_expires_at": status.LeaseExpiresAt})
+func writeClusterStatus(w io.Writer, node string, status clusterpolicy.Status, events ...clusterEventHealth) error {
+	out := map[string]any{"node_id": node, "ready": status.Ready, "applied": status.Applied.Revision, "desired": status.Desired.Revision, "lease_expires_at": status.LeaseExpiresAt}
+	if len(events) > 0 && events[0].Configured {
+		out["events"] = events[0]
+	}
+	return json.NewEncoder(w).Encode(out)
 }

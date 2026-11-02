@@ -469,3 +469,23 @@ func environmentWithOverrides(overrides map[string]string) []string {
 	}
 	return environment
 }
+
+func TestStatsPageRendersLocallyAndStatsAliasContainsNoData(t *testing.T) {
+	e := echo.New()
+	setupRenderer(e)
+	var page bytes.Buffer
+	require.NoError(t, e.Renderer.Render(&page, "stats.html", map[string]any{"username": "<operator>", "root_user": "owner", "csrf": "token", "users": []any{}, "sessions": []any{}, "bypass_rules": []any{}, "ip_feeds": []any{}, "stats_page": true}, nil))
+	html := page.String()
+	require.Contains(t, html, "/static/js/stats.js")
+	require.Contains(t, html, "Registered metric diagnostics")
+	require.Contains(t, html, "&lt;operator&gt;")
+	require.NotContains(t, html, "<operator>")
+	require.NotContains(t, html, "https://")
+	setupRoutes(e, &core.Config{})
+	req := httptest.NewRequest(http.MethodGet, "/stats", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusTemporaryRedirect, rec.Code)
+	require.Equal(t, "/rauthmgmt/stats", rec.Header().Get("Location"))
+	require.NotContains(t, rec.Body.String(), "active_sessions")
+}

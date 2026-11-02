@@ -5,12 +5,19 @@ import (
 	"log/slog"
 	"net/http"
 	"rauth/internal/core"
+	"rauth/internal/eventstore"
 	"strings"
 
 	"github.com/labstack/echo/v4"
 )
 
+type RequestEventSource interface {
+	Epoch() string
+	After(context.Context, uint64, string) (eventstore.Batch, error)
+}
+
 type AdminHandler struct {
+	RequestEvents    RequestEventSource
 	Cfg              *core.Config
 	ReadPolicyStatus func(context.Context) (any, error)
 }
