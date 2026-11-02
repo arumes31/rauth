@@ -61,7 +61,11 @@ func AuthMiddleware(cfg *core.Config) echo.MiddlewareFunc {
 				return c.Redirect(http.StatusFound, "/rauthlogin")
 			}
 
-			if !core.SessionBindingValid(cfg, c.Request(), token, redisKey, data, c.RealIP()) {
+			bound, bindingErr := core.SessionBindingAuthorization(cfg, c.Request(), token, redisKey, data, c.RealIP())
+			if bindingErr != nil {
+				return echo.NewHTTPError(http.StatusServiceUnavailable, "Session service is temporarily unavailable")
+			}
+			if !bound {
 				return c.Redirect(http.StatusFound, "/rauthlogin")
 			}
 
