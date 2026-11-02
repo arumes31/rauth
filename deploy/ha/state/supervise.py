@@ -64,16 +64,17 @@ def document(raw):
 
 
 def absolute(value):
+    if not isinstance(value, str) or not value.startswith("/"):
+        raise Fault("invalid_absolute_path")
+    path = PurePosixPath(value)
     if (
-        not isinstance(value, str)
-        or not value.startswith("/")
-        or str(PurePosixPath(value)) != value
-        or ".." in PurePosixPath(value).parts
+        str(path) != value
+        or ".." in path.parts
         or "\\" in value
         or any(ord(c) < 32 for c in value)
     ):
         raise Fault("invalid_absolute_path")
-    return PurePosixPath(value)
+    return path
 
 
 def validate(config):
@@ -116,9 +117,8 @@ def validate(config):
         or not re.fullmatch(r"[a-z][a-z0-9-]{0,30}", s["node"])
     ):
         raise Fault("invalid_owned_storage_scope")
-    if (
-        type(s["usb"]) is not bool
-        or s["usb"]
+    if type(s["usb"]) is not bool or (
+        s["usb"]
         and (str(mount) != "/mnt/usb1" or not root.is_relative_to("/mnt/usb1/rauth"))
     ):
         raise Fault("invalid_usb_scope")
@@ -697,36 +697,59 @@ class Supervisor:
             return False
         return True
 
-    def inspect(self):
-        provider = None
-        for role in self.roles:
-            info = self.docker.inspect(role["name"])
-            container(
-                role, info, self.ram, None if role["role"] == "tailscale" else provider
-            )
-            if role["role"] == "tailscale":
-                previous = self.known.get("tailscale")
-                if previous is not None and previous["Id"] != info["Id"]:
-                    self.stop(clients_only=True)
-                provider = info
-            if (
-                role["role"] != "tailscale"
-                and info["State"]["Running"]
-                and provider["State"]["Running"]
-                and not self.docker.same_network(info, provider)
+    def inspect(self, tolerate_role_failure=False):
+        # The dedicated provider is a shared dependency. Other metadata faults
+        # isolate that role while retaining positively owned IDs for safe stop.
+        provider_role = self.roles[0]
+        provider = self.docker.inspect(provider_role["name"])
+        container(provider_role, provider, self.ram)
+        previous = self.known.get("tailscale")
+        if previous is not None and previous["Id"] != provider["Id"]:
+            self.stop(clients_only=True)
+        self.known["tailscale"] = provider
+        self.available = {"tailscale"}
+        self.inspect_failed = False
+        for role in self.roles[1:]:
+            kind = role["role"]
+            try:
+                info = self.docker.inspect(role["name"])
+                container(role, info, self.ram, provider)
+                self.known[kind] = info
+                if (
+                    info["State"]["Running"]
+                    and provider["State"]["Running"]
+                    and not self.docker.same_network(info, provider)
+                ):
+                    self.docker.stop(info["Id"])
+                    info["State"]["Running"] = False
+                self.available.add(kind)
+            except StorageFault:
+                raise
+            except (
+                Fault,
+                ValueError,
+                TypeError,
+                KeyError,
+                AttributeError,
+                OSError,
+                subprocess.SubprocessError,
             ):
-                self.docker.stop(info["Id"])
-                info["State"]["Running"] = False
-            self.known[role["role"]] = info
+                self.inspect_failed = True
+                self.event(kind, "metadata_unavailable")
+        if self.inspect_failed and not tolerate_role_failure:
+            raise Fault("role_metadata_unavailable")
         return provider
 
     def tick(self):
         with self.storage(self.config["storage"]):
-            provider = self.inspect()
+            provider = self.inspect(tolerate_role_failure=True)
+            failed = self.inspect_failed
             if not provider["State"]["Running"]:
                 self.stop(clients_only=True)
             for role in self.roles:
                 kind = role["role"]
+                if kind not in self.available:
+                    continue
                 info = self.known[kind]
                 if info["State"]["Running"]:
                     self.event(kind, "running")
@@ -739,12 +762,49 @@ class Supervisor:
                 if not self.budget(kind):
                     continue
                 with self.storage(self.config["storage"], capacity=True) as storage:
-                    mounts = container(
-                        role, info, self.ram, None if kind == "tailscale" else provider
-                    )
-                    remap(storage, role, mounts)
+                    try:
+                        mounts = container(
+                            role,
+                            info,
+                            self.ram,
+                            None if kind == "tailscale" else provider,
+                        )
+                        remap(storage, role, mounts)
+                    except StorageFault:
+                        raise
+                    except (
+                        Fault,
+                        ValueError,
+                        TypeError,
+                        KeyError,
+                        AttributeError,
+                        OSError,
+                        subprocess.SubprocessError,
+                    ):
+                        self.attempts[kind].append(self.now())
+                        self.event(kind, "preflight_failed")
+                        failed = True
+                        continue
+                    # Capacity and the common trusted executable are dependencies,
+                    # so their failures must not consume any role's retry budget.
                     self.ram.launcher(storage, self.config)
-                    self.ram.attest(storage, role, mounts)
+                    try:
+                        self.ram.attest(storage, role, mounts)
+                    except StorageFault:
+                        raise
+                    except (
+                        Fault,
+                        ValueError,
+                        TypeError,
+                        KeyError,
+                        AttributeError,
+                        OSError,
+                        subprocess.SubprocessError,
+                    ):
+                        self.attempts[kind].append(self.now())
+                        self.event(kind, "preflight_failed")
+                        failed = True
+                        continue
                     self.attempts[kind].append(self.now())
                     self.docker.start(info["Id"])
                     latest = self.docker.inspect(role["name"])
@@ -761,6 +821,8 @@ class Supervisor:
                     )
                     if kind == "tailscale":
                         provider = latest
+            if failed:
+                raise Fault("role_preflight_failed")
 
     def run(self, once=False):
         try:

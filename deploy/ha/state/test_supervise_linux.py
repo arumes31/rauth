@@ -170,6 +170,34 @@ class LinuxTests(unittest.TestCase):
         os.chown(bundle, 10001, 10001)
         self.assertNotEqual(run().returncode, 0)
         self.assertFalse(marker.exists())
+        os.chown(bundle, 0, 0)
+        modules["supervise"] = (
+            "class Fault(RuntimeError): pass\n"
+            "def main():\n    raise ValueError('private-db-url=postgres://hidden-secret')\n"
+        )
+        body = json.dumps({"schema": 1, "modules": modules}).encode()
+        bundle.write_bytes(body)
+        bundle.chmod(0o600)
+        failure = run(bundle, hashlib.sha256(body).hexdigest())
+        self.assertNotEqual(failure.returncode, 0)
+        self.assertNotIn(b"hidden-secret", failure.stderr)
+        report = json.loads(failure.stderr)
+        self.assertEqual(report["phase"], "supervision")
+        self.assertEqual(report["exception"], "ValueError")
+        self.assertTrue(any(frame["function"] == "main" for frame in report["frames"]))
+        modules["supervise"] = modules["supervise"].replace(
+            "ValueError('private-db-url=postgres://hidden-secret')",
+            "Fault('expected_writable_uuid_absent')",
+        )
+        body = json.dumps({"schema": 1, "modules": modules}).encode()
+        bundle.write_bytes(body)
+        bundle.chmod(0o600)
+        failure = run(bundle, hashlib.sha256(body).hexdigest())
+        self.assertNotEqual(failure.returncode, 0)
+        report = json.loads(failure.stderr)
+        self.assertEqual(report["phase"], "supervision")
+        self.assertEqual(report["exception"], "Fault")
+        self.assertEqual(report["reason"], "expected_writable_uuid_absent")
 
     def test_explicit_read_execute_modes_survive_service_umask(self):
         directory = os.open(self.scratch, os.O_RDONLY | os.O_DIRECTORY)

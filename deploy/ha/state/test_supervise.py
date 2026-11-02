@@ -414,3 +414,83 @@ class ModelTests(unittest.TestCase):
             edit(changed)
             with self.assertRaises(supervise.Fault):
                 supervise.validate(changed)
+
+    def test_role_preflight_failure_does_not_block_later_role_recovery(self):
+        _, _, _, docker, _, actor = fixture()
+        docker.rows["rauth-test-patroni"]["State"]["Running"] = False
+        docker.rows["rauth-test-app"]["State"]["Running"] = False
+
+        def checked(_storage, role, _mounts):
+            if role["role"] == "patroni":
+                raise supervise.Fault("database_authority_changed")
+
+        with mock.patch("supervise.remap", side_effect=checked):
+            with self.assertRaises(supervise.Fault):
+                actor.run(once=True)
+        self.assertIn(("start", "container-app"), docker.calls)
+        self.assertNotIn(("start", "container-patroni"), docker.calls)
+
+    def test_foreign_role_metadata_cannot_block_valid_later_role(self):
+        _, _, _, docker, _, actor = fixture()
+        docker.rows["rauth-test-patroni"]["Config"]["Labels"] = None
+        docker.rows["rauth-test-patroni"]["State"]["Running"] = False
+        docker.rows["rauth-test-app"]["State"]["Running"] = False
+        with self.assertRaises(supervise.Fault):
+            actor.run(once=True)
+        self.assertIn(("start", "container-app"), docker.calls)
+        self.assertNotIn(("start", "container-patroni"), docker.calls)
+
+    def test_shared_launcher_failure_spends_no_role_budget(self):
+        _, ram, _, docker, _, actor = fixture()
+        docker.rows["rauth-test-patroni"]["State"]["Running"] = False
+        docker.rows["rauth-test-app"]["State"]["Running"] = False
+
+        def unavailable(*_):
+            raise supervise.Fault("launcher_hash_changed")
+
+        ram.launcher = unavailable
+        with self.assertRaises(supervise.Fault):
+            actor.run(once=True)
+        self.assertFalse(any(c[0] == "start" for c in docker.calls))
+        self.assertEqual(len(actor.attempts.get("patroni", ())), 0)
+        self.assertEqual(len(actor.attempts.get("app", ())), 0)
+
+    def test_role_preflight_failures_are_bounded_and_retry_after_window(self):
+        _, _, _, docker, clock, actor = fixture()
+        docker.rows["rauth-test-patroni"]["State"]["Running"] = False
+        calls = []
+
+        def checked(_storage, role, _mounts):
+            if role["role"] == "patroni":
+                calls.append(role["role"])
+                raise supervise.Fault("database_authority_changed")
+
+        with mock.patch("supervise.remap", side_effect=checked):
+            for _ in range(4):
+                try:
+                    actor.run(once=True)
+                except supervise.Fault:
+                    pass
+            self.assertEqual(len(calls), 3)
+            self.assertEqual(len(actor.attempts["patroni"]), 3)
+            clock[0] = 301
+            with self.assertRaises(supervise.Fault):
+                actor.run(once=True)
+            self.assertEqual(len(calls), 4)
+
+    def test_role_attestation_failure_does_not_block_later_role(self):
+        _, ram, _, docker, _, actor = fixture()
+        docker.rows["rauth-test-patroni"]["State"]["Running"] = False
+        docker.rows["rauth-test-app"]["State"]["Running"] = False
+        original = ram.attest
+
+        def attest(storage, role, mounts):
+            if role["role"] == "patroni":
+                raise supervise.Fault("source_identity_changed")
+            original(storage, role, mounts)
+
+        ram.attest = attest
+        with self.assertRaises(supervise.Fault):
+            actor.run(once=True)
+        self.assertIn(("start", "container-app"), docker.calls)
+        self.assertEqual(len(actor.attempts["patroni"]), 1)

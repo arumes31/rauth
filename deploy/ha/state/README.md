@@ -74,8 +74,10 @@ unit is the sole boot/recovery owner.
 Before each start, the supervisor verifies the live writable filesystem UUID,
 free-space and available-memory floors, pinned image/authority, bind sources,
 and provider namespace. A local role failure restarts that role; a provider
-failure stops its clients before rejoining its namespace. Starts are limited
-to three per role per five minutes. A verified missing/foreign/read-only
+failure stops its clients before rejoining its namespace. Role startup attempts, including role-local preflight refusals, are limited
+to three per role per five minutes. On reaching the limit the supervisor logs
+restart_backoff and automatically retries when the oldest attempt leaves that
+window. Shared capacity, provider and launcher failures spend no role budget. A verified missing/foreign/read-only
 filesystem stops the owned cohort, PostgreSQL first. Capacity/dependency
 errors prevent starts without shutting down healthy roles.
 
@@ -138,3 +140,16 @@ UUID refusal before replacing the OS service unit, reloading systemd and
 restarting one owned cohort at a time. Preserve its previous bundle/unit,
 current authority and closed spool; do not overwrite a running unit's pinned
 bundle path ahead of the unit update.
+
+The generated unit, pinned digest, private supervisor configuration and source
+bundle are controlled by the host administrator. The unit belongs to root in
+/etc/systemd/system; bundles/configuration require root ownership and private
+permissions. Guests receive only read-only RAM guard inputs and cannot replace
+the unit or its digest. This protects startup against storage/path mistakes,
+untrusted bind substitution and guest modification; an administrator who can
+replace both the root-owned unit and its digest remains fully trusted.
+
+Bootstrap failures and escaped supervisor-runtime failures have separate
+diagnostics. Runtime diagnostics include the exception type and stack file/line
+frames, without exception text, source lines or local values that could contain
+private database URLs or credentials.

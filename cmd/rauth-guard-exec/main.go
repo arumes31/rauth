@@ -18,6 +18,7 @@ func main() {
 	verify := flag.Bool("verify-only", false, "verify without executing a command")
 	flag.Parse()
 	var err error
+	// Descriptor inspection is mutually exclusive with verification and child execution.
 	if *inspect >= 0 && !*verify && *uuid == "" && *role == "" && len(flag.Args()) == 0 {
 		var identity map[string]string
 		identity, err = hostguard.Describe(*inspect)

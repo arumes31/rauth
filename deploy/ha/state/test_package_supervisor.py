@@ -89,3 +89,9 @@ class PackageTests(unittest.TestCase):
         args[-1] = "/mnt/usb1/rauth/rauth-test-state/supervision-next/config.json"
         _, unit, _ = package_supervisor.build(*args)
         self.assertIn("/supervision-next/supervisor.bundle.json", unit)
+
+    def test_systemd_environment_expansion_in_paths_is_refused(self):
+        args = self.args()
+        args[-1] = "/mnt/usb1/rauth/rauth-test-state/config-$RUNTIME/config.json"
+        with self.assertRaises(ValueError):
+            package_supervisor.build(*args)

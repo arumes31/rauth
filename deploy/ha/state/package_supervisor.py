@@ -88,11 +88,19 @@ def run():
         sys.modules[name]=module
         exec(compile(source,module.__file__,"exec"),module.__dict__)
     sys.argv=["supervise","--config",config,"--uuid",uuid,"--mount",mount]
-    sys.modules["supervise"].main()
+    return sys.modules["supervise"].main
 try:
-    run()
+    entrypoint=run()
 except Exception:
     print("RAuth verified host bootstrap unavailable; inspect pinned storage and unit configuration",file=sys.stderr)
+    sys.exit(1)
+try:
+    entrypoint()
+except Exception as error:
+    import traceback
+    frames=[{"file":os.path.basename(frame.filename),"line":frame.lineno,"function":frame.name} for frame in traceback.StackSummary.extract(traceback.walk_tb(error.__traceback__),lookup_lines=False)]
+    reason=str(error) if isinstance(error,sys.modules["supervise"].Fault) else "unexpected_runtime_error"
+    print(json.dumps({"phase":"supervision","exception":type(error).__name__,"reason":reason,"frames":frames}),file=sys.stderr)
     sys.exit(1)
 """
 
@@ -104,7 +112,7 @@ def absolute(value):
         or str(path) != value
         or ".." in path.parts
         or "\\" in value
-        or any(c in value for c in "'\"%\n\r\t ")
+        or any(c in value for c in "'\"%$\n\r\t ")
     ):
         raise ValueError("Unsafe unit path")
     return path
