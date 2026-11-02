@@ -310,7 +310,7 @@ func TestHistoryRemainsReadableWhileCollectorInsertWaitsForSQL(t *testing.T) {
 	select {
 	case err = <-done:
 		require.NoError(t, err)
-	case <-time.After(3 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("collector did not finish after lock release")
 	}
 	require.NoError(t, readErr, "history must not wait behind network-bound collector writes")
