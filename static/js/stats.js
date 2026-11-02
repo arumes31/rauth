@@ -499,7 +499,7 @@ function renderHA(view) {
   );
   text(
     "statsHACoverage",
-    `${view.report?.mode === "isolated-test" ? "Isolated test cluster · " : ""}Observed ${time(view.report?.checked_at)} · Fencing not observed · Authentication readiness is independent`,
+    `${view.report?.mode === "isolated-test" ? "Isolated test cluster · " : ""}All state members · Current observation ${time(view.report?.checked_at)} · Fencing not observed · Authentication readiness is independent`,
   );
   for (const member of view.report?.members || []) {
     const databaseIdentity =
@@ -546,7 +546,13 @@ function renderHA(view) {
     );
     add(
       "Quorum voter",
-      fresh ? (member.dcs_ready ? "Healthy" : "Unavailable") : "Not observed",
+      fresh
+        ? member.dcs_ready
+          ? dcsIdentity
+            ? "Healthy"
+            : "Identity mismatch"
+          : "Unavailable"
+        : "Not observed",
     );
     add(
       "DCS database",

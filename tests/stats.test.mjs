@@ -353,3 +353,44 @@ test("an operations fetch failure never invents an HA configuration", async () =
     /unavailable/,
   );
 });
+
+test("a reachable foreign quorum member is identified as a mismatch", async () => {
+  const f = await fixture({
+    ha: {
+      configured: true,
+      available: true,
+      state: "degraded",
+      healthy_voters: 2,
+      running_data_members: 3,
+      verified_leaders: 1,
+      synchronous_replicas: 1,
+      report: {
+        checked_at: now,
+        expected_system_id: "123",
+        expected_dcs_cluster_id: "456",
+        members: [
+          {
+            name: "state-a",
+            database_ready: true,
+            role: "primary",
+            system_id: "123",
+            dcs_ready: true,
+            dcs_cluster_id: "999",
+          },
+        ],
+      },
+    },
+  });
+  assert.match(
+    f.elements.get("statsHAMembers").textContent,
+    /Quorum voter: Identity mismatch/,
+  );
+  assert.doesNotMatch(
+    f.elements.get("statsHAMembers").textContent,
+    /Quorum voter: Healthy/,
+  );
+  assert.match(
+    f.elements.get("statsHACoverage").textContent,
+    /All state members/,
+  );
+});
