@@ -359,7 +359,7 @@ func (s *Store) trimChunk(ctx context.Context, tx pgx.Tx, incoming, incomingTele
 	if err := tx.QueryRow(ctx, `SELECT telemetry_bytes FROM event_ledgers WHERE cluster_id=$1 AND owner_token=$2`, s.options.ClusterID, s.token).Scan(&telemetry); err != nil {
 		return false, err
 	}
-	removed, last := int64(0), int64(0)
+	removed, removedHistory, last := int64(0), int64(0), int64(0)
 	remove := func(i item) error {
 		if err := s.removeStatistics(ctx, tx, i.seq); err != nil {
 			return err
@@ -370,8 +370,11 @@ func (s *Store) trimChunk(ctx context.Context, tx pgx.Tx, incoming, incomingTele
 		used -= i.size
 		if i.kind == "telemetry" {
 			telemetry -= i.size
-		} else if i.seq > last {
-			last = i.seq
+		} else {
+			removedHistory++
+			if i.seq > last {
+				last = i.seq
+			}
 		}
 		removed++
 		return nil
@@ -440,7 +443,7 @@ func (s *Store) trimChunk(ctx context.Context, tx pgx.Tx, incoming, incomingTele
 	if removed == 0 {
 		return false, nil
 	}
-	_, err = tx.Exec(ctx, `UPDATE event_ledgers SET payload_bytes=$3,telemetry_bytes=$6,event_count=event_count-$4,expired_count=expired_count+$4,pruned_through=GREATEST(pruned_through,$5) WHERE cluster_id=$1 AND owner_token=$2`, s.options.ClusterID, s.token, used, removed, last, telemetry)
+	_, err = tx.Exec(ctx, `UPDATE event_ledgers SET payload_bytes=$3,telemetry_bytes=$6,event_count=event_count-$4,expired_count=expired_count+$7,pruned_through=GREATEST(pruned_through,$5) WHERE cluster_id=$1 AND owner_token=$2`, s.options.ClusterID, s.token, used, removed, last, telemetry, removedHistory)
 	return true, err
 }
 

@@ -406,7 +406,7 @@ function render(data) {
   );
   text(
     "statsCoverage",
-    `${data.coverage}. Retained since ${time(data.retained_since)} · ${formatNumber(data.expired)} expired records · ${formatNumber(data.loss_markers)} loss markers in window. Latency values are histogram estimates.`,
+    `${data.coverage}. Retained since ${time(data.retained_since)} · ${formatNumber(data.expired)} expired history records · ${formatNumber(data.loss_markers)} loss markers in window. Latency values are histogram estimates.`,
   );
 }
 async function history(before = 0) {

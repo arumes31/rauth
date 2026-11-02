@@ -244,6 +244,9 @@ func TestTelemetryBudgetCannotEvictDecisionHistoryOrAdvanceItsPruningCursor(t *t
 	require.NoError(t, err)
 	require.Len(t, batch.Events, 1)
 	require.Zero(t, batch.PrunedThrough)
+	status, err := s.Status(background)
+	require.NoError(t, err)
+	require.Zero(t, status.Expired, "telemetry expiry is not request-history loss")
 }
 func TestFullDecisionStoreRejectsOptionalTelemetryWithoutDeletingDecisions(t *testing.T) {
 	pool := setup(t)
