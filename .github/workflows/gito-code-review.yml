@@ -1,0 +1,171 @@
+name: 'Gito: AI Code Review'
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number (leave empty to validate setup without an LLM request)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gito-${{ github.event.pull_request.number || inputs.pr_number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Gito (advisory)
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      pull-requests: write # Gito posts comments, never approval or change-request reviews.
+    steps:
+      - name: Prepare Strix model configuration
+        id: configuration
+        env:
+          STRIX_LLM: ${{ secrets.STRIX_LLM }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+        shell: bash
+        run: |
+          if [[ -z "$STRIX_LLM" || -z "$LLM_API_KEY" ]]; then
+            echo '::warning::Gito skipped: STRIX_LLM or LLM_API_KEY is unavailable.'
+            echo 'Gito skipped because the Strix model or key is unavailable.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # LiteLLM's transport prefix is not part of the OpenAI-compatible model ID.
+          model="${STRIX_LLM#openai/}"
+          if [[ -z "$model" || "$model" == *$'\n'* || "$model" == *$'\r'* ]]; then
+            echo '::warning::Gito skipped: invalid Strix model configuration.'
+            exit 0
+          fi
+          if [[ -n "$PR_NUMBER" && ! "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+            echo '::warning::Gito skipped: PR number must be a positive integer.'
+            exit 0
+          fi
+          echo "::add-mask::$model"
+          printf 'model=%s\npr=%s\nready=true\n' "$model" "$PR_NUMBER" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Python
+        if: steps.configuration.outputs.ready == 'true'
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
+
+      - name: Install Gito
+        id: install
+        if: steps.configuration.outputs.ready == 'true'
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/gito-venv"
+          "$RUNNER_TEMP/gito-venv/bin/python" -m pip install --disable-pip-version-check 'gito.bot==4.5.0'
+          "$RUNNER_TEMP/gito-venv/bin/gito" --help > /dev/null
+          echo 'Gito 4.5.0 is installed; Strix model and key are configured. Reviews are advisory.' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fetch PR as Git objects without checking out or executing PR files
+        id: target
+        if: steps.install.outcome == 'success' && steps.configuration.outputs.pr != ''
+        timeout-minutes: 10
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.configuration.outputs.pr }}
+        shell: bash
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > "$RUNNER_TEMP/gito-pr.json"
+          if ! jq -e --arg repo "$GITHUB_REPOSITORY" \
+            '.state == "open" and (.draft | not) and .head.repo.full_name == $repo' \
+            "$RUNNER_TEMP/gito-pr.json" > /dev/null; then
+            echo '::notice::Gito skipped: PR is closed, a draft, or from a fork.'
+            exit 0
+          fi
+          head_sha=$(jq -r '.head.sha' "$RUNNER_TEMP/gito-pr.json")
+          base_sha=$(jq -r '.base.sha' "$RUNNER_TEMP/gito-pr.json")
+          [[ "$head_sha" =~ ^[0-9a-f]{40}$ && "$base_sha" =~ ^[0-9a-f]{40}$ ]]
+          git init --quiet "$RUNNER_TEMP/gito-source"
+          git -C "$RUNNER_TEMP/gito-source" remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            git -C "$RUNNER_TEMP/gito-source" fetch --quiet --no-tags origin "$base_sha" "$head_sha"
+          # Gito reads file contents from HEAD's tree. No PR config, templates,
+          # Python modules, .env files, hooks or build scripts enter the worktree.
+          git -C "$RUNNER_TEMP/gito-source" update-ref --no-deref HEAD "$head_sha"
+          printf 'head=%s\nbase=%s\nready=true\n' "$head_sha" "$base_sha" >> "$GITHUB_OUTPUT"
+          cat > "$RUNNER_TEMP/gito-config.toml" <<'GITO_CONFIG'
+          retries = 1
+          [pipeline_steps.jira]
+          envs = []
+          [pipeline_steps.linear]
+          envs = []
+          GITO_CONFIG
+
+      - name: Run advisory code review with the Strix LLM
+        id: analysis
+        if: steps.target.outputs.ready == 'true'
+        continue-on-error: true
+        timeout-minutes: 75
+        working-directory: ${{ runner.temp }}/gito-source
+        env:
+          MODEL: ${{ steps.configuration.outputs.model }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_API_TYPE: openai
+          LLM_API_BASE: https://nimbusroute.wowcraft.pw/v1
+          # Match the existing reviewers' one-hour LLM request timeout.
+          INIT_PARAMS: '{"timeout": 3600, "max_retries": 0}'
+          MAX_CONCURRENT_TASKS: '2'
+          HEAD_SHA: ${{ steps.target.outputs.head }}
+          BASE_SHA: ${{ steps.target.outputs.base }}
+          PR_NUMBER_FROM_WORKFLOW_DISPATCH: ${{ steps.configuration.outputs.pr }}
+          PYTHONSAFEPATH: '1'
+        shell: bash
+        run: |
+          "$RUNNER_TEMP/gito-venv/bin/gito" --no-verbose --project-config "$RUNNER_TEMP/gito-config.toml" \
+            review --what "$HEAD_SHA" --against "$BASE_SHA" --out "$RUNNER_TEMP/gito-results"
+
+      - name: Post Gito review comment
+        id: comment
+        if: steps.analysis.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 5
+        working-directory: ${{ runner.temp }}/gito-source
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.configuration.outputs.pr }}
+          HEAD_SHA: ${{ steps.target.outputs.head }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          PYTHONSAFEPATH: '1'
+        shell: bash
+        run: |
+          report="$RUNNER_TEMP/gito-results/code-review-report.md"
+          if [[ ! -s "$report" ]]; then
+            echo 'Gito produced no report (for example, the PR has no reviewable changes).' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          current_head=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq 'select(.state == "open") | .head.sha')
+          if [[ "$current_head" != "$HEAD_SHA" ]]; then
+            echo '::notice::Gito comment skipped: PR changed or closed during review.'
+            exit 0
+          fi
+          printf '\n\n---\nGito advisory review of `%s` · [workflow run](%s). This review does not block merging.\n' \
+            "$HEAD_SHA" "$RUN_URL" >> "$report"
+          "$RUNNER_TEMP/gito-venv/bin/gito" --no-verbose --project-config "$RUNNER_TEMP/gito-config.toml" \
+            github-comment --md-report-file "$report" --pr "$PR_NUMBER" --gh-repo "$GITHUB_REPOSITORY"
+          echo 'Gito completed and posted its advisory PR comment.' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report advisory failure
+        if: always() && (failure() || steps.analysis.outcome == 'failure' || steps.comment.outcome == 'failure')
+        shell: bash
+        run: |
+          echo '::warning::Gito could not complete; the result is inconclusive and remains advisory.'
+          echo 'Gito could not complete. Check the failed step; merging remains unblocked.' >> "$GITHUB_STEP_SUMMARY"
