@@ -128,3 +128,50 @@ func TestSQLBindingFailureKeepsCounterResetSemantics(t *testing.T) {
 	require.Empty(t, rec.Header().Get("X-RAuth-User"))
 	require.False(t, core.IsRateLimitExceeded(key, 1), "binding failure keeps the previous counter reset effect")
 }
+
+func validationFixtureCookie(t *testing.T, cfg *core.Config, user string) *http.Cookie {
+	t.Helper()
+	core.SetBcryptCost(4)
+	t.Cleanup(func() { core.SetBcryptCost(12) })
+	cfg.TokenRotationMinutes = 0
+	require.NoError(t, core.CreateUser(user, "Password123!", "", false, ""))
+	generation, err := core.AuthGeneration(user)
+	require.NoError(t, err)
+	raw := strings.Repeat(user+"-token", 4)
+	c, _ := createTestContext(echo.New(), http.MethodGet, "/rauthvalidate", nil)
+	require.NoError(t, core.StoreSession(raw, user, c.RealIP(), map[string]interface{}{"auth_gen": generation, "country": "unknown", "user_agent": c.Request().UserAgent()}, time.Minute))
+	encrypted, err := core.EncryptToken(raw, cfg.ServerSecret)
+	require.NoError(t, err)
+	return &http.Cookie{Name: "X-rauth-authtoken", Value: encrypted}
+}
+
+func TestSQLValidationRejectsEmptyAuthoritativeUsername(t *testing.T) {
+	cfg := setupSQLRuntimeTest(t)
+	cookie := validationFixtureCookie(t, cfg, "empty-name-fixture")
+	generation, err := core.AuthGeneration("empty-name-fixture")
+	require.NoError(t, err)
+	_, err = core.PG.Exec(core.Ctx, "INSERT INTO users(username) VALUES('')")
+	require.NoError(t, err)
+	_, err = core.PG.Exec(core.Ctx, "INSERT INTO auth_generations(username,gen) VALUES('', $1::bigint)", generation)
+	require.NoError(t, err)
+	_, err = core.PG.Exec(core.Ctx, "UPDATE auth_session_families SET username=''")
+	require.NoError(t, err)
+	c, rec := createTestContext(echo.New(), http.MethodGet, "/rauthvalidate", nil)
+	c.Request().AddCookie(cookie)
+	require.NoError(t, (&AuthHandler{Cfg: cfg}).Validate(c))
+	require.Equal(t, http.StatusUnauthorized, rec.Code, "the fast SQL read must preserve the empty-username gate")
+	require.Empty(t, rec.Header().Get("X-RAuth-User"))
+}
+
+func TestSQLValidationRequiresPublishedDatabaseHandle(t *testing.T) {
+	cfg := setupSQLRuntimeTest(t)
+	cookie := validationFixtureCookie(t, cfg, "unpublished-pg-fixture")
+	original := core.PG
+	defer func() { core.PG = original }()
+	core.PG = nil
+	c, rec := createTestContext(echo.New(), http.MethodGet, "/rauthvalidate", nil)
+	c.Request().AddCookie(cookie)
+	require.NoError(t, (&AuthHandler{Cfg: cfg}).Validate(c))
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code, "a partial authority teardown must still fail closed")
+	require.Empty(t, rec.Header().Get("X-RAuth-User"))
+}

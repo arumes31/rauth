@@ -26,8 +26,11 @@ func ReadAuthorizedAuthSession(ctx context.Context, token, audience string) (map
 	if err != nil {
 		return nil, err
 	}
-	if len(data) == 0 || data["status"] != "valid" || !SessionAudienceValid(data, audience) {
+	if len(data) == 0 || data["status"] != "valid" || data["username"] == "" || !SessionAudienceValid(data, audience) {
 		return nil, authstate.ErrNotFound
+	}
+	if PG == nil {
+		return nil, errors.New("authentication database is unavailable")
 	}
 	if _, authoritativeSQL := securitySessions.(*authstate.PostgresSessions); !authoritativeSQL {
 		valid, err := SessionAuthorization(ctx, data)
