@@ -50,6 +50,7 @@ type Store struct {
 	options      Options
 	epoch, token string
 	mu           sync.Mutex
+	changedMu    sync.Mutex
 	readMu       sync.Mutex
 	readCache    map[historyKey]historyEntry
 	changed      chan struct{}
@@ -256,21 +257,23 @@ func (s *Store) insert(ctx context.Context, peer string, events []requestevent.E
 	if s.closed {
 		return nil, ErrUnavailable
 	}
+	// Resolve duplicates once per batch, rather than one network round trip
+	// per event. Recheck inside the fenced transaction after retention runs.
+	old, err := s.existing(ctx, s.pool, peer, events)
+	if err != nil {
+		return nil, err
+	}
 	var incoming, incomingTelemetry int64
 	for i, e := range events {
-		var old []byte
-		err := s.pool.QueryRow(ctx, `SELECT payload FROM request_events WHERE cluster_id=$1 AND node_id=$2 AND event_id=$3`, s.options.ClusterID, e.NodeID, e.EventID).Scan(&old)
-		if err == nil {
-			if !bytes.Equal(old, raws[i]) {
+		if payload, found := old[e.EventID]; found {
+			if !bytes.Equal(payload, raws[i]) {
 				return nil, ErrConflict
 			}
-		} else if errors.Is(err, pgx.ErrNoRows) {
-			incoming += eventSize(raws[i])
-			if e.Kind == "telemetry" {
-				incomingTelemetry += eventSize(raws[i])
-			}
-		} else {
-			return nil, ErrUnavailable
+			continue
+		}
+		incoming += eventSize(raws[i])
+		if e.Kind == "telemetry" {
+			incomingTelemetry += eventSize(raws[i])
 		}
 	}
 	if incoming > s.options.MaxBytes || incomingTelemetry > s.telemetryLimit() {
@@ -284,29 +287,26 @@ func (s *Store) insert(ctx context.Context, peer string, events []requestevent.E
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	old, err = s.existing(ctx, tx, peer, events)
+	if err != nil {
+		return nil, err
+	}
 	var added, addedTelemetry int64
+	batch := &pgx.Batch{}
 	for i, e := range events {
-		var old []byte
-		err = tx.QueryRow(ctx, `SELECT payload FROM request_events WHERE cluster_id=$1 AND node_id=$2 AND event_id=$3`, s.options.ClusterID, e.NodeID, e.EventID).Scan(&old)
-		if err == nil {
-			if !bytes.Equal(old, raws[i]) {
+		if payload, found := old[e.EventID]; found {
+			if !bytes.Equal(payload, raws[i]) {
 				return nil, ErrConflict
 			}
 			continue
-		}
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return nil, storageFailure(err)
 		}
 		if high == math.MaxInt64 {
 			return nil, ErrUnavailable
 		}
 		high++
-		_, err = tx.Exec(ctx, `INSERT INTO request_events(cluster_id,seq,node_id,event_id,occurred_at,received_at,payload,size,kind,node_name,action,country,source,domain,url,reason,feed_id,processing_us,latency_bucket) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`, s.options.ClusterID, high, e.NodeID, e.EventID, e.Time, now, raws[i], eventSize(raws[i]), e.Kind, e.NodeName, e.Action, e.Country, e.Source, eventDomain(e.URL), e.URL, e.Reason, e.FeedID, e.ProcessingMicros, latencyBucket(e.ProcessingMicros))
-		if err != nil {
-			return nil, storageFailure(err)
-		}
-		if err = s.insertStatistics(ctx, tx, high, e, now); err != nil {
-			return nil, storageFailure(err)
+		batch.Queue(`INSERT INTO request_events(cluster_id,seq,node_id,event_id,occurred_at,received_at,payload,size,kind,node_name,action,country,source,domain,url,reason,feed_id,processing_us,latency_bucket) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`, s.options.ClusterID, high, e.NodeID, e.EventID, e.Time, now, raws[i], eventSize(raws[i]), e.Kind, e.NodeName, e.Action, e.Country, e.Source, eventDomain(e.URL), e.URL, e.Reason, e.FeedID, e.ProcessingMicros, latencyBucket(e.ProcessingMicros))
+		if err = s.queueStatistics(batch, high, e, now); err != nil {
+			return nil, err
 		}
 		used += eventSize(raws[i])
 		if e.Kind == "telemetry" {
@@ -314,7 +314,11 @@ func (s *Store) insert(ctx context.Context, peer string, events []requestevent.E
 		}
 		added++
 	}
-	if _, err = tx.Exec(ctx, `UPDATE event_ledgers SET payload_bytes=$3,high_water=$4,event_count=event_count+$5,telemetry_bytes=telemetry_bytes+$6 WHERE cluster_id=$1 AND owner_token=$2`, s.options.ClusterID, s.token, used, high, added, addedTelemetry); err != nil {
+	batch.Queue(`UPDATE event_ledgers SET payload_bytes=$3,high_water=$4,event_count=event_count+$5,telemetry_bytes=telemetry_bytes+$6 WHERE cluster_id=$1 AND owner_token=$2`, s.options.ClusterID, s.token, used, high, added, addedTelemetry)
+	results := tx.SendBatch(ctx, batch)
+	// Close drains every result and reports any statement failure. No ACK is
+	// returned until the whole transaction has synchronously committed.
+	if err = results.Close(); err != nil {
 		return nil, storageFailure(err)
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -325,6 +329,39 @@ func (s *Store) insert(ctx context.Context, peer string, events []requestevent.E
 	}
 	return acks, nil
 }
+
+type eventQuerier interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}
+
+func (s *Store) existing(ctx context.Context, q eventQuerier, peer string, events []requestevent.Event) (map[string][]byte, error) {
+	found := make(map[string][]byte, len(events))
+	if len(events) == 0 {
+		return found, nil
+	}
+	ids := make([]string, len(events))
+	for i, event := range events {
+		ids[i] = event.EventID
+	}
+	rows, err := q.Query(ctx, `SELECT event_id::text,payload FROM request_events WHERE cluster_id=$1 AND node_id=$2 AND event_id=ANY($3::uuid[])`, s.options.ClusterID, peer, ids)
+	if err != nil {
+		return nil, storageFailure(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var payload []byte
+		if err = rows.Scan(&id, &payload); err != nil {
+			return nil, storageFailure(err)
+		}
+		found[id] = payload
+	}
+	if err = rows.Err(); err != nil {
+		return nil, storageFailure(err)
+	}
+	return found, nil
+}
+
 func (s *Store) telemetryLimit() int64 { return min(s.options.MaxBytes/8, 256<<20) }
 func (s *Store) trim(ctx context.Context, incoming, incomingTelemetry int64, now time.Time) error {
 	for {
@@ -495,9 +532,9 @@ func (s *Store) after(ctx context.Context, cursor uint64, node string) (Batch, e
 	if (node != "" && !requestevent.ValidID(node)) || cursor > math.MaxInt64 {
 		return Batch{}, ErrInvalid
 	}
-	s.mu.Lock()
+	s.changedMu.Lock()
 	changed := s.changed
-	s.mu.Unlock()
+	s.changedMu.Unlock()
 	b := Batch{Events: []requestevent.Event{}, Changed: changed}
 	tx, err := s.history.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
@@ -547,7 +584,12 @@ func (s *Store) Status(ctx context.Context) (Status, error) {
 	}
 	return st, nil
 }
-func (s *Store) notifyLocked() { close(s.changed); s.changed = make(chan struct{}) }
+func (s *Store) notifyLocked() {
+	s.changedMu.Lock()
+	defer s.changedMu.Unlock()
+	close(s.changed)
+	s.changed = make(chan struct{})
+}
 func (s *Store) releaseLock() {
 	if s.lock == nil {
 		return
@@ -607,18 +649,18 @@ func latencyBucket(us int64) int {
 	}
 	return len(latencyEdges)
 }
-func (s *Store) insertStatistics(ctx context.Context, tx pgx.Tx, seq int64, e requestevent.Event, received time.Time) error {
+func (s *Store) queueStatistics(batch *pgx.Batch, seq int64, e requestevent.Event, received time.Time) error {
 	switch e.Kind {
 	case "decision":
-		_, err := tx.Exec(ctx, `INSERT INTO event_traffic_minute(cluster_id,node_id,minute,action,country,latency_bucket,decisions,processing_us) VALUES($1,$2,date_trunc('minute',$3::timestamptz),$4,$5,$6,1,$7) ON CONFLICT(cluster_id,node_id,minute,action,country,latency_bucket) DO UPDATE SET decisions=event_traffic_minute.decisions+1,processing_us=event_traffic_minute.processing_us+excluded.processing_us`, s.options.ClusterID, e.NodeID, e.Time, e.Action, e.Country, latencyBucket(e.ProcessingMicros), e.ProcessingMicros)
-		return err
+		batch.Queue(`INSERT INTO event_traffic_minute(cluster_id,node_id,minute,action,country,latency_bucket,decisions,processing_us) VALUES($1,$2,date_trunc('minute',$3::timestamptz),$4,$5,$6,1,$7) ON CONFLICT(cluster_id,node_id,minute,action,country,latency_bucket) DO UPDATE SET decisions=event_traffic_minute.decisions+1,processing_us=event_traffic_minute.processing_us+excluded.processing_us`, s.options.ClusterID, e.NodeID, e.Time, e.Action, e.Country, latencyBucket(e.ProcessingMicros), e.ProcessingMicros)
+		return nil
 	case "telemetry":
 		raw, err := json.Marshal(e.Metrics)
 		if err != nil {
 			return err
 		}
-		_, err = tx.Exec(ctx, `INSERT INTO event_node_samples(cluster_id,seq,node_id,node_name,instance_id,occurred_at,received_at,snapshot,is_diagnostic) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, s.options.ClusterID, seq, e.NodeID, e.NodeName, e.Metrics.InstanceID, e.Time, received, raw, e.Metrics.Diagnostics)
-		return err
+		batch.Queue(`INSERT INTO event_node_samples(cluster_id,seq,node_id,node_name,instance_id,occurred_at,received_at,snapshot,is_diagnostic) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, s.options.ClusterID, seq, e.NodeID, e.NodeName, e.Metrics.InstanceID, e.Time, received, raw, e.Metrics.Diagnostics)
+		return nil
 	}
 	return nil
 }
