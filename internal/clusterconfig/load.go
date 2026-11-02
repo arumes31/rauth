@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"rauth/internal/clusterpolicy"
 	"rauth/internal/clustertransport"
+	"rauth/internal/hahealth"
 	"strings"
 	"time"
 )
@@ -54,6 +55,15 @@ func (l *Loaded) CheckEventRoot() error {
 		return ErrInvalid
 	}
 	return validateEventDirectory(l.config)
+}
+
+// ReadHAObservation reads only a bounded private report from the configured
+// host tree. Missing or malformed telemetry never prevents auth startup.
+func (l *Loaded) ReadHAObservation() ([]byte, error) {
+	if l == nil || l.config.Role != Control || l.config.HAObservationFile == "" {
+		return nil, ErrPrivateFile
+	}
+	return readHAObservation(l.config, hahealth.MaxReportBytes)
 }
 
 func (l *Loaded) CookieSecret() string { return l.cookieSecret }

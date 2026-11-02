@@ -8,6 +8,7 @@ import (
 	"errors"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
+	"github.com/prometheus/client_golang/prometheus"
 	"io"
 	"log/slog"
 	"net"
@@ -22,6 +23,7 @@ import (
 	"rauth/internal/clusterworker"
 	"rauth/internal/core"
 	"rauth/internal/eventrelay"
+	"rauth/internal/hahealth"
 	"rauth/internal/requestevent"
 	"strconv"
 	"sync"
@@ -34,25 +36,27 @@ type privateRPCClient interface {
 	Do(*http.Request) (*http.Response, error)
 }
 type clusterRuntime struct {
-	publicConfig  *core.Config
-	material      *clusterconfig.Loaded
-	spec          clusterconfig.Config
-	worker        *clusterworker.Worker[*core.PolicySnapshot]
-	registry      *clusterregistry.Reader
-	self          clustertransport.Peer
-	publisher     *core.ControllerPolicyPublisher
-	client        *clustertransport.Client
-	relayClient   privateRPCClient
-	pools         []*pgxpool.Pool
-	ctx           context.Context
-	cancel        context.CancelFunc
-	wg            sync.WaitGroup
-	closeOnce     sync.Once
-	notices       *policyNoticeHub
-	policyState   *clusterPolicyState
-	health        *clusterHealth
-	events        *clusterEvents
-	eventRegistry *clusterregistry.Reader
+	publicConfig        *core.Config
+	material            *clusterconfig.Loaded
+	spec                clusterconfig.Config
+	worker              *clusterworker.Worker[*core.PolicySnapshot]
+	registry            *clusterregistry.Reader
+	self                clustertransport.Peer
+	publisher           *core.ControllerPolicyPublisher
+	client              *clustertransport.Client
+	relayClient         privateRPCClient
+	pools               []*pgxpool.Pool
+	ctx                 context.Context
+	cancel              context.CancelFunc
+	wg                  sync.WaitGroup
+	closeOnce           sync.Once
+	notices             *policyNoticeHub
+	policyState         *clusterPolicyState
+	health              *clusterHealth
+	events              *clusterEvents
+	haObserver          *hahealth.Observer
+	haMetricsRegistered bool
+	eventRegistry       *clusterregistry.Reader
 }
 
 // loadClusterBootstrap runs before database/authority initialization. Legacy
@@ -201,10 +205,21 @@ func newClusterRuntime(parent context.Context, cfg *core.Config, material *clust
 			return nil, errClusterRuntime
 		}
 	}
+	if spec.Role == clusterconfig.Control && spec.HAObservationFile != "" {
+		r.haObserver = hahealth.New(material.ReadHAObservation, spec.ClusterID)
+		if err := prometheus.DefaultRegisterer.Register(r.haObserver); err == nil {
+			r.haMetricsRegistered = true
+		} else {
+			slog.Warn("HA observation metrics registration unavailable")
+		}
+	}
 	ok = true
 	return r, nil
 }
 func (r *clusterRuntime) Start() {
+	if r.haObserver != nil {
+		r.wg.Go(func() { r.haObserver.Run(r.ctx) })
+	}
 	if r.events != nil {
 		r.wg.Go(r.events.run)
 	}
@@ -255,6 +270,9 @@ func (r *clusterRuntime) Close() {
 			_ = r.worker.Close()
 		}
 		r.wg.Wait()
+		if r.haMetricsRegistered {
+			prometheus.DefaultRegisterer.Unregister(r.haObserver)
+		}
 		if r.client != nil {
 			r.client.CloseIdleConnections()
 		}

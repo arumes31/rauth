@@ -1,0 +1,9 @@
+# HA observations for the approved Admin Stats design
+
+Implement the remaining HA health provider from the approved Stats design. A separate, network-isolated observer shares the control node own Tailscale namespace, probes only the three configured state service IPs using verified TLS, and publishes a bounded, synced JSON snapshot on an existing host bind. Its TLS client leaves remain outside the RAuth application mount; it exposes no inbound API and receives no CA signing key or REST mutation password. The application only reads the guarded report file. Observation errors and stale reports never affect authentication readiness.
+
+The observer reports Patroni running/primary/replication state, expected PostgreSQL system identity, etcd cluster identity/quorum/leader/database size and TLS leaf expiry. It verifies /primary rather than treating a primary role string as a live leader lease. A hard child-process budget bounds every member probe. Only a whitelisted read-only etcd maintenance-status POST is used in addition to GET health requests. This isolated fixture has not proved fencing; the UI must say so.
+
+Add an optional control-only ha_observation_file in the existing guarded node configuration, a fresh/stale validated snapshot model, bounded metrics exposed through the existing registered diagnostics, and a responsive HA card. Keep all producer files, keys/configuration, output and rollback copies on host binds, with the exact UUID guard before provisioning.
+
+Validate malformed/foreign/stale reports, unavailable and inconsistent members, blocked network deadlines, protected HTTP access, metrics, and DOM rendering. Run the included CodeRabbit milestone review once the batch is stable. Test the real fixture, including observer stop/staleness, before merging and rollout.

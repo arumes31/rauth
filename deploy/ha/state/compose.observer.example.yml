@@ -1,0 +1,44 @@
+# Merge with the existing dedicated Tailscale service. All paths must already
+# exist after the host's UUID guard; no source directory is created by Docker.
+services:
+  ha-observer:
+    image: ghcr.io/arumes31/rauth-postgres@sha256:34f28fba165924168b22dfdcf961f485fae861c997512b5ca5d418467fc104ef
+    user: "10001:10001"
+    network_mode: service:tailscale
+    restart: "no"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    memswap_limit: 128m
+    pids_limit: 64
+    stop_grace_period: 10s
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+    entrypoint: [/opt/patroni/bin/python]
+    command: [/observer/observe.py, --config, /observer/config.json]
+    logging:
+      driver: json-file
+      options: {max-size: 2m, max-file: "2"}
+    tmpfs:
+      - /var/lib/postgresql:rw,noexec,nosuid,nodev,size=1m,uid=10001,gid=10001,mode=700
+    volumes:
+      - type: bind
+        source: ${RAUTH_OBSERVER_SCRIPT:?Verified observer program host path required}
+        target: /observer/observe.py
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${RAUTH_OBSERVER_CONFIG:?Private observer config host path required}
+        target: /observer/config.json
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${RAUTH_OBSERVER_PKI:?Separate private client-leaf directory required}
+        target: /pki
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${RAUTH_OBSERVER_OUTPUT:?Existing guarded report directory required}
+        target: /output
+        bind: {create_host_path: false}

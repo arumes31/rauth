@@ -59,7 +59,7 @@ func (c *Collector) Capture() requestevent.MetricSnapshot {
 	}
 	for _, family := range families {
 		name := family.GetName()
-		if !essential[name] {
+		if !essential[name] && !strings.HasPrefix(name, "rauth_ha_observation_") {
 			continue
 		}
 		var total, sum, count float64

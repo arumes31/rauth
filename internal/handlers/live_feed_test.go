@@ -52,7 +52,7 @@ func readFeedEvent(t *testing.T, r *bufio.Reader) (kind, id string, data map[str
 func feedTestServer(t *testing.T) (*httptest.Server, *http.Cookie) {
 	return feedTestServerWithEvents(t, nil)
 }
-func feedTestServerWithEvents(t *testing.T, events RequestEventSource) (*httptest.Server, *http.Cookie) {
+func feedTestServerWithEvents(t *testing.T, events RequestEventSource, configure ...func(*AdminHandler)) (*httptest.Server, *http.Cookie) {
 	t.Helper()
 	seedUserFields(t, "feedadmin", map[string]interface{}{"is_admin": "1"})
 	cfg := bypassTestConfig()
@@ -64,8 +64,11 @@ func feedTestServerWithEvents(t *testing.T, events RequestEventSource) (*httptes
 	require.NoError(t, err)
 	e := echo.New()
 	h := &AdminHandler{Cfg: cfg, RequestEvents: events}
+	for _, option := range configure {
+		option(h)
+	}
 	e.GET("/rauthmgmt/live-feed", h.LiveFeed, middleware.AuthMiddleware(cfg), middleware.AdminMiddleware)
-	for path, handler := range map[string]echo.HandlerFunc{"data": h.StatsData, "history": h.StatsHistory, "diagnostics": h.StatsDiagnostics, "stream": h.StatsStream} {
+	for path, handler := range map[string]echo.HandlerFunc{"data": h.StatsData, "history": h.StatsHistory, "diagnostics": h.StatsDiagnostics, "stream": h.StatsStream, "operations": h.StatsOperations} {
 		e.GET("/rauthmgmt/stats/"+path, handler, middleware.AuthMiddleware(cfg), middleware.AdminMiddleware)
 	}
 	srv := httptest.NewServer(e)

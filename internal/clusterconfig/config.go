@@ -53,7 +53,8 @@ type EventConfig struct {
 }
 
 type Config struct {
-	Events *EventConfig `json:"events,omitempty"`
+	Events            *EventConfig `json:"events,omitempty"`
+	HAObservationFile string       `json:"ha_observation_file,omitempty"`
 
 	PublicListen     string            `json:"public_listen"`
 	CookieSecretFile string            `json:"cookie_secret_file"`
@@ -141,8 +142,14 @@ func (c Config) Validate() error {
 	} else if c.Databases.Events != "" {
 		return ErrInvalid
 	}
+	if c.HAObservationFile != "" && c.Role != Control {
+		return ErrInvalid
+	}
 	paths := []string{c.CookieSecretFile, c.AuthStateKeyFile, c.Databases.Auth, c.CertificateFile, c.PrivateKeyFile, c.CAFile, c.Databases.Head, c.Databases.Payload, c.Databases.Registry}
 	if c.Role == Control {
+		if c.HAObservationFile != "" {
+			paths = append(paths, c.HAObservationFile)
+		}
 		if c.GeoIPFile != "" {
 			paths = append(paths, c.GeoIPFile)
 		}

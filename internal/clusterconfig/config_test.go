@@ -149,3 +149,23 @@ func TestEventConfigRequiresIndependentPrivateLocalNamespace(t *testing.T) {
 	c.Databases.Events = c.DataRoot + "/secrets/events.url"
 	require.ErrorIs(t, c.Validate(), ErrInvalid)
 }
+
+func TestHAObservationFileIsOptionalControlOnlyAndDistinctFromSecrets(t *testing.T) {
+	c := document("/var/lib/rauth")
+	c.HAObservationFile = c.DataRoot + "/observations/ha.json"
+	require.Error(t, c.Validate(), "workers receive no observer file or probing credentials")
+	c.Role = Control
+	c.Controller.NodeID = c.NodeID
+	c.Controller.Endpoint = "https://100.72.1.2:9443"
+	c.SignerFile = c.DataRoot + "/secrets/signer.json"
+	c.ProfilesFile = c.DataRoot + "/config/profiles.json"
+	c.Databases.Source = c.DataRoot + "/secrets/source.url"
+	c.Databases.Publisher = c.DataRoot + "/secrets/publisher.url"
+	c.Databases.Registrar = c.DataRoot + "/secrets/registrar.url"
+	require.NoError(t, c.Validate())
+	for _, path := range []string{c.CookieSecretFile, c.CacheRoot + "/ha.json", "/etc/private.json", c.DataRoot + "/../ha.json"} {
+		bad := c
+		bad.HAObservationFile = path
+		require.Error(t, bad.Validate())
+	}
+}
