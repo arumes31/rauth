@@ -23,7 +23,8 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -v -o rauth . \
     && CGO_ENABLED=0 GOOS=linux go build -o rauth-feed-bootstrap ./cmd/rauth-feed-bootstrap \
     && CGO_ENABLED=0 GOOS=linux go build -o rauth-authstate-cutover ./cmd/rauth-authstate-cutover \
-    && CGO_ENABLED=0 GOOS=linux go build -o rauth-node-profile ./cmd/rauth-node-profile
+    && CGO_ENABLED=0 GOOS=linux go build -o rauth-node-profile ./cmd/rauth-node-profile \
+    && CGO_ENABLED=0 GOOS=linux go build -o rauth-event-store ./cmd/rauth-event-store
 
 # Runtime stage
 FROM alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
@@ -43,6 +44,7 @@ COPY --from=builder --chown=10001:10001 /app/rauth ./rauth
 COPY --from=builder --chown=10001:10001 /app/rauth-feed-bootstrap ./rauth-feed-bootstrap
 COPY --from=builder --chown=10001:10001 /app/rauth-authstate-cutover ./rauth-authstate-cutover
 COPY --from=builder --chown=10001:10001 /app/rauth-node-profile ./rauth-node-profile
+COPY --from=builder --chown=10001:10001 /app/rauth-event-store ./rauth-event-store
 COPY --from=builder --chown=10001:10001 /app/templates ./templates
 COPY --from=builder --chown=10001:10001 /app/static ./static
 COPY --chown=10001:10001 entrypoint.sh ./entrypoint.sh
