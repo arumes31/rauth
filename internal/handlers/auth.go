@@ -102,30 +102,16 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 	}
 
 	redisKey := "X-rauth-authtoken=" + token
-	data, err := core.ReadAuthSession(c.Request().Context(), token)
+	data, err := core.ReadAuthorizedAuthSession(c.Request().Context(), token, audience)
 	if err != nil && !errors.Is(err, authstate.ErrNotFound) {
 		return h.sessionAuthorityUnavailable(c)
 	}
-	if err != nil || len(data) == 0 || data["status"] != "valid" || !core.SessionAudienceValid(data, audience) {
+	if err != nil {
 		return h.denyOrBypass(c, rateLimitKey, true)
 	}
-
-	// Reject sessions of deleted accounts or ones issued before the user's last
-	// credential change (see core.BumpAuthGeneration). The session is left to
-	// expire rather than deleted: SessionAuthorized also fails closed on a
-	// transient Redis error, which must not destroy a valid session.
-	authorized, authErr := core.SessionAuthorization(c.Request().Context(), data)
-	if authErr != nil {
-		return h.sessionAuthorityUnavailable(c)
-	}
-	if !authorized {
-		return h.denyOrBypass(c, rateLimitKey, true)
-	}
-
-	// Session is present: reset the per-IP validate throttle.
-	core.ResetRateLimit(rateLimitKey)
 
 	if !core.SessionBindingValid(h.Cfg, c.Request(), token, redisKey, data, clientIP) {
+		core.ResetRateLimit(rateLimitKey)
 		return h.denyOrBypass(c, rateLimitKey, false)
 	}
 
@@ -143,6 +129,7 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 	// its successor instead of refreshing or rotating it again, so a replayed
 	// old cookie can neither keep itself alive nor fork new sessions.
 	if successor := data["rotated_to"]; successor != "" {
+		core.ResetRateLimit(rateLimitKey)
 		if data["ip"] == clientIP {
 			if encrypted, err := core.EncryptToken(successor, h.Cfg.ServerSecret); err == nil {
 				h.setSessionCookie(c, encrypted, time.Duration(h.Cfg.TokenValidityMinutes)*time.Minute)
@@ -163,6 +150,7 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 		if h.Cfg.TokenRotationMinutes > 0 && now-createdAt > int64(h.Cfg.TokenRotationMinutes)*60 {
 			newToken, ok := h.rotateSession(token, data["username"], clientIP, now, validity)
 			if !ok {
+				core.ResetRateLimit(rateLimitKey)
 				// Another request rotated it first, it was terminated meanwhile,
 				// or Redis failed: leave the old token as it is. Refreshing it
 				// would undo a retirement that happened after the read above.
@@ -175,8 +163,10 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 			}
 		}
 
-		core.RefreshSession(token, validity)
+		core.RefreshValidatedSession(c.Request().Context(), token, rateLimitKey, validity)
 		h.setSessionCookie(c, cookie.Value, validity)
+	} else {
+		core.ResetRateLimit(rateLimitKey)
 	}
 
 	return c.NoContent(http.StatusOK)
