@@ -62,3 +62,94 @@ Provision the script, private configuration, curated client leaves and report di
 The report records running database roles, lease-aware primary verification, synchronous partners, timeline-aware lag, expected physical identities, etcd voter/leader/database quota and TLS leaf expiry. A primary role string alone is not accepted as a live leader. A missing member leaves quorum potentially available while redundancy is shown as degraded. Reports older than fifteen seconds, read failures or malformed/foreign scope become stale/unavailable; last known samples are retained without being shown as current zeros. Eight bounded `rauth_ha_observation_*` gauges also enter the existing registered diagnostics, with current counts omitted while coverage is unavailable. The central shared counts are observed once, not summed across workers.
 
 This is **observability**, not a fencing attestation. The panel explicitly marks fencing as not observed. A healthy observation does not make the isolated fixture production-ready. Certificate rotation, host boot/UUID supervision, memory/WAL capacity, recovery and the separately approved fencing/host-loss tests remain deployment prerequisites. The test producer deliberately uses `restart: no`; a supervised host startup must recheck its expected filesystem before launch.
+
+### Guarded host supervision
+
+supervise.py supervises only an explicit cohort of existing, image/label-pinned
+containers. It never provisions data, initializes PostgreSQL, promotes a replica,
+or starts a legacy/rollback authorizer. Every owned container, including its
+dedicated Tailscale provider, must have Docker restart policy no. A systemd
+unit is the sole boot/recovery owner.
+
+Before each start, the supervisor verifies the live writable filesystem UUID,
+free-space and available-memory floors, pinned image/authority, bind sources,
+and provider namespace. A local role failure restarts that role; a provider
+failure stops its clients before rejoining its namespace. Role startup attempts, including role-local preflight refusals, are limited
+to three per role per five minutes. On reaching the limit the supervisor logs
+restart_backoff and automatically retries when the oldest attempt leaves that
+window. Shared capacity, provider and launcher failures spend no role budget. A verified missing/foreign/read-only
+filesystem stops the owned cohort, PostgreSQL first. Capacity/dependency
+errors prevent starts without shutting down healthy roles.
+
+Each original entrypoint must be wrapped by cmd/rauth-guard-exec. The supervisor
+copies the hash-pinned static launcher into root-owned transient /run tmpfs,
+then attests the physical device, filesystem ID, inode and writable flag of
+every persistent bind source. The same verified Go binary describes held descriptors for attestation and
+verification, avoiding libc or userspace-word-size filesystem-ID conversions.
+The container receives read-only launcher and
+witness binds. Before executing the original command as PID 1, the launcher
+checks the root-owned immutable tmpfs witness, current boot ID, required role
+paths and actual mounted identities. This closes the host-check/Docker-bind
+race without creating fallback directories. Existing mounts pin their
+filesystems; failed verification never executes a writer.
+
+package_supervisor.py produces a JSON source bundle and an uninstalled unit.
+The unit pins the complete bundle hash and expected mount/UUID. Its small
+isolated Python loader validates storage and held descriptors before executing
+any bundle source in memory. Bulk programs and private configuration remain on
+the selected data filesystem; on Pi3 they belong below /mnt/usb1/rauth.
+Only the generated service and RAM mount units belong in /etc/systemd/system;
+/run copies are transient. The dedicated 32MiB tmpfs mount has exec,nosuid,nodev:
+several hosts mount /run itself noexec, so using that inherited mount cannot
+run the static launcher. The supervisor refuses a noexec RAM mount.
+Install root-owned bundles/configuration with mode 0600 and the static launcher
+without group/world write permissions. Inspect the generated unit with
+systemd-analyze verify before enabling it.
+
+Before rollout, create a private supervisor configuration for the exact node:
+storage scope/capacity floors, dedicated service IP, launcher path/hash, explicit
+role/name/image-ID/label pins, and only the operational device-field remaps.
+Preserve existing original entrypoints, image IDs, binds, environment, limits,
+keys and closed spools during the one-time guarded-container migration. Never
+replace an old SQL authority with a retained snapshot after new writes.
+Migrate one isolated host at a time, preserving quorum and a compatible
+rollback description. Dry-run wrong-UUID refusal and test supervised role,
+provider and daemon recovery before production activation.
+
+Host supervision does not configure or arm hardware/software watchdogs.
+Whole-host fencing and disruptive reset acceptance are separate maintenance
+steps. Docker restart policy changes alone do not prove safe failover.
+
+Run portable policy/model tests with
+python -m unittest discover -s deploy/ha/state -p 'test_*.py'.
+Real Linux acceptance must also cover descriptor identity and refusal before
+child execution; Windows model tests cannot establish Linux mount behavior.
+
+Supervisor configuration schema 2 pins every non-guard bind as exact source,
+target and writable fields in each role's binds array. Those pins cover the
+existing approved data/program directories, including separate Tailscale or
+application directories on the same filesystem. A changed source, sibling
+prefix, extra bind or writable-mode change prevents startup. The held-descriptor
+filesystem checks still apply independently. Pre-release schema 1 configurations
+must be regenerated from the reviewed live bind inventory.
+
+For an update, stage the bundle, launcher and schema 2 configuration in a new
+private versioned directory below the guarded state root. The generated unit
+locates its source bundle next to that configuration. Verify the new unit and
+UUID refusal before replacing the OS service unit, reloading systemd and
+restarting one owned cohort at a time. Preserve its previous bundle/unit,
+current authority and closed spool; do not overwrite a running unit's pinned
+bundle path ahead of the unit update.
+
+The generated unit, pinned digest, private supervisor configuration and source
+bundle are controlled by the host administrator. The unit belongs to root in
+/etc/systemd/system; bundles/configuration require root ownership and private
+permissions. Guests receive only read-only RAM guard inputs and cannot replace
+the unit or its digest. This protects startup against storage/path mistakes,
+untrusted bind substitution and guest modification; an administrator who can
+replace both the root-owned unit and its digest remains fully trusted.
+
+Bootstrap failures and escaped supervisor-runtime failures have separate
+diagnostics. Runtime diagnostics include the exception type and stack file/line
+frames, without exception text, source lines or local values that could contain
+private database URLs or credentials.
