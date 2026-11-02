@@ -13,6 +13,8 @@ type PolicyPinner interface {
 	WithPolicy(func(*core.PolicySnapshot) error) error
 }
 
+const policyFeedVersionKey = "rauth.pinned_policy_feed_version"
+
 const policyFeedCountryKey = "rauth.pinned_policy_feed_country"
 
 type policyFeedCountry struct{ source, country string }
@@ -31,6 +33,7 @@ func WorkerPolicyAdmission(cfg *core.Config, pinner PolicyPinner) echo.Middlewar
 					if snapshot == nil {
 						return clusterpolicy.ErrNotCurrent
 					}
+					c.Set(policyFeedVersionKey, snapshot.Identity().Revision)
 					admitted = true
 					original := c.Request()
 					c.SetRequest(original.WithContext(core.WithPolicySnapshot(original.Context(), snapshot)))

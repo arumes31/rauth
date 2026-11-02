@@ -23,6 +23,7 @@ var (
 
 func setupHandlersTest(t *testing.T) {
 	globalTestMu.Lock()
+	t.Cleanup(globalTestMu.Unlock)
 	if sharedMiniredis == nil {
 		// The cost-12 dummy hash makes brute-force tests (~130 failed logins)
 		// exceed the 10m test timeout under -race; use MinCost in tests.
@@ -48,9 +49,6 @@ func setupHandlersTest(t *testing.T) {
 	core.PG = pgtest.Open(t, core.Migrate)
 	pgtest.Reset(t, core.PG)
 
-	t.Cleanup(func() {
-		globalTestMu.Unlock()
-	})
 }
 
 func createTestContext(e *echo.Echo, method, path string, f url.Values) (echo.Context, *httptest.ResponseRecorder) {

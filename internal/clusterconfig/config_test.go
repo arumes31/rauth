@@ -132,3 +132,20 @@ func TestRuntimeConfigRequiresExplicitPrivateAppListenerAndAuthFiles(t *testing.
 		require.ErrorIs(t, c.Validate(), ErrInvalid)
 	}
 }
+
+func TestEventConfigRequiresIndependentPrivateLocalNamespace(t *testing.T) {
+	good := func() Config {
+		c := document("/var/lib/rauth")
+		c.Events = &EventConfig{LocalRoot: c.DataRoot + "/events", NodeName: "worker"}
+		return c
+	}
+	require.NoError(t, good().Validate())
+	for _, change := range []func(*Config){func(c *Config) { c.Events.LocalRoot = c.CacheRoot }, func(c *Config) { c.Events.LocalRoot = c.CacheRoot + "/events" }, func(c *Config) { c.Events.LocalRoot = c.DataRoot + "/secrets" }, func(c *Config) { c.Events.LocalRoot = c.CertificateFile }, func(c *Config) { c.Events.LocalRoot = "/tmp/events" }, func(c *Config) { c.Events.NodeName = "bad\nname" }, func(c *Config) { c.Events.LocalMaxBytes = 1 }, func(c *Config) { c.Events.LocalMaxAgeSeconds = 90000 }, func(c *Config) { c.Events.CentralMaxBytes = 8 << 30 }, func(c *Config) { c.Databases.Events = c.DataRoot + "/secrets/events.url" }} {
+		c := good()
+		change(&c)
+		require.ErrorIs(t, c.Validate(), ErrInvalid)
+	}
+	c := document("/var/lib/rauth")
+	c.Databases.Events = c.DataRoot + "/secrets/events.url"
+	require.ErrorIs(t, c.Validate(), ErrInvalid)
+}

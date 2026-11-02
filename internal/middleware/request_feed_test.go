@@ -97,3 +97,28 @@ func TestRequestFeedOptionalOriginalIPDoesNotChangeAuthenticationIP(t *testing.T
 		assert.Equal(t, tc.want, events[0].Source)
 	}
 }
+
+func TestRequestFeedObserverReceivesSanitizedDecisionAndPinnedVersion(t *testing.T) {
+	old := core.LiveRequests
+	core.LiveRequests = core.NewRequestFeed(3)
+	defer func() { core.LiveRequests = old }()
+	e := echo.New()
+	var captured []core.RequestEvent
+	e.IPExtractor = func(*http.Request) string { return "8.8.8.8" }
+	cfg := &core.Config{TrustedProxies: []string{"10.1.2.3"}, AuthBypassHostHeader: "X-Forwarded-Host", AuthBypassURIHeader: "X-Forwarded-Uri"}
+	e.Use(RequestFeedSink(cfg, func(event core.RequestEvent) { captured = append(captured, event) }))
+	e.GET("/rauthvalidate", func(c echo.Context) error { c.Set(policyFeedVersionKey, int64(42)); return c.NoContent(401) })
+	req := httptest.NewRequest(http.MethodGet, "/rauthvalidate", nil)
+	req.RemoteAddr = "10.1.2.3:1234"
+	req.Header.Set("X-Forwarded-Host", "example.test")
+	req.Header.Set("X-Forwarded-Uri", "/document?token=secret#fragment")
+	req.Header.Set("Cookie", "credential=secret")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	require.Equal(t, 401, rec.Code)
+	require.Len(t, captured, 1)
+	require.Equal(t, "https://example.test/document", captured[0].URL)
+	require.EqualValues(t, 42, captured[0].PolicyVersion)
+	require.Equal(t, "8.8.8.8", captured[0].Source)
+	require.Equal(t, "login_required", captured[0].Action)
+}

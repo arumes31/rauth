@@ -132,7 +132,12 @@ func timeKey(event requestevent.Event, seq uint64) []byte {
 	return out
 }
 func (s *Store) Identity(e requestevent.Event) requestevent.Event {
-	e = requestevent.Decision(e)
+	if e.Kind == "telemetry" && e.Metrics != nil {
+		snapshot := e.Metrics.Clone()
+		e = requestevent.Event{Kind: "telemetry", Time: e.Time, Metrics: &snapshot}
+	} else {
+		e = requestevent.Decision(e)
+	}
 	e.NodeID = s.options.NodeID
 	e.NodeName = s.options.NodeName
 	e.EventID = uuid.NewString()
@@ -560,4 +565,72 @@ func sameContent(a, b []byte) bool {
 	x, _ := json.Marshal(left)
 	y, _ := json.Marshal(right)
 	return bytes.Equal(x, y)
+}
+
+// Reject atomically replaces permanently rejected decision records with a
+// durable loss marker. Telemetry rejection creates a coverage gap, not fictitious
+// request loss. It never discards an existing gap or acknowledges central commit.
+func (s *Store) Reject(ctx context.Context, ids []string) error {
+	if len(ids) < 1 || len(ids) > requestevent.MaxBatch {
+		return ErrInvalid
+	}
+	for _, id := range ids {
+		if !requestevent.ValidID(id) {
+			return ErrInvalid
+		}
+	}
+	if !s.mu.TryLock() {
+		return ErrUnavailable
+	}
+	defer s.mu.Unlock()
+	if s.closed {
+		return ErrUnavailable
+	}
+	err := s.db.Update(func(tx *bolt.Tx) error {
+		var lost uint64
+		for _, id := range ids {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			seq := bytes.Clone(tx.Bucket(idBucket).Get([]byte(id)))
+			if seq == nil {
+				continue
+			}
+			var event requestevent.Event
+			if json.Unmarshal(tx.Bucket(eventBucket).Get(seq), &event) != nil || event.Kind == "gap" {
+				return ErrInvalid
+			}
+			removed, err := s.remove(tx, seq)
+			if err != nil {
+				return err
+			}
+			if removed != nil && removed.Kind == "decision" {
+				lost++
+			}
+		}
+		if lost == 0 {
+			return nil
+		}
+		meta := tx.Bucket(metaBucket)
+		total := number(meta.Get([]byte("dropped")))
+		if total > 1<<53-1-lost {
+			return ErrUnavailable
+		}
+		total += lost
+		if err := meta.Put([]byte("dropped"), key(total)); err != nil {
+			return err
+		}
+		gap := s.gap("queue_invalid", lost, false)
+		gap.LossTotal = total
+		gap.UncleanTotal = number(meta.Get([]byte("unclean")))
+		raw, err := json.Marshal(gap)
+		if err != nil {
+			return err
+		}
+		return s.put(tx, gap, raw)
+	})
+	if err != nil {
+		return ErrUnavailable
+	}
+	return nil
 }

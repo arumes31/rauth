@@ -4,12 +4,17 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"rauth/internal/core"
+	"rauth/internal/eventstore"
 	"rauth/internal/middleware"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -45,6 +50,9 @@ func readFeedEvent(t *testing.T, r *bufio.Reader) (kind, id string, data map[str
 }
 
 func feedTestServer(t *testing.T) (*httptest.Server, *http.Cookie) {
+	return feedTestServerWithEvents(t, nil)
+}
+func feedTestServerWithEvents(t *testing.T, events RequestEventSource) (*httptest.Server, *http.Cookie) {
 	t.Helper()
 	seedUserFields(t, "feedadmin", map[string]interface{}{"is_admin": "1"})
 	cfg := bypassTestConfig()
@@ -55,17 +63,25 @@ func feedTestServer(t *testing.T) (*httptest.Server, *http.Cookie) {
 	encrypted, err := core.EncryptToken(token, cfg.ServerSecret)
 	require.NoError(t, err)
 	e := echo.New()
-	e.GET("/rauthmgmt/live-feed", (&AdminHandler{Cfg: cfg}).LiveFeed, middleware.AuthMiddleware(cfg), middleware.AdminMiddleware)
+	h := &AdminHandler{Cfg: cfg, RequestEvents: events}
+	e.GET("/rauthmgmt/live-feed", h.LiveFeed, middleware.AuthMiddleware(cfg), middleware.AdminMiddleware)
+	for path, handler := range map[string]echo.HandlerFunc{"data": h.StatsData, "history": h.StatsHistory, "diagnostics": h.StatsDiagnostics, "stream": h.StatsStream} {
+		e.GET("/rauthmgmt/stats/"+path, handler, middleware.AuthMiddleware(cfg), middleware.AdminMiddleware)
+	}
 	srv := httptest.NewServer(e)
 	t.Cleanup(srv.Close)
 	return srv, &http.Cookie{Name: "X-rauth-authtoken", Value: encrypted}
 }
 
-func openFeed(t *testing.T, srv *httptest.Server, cookie *http.Cookie, cursor string) *http.Response {
+func openFeed(t *testing.T, srv *httptest.Server, cookie *http.Cookie, cursor string, node ...string) *http.Response {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	t.Cleanup(cancel)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/rauthmgmt/live-feed", nil)
+	target := srv.URL + "/rauthmgmt/live-feed"
+	if len(node) > 0 {
+		target += "?node=" + url.QueryEscape(node[0])
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	require.NoError(t, err)
 	if cookie != nil {
 		req.AddCookie(cookie)
@@ -177,4 +193,108 @@ func TestFeedCursorAndConnectionBounds(t *testing.T) {
 		defer releaseFeedStream("limit-test")
 	}
 	assert.False(t, acquireFeedStream("limit-test"))
+}
+
+type durableFeedFixture struct {
+	mu             sync.Mutex
+	events         []core.RequestEvent
+	latest, pruned uint64
+	changed        chan struct{}
+	err            error
+	nodes          []string
+}
+
+func (*durableFeedFixture) Epoch() string { return "durable-epoch" }
+func (f *durableFeedFixture) After(_ context.Context, cursor uint64, node string) (eventstore.Batch, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return eventstore.Batch{}, f.err
+	}
+	f.nodes = append(f.nodes, node)
+	out := eventstore.Batch{Events: []core.RequestEvent{}, Latest: f.latest, Next: f.latest, PrunedThrough: f.pruned, Changed: f.changed}
+	if len(f.events) > 0 {
+		out.Oldest = f.events[0].ID
+	}
+	for _, e := range f.events {
+		if e.ID > cursor && (node == "" || e.NodeID == node) {
+			out.Events = append(out.Events, e)
+			if len(out.Events) == 100 {
+				out.Next = e.ID
+				break
+			}
+		}
+	}
+	return out, nil
+}
+func TestLiveFeedDurableSourceUsesProcessingNodeFilterAndSurvivesReconnect(t *testing.T) {
+	setupHandlersTest(t)
+	previous := core.LiveRequests
+	core.LiveRequests = core.NewRequestFeed(3)
+	defer func() { core.LiveRequests = previous }()
+	core.LiveRequests.Append(core.RequestEvent{URL: "https://memory-only.example.test/decoy", Action: "bypass"})
+	nodeA := "11111111-1111-4111-8111-111111111111"
+	nodeB := "22222222-2222-4222-8222-222222222222"
+	source := &durableFeedFixture{latest: 3, changed: make(chan struct{}), events: []core.RequestEvent{{ID: 1, NodeID: nodeA, NodeName: "worker-A", Kind: "decision", URL: "https://example.test/a", Source: "203.0.113.7", Action: "bypass"}, {ID: 2, NodeID: nodeB, NodeName: "worker-B", Kind: "decision", URL: "https://example.test/b", Action: "bypass"}, {ID: 3, NodeID: nodeA, NodeName: "worker-A", Kind: "decision", URL: "https://example.test/c", Action: "blocked"}}}
+	srv, cookie := feedTestServerWithEvents(t, source)
+	resp := openFeed(t, srv, cookie, "durable-epoch:0", nodeA)
+	require.Equal(t, 200, resp.StatusCode)
+	reader := bufio.NewReader(resp.Body)
+	kind, _, _ := readFeedEvent(t, reader)
+	require.Equal(t, "ready", kind)
+	for _, want := range []string{"durable-epoch:1", "durable-epoch:3"} {
+		kind, id, data := readFeedEvent(t, reader)
+		require.Equal(t, "request", kind)
+		require.Equal(t, want, id)
+		require.Equal(t, "worker-A", data["node_name"])
+		require.NotContains(t, data["url"], "memory-only")
+	}
+	require.NoError(t, resp.Body.Close())
+	source.mu.Lock()
+	source.events = append(source.events, core.RequestEvent{ID: 4, NodeID: nodeA, NodeName: "worker-A", Kind: "decision", Action: "authenticated"})
+	source.latest = 4
+	close(source.changed)
+	source.changed = make(chan struct{})
+	source.mu.Unlock()
+	resp = openFeed(t, srv, cookie, "durable-epoch:3", nodeA)
+	reader = bufio.NewReader(resp.Body)
+	kind, _, _ = readFeedEvent(t, reader)
+	require.Equal(t, "ready", kind)
+	kind, id, _ := readFeedEvent(t, reader)
+	require.Equal(t, "request", kind)
+	require.Equal(t, "durable-epoch:4", id)
+	require.NoError(t, resp.Body.Close())
+	source.mu.Lock()
+	defer source.mu.Unlock()
+	for _, node := range source.nodes {
+		require.Equal(t, nodeA, node)
+	}
+}
+func TestLiveFeedConfiguredHistoryFailureDoesNotFallBackToMemory(t *testing.T) {
+	setupHandlersTest(t)
+	source := &durableFeedFixture{err: errors.New("synthetic storage failure")}
+	srv, cookie := feedTestServerWithEvents(t, source)
+	resp := openFeed(t, srv, cookie, "")
+	require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.NotContains(t, string(body), "synthetic")
+	require.NoError(t, resp.Body.Close())
+}
+func TestLiveFeedForwardsDurableLossMarkersAndPruningNotice(t *testing.T) {
+	setupHandlersTest(t)
+	source := &durableFeedFixture{latest: 4, pruned: 2, changed: make(chan struct{}), events: []core.RequestEvent{{ID: 3, Kind: "gap", NodeName: "worker-A", UnknownLoss: true, UncleanTotal: 1}, {ID: 4, Kind: "decision", NodeName: "worker-A", Action: "bypass"}}}
+	srv, cookie := feedTestServerWithEvents(t, source)
+	resp := openFeed(t, srv, cookie, "durable-epoch:0")
+	reader := bufio.NewReader(resp.Body)
+	kind, _, _ := readFeedEvent(t, reader)
+	require.Equal(t, "ready", kind)
+	kind, _, data := readFeedEvent(t, reader)
+	require.Equal(t, "gap", kind)
+	require.Equal(t, "history_expired", data["reason"])
+	kind, id, data := readFeedEvent(t, reader)
+	require.Equal(t, "gap", kind)
+	require.Equal(t, "durable-epoch:3", id)
+	require.Equal(t, true, data["unknown_loss"])
+	require.NoError(t, resp.Body.Close())
 }

@@ -131,14 +131,18 @@ func main() {
 		setupMiddleware(e, cfg)
 	} else {
 		e.Use(cluster.AdminRelay(cfg))
-		setupMiddlewarePolicy(e, cfg, cluster.worker)
+		setupMiddlewareEventSink(e, cfg, cluster.worker, cluster.events.record)
 	}
 	setupRenderer(e)
 	var policyStatus func(context.Context) (any, error)
 	if cluster != nil && cluster.policyState != nil {
 		policyStatus = cluster.policyState.overview
 	}
-	setupRoutesWithPolicyStatus(e, cfg, cluster != nil && cluster.spec.Role == clusterconfig.Worker, policyStatus)
+	var requestEvents handlers.RequestEventSource
+	if cluster != nil && cluster.events != nil {
+		requestEvents = cluster.events
+	}
+	setupRoutesWithEventHistory(e, cfg, cluster != nil && cluster.spec.Role == clusterconfig.Worker, policyStatus, requestEvents)
 	if cluster != nil {
 		e.GET("/health", cluster.Health)
 		e.GET("/livez", func(c echo.Context) error { return c.NoContent(http.StatusOK) })
@@ -248,13 +252,16 @@ func parseLogLevel(level string) slog.Level {
 
 func setupMiddleware(e *echo.Echo, cfg *core.Config) { setupMiddlewarePolicy(e, cfg, nil) }
 func setupMiddlewarePolicy(e *echo.Echo, cfg *core.Config, pinner middleware.PolicyPinner) {
+	setupMiddlewareEventSink(e, cfg, pinner, nil)
+}
+func setupMiddlewareEventSink(e *echo.Echo, cfg *core.Config, pinner middleware.PolicyPinner, sink func(core.RequestEvent)) {
 	// The bounded request-feed observer wraps the security chain so rejected
 	// forward-auth requests are visible too. Secure headers and BodyLimit then
 	// run first, followed by Client Hints
 	// and the request logger, then Recover and CSRF last. Keeping the logger
 	// ahead of Recover/CSRF ensures every request — including CSRF rejections —
 	// is logged.
-	e.Use(middleware.RequestFeed(cfg))
+	e.Use(middleware.RequestFeedSink(cfg, sink))
 	if pinner != nil {
 		admission := middleware.WorkerPolicyAdmission(cfg, pinner)
 		e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
@@ -510,10 +517,13 @@ func setupRoutesRole(e *echo.Echo, cfg *core.Config, worker bool) {
 	setupRoutesWithPolicyStatus(e, cfg, worker, nil)
 }
 func setupRoutesWithPolicyStatus(e *echo.Echo, cfg *core.Config, worker bool, readStatus func(context.Context) (any, error)) {
+	setupRoutesWithEventHistory(e, cfg, worker, readStatus, nil)
+}
+func setupRoutesWithEventHistory(e *echo.Echo, cfg *core.Config, worker bool, readStatus func(context.Context) (any, error), events handlers.RequestEventSource) {
 	e.GET("/static/*", echo.WrapHandler(http.FileServer(http.FS(noDirListingFS{staticFS}))))
 
 	authHandler := &handlers.AuthHandler{Cfg: cfg}
-	adminHandler := &handlers.AdminHandler{Cfg: cfg, ReadPolicyStatus: readStatus}
+	adminHandler := &handlers.AdminHandler{Cfg: cfg, ReadPolicyStatus: readStatus, RequestEvents: events}
 	profileHandler := &handlers.ProfileHandler{Cfg: cfg}
 	webauthnHandler := &handlers.WebAuthnHandler{Cfg: cfg}
 	healthHandler := &handlers.HealthHandler{Cfg: cfg}
@@ -536,6 +546,7 @@ func setupRoutesWithPolicyStatus(e *echo.Echo, cfg *core.Config, worker bool, re
 	e.POST("/rauthredeem", inviteHandler.Redeem)
 
 	e.GET("/health", healthHandler.Check)
+	e.GET("/stats", func(c echo.Context) error { return c.Redirect(http.StatusTemporaryRedirect, "/rauthmgmt/stats") })
 
 	// WebAuthn Public Login
 	e.GET("/webauthn/login/begin", webauthnHandler.BeginLogin)
@@ -607,6 +618,12 @@ func setupRoutesWithPolicyStatus(e *echo.Echo, cfg *core.Config, worker bool, re
 			admin.GET("/policy-status", adminHandler.PolicyStatus)
 		}
 		admin.GET("/live-feed", adminHandler.LiveFeed)
+		admin.GET("/stats", adminHandler.StatsPage)
+		admin.GET("/stats/data", adminHandler.StatsData)
+		admin.GET("/stats/history", adminHandler.StatsHistory)
+		admin.GET("/stats/stream", adminHandler.StatsStream)
+		admin.GET("/stats/diagnostics", adminHandler.StatsDiagnostics)
+		admin.GET("/stats/operations", adminHandler.StatsOperations)
 		admin.POST("/policy/preview", adminHandler.PreviewPolicy)
 		admin.POST("/user/create", adminHandler.CreateUser)
 		admin.POST("/user/delete", adminHandler.DeleteUser)

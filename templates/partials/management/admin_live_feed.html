@@ -14,8 +14,9 @@
         <div class="live-feed-tools">
             <div class="search">
                 <i class="bi bi-search"></i>
-                <input id="liveFeedSearch" type="search" class="form-control" placeholder="URL, source IP or country" aria-label="Search live requests">
+                <input id="liveFeedSearch" type="search" class="form-control" placeholder="URL, source IP, node or country" aria-label="Search live requests">
             </div>
+            <select id="liveFeedNode" class="form-select" aria-label="Filter processing nodes"><option value="">All processing nodes</option></select>
             <select id="liveFeedAction" class="form-select" aria-label="Filter request actions">
                 <option value="">All actions</option>
                 <option value="authenticated">Allowed</option>
@@ -29,12 +30,12 @@
         <div id="liveFeedNotice" class="live-feed-notice text-muted small" role="status" hidden></div>
         <div class="table-wrap live-feed-wrap">
             <table class="data-table live-feed-table" aria-label="Live forward-auth requests">
-                <thead><tr><th>Time</th><th>URL</th><th>Source IP</th><th>Country</th><th>Action</th></tr></thead>
+                <thead><tr><th>Time</th><th>URL</th><th>Processing node</th><th>Source IP</th><th>Country</th><th>Action</th></tr></thead>
                 <tbody id="liveFeedRows"></tbody>
             </table>
         </div>
         <div id="liveFeedEmpty" class="empty"><i class="bi bi-broadcast"></i>Waiting for requests</div>
-        <div class="live-feed-footnote text-muted small">Latest 300 decisions shown. URL query strings are omitted. This feed resets when RAuth restarts.</div>
+        <div class="live-feed-footnote text-muted small">Latest 300 decisions shown. URL query strings are omitted. Reconnect replays available retained history.</div>
     </div>
 </section>
 {{end}}

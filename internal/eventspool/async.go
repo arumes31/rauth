@@ -58,6 +58,32 @@ func (a *Async) Offer(event requestevent.Event) bool {
 		return false
 	}
 }
+
+// OfferMetrics runs only from the background telemetry collector. Snapshot
+// slices are copied before crossing the queue boundary; full queues do not wait.
+func (a *Async) OfferMetrics(snapshot requestevent.MetricSnapshot) bool {
+	now := time.Now().UTC()
+	if requestevent.ValidateMetrics(&snapshot, now) != nil {
+		return false
+	}
+	snapshot = snapshot.Clone()
+	event := requestevent.Event{Kind: "telemetry", Time: now, Metrics: &snapshot}
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if a.closed {
+		return false
+	}
+	select {
+	case a.queue <- event:
+		return true
+	default:
+		return false
+	}
+}
+
+// NoteDropped accounts for records observed before the local buffer was ready.
+func (a *Async) NoteDropped(count uint64) { a.overflow.Add(count) }
+
 func (a *Async) Available() bool          { return a.available.Load() }
 func (a *Async) Queued() int              { return len(a.queue) }
 func (a *Async) UncommittedDrops() uint64 { return a.overflow.Load() }
@@ -81,6 +107,9 @@ func (a *Async) run(ctx context.Context) {
 			}
 		drained:
 			gapCount = a.overflow.Load()
+			if gapCount > 1<<40 {
+				gapCount = 1 << 40
+			}
 			if gapCount > 0 {
 				pending = append(pending, a.store.Gap("queue_overflow", gapCount))
 			}
@@ -96,6 +125,7 @@ func (a *Async) run(ctx context.Context) {
 			a.available.Store(err == nil)
 			if err == nil {
 				if gapCount > 0 {
+					// Subtract the committed gap count using unsigned wraparound.
 					a.overflow.Add(^uint64(gapCount - 1))
 				}
 				if rejectedCount > 0 {

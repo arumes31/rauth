@@ -14,7 +14,9 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"math"
+	"net/url"
 	"rauth/internal/requestevent"
+	"strings"
 	"sync"
 	"time"
 )
@@ -28,6 +30,9 @@ const CentralBytes int64 = 8 << 30
 //go:embed schema.sql
 var schema string
 
+//go:embed schema2.sql
+var schema2 string
+
 type Options struct {
 	ClusterID string
 	MaxBytes  int64
@@ -35,10 +40,14 @@ type Options struct {
 }
 type Store struct {
 	pool         *pgxpool.Pool
+	history      *pgxpool.Pool
+	stats        *pgxpool.Pool
 	lock         *pgxpool.Conn
 	options      Options
 	epoch, token string
 	mu           sync.Mutex
+	readMu       sync.Mutex
+	readCache    map[historyKey]historyEntry
 	changed      chan struct{}
 	closed       bool
 	now          func() time.Time
@@ -82,17 +91,32 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	if _, err = tx.Exec(ctx, schema); err != nil {
 		return ErrUnavailable
 	}
+	if _, err = tx.Exec(ctx, schema2); err != nil {
+		return ErrUnavailable
+	}
 	return tx.Commit(ctx)
 }
 func Provision(ctx context.Context, pool *pgxpool.Pool, o Options, role string) error {
 	if pool == nil || o.validate() != nil || role == "" || len(role) > 63 {
 		return ErrInvalid
 	}
-	_, err := pool.Exec(ctx, `INSERT INTO event_ledgers(cluster_id,owner_role) VALUES($1,$2::name) ON CONFLICT(cluster_id) DO NOTHING`, o.ClusterID, role)
-	if err != nil {
-		return ErrUnavailable
-	}
-	return nil
+	return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
+		var existing string
+		if err := tx.QueryRow(ctx, `INSERT INTO event_ledgers(cluster_id,owner_role) VALUES($1,$2::name) ON CONFLICT(cluster_id) DO UPDATE SET cluster_id=excluded.cluster_id RETURNING owner_role::text`, o.ClusterID, role).Scan(&existing); err != nil || existing != role {
+			return ErrUnavailable
+		}
+		ident := pgx.Identifier{role}.Sanitize()
+		var schemaName string
+		if tx.QueryRow(ctx, "SELECT current_schema()").Scan(&schemaName) != nil || schemaName == "" {
+			return ErrUnavailable
+		}
+		for _, sql := range []string{"GRANT USAGE ON SCHEMA " + pgx.Identifier{schemaName}.Sanitize() + " TO " + ident, "GRANT SELECT ON event_schema_version TO " + ident, "GRANT SELECT,UPDATE ON event_ledgers TO " + ident, "GRANT SELECT,INSERT,DELETE ON request_events TO " + ident, "GRANT SELECT,INSERT,UPDATE,DELETE ON event_traffic_minute,event_node_samples TO " + ident} {
+			if _, err := tx.Exec(ctx, sql); err != nil {
+				return ErrUnavailable
+			}
+		}
+		return nil
+	})
 }
 func Open(ctx context.Context, pool *pgxpool.Pool, o Options) (*Store, error) {
 	if pool == nil || o.validate() != nil || pool.Config().MaxConns < 3 {
@@ -116,7 +140,7 @@ func Open(ctx context.Context, pool *pgxpool.Pool, o Options) (*Store, error) {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	var version int
-	if primary(ctx, tx) != nil || tx.QueryRow(ctx, "SELECT version FROM event_schema_version WHERE singleton").Scan(&version) != nil || version != 1 {
+	if primary(ctx, tx) != nil || tx.QueryRow(ctx, "SELECT version FROM event_schema_version WHERE singleton").Scan(&version) != nil || version != 2 {
 		_ = tx.Rollback(ctx)
 		return fail()
 	}
@@ -127,6 +151,20 @@ func Open(ctx context.Context, pool *pgxpool.Pool, o Options) (*Store, error) {
 	}
 	if tx.Commit(ctx) != nil {
 		return fail()
+	}
+	for _, target := range []**pgxpool.Pool{&s.history, &s.stats} {
+		cfg := pool.Config()
+		cfg.MaxConns = 2
+		cfg.MinConns = 0
+		cfg.ConnConfig.RuntimeParams["default_transaction_read_only"] = "on"
+		cfg.ConnConfig.RuntimeParams["statement_timeout"] = "1500"
+		*target, err = pgxpool.NewWithConfig(ctx, cfg)
+		if err != nil {
+			if s.history != nil {
+				s.history.Close()
+			}
+			return fail()
+		}
 	}
 	return s, nil
 }
@@ -194,7 +232,7 @@ func (s *Store) insert(ctx context.Context, peer string, events []requestevent.E
 				return nil, ErrConflict
 			}
 		} else if errors.Is(err, pgx.ErrNoRows) {
-			incoming += int64(len(raws[i])) + 256
+			incoming += eventSize(raws[i])
 		} else {
 			return nil, ErrUnavailable
 		}
@@ -224,11 +262,14 @@ func (s *Store) insert(ctx context.Context, peer string, events []requestevent.E
 			return nil, ErrUnavailable
 		}
 		high++
-		_, err = tx.Exec(ctx, `INSERT INTO request_events(cluster_id,seq,node_id,event_id,occurred_at,received_at,payload,size) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, s.options.ClusterID, high, e.NodeID, e.EventID, e.Time, now, raws[i], len(raws[i])+256)
+		_, err = tx.Exec(ctx, `INSERT INTO request_events(cluster_id,seq,node_id,event_id,occurred_at,received_at,payload,size,kind,node_name,action,country,source,domain,url,reason,feed_id,processing_us,latency_bucket) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`, s.options.ClusterID, high, e.NodeID, e.EventID, e.Time, now, raws[i], eventSize(raws[i]), e.Kind, e.NodeName, e.Action, e.Country, e.Source, eventDomain(e.URL), e.URL, e.Reason, e.FeedID, e.ProcessingMicros, latencyBucket(e.ProcessingMicros))
 		if err != nil {
 			return nil, storageFailure(err)
 		}
-		used += int64(len(raws[i])) + 256
+		if err = s.insertStatistics(ctx, tx, high, e, now); err != nil {
+			return nil, storageFailure(err)
+		}
+		used += eventSize(raws[i])
 		added++
 	}
 	if _, err = tx.Exec(ctx, `UPDATE event_ledgers SET payload_bytes=$3,high_water=$4,event_count=event_count+$5 WHERE cluster_id=$1 AND owner_token=$2`, s.options.ClusterID, s.token, used, high, added); err != nil {
@@ -286,6 +327,9 @@ func (s *Store) trimChunk(ctx context.Context, tx pgx.Tx, incoming int64, now ti
 	removed := int64(0)
 	last := int64(0)
 	remove := func(i item) error {
+		if err := s.removeStatistics(ctx, tx, i.seq); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(ctx, `DELETE FROM request_events WHERE cluster_id=$1 AND seq=$2`, s.options.ClusterID, i.seq); err != nil {
 			return err
 		}
@@ -335,7 +379,52 @@ func (s *Store) trimChunk(ctx context.Context, tx pgx.Tx, incoming int64, now ti
 	_, err = tx.Exec(ctx, `UPDATE event_ledgers SET payload_bytes=$3,event_count=event_count-$4,expired_count=expired_count+$4,pruned_through=GREATEST(pruned_through,$5) WHERE cluster_id=$1 AND owner_token=$2`, s.options.ClusterID, s.token, used, removed, last)
 	return true, err
 }
+
+type historyKey struct {
+	cursor uint64
+	node   string
+}
+type historyEntry struct {
+	at    time.Time
+	batch Batch
+}
+
 func (s *Store) After(ctx context.Context, cursor uint64, node string) (Batch, error) {
+	key := historyKey{cursor, node}
+	now := time.Now()
+	s.readMu.Lock()
+	cached, ok := s.readCache[key]
+	s.readMu.Unlock()
+	if ok && now.Sub(cached.at) >= 0 && now.Sub(cached.at) < time.Second {
+		select {
+		case <-cached.batch.Changed:
+		default:
+			return cloneBatch(cached.batch), nil
+		}
+	}
+	batch, err := s.after(ctx, cursor, node)
+	if err != nil {
+		return batch, err
+	}
+	s.readMu.Lock()
+	if len(s.readCache) >= 8 || s.readCache == nil {
+		s.readCache = map[historyKey]historyEntry{}
+	}
+	s.readCache[key] = historyEntry{now, cloneBatch(batch)}
+	s.readMu.Unlock()
+	return batch, nil
+}
+func cloneBatch(b Batch) Batch {
+	b.Events = append([]requestevent.Event(nil), b.Events...)
+	for i := range b.Events {
+		if b.Events[i].Metrics != nil {
+			snapshot := b.Events[i].Metrics.Clone()
+			b.Events[i].Metrics = &snapshot
+		}
+	}
+	return b
+}
+func (s *Store) after(ctx context.Context, cursor uint64, node string) (Batch, error) {
 	if (node != "" && !requestevent.ValidID(node)) || cursor > math.MaxInt64 {
 		return Batch{}, ErrInvalid
 	}
@@ -343,7 +432,7 @@ func (s *Store) After(ctx context.Context, cursor uint64, node string) (Batch, e
 	changed := s.changed
 	s.mu.Unlock()
 	b := Batch{Events: []requestevent.Event{}, Changed: changed}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	tx, err := s.history.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return b, ErrUnavailable
 	}
@@ -351,7 +440,7 @@ func (s *Store) After(ctx context.Context, cursor uint64, node string) (Batch, e
 	if tx.QueryRow(ctx, `SELECT COALESCE((SELECT min(seq) FROM request_events WHERE cluster_id=$1),0),high_water,pruned_through FROM event_ledgers WHERE cluster_id=$1`, s.options.ClusterID).Scan(&b.Oldest, &b.Latest, &b.PrunedThrough) != nil {
 		return b, ErrUnavailable
 	}
-	rows, err := tx.Query(ctx, `SELECT seq,received_at,payload FROM request_events WHERE cluster_id=$1 AND seq>$2 AND ($3='' OR node_id::text=$3) ORDER BY seq LIMIT 100`, s.options.ClusterID, int64(cursor), node)
+	rows, err := tx.Query(ctx, `SELECT seq,received_at,payload FROM request_events WHERE cluster_id=$1 AND seq>$2 AND kind<>'telemetry' AND ($3='' OR node_id::text=$3) ORDER BY seq LIMIT 100`, s.options.ClusterID, int64(cursor), node)
 	if err != nil {
 		return b, ErrUnavailable
 	}
@@ -382,7 +471,7 @@ func (s *Store) After(ctx context.Context, cursor uint64, node string) (Batch, e
 func (s *Store) Status(ctx context.Context) (Status, error) {
 	var st Status
 	var oldest *time.Time
-	err := s.pool.QueryRow(ctx, `SELECT event_count,payload_bytes,expired_count,(SELECT min(occurred_at) FROM request_events WHERE cluster_id=$1),pg_database_size(current_database()) FROM event_ledgers WHERE cluster_id=$1`, s.options.ClusterID).Scan(&st.Retained, &st.PayloadBytes, &st.Expired, &oldest, &st.DatabaseBytes)
+	err := s.pool.QueryRow(ctx, `SELECT event_count,payload_bytes,expired_count,(SELECT min(occurred_at) FROM request_events WHERE cluster_id=$1),pg_database_size(current_database()) FROM event_ledgers WHERE cluster_id=$1 AND owner_token=$2 AND NOT pg_is_in_recovery() AND current_setting('transaction_read_only')='off'`, s.options.ClusterID, s.token).Scan(&st.Retained, &st.PayloadBytes, &st.Expired, &oldest, &st.DatabaseBytes)
 	if err != nil {
 		return st, ErrUnavailable
 	}
@@ -411,6 +500,12 @@ func (s *Store) Close() error {
 	s.closed = true
 	s.notifyLocked()
 	s.releaseLock()
+	if s.history != nil {
+		s.history.Close()
+	}
+	if s.stats != nil {
+		s.stats.Close()
+	}
 	return nil
 }
 func storageFailure(err error) error {
@@ -419,4 +514,70 @@ func storageFailure(err error) error {
 		return fmt.Errorf("%w (SQLSTATE %s)", ErrUnavailable, coded.Code)
 	}
 	return ErrUnavailable
+}
+
+// Conservative logical accounting reserves normalized-row, index and sample
+// overhead too. Physical database/WAL space is separately monitored.
+func eventSize(raw []byte) int64 { return int64(len(raw))*2 + 1024 }
+func eventDomain(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(u.Hostname())
+}
+
+var latencyEdges = []int64{1000, 3000, 10000, 30000, 100000, 300000, 1000000, 3000000, 10000000, 30000000, 60000000, 120000000, 600000000}
+
+func latencyBucket(us int64) int {
+	if us <= 0 {
+		return -1
+	}
+	for i, edge := range latencyEdges {
+		if us <= edge {
+			return i
+		}
+	}
+	return len(latencyEdges)
+}
+func (s *Store) insertStatistics(ctx context.Context, tx pgx.Tx, seq int64, e requestevent.Event, received time.Time) error {
+	switch e.Kind {
+	case "decision":
+		_, err := tx.Exec(ctx, `INSERT INTO event_traffic_minute(cluster_id,node_id,minute,action,country,latency_bucket,decisions,processing_us) VALUES($1,$2,date_trunc('minute',$3::timestamptz),$4,$5,$6,1,$7) ON CONFLICT(cluster_id,node_id,minute,action,country,latency_bucket) DO UPDATE SET decisions=event_traffic_minute.decisions+1,processing_us=event_traffic_minute.processing_us+excluded.processing_us`, s.options.ClusterID, e.NodeID, e.Time, e.Action, e.Country, latencyBucket(e.ProcessingMicros), e.ProcessingMicros)
+		return err
+	case "telemetry":
+		raw, err := json.Marshal(e.Metrics)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec(ctx, `INSERT INTO event_node_samples(cluster_id,seq,node_id,node_name,instance_id,occurred_at,received_at,snapshot,is_diagnostic) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, s.options.ClusterID, seq, e.NodeID, e.NodeName, e.Metrics.InstanceID, e.Time, received, raw, e.Metrics.Diagnostics)
+		return err
+	}
+	return nil
+}
+func (s *Store) removeStatistics(ctx context.Context, tx pgx.Tx, seq int64) error {
+	// Delete singleton aggregate rows before decrementing to preserve CHECK>0.
+	args := []any{s.options.ClusterID, seq}
+	_, err := tx.Exec(ctx, `DELETE FROM event_traffic_minute a USING request_events e WHERE e.cluster_id=$1 AND e.seq=$2 AND e.kind='decision' AND a.cluster_id=e.cluster_id AND a.node_id=e.node_id AND a.minute=date_trunc('minute',e.occurred_at) AND a.action=e.action AND a.country=e.country AND a.latency_bucket=e.latency_bucket AND a.decisions=1`, args...)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `UPDATE event_traffic_minute a SET decisions=a.decisions-1,processing_us=a.processing_us-e.processing_us FROM request_events e WHERE e.cluster_id=$1 AND e.seq=$2 AND e.kind='decision' AND a.cluster_id=e.cluster_id AND a.node_id=e.node_id AND a.minute=date_trunc('minute',e.occurred_at) AND a.action=e.action AND a.country=e.country AND a.latency_bucket=e.latency_bucket`, args...)
+	return err
+}
+
+// FeedStart measures display/replay windows in decisions and loss markers,
+// independent of the number of background telemetry records.
+func (s *Store) FeedStart(parent context.Context, node string, limit int) (uint64, error) {
+	if node != "" && !requestevent.ValidID(node) || limit < 1 || limit > 1000 {
+		return 0, ErrInvalid
+	}
+	ctx, cancel := context.WithTimeout(parent, 2*time.Second)
+	defer cancel()
+	var cursor uint64
+	err := s.history.QueryRow(ctx, `SELECT COALESCE(min(seq)-1,0) FROM (SELECT seq FROM request_events WHERE cluster_id=$1 AND kind<>'telemetry' AND ($2='' OR node_id::text=$2) ORDER BY seq DESC LIMIT $3) recent`, s.options.ClusterID, node, limit).Scan(&cursor)
+	if err != nil {
+		return 0, ErrUnavailable
+	}
+	return cursor, nil
 }

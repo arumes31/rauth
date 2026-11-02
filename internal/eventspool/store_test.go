@@ -323,3 +323,29 @@ func TestEvictingGapMarkersPreservesTotalsAndUnknownSignal(t *testing.T) {
 		require.True(t, hasUnknown)
 	}
 }
+
+func TestPermanentRejectionAtomicallyPreservesDecisionLossAndTelemetryCoverage(t *testing.T) {
+	store := open(t, directory(t), options())
+	event := store.Identity(decision())
+	_, err := store.Append(background, []requestevent.Event{event})
+	require.NoError(t, err)
+	require.NoError(t, store.Reject(background, []string{event.EventID}))
+	records := pending(t, store)
+	require.Len(t, records, 1)
+	require.Equal(t, "gap", records[0].Kind)
+	require.Equal(t, "queue_invalid", records[0].Reason)
+	require.EqualValues(t, 1, records[0].LossTotal)
+	st, err := store.Status(background)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, st.Dropped)
+	require.Error(t, store.Reject(background, []string{records[0].EventID}))
+	require.Len(t, pending(t, store), 1)
+	sample := store.Identity(requestevent.Event{Kind: "telemetry", Time: time.Now(), Metrics: &requestevent.MetricSnapshot{Schema: 1, InstanceID: uuid.NewString(), StartedAt: time.Now(), Points: []requestevent.MetricPoint{{Name: "go_goroutines", Value: 1}}}})
+	_, err = store.Append(background, []requestevent.Event{sample})
+	require.NoError(t, err)
+	require.NoError(t, store.Reject(background, []string{sample.EventID}))
+	st, err = store.Status(background)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, st.Dropped)
+	require.EqualValues(t, 1, st.Pending)
+}

@@ -6,6 +6,10 @@ import (
 )
 
 var (
+	SecondFactorTotal            = promauto.NewCounterVec(prometheus.CounterOpts{Name: "rauth_second_factor_total", Help: "Verified second-factor outcomes"}, []string{"action"})
+	ForwardAuthDecisionsTotal    = promauto.NewCounterVec(prometheus.CounterOpts{Name: "rauth_forward_auth_decisions_total", Help: "Forward-auth decisions processed by this RAuth instance"}, []string{"action"})
+	ForwardAuthProcessingSeconds = promauto.NewHistogram(prometheus.HistogramOpts{Name: "rauth_forward_auth_processing_seconds", Help: "Time spent processing a forward-auth decision in RAuth", Buckets: []float64{.001, .003, .01, .03, .1, .3, 1, 3, 10, 30, 60, 120, 600}})
+
 	LoginSuccessTotal = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "rauth_login_success_total",
 		Help: "The total number of successful logins",

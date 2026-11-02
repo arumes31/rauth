@@ -21,7 +21,7 @@ func options() Options {
 func setup(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	pool := pgtest.Open(t, Migrate)
-	_, err := pool.Exec(background, "TRUNCATE request_events,event_ledgers")
+	_, err := pool.Exec(background, "TRUNCATE event_node_samples,event_traffic_minute,request_events,event_ledgers")
 	require.NoError(t, err)
 	return pool
 }
@@ -142,7 +142,7 @@ func TestRuntimeRoleCannotReadOrWriteAnotherLedger(t *testing.T) {
 	_, err = pool.Exec(background, "CREATE ROLE "+ident+" LOGIN PASSWORD 'rauth-event-fixture-only'")
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = pool.Exec(background, "DROP OWNED BY "+ident+";DROP ROLE "+ident) })
-	_, err = pool.Exec(background, "GRANT USAGE ON SCHEMA "+schema+" TO "+ident+";GRANT SELECT ON event_schema_version TO "+ident+";GRANT SELECT,UPDATE ON event_ledgers TO "+ident+";GRANT SELECT,INSERT,DELETE ON request_events TO "+ident)
+	_, err = pool.Exec(background, "GRANT USAGE ON SCHEMA "+schema+" TO "+ident+";GRANT SELECT ON event_schema_version TO "+ident+";GRANT SELECT,UPDATE ON event_ledgers TO "+ident+";GRANT SELECT,INSERT,DELETE ON request_events TO "+ident+";GRANT SELECT,INSERT,UPDATE,DELETE ON event_traffic_minute,event_node_samples TO "+ident)
 	require.NoError(t, err)
 	o := options()
 	require.NoError(t, Provision(background, pool, o, role))

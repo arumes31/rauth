@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"rauth/internal/requestevent"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -17,18 +18,7 @@ var feedEpoch atomic.Uint64
 var LiveRequests = NewRequestFeed(RequestFeedCapacity)
 
 // RequestEvent contains operational request metadata, never session credentials.
-type RequestEvent struct {
-	ID      uint64    `json:"id"`
-	Time    time.Time `json:"time"`
-	URL     string    `json:"url"`
-	Source  string    `json:"source"`
-	Country string    `json:"country"`
-	Action  string    `json:"action"`
-	Status  int       `json:"status"`
-	Reason  string    `json:"reason,omitempty"`
-	Rule    string    `json:"rule,omitempty"`
-	FeedID  string    `json:"feed_id,omitempty"`
-}
+type RequestEvent = requestevent.Event
 
 // RequestFeed retains a bounded history. Notifications wake readers without
 // queuing per-viewer messages or blocking the authentication request on I/O.

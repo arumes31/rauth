@@ -1,0 +1,6 @@
+Made with Natural Earth. Public-domain 1:110m country geometry.
+Source: https://raw.githubusercontent.com/nvkelso/natural-earth-vector/9380cca83db5f9aef52d5e762765100745f84b27/geojson/ne_110m_admin_0_countries.geojson
+Source SHA256: 6866c877d39cba9c357620878839b336d569f8c662d3cfab4cb1dbe2d39c977f
+Terms: https://www.naturalearthdata.com/about/terms-of-use/
+Equirectangular SVG paths generated locally; country detail is approximate at this scale.
+This asset is geometry only, never a source of client geolocation.

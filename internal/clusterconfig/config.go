@@ -14,6 +14,7 @@ import (
 	"path"
 	"rauth/internal/clusterpolicy"
 	"rauth/internal/clustertransport"
+	"rauth/internal/requestevent"
 	"strconv"
 	"strings"
 	"unicode"
@@ -28,6 +29,7 @@ var ErrMount = errors.New("cluster persistence is not on its required host bind 
 var ErrUnsupported = errors.New("cluster runtime host files require Linux")
 
 type DatabaseFiles struct {
+	Events    string `json:"events,omitempty"`
 	Auth      string `json:"auth"`
 	Head      string `json:"head"`
 	Registry  string `json:"registry"`
@@ -41,7 +43,18 @@ type Controller struct {
 	Endpoint string   `json:"endpoint"`
 	Pins     []string `json:"spki_sha256"`
 }
+type EventConfig struct {
+	LocalRoot            string `json:"local_root"`
+	NodeName             string `json:"node_name"`
+	LocalMaxBytes        int64  `json:"local_max_bytes,omitempty"`
+	LocalMaxAgeSeconds   int64  `json:"local_max_age_seconds,omitempty"`
+	CentralMaxBytes      int64  `json:"central_max_bytes,omitempty"`
+	CentralMaxAgeSeconds int64  `json:"central_max_age_seconds,omitempty"`
+}
+
 type Config struct {
+	Events *EventConfig `json:"events,omitempty"`
+
 	PublicListen     string            `json:"public_listen"`
 	CookieSecretFile string            `json:"cookie_secret_file"`
 	AuthStateKeyFile string            `json:"auth_state_key_file"`
@@ -110,6 +123,24 @@ func (c Config) Validate() error {
 	if e != nil || parseErr != nil || !address.IsPrivate() || address.Is4In6() || address.Zone() != "" || portErr != nil || port < 1024 || net.JoinHostPort(address.String(), strconv.FormatUint(port, 10)) != c.PublicListen {
 		return ErrInvalid
 	}
+	if c.Events != nil {
+		e := c.Events
+		if !inside(c.DataRoot, e.LocalRoot) || !requestevent.ValidName(e.NodeName) || e.LocalRoot == c.CacheRoot || inside(c.CacheRoot, e.LocalRoot) || inside(e.LocalRoot, c.CacheRoot) {
+			return ErrInvalid
+		}
+		if (e.LocalMaxBytes != 0 && (e.LocalMaxBytes < 16<<20 || e.LocalMaxBytes > 32<<30)) || (e.LocalMaxAgeSeconds != 0 && (e.LocalMaxAgeSeconds < 60 || e.LocalMaxAgeSeconds > 86400)) {
+			return ErrInvalid
+		}
+		if c.Role == Control {
+			if c.Databases.Events == "" || (e.CentralMaxBytes != 0 && (e.CentralMaxBytes < 1<<20 || e.CentralMaxBytes > 32<<30)) || (e.CentralMaxAgeSeconds != 0 && (e.CentralMaxAgeSeconds < 60 || e.CentralMaxAgeSeconds > 604800)) {
+				return ErrInvalid
+			}
+		} else if c.Databases.Events != "" || e.CentralMaxBytes != 0 || e.CentralMaxAgeSeconds != 0 {
+			return ErrInvalid
+		}
+	} else if c.Databases.Events != "" {
+		return ErrInvalid
+	}
 	paths := []string{c.CookieSecretFile, c.AuthStateKeyFile, c.Databases.Auth, c.CertificateFile, c.PrivateKeyFile, c.CAFile, c.Databases.Head, c.Databases.Payload, c.Databases.Registry}
 	if c.Role == Control {
 		if c.GeoIPFile != "" {
@@ -119,9 +150,12 @@ func (c Config) Validate() error {
 	} else if c.GeoIPFile != "" || c.SignerFile != "" || c.ProfilesFile != "" || c.Databases.Source != "" || c.Databases.Publisher != "" || c.Databases.Registrar != "" {
 		return ErrInvalid
 	}
+	if c.Role == Control && c.Events != nil {
+		paths = append(paths, c.Databases.Events)
+	}
 	seen := map[string]bool{c.CacheRoot: true}
 	for _, filename := range paths {
-		if !inside(c.DataRoot, filename) || seen[filename] || inside(c.CacheRoot, filename) || inside(filename, c.CacheRoot) {
+		if !inside(c.DataRoot, filename) || seen[filename] || inside(c.CacheRoot, filename) || inside(filename, c.CacheRoot) || (c.Events != nil && (filename == c.Events.LocalRoot || inside(c.Events.LocalRoot, filename) || inside(filename, c.Events.LocalRoot))) {
 			return ErrInvalid
 		}
 		seen[filename] = true
