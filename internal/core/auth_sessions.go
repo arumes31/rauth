@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"time"
 
@@ -15,6 +16,49 @@ import (
 // mode is not exposed until every runtime security path is migrated.
 var securitySessions authstate.SessionStore
 var securitySessionAbsoluteTTL time.Duration
+
+// ReadAuthorizedAuthSession performs a live session read and checks its exact
+// audience. PostgresSessions.Get already joins current account, generation,
+// family revocation and database-clock expiries; legacy stores still need the
+// separate account/generation check. No positive authorization is cached.
+func ReadAuthorizedAuthSession(ctx context.Context, token, audience string) (map[string]string, error) {
+	data, err := ReadAuthSession(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) == 0 || data["status"] != "valid" || data["username"] == "" || !SessionAudienceValid(data, audience) {
+		return nil, authstate.ErrNotFound
+	}
+	if PG == nil {
+		return nil, errors.New("authentication database is unavailable")
+	}
+	if _, authoritativeSQL := securitySessions.(*authstate.PostgresSessions); !authoritativeSQL {
+		valid, err := SessionAuthorization(ctx, data)
+		if err != nil {
+			return nil, err
+		}
+		if !valid {
+			return nil, authstate.ErrNotFound
+		}
+	}
+	return data, nil
+}
+
+// RefreshValidatedSession completes best-effort bookkeeping only after the
+// caller has verified the session's audience and client binding. SQL keeps the
+// existing bounded refresh and counter reset in one drained batch.
+func RefreshValidatedSession(ctx context.Context, token, rateKey string, validity time.Duration) {
+	sessions, sqlSessions := securitySessions.(*authstate.PostgresSessions)
+	counters, sqlCounters := securityCounters.(*authstate.PostgresCounters)
+	if sqlSessions && sqlCounters {
+		if _, err := sessions.RefreshValidation(ctx, counters, token, validity, "rate_limit:"+rateKey); err != nil {
+			slog.Error("Failed to complete validated session bookkeeping", "error", err)
+		}
+		return
+	}
+	ResetRateLimit(rateKey)
+	RefreshSession(token, validity)
+}
 
 func ReadAuthSession(ctx context.Context, token string) (map[string]string, error) {
 	if securitySessions != nil {

@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -385,6 +386,13 @@ func (s *PostgresSessions) Rotate(ctx context.Context, oldToken, newToken string
 func (s *PostgresSessions) Replace(ctx context.Context, oldToken, newToken string) (bool, error) {
 	return s.move(ctx, oldToken, newToken, 0, 0, true, nil)
 }
+
+const refreshSessionSQL = `UPDATE auth_sessions s SET idle_expires_at=LEAST(clock_timestamp()+$2::interval,f.absolute_expires_at),last_refreshed_at=clock_timestamp()
+  FROM auth_session_families f,users u WHERE s.token_hash=$1 AND f.id=s.family_id AND u.username=f.username
+  AND NOT s.retired AND s.idle_expires_at>clock_timestamp() AND f.absolute_expires_at>clock_timestamp()
+  AND f.revoked_at IS NULL AND f.auth_gen=COALESCE((SELECT gen FROM auth_generations WHERE username=f.username),0)
+  AND s.last_refreshed_at<clock_timestamp()-$3::interval`
+
 func (s *PostgresSessions) Refresh(ctx context.Context, token string, idleTTL time.Duration) (bool, error) {
 	hash, err := s.keys.tokenHash(token)
 	if err != nil {
@@ -397,13 +405,45 @@ func (s *PostgresSessions) Refresh(ctx context.Context, token string, idleTTL ti
 	defer cancel()
 	// Bound refresh writes while allowing short configured idle lifetimes.
 	interval := min(30*time.Second, idleTTL/4)
-	tag, err := s.pool.Exec(ctx, `UPDATE auth_sessions s SET idle_expires_at=LEAST(clock_timestamp()+$2::interval,f.absolute_expires_at),last_refreshed_at=clock_timestamp()
-  FROM auth_session_families f,users u WHERE s.token_hash=$1 AND f.id=s.family_id AND u.username=f.username
-  AND NOT s.retired AND s.idle_expires_at>clock_timestamp() AND f.absolute_expires_at>clock_timestamp()
-  AND f.revoked_at IS NULL AND f.auth_gen=COALESCE((SELECT gen FROM auth_generations WHERE username=f.username),0)
-  AND s.last_refreshed_at<clock_timestamp()-$3::interval`, hash, idleTTL.String(), interval.String())
+	tag, err := s.pool.Exec(ctx, refreshSessionSQL, hash, idleTTL.String(), interval.String())
 	return tag.RowsAffected() > 0, err
 }
+
+// RefreshValidation batches successful-validation bookkeeping. The caller has
+// already checked the live session and its client binding. Matching the counter
+// store prevents mixing selected authorities; only the validate throttle may be
+// reset here. The refresh uses the same SQL and database-clock bounds as Refresh.
+func (s *PostgresSessions) RefreshValidation(ctx context.Context, counters *PostgresCounters, token string, idleTTL time.Duration, rateKey string) (bool, error) {
+	if counters == nil || counters.s != s || !strings.HasPrefix(rateKey, "rate_limit:validate:") || rateKey == "rate_limit:validate:" {
+		return false, errors.New("invalid validation bookkeeping authority or counter")
+	}
+	hash, err := s.keys.tokenHash(token)
+	if err != nil {
+		return false, err
+	}
+	counterHash, err := counters.hash(rateKey)
+	if err != nil {
+		return false, err
+	}
+	if !validTTL(idleTTL) {
+		return false, errors.New("invalid idle duration")
+	}
+	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+	defer cancel()
+	interval := min(30*time.Second, idleTTL/4)
+	batch := &pgx.Batch{}
+	batch.Queue("DELETE FROM auth_security_counters WHERE key_hash=$1", counterHash)
+	batch.Queue(refreshSessionSQL, hash, idleTTL.String(), interval.String())
+	results := s.pool.SendBatch(ctx, batch)
+	_, resetErr := results.Exec()
+	tag, refreshErr := results.Exec()
+	closeErr := results.Close()
+	if err := errors.Join(resetErr, refreshErr, closeErr); err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
 func (s *PostgresSessions) Revoke(ctx context.Context, token string) error {
 	hash, err := s.keys.tokenHash(token)
 	if err != nil {
