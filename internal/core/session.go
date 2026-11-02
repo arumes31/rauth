@@ -46,14 +46,7 @@ func invalidateSession(token, redisKey string, data map[string]string, clientIP 
 	TokenDB.Del(Ctx, redisKey)
 }
 
-// sessionGeoAllowedWithCountry enforces the geo-fence: it blocks access from disallowed
-// countries and invalidates a session whose origin country has changed.
-// On any violation it invalidates the session and returns false.
-func sessionGeoAllowedWithCountry(cfg *Config, token, redisKey string, data map[string]string, clientIP, currentCountry string) bool {
-	valid, err := sessionGeoAuthorization(Ctx, cfg, token, redisKey, data, clientIP, currentCountry)
-	return valid && err == nil
-}
-
+// sessionGeoAuthorization rejects geo-fence violations and distinguishes failed country persistence.
 func sessionGeoAuthorization(ctx context.Context, cfg *Config, token, redisKey string, data map[string]string, clientIP, currentCountry string) (bool, error) {
 	if !cfg.IsCountryAllowed(currentCountry) {
 		slog.Warn("Access from blocked country", "country", currentCountry, "ip", clientIP)
