@@ -79,7 +79,9 @@ func sessionGeoAuthorization(ctx context.Context, cfg *Config, token, redisKey s
 					return false, nil
 				}
 			} else {
-				TokenDB.HSet(Ctx, redisKey, "country", currentCountry)
+				if err := TokenDB.HSet(ctx, redisKey, "country", currentCountry).Err(); err != nil {
+					return false, err
+				}
 			}
 			return true, nil
 		}
