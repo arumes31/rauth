@@ -212,9 +212,9 @@ Proposed additions: local spool, authenticated ingestion handler, central reques
 
 Actions:
 1. Extend the bounded event schema with worker, timestamps, rule/version and denial reason. Continue excluding sensitive URL/body/header content.
-2. Add bounded asynchronous local persistence, stable event IDs and restart recovery.
+2. Add bounded asynchronous local persistence, stable event IDs and restart recovery. Use synced local bbolt buffers on each worker and a separate central event database/role/pool in the planned Dockerized HA PostgreSQL cluster (user-selected hybrid on 2026-11-02, Europe/Vienna). No SQLite and no per-worker PostgreSQL instance. Keep the local spool independent of HA database reachability; bind bbolt files and all PGDATA/WAL/configuration/secrets to the host (Pi3: /mnt/usb1/rauth).
 3. Deliver acknowledged batches to the control host; deduplicate durable inserts. Separate catch-up and live delivery budgets.
-4. Add retention/storage caps, drop/gap accounting and spool health. Do not couple auth availability to collector health.
+4. Add retention/storage caps, drop/gap accounting and spool health. Enforce local bbolt maximum file size and bounded retention. Bound central PostgreSQL tables/indexes, dead tuples and shared WAL with capacity protection and ingestion/catch-up budgets, not SQL retention alone. Do not couple auth admission to collector/event-write success. Measure auth latency during event saturation and recheck Pi3 disk/memory headroom with the bbolt buffer.
 5. Persist central cursors and stream accepted events instantly over existing admin-only SSE.
 6. Add node/reason filters and delayed-replay indication while preserving pause/search/mobile behavior.
 7. Keep existing security audit retention and ownership rules distinct from request-event retention.
