@@ -35,7 +35,8 @@ func openPinned(name string) (int, error) {
 	return fd, nil
 }
 func fsid(s *unix.Statfs_t) uint64 {
-	return uint64(uint32(s.Fsid.Val[0])) | uint64(uint32(s.Fsid.Val[1]))<<32
+	// Linux exposes two signed words; reinterpret their bits, not their signs.
+	return uint64(uint32(s.Fsid.Val[0])) | uint64(uint32(s.Fsid.Val[1]))<<32 // #nosec G115 -- intentional lossless raw-bit reinterpretation of fsid words.
 }
 
 // Describe returns raw Linux filesystem identity from an inherited, held fd.
@@ -58,7 +59,7 @@ func Verify(filename, uuid, role string) error {
 		return ErrGuard
 	}
 	f := os.NewFile(uintptr(fd), filename)
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	var st unix.Stat_t
 	var fs unix.Statfs_t
 	if unix.Fstat(fd, &st) != nil || unix.Fstatfs(fd, &fs) != nil || st.Mode&unix.S_IFMT != unix.S_IFREG || st.Uid != 0 || st.Mode&0222 != 0 || st.Nlink != 1 || st.Size <= 0 || st.Size > MaxWitnessBytes || fs.Type != unix.TMPFS_MAGIC || fs.Flags&unix.ST_RDONLY == 0 {

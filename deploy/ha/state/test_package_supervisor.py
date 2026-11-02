@@ -5,6 +5,9 @@ from pathlib import Path
 import shlex
 import unittest
 import zlib
+import subprocess
+import sys
+from unittest import mock
 
 import package_supervisor
 
@@ -63,3 +66,20 @@ class PackageTests(unittest.TestCase):
             args[index] = value
             with self.subTest(index=index), self.assertRaises(ValueError):
                 package_supervisor.build(*args)
+
+    def test_generated_command_actually_executes_the_embedded_loader(self):
+        with mock.patch.object(
+            package_supervisor, "BOOTSTRAP", "print('verified-loader-executed')"
+        ):
+            _, unit, _ = package_supervisor.build(*self.args())
+        command = next(
+            line.removeprefix("ExecStart=")
+            for line in unit.splitlines()
+            if line.startswith("ExecStart=")
+        )
+        argv = shlex.split(command)
+        result = subprocess.run(
+            [sys.executable, *argv[1:]], capture_output=True, text=True, timeout=10
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "verified-loader-executed")

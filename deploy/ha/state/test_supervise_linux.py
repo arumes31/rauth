@@ -2,6 +2,7 @@
 
 import hashlib
 import contextlib
+import shlex
 import json
 import os
 from pathlib import Path
@@ -113,6 +114,22 @@ class LinuxTests(unittest.TestCase):
         bundle.chmod(0o600)
         digest = hashlib.sha256(body).hexdigest()
 
+        _, unit, _ = package_supervisor.build(
+            Path(package_supervisor.__file__).parent,
+            self.expected["root"],
+            self.expected["mount"],
+            self.expected["uuid"],
+            "native-bootstrap",
+            self.expected["root"] + "/supervision/config.json",
+        )
+        command = shlex.split(
+            next(
+                line.removeprefix("ExecStart=")
+                for line in unit.splitlines()
+                if line.startswith("ExecStart=")
+            )
+        )[4]
+
         def run(path=bundle, pin=digest, uuid=None):
             return subprocess.run(
                 [
@@ -120,7 +137,7 @@ class LinuxTests(unittest.TestCase):
                     "-I",
                     "-B",
                     "-c",
-                    package_supervisor.BOOTSTRAP,
+                    command,
                     str(path),
                     pin,
                     self.expected["mount"],

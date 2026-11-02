@@ -137,7 +137,9 @@ def build(directory, root, mount, uuid, node, config):
     digest = hashlib.sha256(body).hexdigest()
     bundle = root / "supervision/supervisor.bundle.json"
     loader = base64.b64encode(zlib.compress(BOOTSTRAP.encode(), 9)).decode()
-    command = 'import base64;exec(base64.b64decode("' + loader + '"))'
+    command = (
+        'import base64,zlib;exec(zlib.decompress(base64.b64decode("' + loader + '")))'
+    )
     mount_unit = ""
     if str(mount) != "/":
         escaped = "".join(

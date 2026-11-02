@@ -25,7 +25,7 @@ func TestDescribeUsesHeldDescriptorAndRejectsNonFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	identity, err := Describe(int(f.Fd()))
 	if err != nil {
 		t.Fatal(err)
@@ -47,8 +47,8 @@ func TestDescribeUsesHeldDescriptorAndRejectsNonFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer read.Close()
-	defer write.Close()
+	defer func() { _ = read.Close() }()
+	defer func() { _ = write.Close() }()
 	if _, err := Describe(int(read.Fd())); err == nil {
 		t.Fatal("pipe accepted")
 	}
