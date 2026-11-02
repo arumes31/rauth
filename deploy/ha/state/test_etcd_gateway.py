@@ -26,12 +26,14 @@ def run(*args):
     except subprocess.CalledProcessError as error:
         raise RuntimeError(
             "Fixture command failed: "
-            + args[0]
-            + " "
-            + args[1]
+            + " ".join(args)
             + ": "
-            + error.output[-1500:]
+            + (error.output or "")[-1500:]
         ) from error
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError("Fixture command timed out: " + " ".join(args)) from error
+    except OSError as error:
+        raise RuntimeError("Fixture command unavailable: " + " ".join(args)) from error
 
 
 def unused_subnet():
