@@ -401,7 +401,7 @@ RAuth is configured via Environment Variables.
 | **Postgres** | `POSTGRES_PORT` | Port of the PostgreSQL server | `5432` |
 | **Postgres** | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | Credentials and database (password required by the compose files) | `rauth` / (None) / `rauth` |
 | **Postgres** | `POSTGRES_SSLMODE` | libpq `sslmode` | `disable` |
-| **Postgres** | `DATABASE_URL` | Full connection string; overrides the `POSTGRES_*` settings. The bundled compose files still require `POSTGRES_PASSWORD` for their own Postgres container | (None) |
+| **Postgres** | `DATABASE_URL` | Full connection string, including pgx pool options such as `pool_max_conns=4` (default: 20 per process); overrides the `POSTGRES_*` settings. The bundled compose files still require `POSTGRES_PASSWORD` for their own Postgres container | (None) |
 | **Audit**  | `AUDIT_RETENTION_DAYS` | Days to keep audit log entries (`0` = forever) | `365` |
 | **Auth**   | `COOKIE_DOMAIN` | Domain for the auth cookie | `example.com` |
 | **Auth**   | `ALLOWED_HOSTS` | Redirect whitelist (Comma-separated) | `localhost,127.0.0.1` |

@@ -44,14 +44,13 @@ func InitPostgresWorker(cfg *Config) error {
 	return initPostgres(cfg, false)
 }
 func initPostgres(cfg *Config, migrate bool) error {
-	poolCfg, err := pgxpool.ParseConfig(cfg.PostgresURL)
+	poolCfg, err := postgresPoolConfig(cfg.PostgresURL)
 	if err != nil {
 		return fmt.Errorf("invalid Postgres connection settings: %w", err)
 	}
 	if err := configureAuthStateDatabase(cfg, poolCfg); err != nil {
 		return err
 	}
-	poolCfg.MaxConns = redisPoolSize
 	poolCfg.ConnConfig.ConnectTimeout = 5 * time.Second
 
 	pool, err := pgxpool.NewWithConfig(Ctx, poolCfg)
@@ -83,6 +82,25 @@ func initPostgres(cfg *Config, migrate bool) error {
 	}
 	PG = pool
 	return nil
+}
+
+// postgresPoolConfig preserves the historical default while respecting an
+// explicit pgx pool_max_conns in either URL or keyword connection syntax.
+func postgresPoolConfig(connection string) (*pgxpool.Config, error) {
+	// Use the driver's parser for option presence, including escaping and
+	// keyword DSNs, before pgxpool consumes its own RuntimeParams.
+	raw, err := pgx.ParseConfig(connection)
+	if err != nil {
+		return nil, err
+	}
+	pool, err := pgxpool.ParseConfig(connection)
+	if err != nil {
+		return nil, err
+	}
+	if _, configured := raw.RuntimeParams["pool_max_conns"]; !configured {
+		pool.MaxConns = 20
+	}
+	return pool, nil
 }
 
 // migrationLockID serializes schema migrations across instances starting at once.

@@ -47,6 +47,15 @@ startup still needs separate pools/grants, authoritative schema checks, primary
 checks and tested failover routing. Protect all referenced PostgreSQL TLS files
 on host binds as part of deployment; the loader does not provision database PKI.
 
+Size each authentication URL's `pool_max_conns` explicitly before expanding the
+fleet; the legacy default is 20 connections per RAuth process. For example,
+`pool_max_conns=4&pool_min_conns=0` permits five auth processes to use at most
+20 auth connections together. Add the separate event writer and reader pools,
+replication, backups and operator reserve to the server-wide budget. Validate
+representative login/2FA and event load before choosing production limits;
+raising PostgreSQL max_connections alone is not capacity acceptance. The URL
+option is local operational configuration and does not change policy fingerprints.
+
 Desired profiles JSON is {"schema":1,"nodes":{"<node UUID>":{
 "security_fingerprint":"<lowercase SHA256>","require_geoip":true}}}.
 It permits 1–64 nodes, includes the control node and rejects unknown/duplicate
