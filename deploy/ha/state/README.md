@@ -16,7 +16,7 @@ The image's `/var/lib/postgresql` VOLUME is explicitly covered by a host bind, i
 
 ## Images and private configuration
 
-Build the custom image using `Dockerfile` and a verified official PostgreSQL **18.6-bookworm digest** via `--build-arg POSTGRES_IMAGE=...@sha256:...`. The complete Python dependency lock requires hashes. Build and test both amd64 and arm64; record the resulting multi-architecture digest in the private manifest. Inspect image VOLUME metadata for **all** chosen images before running them: any added volume must also have an explicit host bind or bounded tmpfs. Pin etcd and HAProxy by verified image digest. Do not substitute floating image tags.
+Build the custom image using `Dockerfile` and a verified official PostgreSQL **18.6-bookworm digest** via `--build-arg POSTGRES_IMAGE=...@sha256:...`. The complete Python dependency lock requires hashes. Program permissions are set explicitly in the image, independently of private operator staging modes; a build check reads both programs as UID 999. Build and test both amd64 and arm64; record the resulting multi-architecture digest in the private manifest. Inspect image VOLUME metadata for **all** chosen images before running them: any added volume must also have an explicit host bind or bounded tmpfs. Pin etcd and HAProxy by verified image digest. Do not substitute floating image tags.
 
 Generate independent private PKI purposes. Never distribute CA private keys to runtime containers:
 
