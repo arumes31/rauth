@@ -123,6 +123,26 @@ func (a *Async) run(ctx context.Context) {
 			_, err := a.write(attempt, pending)
 			cancel()
 			a.available.Store(err == nil)
+			if errors.Is(err, ErrTelemetryCapacity) {
+				// Storage rejected only the optional telemetry share. Keep decision IDs and
+				// loss markers unchanged; retry them without manufacturing request loss.
+				previousCount := len(pending)
+				keep := pending[:0]
+				for _, event := range pending {
+					if event.Kind != "telemetry" {
+						keep = append(keep, event)
+					}
+				}
+				pending = keep
+				if len(keep) < previousCount {
+					a.available.Store(true)
+					continue
+				}
+				// A corrupt/inconsistent store must back off, not busy-loop on a
+				// capacity error that did not identify any optional records.
+				err = ErrUnavailable
+			}
+
 			if err == nil {
 				if gapCount > 0 {
 					// Subtract the committed gap count using unsigned wraparound.

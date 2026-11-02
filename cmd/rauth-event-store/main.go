@@ -65,7 +65,7 @@ func run(node, operator, role string) error {
 	if err = eventstore.Provision(ctx, pool, o, role); err != nil {
 		return err
 	}
-	return json.NewEncoder(os.Stdout).Encode(map[string]any{"schema": 2, "provisioned": true})
+	return json.NewEncoder(os.Stdout).Encode(map[string]any{"schema": eventstore.SchemaVersion, "provisioned": true})
 }
 
 func failureClass(err error) string {

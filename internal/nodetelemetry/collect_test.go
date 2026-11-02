@@ -73,3 +73,21 @@ func TestDiagnosticsPreserveFixedLabelsAndBoundChunks(t *testing.T) {
 	}
 	require.Equal(t, 180, seen)
 }
+
+func TestDiagnosticsIncludeGoVersionAndMetricsHandlerFamilies(t *testing.T) {
+	r := prometheus.NewRegistry()
+	info := prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "go_info", Help: "fixture"}, []string{"version"})
+	requests := prometheus.NewCounterVec(prometheus.CounterOpts{Name: "promhttp_metric_handler_requests_total", Help: "fixture"}, []string{"code"})
+	r.MustRegister(info, requests)
+	info.WithLabelValues("go1.27.3").Set(1)
+	requests.WithLabelValues("200").Inc()
+	seen := map[string]bool{}
+	for _, part := range New(r).Diagnostics() {
+		require.False(t, part.Partial)
+		for _, point := range part.Points {
+			seen[point.Name] = true
+		}
+	}
+	require.True(t, seen["go_info"])
+	require.True(t, seen["promhttp_metric_handler_requests_total"])
+}

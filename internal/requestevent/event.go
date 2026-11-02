@@ -97,7 +97,7 @@ func ValidateMetrics(s *MetricSnapshot, now time.Time) error {
 			return ErrInvalid
 		}
 		for name, value := range point.Labels {
-			if name != "action" && name != "type" && name != "status" && name != "quantile" && name != "le" {
+			if name != "action" && name != "type" && name != "status" && name != "quantile" && name != "le" && name != "version" && name != "code" && name != "method" {
 				return ErrInvalid
 			}
 			if len(value) > 64 || value == "" {

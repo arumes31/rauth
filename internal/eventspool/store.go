@@ -23,6 +23,7 @@ var ErrUnsafe = errors.New("event spool directory is missing or unsafe")
 var ErrInvalid = errors.New("invalid event spool operation")
 var ErrConflict = errors.New("event identity conflicts with persisted content")
 var ErrUnavailable = errors.New("local event spool unavailable")
+var ErrTelemetryCapacity = errors.New("local telemetry budget exhausted")
 
 const LocalBytes int64 = 2 << 30
 
@@ -30,6 +31,7 @@ var metaBucket = []byte("metadata")
 var eventBucket = []byte("events")
 var idBucket = []byte("by_id")
 var timeBucket = []byte("by_time")
+var telemetryBucket = []byte("by_telemetry")
 
 type Options struct {
 	ClusterID, NodeID, NodeName string
@@ -78,7 +80,8 @@ func Open(ctx context.Context, root string, o Options) (*Store, error) {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		for _, name := range [][]byte{metaBucket, eventBucket, idBucket, timeBucket} {
+		hadTelemetryIndex := tx.Bucket(telemetryBucket) != nil
+		for _, name := range [][]byte{metaBucket, eventBucket, idBucket, timeBucket, telemetryBucket} {
 			if _, err := tx.CreateBucketIfNotExists(name); err != nil {
 				return err
 			}
@@ -91,13 +94,40 @@ func Open(ctx context.Context, root string, o Options) (*Store, error) {
 				}
 			}
 		}
-		if string(meta.Get([]byte("schema"))) != "1" || string(meta.Get([]byte("cluster"))) != o.ClusterID || string(meta.Get([]byte("node"))) != o.NodeID {
+		if (string(meta.Get([]byte("schema"))) != "1" && string(meta.Get([]byte("schema"))) != "2") || string(meta.Get([]byte("cluster"))) != o.ClusterID || string(meta.Get([]byte("node"))) != o.NodeID {
 			return ErrInvalid
 		}
+		if string(meta.Get([]byte("schema"))) == "2" && !hadTelemetryIndex {
+			return ErrInvalid
+		}
+		if string(meta.Get([]byte("schema"))) == "1" {
+			if err := tx.DeleteBucket(telemetryBucket); err != nil {
+				return err
+			}
+			if _, err := tx.CreateBucket(telemetryBucket); err != nil {
+				return err
+			}
+			for _, field := range []string{"telemetry_index_ready", "telemetry_index_cursor", "telemetry_bytes"} {
+				if err := meta.Delete([]byte(field)); err != nil {
+					return err
+				}
+			}
+			if err := meta.Put([]byte("schema"), []byte("2")); err != nil {
+				return err
+			}
+		}
 		dirty = number(meta.Get([]byte("dirty"))) != 0
-		return meta.Put([]byte("dirty"), key(1))
+		return nil
 	})
 	if err != nil {
+		return fail()
+	}
+	// Index migration commits small resumable batches. A deadline can interrupt
+	// startup without forcing the next attempt to rescan the whole old outbox.
+	if err = s.migrateTelemetry(ctx); err != nil {
+		return fail()
+	}
+	if err = db.Update(func(tx *bolt.Tx) error { return tx.Bucket(metaBucket).Put([]byte("dirty"), key(1)) }); err != nil {
 		return fail()
 	}
 	if dir.Sync() != nil {
@@ -172,12 +202,15 @@ func (s *Store) Append(ctx context.Context, events []requestevent.Event) ([]stri
 	if s.closed || ctx.Err() != nil {
 		return nil, ErrUnavailable
 	}
-	var incoming uint64
+	var incoming, incomingTelemetry uint64
 	err := s.db.View(func(tx *bolt.Tx) error {
 		for i, e := range events {
 			seq := tx.Bucket(idBucket).Get([]byte(e.EventID))
 			if seq == nil {
 				incoming += uint64(len(raws[i])) + 128
+				if e.Kind == "telemetry" {
+					incomingTelemetry += uint64(len(raws[i])) + 128
+				}
 				continue
 			}
 			if !sameContent(tx.Bucket(eventBucket).Get(seq), raws[i]) {
@@ -189,7 +222,13 @@ func (s *Store) Append(ctx context.Context, events []requestevent.Event) ([]stri
 	if err != nil {
 		return nil, err
 	}
-	if err = s.trim(ctx, incoming+requestevent.MaxEventBytes, now); err != nil {
+	if incomingTelemetry > s.telemetryLimit() {
+		return nil, ErrTelemetryCapacity
+	}
+	if err = s.trim(ctx, incoming+requestevent.MaxEventBytes, incomingTelemetry, now); err != nil {
+		if errors.Is(err, ErrTelemetryCapacity) {
+			return nil, err
+		}
 		return nil, ErrUnavailable
 	}
 	err = s.db.Update(func(tx *bolt.Tx) error {
@@ -266,6 +305,15 @@ func (s *Store) put(tx *bolt.Tx, e requestevent.Event, raw []byte) error {
 	if err := meta.Put([]byte("pending"), key(number(meta.Get([]byte("pending")))+1)); err != nil {
 		return err
 	}
+	if e.Kind == "telemetry" {
+		size := uint64(len(raw)) + 128
+		if err := tx.Bucket(telemetryBucket).Put(key(seq), key(size)); err != nil {
+			return err
+		}
+		if err := meta.Put([]byte("telemetry_bytes"), key(number(meta.Get([]byte("telemetry_bytes")))+size)); err != nil {
+			return err
+		}
+	}
 	return meta.Put([]byte("bytes"), key(number(meta.Get([]byte("bytes")))+uint64(len(raw))+128))
 }
 func (s *Store) remove(tx *bolt.Tx, seq []byte) (*requestevent.Event, error) {
@@ -290,6 +338,18 @@ func (s *Store) remove(tx *bolt.Tx, seq []byte) (*requestevent.Event, error) {
 	if err := tx.Bucket(timeBucket).Delete(timeKey(e, number(seq))); err != nil {
 		return nil, err
 	}
+	if e.Kind == "telemetry" {
+		telemetry := number(meta.Get([]byte("telemetry_bytes")))
+		if telemetry < size || number(tx.Bucket(telemetryBucket).Get(seq)) != size {
+			return nil, ErrUnavailable
+		}
+		if err := tx.Bucket(telemetryBucket).Delete(seq); err != nil {
+			return nil, err
+		}
+		if err := meta.Put([]byte("telemetry_bytes"), key(telemetry-size)); err != nil {
+			return nil, err
+		}
+	}
 	if err := events.Delete(seq); err != nil {
 		return nil, err
 	}
@@ -305,7 +365,7 @@ func (s *Store) remove(tx *bolt.Tx, seq []byte) (*requestevent.Event, error) {
 	}
 	return &e, nil
 }
-func (s *Store) trim(ctx context.Context, incoming uint64, now time.Time) error {
+func (s *Store) trim(ctx context.Context, incoming, incomingTelemetry uint64, now time.Time) error {
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -352,9 +412,30 @@ func (s *Store) trim(ctx context.Context, incoming uint64, now time.Time) error 
 				account(removed)
 				changed = true
 			}
-			// Reserve space for copy-on-write pages, indexes and a loss marker. Stop
-			// deleting immediately when enough bytes have been freed.
-			for count := len(candidates); count < 128 && number(meta.Get([]byte("bytes")))+incoming > s.payloadLimit; count++ {
+			// Telemetry has its own small byte budget and is reclaimed first.
+			// New telemetry must never cause removal of a decision or a loss marker.
+			count := len(candidates)
+			pressure := func() bool {
+				return number(meta.Get([]byte("telemetry_bytes")))+incomingTelemetry > s.telemetryLimit() || number(meta.Get([]byte("bytes")))+incoming > s.payloadLimit
+			}
+			for count < 128 && pressure() {
+				seq, _ := tx.Bucket(telemetryBucket).Cursor().First()
+				if seq == nil {
+					break
+				}
+				removed, err := s.remove(tx, bytes.Clone(seq))
+				if err != nil {
+					return err
+				}
+				account(removed)
+				changed = true
+				count++
+			}
+			if count < 128 && (number(meta.Get([]byte("telemetry_bytes")))+incomingTelemetry > s.telemetryLimit() || incomingTelemetry > 0 && number(meta.Get([]byte("bytes")))+incoming > s.payloadLimit) {
+				return ErrTelemetryCapacity
+			}
+			// Decision pressure can use the remaining budget, preserving explicit gaps.
+			for ; count < 128 && number(meta.Get([]byte("bytes")))+incoming > s.payloadLimit; count++ {
 				seq, _ := tx.Bucket(eventBucket).Cursor().First()
 				if seq == nil {
 					break
@@ -416,7 +497,7 @@ func (s *Store) Maintain(ctx context.Context) error {
 	if s.closed {
 		return ErrUnavailable
 	}
-	return s.trim(ctx, requestevent.MaxEventBytes, s.now().UTC())
+	return s.trim(ctx, requestevent.MaxEventBytes, 0, s.now().UTC())
 }
 func (s *Store) Pending(ctx context.Context, live bool) ([]requestevent.Event, error) {
 	if ctx.Err() != nil {
@@ -633,4 +714,73 @@ func (s *Store) Reject(ctx context.Context, ids []string) error {
 		return ErrUnavailable
 	}
 	return nil
+}
+
+func (s *Store) telemetryLimit() uint64 { return min(s.payloadLimit/8, 32<<20) }
+func (s *Store) migrateTelemetry(ctx context.Context) error {
+	for {
+		done := false
+		err := s.db.Update(func(tx *bolt.Tx) error {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			meta := tx.Bucket(metaBucket)
+			if number(meta.Get([]byte("telemetry_index_ready"))) == 1 {
+				done = true
+				return nil
+			}
+			// Old binaries reject schema 2 instead of silently invalidating its index.
+			if err := meta.Put([]byte("schema"), []byte("2")); err != nil {
+				return err
+			}
+			cursor := tx.Bucket(eventBucket).Cursor()
+			last := bytes.Clone(meta.Get([]byte("telemetry_index_cursor")))
+			k, v := cursor.First()
+			if last != nil {
+				k, v = cursor.Seek(last)
+				if k != nil && bytes.Equal(k, last) {
+					k, v = cursor.Next()
+				}
+			}
+			total := number(meta.Get([]byte("telemetry_bytes")))
+			count := 0
+			for ; k != nil && count < 128; k, v = cursor.Next() {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				var event requestevent.Event
+				if json.Unmarshal(v, &event) != nil {
+					return ErrUnavailable
+				}
+				if event.Kind == "telemetry" {
+					size := uint64(len(v)) + 128
+					if err := tx.Bucket(telemetryBucket).Put(k, key(size)); err != nil {
+						return err
+					}
+					total += size
+				}
+				last = bytes.Clone(k)
+				count++
+			}
+			if err := meta.Put([]byte("telemetry_bytes"), key(total)); err != nil {
+				return err
+			}
+			if last != nil {
+				if err := meta.Put([]byte("telemetry_index_cursor"), last); err != nil {
+					return err
+				}
+			}
+			if k == nil {
+				done = true
+				return meta.Put([]byte("telemetry_index_ready"), key(1))
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		if done {
+			return nil
+		}
+	}
 }

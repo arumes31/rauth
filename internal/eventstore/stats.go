@@ -44,9 +44,15 @@ func (q StatsQuery) Window(now time.Time) (time.Time, time.Duration, error) {
 		}
 	}
 	if q.Domain != "" {
-		u, err := url.Parse("https://" + q.Domain)
-		if err != nil || u.Hostname() != q.Domain || u.Host != q.Domain || u.Path != "" || len(q.Domain) > 253 || strings.ContainsAny(q.Domain, "?#@ ") {
-			return time.Time{}, 0, ErrInvalid
+		if ip, err := netip.ParseAddr(q.Domain); err == nil {
+			if ip.Zone() != "" {
+				return time.Time{}, 0, ErrInvalid
+			}
+		} else {
+			u, err := url.Parse("https://" + q.Domain)
+			if err != nil || u.Hostname() != q.Domain || u.Host != q.Domain || u.Path != "" || len(q.Domain) > 253 || strings.ContainsAny(q.Domain, "?#@ ") {
+				return time.Time{}, 0, ErrInvalid
+			}
 		}
 	}
 	if q.Source != "" {
@@ -139,7 +145,7 @@ func (s *Store) Statistics(parent context.Context, q StatsQuery) (StatsSnapshot,
 	if duration > 24*time.Hour {
 		step = 30 * time.Minute
 	}
-	out := StatsSnapshot{GeneratedAt: now, Start: start, End: now, BucketSeconds: int64(step / time.Second), Query: q, Actions: []Dimension{}, Countries: []Dimension{}, Timeline: []TrafficPoint{}, Top: map[string][]Dimension{}, Nodes: []NodeSample{}, Coverage: "retained history; missing observations are not zero"}
+	out := StatsSnapshot{GeneratedAt: now, Start: start, End: now, BucketSeconds: int64(step / time.Second), Query: q, Actions: []Dimension{}, Countries: []Dimension{}, Timeline: []TrafficPoint{}, Top: map[string][]Dimension{}, Nodes: []NodeSample{}, Coverage: "retained history; node samples have a separate byte cap and at most 24h retention; missing observations are not zero"}
 	if tx.QueryRow(ctx, `SELECT (SELECT min(occurred_at) FROM request_events WHERE cluster_id=$1),expired_count,(SELECT count(*) FROM request_events WHERE cluster_id=$1 AND kind='gap' AND occurred_at>=$2) FROM event_ledgers WHERE cluster_id=$1`, s.options.ClusterID, start).Scan(&out.RetainedSince, &out.Expired, &out.LossMarkers) != nil {
 		return StatsSnapshot{}, ErrUnavailable
 	}

@@ -91,7 +91,7 @@ const payload = {
   loss_markers: 0,
   coverage: "retained history",
 };
-async function fixture() {
+async function fixture({ mapStatus = 200 } = {}) {
   const template = await readFile(
     new URL("../templates/stats.html", import.meta.url),
     "utf8",
@@ -151,7 +151,7 @@ async function fixture() {
   const fetch = async (url) => {
     fetches.push(url);
     return {
-      ok: true,
+      ok: !url.includes("/static/") || mapStatus === 200,
       json: async () =>
         url.includes("/static/")
           ? []
@@ -253,4 +253,11 @@ test("Stats pause/filter invalidates old streams and preserves new query scope",
   assert.match(f.elements.get("statsConnection").textContent, /stale/);
   f.EventSource.all.at(-1).emit("session-ended", {});
   assert.equal(f.EventSource.all.at(-1).closed, true);
+});
+
+test("unavailable map preserves a visible notice after traffic tables render", async () => {
+  const f = await fixture({ mapStatus: 404 });
+  f.stream.emit("stats", payload);
+  assert.match(f.elements.get("statsMapStatus").textContent, /Map unavailable/);
+  assert.match(f.elements.get("statsCountries").textContent, /AT/);
 });

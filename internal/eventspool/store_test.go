@@ -1,6 +1,7 @@
 package eventspool
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	bolt "go.etcd.io/bbolt"
 )
 
 var background = context.Background()
@@ -348,4 +350,111 @@ func TestPermanentRejectionAtomicallyPreservesDecisionLossAndTelemetryCoverage(t
 	require.NoError(t, err)
 	require.EqualValues(t, 1, st.Dropped)
 	require.EqualValues(t, 1, st.Pending)
+}
+
+func localMetric() requestevent.Event {
+	return requestevent.Event{Kind: "telemetry", Time: time.Now(), Metrics: &requestevent.MetricSnapshot{Schema: 1, InstanceID: uuid.NewString(), StartedAt: time.Now(), Points: []requestevent.MetricPoint{{Name: "process_cpu_seconds_total", Value: 1}}}}
+}
+func TestLocalTelemetryBudgetProtectsDecisionsWithoutCountingRequestLoss(t *testing.T) {
+	store := open(t, directory(t), options())
+	store.payloadLimit = 64 << 10
+	anchor := store.Identity(decision())
+	_, err := store.Append(background, []requestevent.Event{anchor})
+	require.NoError(t, err)
+	for range 100 {
+		_, err = store.Append(background, []requestevent.Event{store.Identity(localMetric())})
+		require.NoError(t, err)
+	}
+	records := pending(t, store)
+	found := false
+	for _, e := range records {
+		found = found || e.EventID == anchor.EventID
+	}
+	require.True(t, found)
+	status, err := store.Status(background)
+	require.NoError(t, err)
+	require.Zero(t, status.Dropped)
+	require.NoError(t, store.db.View(func(tx *bolt.Tx) error {
+		require.LessOrEqual(t, number(tx.Bucket(metaBucket).Get([]byte("telemetry_bytes"))), store.telemetryLimit())
+		return nil
+	}))
+}
+func TestOldSpoolTelemetryIndexRebuildResumesWithoutChangingRecords(t *testing.T) {
+	root := directory(t)
+	o := options()
+	store := open(t, root, o)
+	events := []requestevent.Event{}
+	for range 300 {
+		events = append(events, store.Identity(localMetric()))
+	}
+	for i := 0; i < len(events); i += 100 {
+		_, err := store.Append(background, events[i:i+100])
+		require.NoError(t, err)
+	}
+	require.NoError(t, store.MarkClean(background))
+	require.NoError(t, store.Close())
+	db, err := bolt.Open(filepath.Join(root, "spool.db"), 0o600, nil)
+	require.NoError(t, err)
+	require.NoError(t, db.Update(func(tx *bolt.Tx) error {
+		require.NoError(t, tx.DeleteBucket(telemetryBucket))
+		_, err := tx.CreateBucket(telemetryBucket)
+		require.NoError(t, err)
+		meta := tx.Bucket(metaBucket)
+		require.NoError(t, meta.Put([]byte("schema"), []byte("2")))
+		require.NoError(t, meta.Delete([]byte("telemetry_index_ready")))
+		var total uint64
+		cursor := tx.Bucket(eventBucket).Cursor()
+		k, v := cursor.First()
+		for range 128 {
+			require.NotNil(t, k)
+			size := uint64(len(v)) + 128
+			require.NoError(t, tx.Bucket(telemetryBucket).Put(k, key(size)))
+			total += size
+			require.NoError(t, meta.Put([]byte("telemetry_index_cursor"), bytes.Clone(k)))
+			k, v = cursor.Next()
+		}
+		return meta.Put([]byte("telemetry_bytes"), key(total))
+	}))
+	require.NoError(t, db.Close())
+	store = open(t, root, o)
+	require.NoError(t, store.db.View(func(tx *bolt.Tx) error {
+		require.Equal(t, 300, tx.Bucket(telemetryBucket).Stats().KeyN)
+		require.EqualValues(t, 1, number(tx.Bucket(metaBucket).Get([]byte("telemetry_index_ready"))))
+		return nil
+	}))
+	status, err := store.Status(background)
+	require.NoError(t, err)
+	require.EqualValues(t, 300, status.Pending)
+	require.Zero(t, status.Dropped)
+}
+func TestAsyncTelemetryCapacityDoesNotDiscardDecisions(t *testing.T) {
+	store := open(t, directory(t), options())
+	var sawTelemetry atomic.Bool
+	var wroteDecisions atomic.Int32
+	write := func(ctx context.Context, events []requestevent.Event) ([]string, error) {
+		for _, e := range events {
+			if e.Kind == "telemetry" {
+				sawTelemetry.Store(true)
+				return nil, ErrTelemetryCapacity
+			}
+		}
+		for _, e := range events {
+			if e.Kind == "decision" {
+				wroteDecisions.Add(1)
+			}
+		}
+		return store.Append(ctx, events)
+	}
+	a, err := newAsync(store, 8, write)
+	require.NoError(t, err)
+	require.True(t, a.OfferMetrics(*localMetric().Metrics))
+	require.True(t, a.Offer(decision()))
+	ctx, cancel := context.WithTimeout(background, 3*time.Second)
+	defer cancel()
+	require.NoError(t, a.Close(ctx))
+	require.True(t, sawTelemetry.Load())
+	require.EqualValues(t, 1, wroteDecisions.Load())
+	status, err := store.Status(background)
+	require.NoError(t, err)
+	require.Zero(t, status.Dropped)
 }

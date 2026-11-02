@@ -113,7 +113,7 @@ func (c *Collector) Diagnostics() []requestevent.MetricSnapshot {
 	}
 	for _, family := range families {
 		name := family.GetName()
-		if !strings.HasPrefix(name, "go_") && !strings.HasPrefix(name, "process_") && !strings.HasPrefix(name, "rauth_") {
+		if !strings.HasPrefix(name, "go_") && !strings.HasPrefix(name, "process_") && !strings.HasPrefix(name, "rauth_") && !strings.HasPrefix(name, "promhttp_") {
 			partial = true
 			continue
 		}

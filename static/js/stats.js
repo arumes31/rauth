@@ -216,7 +216,7 @@ async function loadMap() {
     const response = await fetch("/static/data/countries-110m.json", {
       credentials: "same-origin",
     });
-    if (!response.ok) return;
+    if (!response.ok) throw new Error("map unavailable");
     const countries = await response.json();
     for (const c of countries.slice(0, 250)) {
       if (
@@ -245,7 +245,7 @@ async function loadMap() {
     if (latest) drawMap(latest);
   } catch {
     text(
-      "statsCountries",
+      "statsMapStatus",
       "Map unavailable. Country counts remain available below.",
     );
   }

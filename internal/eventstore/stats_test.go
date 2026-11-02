@@ -3,11 +3,13 @@ package eventstore
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 	"net/url"
 	"rauth/internal/requestevent"
+	"strings"
 	"testing"
 	"time"
 )
@@ -211,4 +213,108 @@ func TestReadOnlyReadersRetainWritableLeaderSelection(t *testing.T) {
 		require.NoError(t, reader.QueryRow(background, "SHOW transaction_read_only").Scan(&mode))
 		require.Equal(t, "on", mode)
 	}
+}
+
+func metricEvent(node string, points int) requestevent.Event {
+	list := []requestevent.MetricPoint{}
+	for i := 0; i < points; i++ {
+		list = append(list, requestevent.MetricPoint{Name: fmt.Sprintf("telemetry_%045d", i), Value: 1})
+	}
+	return requestevent.Event{Kind: "telemetry", Time: time.Now(), EventID: uuid.NewString(), NodeID: node, NodeName: "fixture", Metrics: &requestevent.MetricSnapshot{Schema: 1, InstanceID: uuid.NewString(), StartedAt: time.Now(), Points: list}}
+}
+func TestTelemetryBudgetCannotEvictDecisionHistoryOrAdvanceItsPruningCursor(t *testing.T) {
+	pool := setup(t)
+	o := options()
+	o.MaxBytes = 1 << 20
+	s := open(t, pool, o)
+	node := uuid.NewString()
+	anchor := decision(node)
+	_, err := s.Ingest(background, node, []requestevent.Event{anchor})
+	require.NoError(t, err)
+	for range 40 {
+		_, err = s.Ingest(background, node, []requestevent.Event{metricEvent(node, 32)})
+		require.NoError(t, err)
+	}
+	var count, bytes int64
+	require.NoError(t, pool.QueryRow(background, "SELECT count(*) FROM request_events WHERE event_id=$1", anchor.EventID).Scan(&count))
+	require.EqualValues(t, 1, count)
+	require.NoError(t, pool.QueryRow(background, "SELECT telemetry_bytes FROM event_ledgers WHERE cluster_id=$1", o.ClusterID).Scan(&bytes))
+	require.LessOrEqual(t, bytes, s.telemetryLimit())
+	batch, err := s.After(background, 0, "")
+	require.NoError(t, err)
+	require.Len(t, batch.Events, 1)
+	require.Zero(t, batch.PrunedThrough)
+}
+func TestFullDecisionStoreRejectsOptionalTelemetryWithoutDeletingDecisions(t *testing.T) {
+	pool := setup(t)
+	o := options()
+	o.MaxBytes = 1 << 20
+	s := open(t, pool, o)
+	node := uuid.NewString()
+	for range 4 {
+		events := []requestevent.Event{}
+		for range 50 {
+			e := decision(node)
+			e.URL = "https://example.com/" + strings.Repeat("a", 1700)
+			events = append(events, e)
+		}
+		_, err := s.Ingest(background, node, events)
+		require.NoError(t, err)
+	}
+	// Finish with individual inserts so batch reservation does not leave a
+	// large, legitimate free region for the optional sample.
+	for range 64 {
+		e := decision(node)
+		e.URL = "https://example.com/" + strings.Repeat("a", 1700)
+		_, err := s.Ingest(background, node, []requestevent.Event{e})
+		require.NoError(t, err)
+	}
+	before, err := s.Status(background)
+	require.NoError(t, err)
+	_, err = s.Ingest(background, node, []requestevent.Event{metricEvent(node, 64)})
+	require.ErrorIs(t, err, ErrInvalid)
+	after, err := s.Status(background)
+	require.NoError(t, err)
+	require.Equal(t, before, after)
+}
+func TestVersionTwoAccountingUpgradeAndIPv6Drilldown(t *testing.T) {
+	pool := setup(t)
+	cfg := pool.Config()
+	name := "event_v2_" + uuid.NewString()[:8]
+	_, err := pool.Exec(background, "CREATE SCHEMA "+name)
+	require.NoError(t, err)
+	defer func() { _, _ = pool.Exec(background, "DROP SCHEMA "+name+" CASCADE") }()
+	cfg.ConnConfig.RuntimeParams["search_path"] = name
+	old, err := pgxpool.NewWithConfig(background, cfg)
+	require.NoError(t, err)
+	defer old.Close()
+	_, err = old.Exec(background, schema)
+	require.NoError(t, err)
+	o := options()
+	var role string
+	require.NoError(t, old.QueryRow(background, "SELECT current_user").Scan(&role))
+	_, err = old.Exec(background, "INSERT INTO event_ledgers(cluster_id,owner_role) VALUES($1,$2::name)", o.ClusterID, role)
+	require.NoError(t, err)
+	e := decision(uuid.NewString())
+	e.URL = "https://[2001:db8::1]/document"
+	raw, err := json.Marshal(e)
+	require.NoError(t, err)
+	_, err = old.Exec(background, `INSERT INTO request_events(cluster_id,seq,node_id,event_id,occurred_at,received_at,payload,size) VALUES($1,1,$2,$3,$4,$4,$5,$6)`, o.ClusterID, e.NodeID, e.EventID, e.Time, raw, len(raw)+256)
+	require.NoError(t, err)
+	_, err = old.Exec(background, `UPDATE event_ledgers SET high_water=1,event_count=1,payload_bytes=$2 WHERE cluster_id=$1`, o.ClusterID, len(raw)+256)
+	require.NoError(t, err)
+	_, err = old.Exec(background, schema2)
+	require.NoError(t, err)
+	require.NoError(t, Migrate(background, old))
+	require.NoError(t, Migrate(background, old))
+	var used int64
+	require.NoError(t, old.QueryRow(background, "SELECT payload_bytes FROM event_ledgers").Scan(&used))
+	require.Equal(t, eventSize(raw), used)
+	s, err := Open(background, old, o)
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+	view, err := s.Statistics(background, StatsQuery{Range: "5m", Domain: "2001:db8::1"})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, view.Total)
+	require.Equal(t, "2001:db8::1", view.Top["domains"][0].Key)
 }

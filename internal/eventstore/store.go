@@ -26,12 +26,16 @@ var ErrConflict = errors.New("event identity conflicts with committed content")
 var ErrUnavailable = errors.New("event storage unavailable")
 
 const CentralBytes int64 = 8 << 30
+const SchemaVersion = 3
 
 //go:embed schema.sql
 var schema string
 
 //go:embed schema2.sql
 var schema2 string
+
+//go:embed schema3.sql
+var schema3 string
 
 type Options struct {
 	ClusterID string
@@ -88,11 +92,27 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended('rauth-event-schema',0))"); err != nil {
 		return ErrUnavailable
 	}
-	if _, err = tx.Exec(ctx, schema); err != nil {
+	var exists bool
+	if tx.QueryRow(ctx, "SELECT to_regclass('event_schema_version') IS NOT NULL").Scan(&exists) != nil {
 		return ErrUnavailable
 	}
-	if _, err = tx.Exec(ctx, schema2); err != nil {
-		return ErrUnavailable
+	version := 0
+	if exists {
+		var operator bool
+		if tx.QueryRow(ctx, "SELECT pg_has_role(current_user,relowner,'USAGE') FROM pg_class WHERE oid=to_regclass('event_schema_version')").Scan(&operator) != nil || !operator {
+			return ErrUnavailable
+		}
+		if tx.QueryRow(ctx, "SELECT version FROM event_schema_version WHERE singleton").Scan(&version) != nil || version < 1 || version > SchemaVersion {
+			return ErrUnavailable
+		}
+	}
+	for i, migration := range []string{schema, schema2, schema3} {
+		if version >= i+1 {
+			continue
+		}
+		if _, err = tx.Exec(ctx, migration); err != nil {
+			return ErrUnavailable
+		}
 	}
 	return tx.Commit(ctx)
 }
@@ -140,7 +160,7 @@ func Open(ctx context.Context, pool *pgxpool.Pool, o Options) (*Store, error) {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	var version int
-	if primary(ctx, tx) != nil || tx.QueryRow(ctx, "SELECT version FROM event_schema_version WHERE singleton").Scan(&version) != nil || version != 2 {
+	if primary(ctx, tx) != nil || tx.QueryRow(ctx, "SELECT version FROM event_schema_version WHERE singleton").Scan(&version) != nil || version != SchemaVersion {
 		_ = tx.Rollback(ctx)
 		return fail()
 	}
@@ -236,7 +256,7 @@ func (s *Store) insert(ctx context.Context, peer string, events []requestevent.E
 	if s.closed {
 		return nil, ErrUnavailable
 	}
-	var incoming int64
+	var incoming, incomingTelemetry int64
 	for i, e := range events {
 		var old []byte
 		err := s.pool.QueryRow(ctx, `SELECT payload FROM request_events WHERE cluster_id=$1 AND node_id=$2 AND event_id=$3`, s.options.ClusterID, e.NodeID, e.EventID).Scan(&old)
@@ -246,11 +266,17 @@ func (s *Store) insert(ctx context.Context, peer string, events []requestevent.E
 			}
 		} else if errors.Is(err, pgx.ErrNoRows) {
 			incoming += eventSize(raws[i])
+			if e.Kind == "telemetry" {
+				incomingTelemetry += eventSize(raws[i])
+			}
 		} else {
 			return nil, ErrUnavailable
 		}
 	}
-	if err := s.trim(ctx, incoming, now); err != nil {
+	if incoming > s.options.MaxBytes || incomingTelemetry > s.telemetryLimit() {
+		return nil, ErrInvalid
+	}
+	if err := s.trim(ctx, incoming, incomingTelemetry, now); err != nil {
 		return nil, err
 	}
 	tx, used, high, err := s.begin(ctx)
@@ -258,7 +284,7 @@ func (s *Store) insert(ctx context.Context, peer string, events []requestevent.E
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	var added int64
+	var added, addedTelemetry int64
 	for i, e := range events {
 		var old []byte
 		err = tx.QueryRow(ctx, `SELECT payload FROM request_events WHERE cluster_id=$1 AND node_id=$2 AND event_id=$3`, s.options.ClusterID, e.NodeID, e.EventID).Scan(&old)
@@ -283,9 +309,12 @@ func (s *Store) insert(ctx context.Context, peer string, events []requestevent.E
 			return nil, storageFailure(err)
 		}
 		used += eventSize(raws[i])
+		if e.Kind == "telemetry" {
+			addedTelemetry += eventSize(raws[i])
+		}
 		added++
 	}
-	if _, err = tx.Exec(ctx, `UPDATE event_ledgers SET payload_bytes=$3,high_water=$4,event_count=event_count+$5 WHERE cluster_id=$1 AND owner_token=$2`, s.options.ClusterID, s.token, used, high, added); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE event_ledgers SET payload_bytes=$3,high_water=$4,event_count=event_count+$5,telemetry_bytes=telemetry_bytes+$6 WHERE cluster_id=$1 AND owner_token=$2`, s.options.ClusterID, s.token, used, high, added, addedTelemetry); err != nil {
 		return nil, storageFailure(err)
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -296,15 +325,19 @@ func (s *Store) insert(ctx context.Context, peer string, events []requestevent.E
 	}
 	return acks, nil
 }
-func (s *Store) trim(ctx context.Context, incoming int64, now time.Time) error {
+func (s *Store) telemetryLimit() int64 { return min(s.options.MaxBytes/8, 256<<20) }
+func (s *Store) trim(ctx context.Context, incoming, incomingTelemetry int64, now time.Time) error {
 	for {
 		tx, used, _, err := s.begin(ctx)
 		if err != nil {
 			return err
 		}
-		changed, err := s.trimChunk(ctx, tx, incoming, now, used)
+		changed, err := s.trimChunk(ctx, tx, incoming, incomingTelemetry, now, used)
 		if err != nil {
 			_ = tx.Rollback(ctx)
+			if errors.Is(err, ErrInvalid) {
+				return err
+			}
 			return storageFailure(err)
 		}
 		if !changed {
@@ -317,28 +350,16 @@ func (s *Store) trim(ctx context.Context, incoming int64, now time.Time) error {
 		s.notifyLocked()
 	}
 }
-func (s *Store) trimChunk(ctx context.Context, tx pgx.Tx, incoming int64, now time.Time, used int64) (bool, error) {
-	type item struct{ seq, size int64 }
-	var expired []item
-	rows, err := tx.Query(ctx, `SELECT seq,size FROM request_events WHERE cluster_id=$1 AND received_at<$2 ORDER BY seq LIMIT 128`, s.options.ClusterID, now.Add(-s.options.MaxAge))
-	if err != nil {
+func (s *Store) trimChunk(ctx context.Context, tx pgx.Tx, incoming, incomingTelemetry int64, now time.Time, used int64) (bool, error) {
+	type item struct {
+		seq, size int64
+		kind      string
+	}
+	var telemetry int64
+	if err := tx.QueryRow(ctx, `SELECT telemetry_bytes FROM event_ledgers WHERE cluster_id=$1 AND owner_token=$2`, s.options.ClusterID, s.token).Scan(&telemetry); err != nil {
 		return false, err
 	}
-	for rows.Next() {
-		var i item
-		if err = rows.Scan(&i.seq, &i.size); err != nil {
-			rows.Close()
-			return false, err
-		}
-		expired = append(expired, i)
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return false, err
-	}
-	removed := int64(0)
-	last := int64(0)
+	removed, last := int64(0), int64(0)
 	remove := func(i item) error {
 		if err := s.removeStatistics(ctx, tx, i.seq); err != nil {
 			return err
@@ -347,37 +368,67 @@ func (s *Store) trimChunk(ctx context.Context, tx pgx.Tx, incoming int64, now ti
 			return err
 		}
 		used -= i.size
-		removed++
-		if i.seq > last {
+		if i.kind == "telemetry" {
+			telemetry -= i.size
+		} else if i.seq > last {
 			last = i.seq
 		}
+		removed++
 		return nil
+	}
+	collect := func(sql string, args ...any) ([]item, error) {
+		rows, err := tx.Query(ctx, sql, args...)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		items := []item{}
+		for rows.Next() {
+			var i item
+			if err = rows.Scan(&i.seq, &i.size, &i.kind); err != nil {
+				return nil, err
+			}
+			items = append(items, i)
+		}
+		return items, rows.Err()
+	}
+	// Telemetry has shorter age and its own cap. It is always reclaimed before
+	// a decision is evicted, and incoming telemetry may never evict a decision.
+	expired, err := collect(`SELECT seq,size,kind FROM request_events WHERE cluster_id=$1 AND (received_at<$2 OR (kind='telemetry' AND received_at<$3)) ORDER BY seq LIMIT 128`, s.options.ClusterID, now.Add(-s.options.MaxAge), now.Add(-min(s.options.MaxAge, 24*time.Hour)))
+	if err != nil {
+		return false, err
 	}
 	for _, i := range expired {
 		if err = remove(i); err != nil {
 			return false, err
 		}
 	}
-	if removed < 128 && used+incoming > s.options.MaxBytes {
-		var oldest []item
-		rows, err = tx.Query(ctx, `SELECT seq,size FROM request_events WHERE cluster_id=$1 ORDER BY seq LIMIT 128`, s.options.ClusterID)
+	telemetryPressure := func() bool {
+		return telemetry+incomingTelemetry > s.telemetryLimit() || used+incoming > s.options.MaxBytes
+	}
+	if removed < 128 && telemetryPressure() {
+		samples, err := collect(`SELECT seq,size,kind FROM request_events WHERE cluster_id=$1 AND kind='telemetry' ORDER BY seq LIMIT 128`, s.options.ClusterID)
 		if err != nil {
 			return false, err
 		}
-		for rows.Next() {
-			var i item
-			if err = rows.Scan(&i.seq, &i.size); err != nil {
-				rows.Close()
+		for _, i := range samples {
+			if removed == 128 || !telemetryPressure() {
+				break
+			}
+			if err = remove(i); err != nil {
 				return false, err
 			}
-			oldest = append(oldest, i)
 		}
-		err = rows.Err()
-		rows.Close()
+	}
+	if removed < 128 && (telemetry+incomingTelemetry > s.telemetryLimit() || incomingTelemetry > 0 && used+incoming > s.options.MaxBytes) {
+		return false, ErrInvalid
+	}
+	if removed < 128 && used+incoming > s.options.MaxBytes {
+		decisions, err := collect(`SELECT seq,size,kind FROM request_events WHERE cluster_id=$1 AND kind<>'telemetry' ORDER BY seq LIMIT 128`, s.options.ClusterID)
 		if err != nil {
 			return false, err
 		}
-		for _, i := range oldest {
+		for _, i := range decisions {
 			if removed == 128 || used+incoming <= s.options.MaxBytes {
 				break
 			}
@@ -389,7 +440,7 @@ func (s *Store) trimChunk(ctx context.Context, tx pgx.Tx, incoming int64, now ti
 	if removed == 0 {
 		return false, nil
 	}
-	_, err = tx.Exec(ctx, `UPDATE event_ledgers SET payload_bytes=$3,event_count=event_count-$4,expired_count=expired_count+$4,pruned_through=GREATEST(pruned_through,$5) WHERE cluster_id=$1 AND owner_token=$2`, s.options.ClusterID, s.token, used, removed, last)
+	_, err = tx.Exec(ctx, `UPDATE event_ledgers SET payload_bytes=$3,telemetry_bytes=$6,event_count=event_count-$4,expired_count=expired_count+$4,pruned_through=GREATEST(pruned_through,$5) WHERE cluster_id=$1 AND owner_token=$2`, s.options.ClusterID, s.token, used, removed, last, telemetry)
 	return true, err
 }
 

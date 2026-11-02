@@ -340,3 +340,47 @@ func TestPermanentRejectionIsolatesPoisonWithoutAcknowledgingIt(t *testing.T) {
 		require.Len(t, box.live, 1)
 	}
 }
+
+func TestMaximumMixedBatchCapacityRejectionNeverDiscardsDecisions(t *testing.T) {
+	node := uuid.NewString()
+	out := &rejectingBox{}
+	kinds := map[string]string{}
+	decisions := map[string]bool{}
+	for i := range requestevent.MaxBatch {
+		e := event(node)
+		if i%10 == 0 {
+			e = requestevent.Event{Kind: "telemetry", EventID: e.EventID, NodeID: e.NodeID, NodeName: e.NodeName, Time: e.Time, Metrics: &requestevent.MetricSnapshot{Schema: 1, InstanceID: uuid.NewString(), StartedAt: e.Time, Points: []requestevent.MetricPoint{}}}
+		}
+		require.NoError(t, requestevent.Validate(e, time.Now()))
+		out.live = append(out.live, e)
+		kinds[e.EventID] = e.Kind
+		if e.Kind == "decision" {
+			decisions[e.EventID] = true
+		}
+	}
+	committed := map[string]bool{}
+	client := clientFunc(func(r *http.Request) (*http.Response, error) {
+		var body Envelope
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		for _, e := range body.Events {
+			if e.Kind == "telemetry" {
+				return response(400, "capacity"), nil
+			}
+		}
+		for _, e := range body.Events {
+			committed[e.EventID] = true
+		}
+		return response(200, ackFor(body.Events)), nil
+	})
+	sender, err := NewSender(out, client, "https://100.72.1.1:9443")
+	require.NoError(t, err)
+	for attempt := 0; attempt < 40 && len(out.live) > 0; attempt++ {
+		_ = sender.deliver(context.Background(), true)
+	}
+	require.Empty(t, out.live, "bounded retries must eventually drain a maximum-sized mixed batch")
+	require.Equal(t, decisions, committed)
+	require.Len(t, out.rejected, 10)
+	for _, id := range out.rejected {
+		require.Equal(t, "telemetry", kinds[id], "budget exhaustion must retain decisions rather than reject them")
+	}
+}
