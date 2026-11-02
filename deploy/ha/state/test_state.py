@@ -2,6 +2,7 @@ import copy
 import importlib.util
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -153,6 +154,37 @@ class NativeFilesystemTests(unittest.TestCase):
                 with self.assertRaises(OSError): prepare.ensure_tree(anchor, "link/escape", os.getuid(), os.fstat(anchor).st_dev)
                 self.assertFalse((target / "escape").exists())
             finally: os.close(anchor)
+
+    def test_same_device_bind_mount_cannot_escape_guarded_root(self):
+        if not shutil.which("unshare") or not shutil.which("mount"):
+            self.skipTest("Isolated mount namespace tools unavailable")
+        code = """
+import os,tempfile
+from pathlib import Path
+import prepare
+with tempfile.TemporaryDirectory() as t:
+ root=Path(t);source=root/'outside';source.mkdir(mode=0o700)
+ target=root/'nested';target.mkdir(mode=0o700)
+ import subprocess
+ subprocess.run(['mount','--bind',str(source),str(target)],check=True)
+ anchor=os.open(root,os.O_RDONLY|os.O_DIRECTORY)
+ child=os.open(target,os.O_RDONLY|os.O_DIRECTORY)
+ try:
+  assert os.fstat(anchor).st_dev == os.fstat(child).st_dev
+  assert prepare.mount_identity(anchor) != prepare.mount_identity(child)
+  try:prepare.ensure_tree(anchor,'nested/escape',os.getuid(),os.fstat(anchor).st_dev)
+  except ValueError:pass
+  else:raise AssertionError('Same-device bind mount was accepted')
+  assert not (source/'escape').exists()
+ finally:
+  os.close(child);os.close(anchor)
+  subprocess.run(['umount',str(target)],check=True)
+"""
+        result = subprocess.run(["unshare", "--mount", "--propagation", "private", sys.executable, "-c", code],
+                                cwd=Path(__file__).parent, capture_output=True, text=True)
+        if result.returncode and result.stderr.startswith("unshare:") and "Operation not permitted" in result.stderr:
+            self.skipTest("Private mount namespace requires host privilege")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

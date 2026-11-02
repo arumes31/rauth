@@ -45,7 +45,16 @@ def verify_mount(expected, observed):
         raise ValueError("Expected writable host filesystem UUID is absent")
 
 
-def open_directory(path, device=None):
+def mount_identity(fd):
+    # Bind mounts preserve st_dev. fdinfo identifies the actual Linux mount
+    # pinned by this descriptor, including same-device nested bind mounts.
+    for line in Path(f"/proc/self/fdinfo/{fd}").read_text().splitlines():
+        if line.startswith("mnt_id:"):
+            return int(line.split(":", 1)[1].strip())
+    raise ValueError("Cannot verify descriptor mount identity")
+
+
+def open_directory(path, device=None, mount=None):
     fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
     try:
         for part in absolute(str(path)).parts[1:]:
@@ -54,6 +63,8 @@ def open_directory(path, device=None):
             fd = child
         if device is not None and os.fstat(fd).st_dev != device:
             raise ValueError("Filesystem changed during verification")
+        if mount is not None and mount_identity(fd) != mount:
+            raise ValueError("Mount changed during verification")
         return fd
     except BaseException:
         os.close(fd)
@@ -62,6 +73,7 @@ def open_directory(path, device=None):
 
 def ensure_tree(anchor, relative, uid, device):
     fd = os.dup(anchor)
+    mount = mount_identity(anchor)
     try:
         parts = PurePosixPath(relative).parts
         for i, part in enumerate(parts):
@@ -73,7 +85,7 @@ def ensure_tree(anchor, relative, uid, device):
             os.close(fd)
             fd = child
             st = os.fstat(fd)
-            if st.st_dev != device or st.st_mode & 0o077 or st.st_uid not in (0, uid):
+            if st.st_dev != device or mount_identity(fd) != mount or st.st_mode & 0o077 or st.st_uid not in (0, uid):
                 raise ValueError("Unsafe existing fixture directory")
             if i == len(parts) - 1:
                 os.fchown(fd, uid, uid)
@@ -93,8 +105,9 @@ def prepare(expected, create=False):
     anchor = open_directory(mount)
     try:
         device = os.fstat(anchor).st_dev
+        mount_id = mount_identity(anchor)
         verify_mount(expected, json.loads(subprocess.check_output(["findmnt", "--json", "--mountpoint", str(mount), "--output", "TARGET,UUID,FSTYPE,OPTIONS"], encoding="utf-8")))
-        second = open_directory(mount, device)
+        second = open_directory(mount, device, mount_id)
         os.close(second)
         vfs = os.fstatvfs(anchor)
         if vfs.f_flag & os.ST_RDONLY or vfs.f_bavail * vfs.f_frsize < expected["minimum_free_bytes"]:
@@ -115,7 +128,7 @@ def prepare(expected, create=False):
                         os.close(owned_parent)
                     owned_parent = child
                     parent = child
-                    if os.fstat(parent).st_dev != device:
+                    if os.fstat(parent).st_dev != device or mount_identity(parent) != mount_id:
                         raise ValueError("Unexpected nested mount")
                 ensure_tree(parent, relative.name, 0, device)
                 fixture = os.open(relative.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
