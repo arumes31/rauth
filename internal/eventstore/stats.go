@@ -146,9 +146,6 @@ func (s *Store) Statistics(parent context.Context, q StatsQuery) (StatsSnapshot,
 		step = 30 * time.Minute
 	}
 	out := StatsSnapshot{GeneratedAt: now, Start: start, End: now, BucketSeconds: int64(step / time.Second), Query: q, Actions: []Dimension{}, Countries: []Dimension{}, Timeline: []TrafficPoint{}, Top: map[string][]Dimension{}, Nodes: []NodeSample{}, Coverage: "retained history; node samples have a separate byte cap and at most 24h retention; missing observations are not zero"}
-	if tx.QueryRow(ctx, `SELECT (SELECT min(occurred_at) FROM request_events WHERE cluster_id=$1),expired_count,(SELECT count(*) FROM request_events WHERE cluster_id=$1 AND kind='gap' AND occurred_at>=$2) FROM event_ledgers WHERE cluster_id=$1`, s.options.ClusterID, start).Scan(&out.RetainedSince, &out.Expired, &out.LossMarkers) != nil {
-		return StatsSnapshot{}, ErrUnavailable
-	}
 	args := []any{s.options.ClusterID, start, now, q.Node, q.Country, q.Action}
 	condition := `cluster_id=$1 AND occurred_at>=$2 AND occurred_at<=$3 AND ($4='' OR node_id::text=$4) AND ($5='' OR country=$5) AND ($6='' OR action=$6)`
 	table := "request_events"
@@ -163,7 +160,18 @@ func (s *Store) Statistics(parent context.Context, q StatsQuery) (StatsSnapshot,
 		countExpr = "count(*)"
 		timeColumn = "occurred_at"
 	}
-	rows, err := tx.Query(ctx, `SELECT date_bin(make_interval(secs=>`+intString(out.BucketSeconds)+`),`+timeColumn+`,timestamptz '2000-01-01'),action,country,latency_bucket,`+countExpr+` FROM `+trafficTable+` WHERE `+trafficCondition+` GROUP BY 1,2,3,4 ORDER BY 1`, args...)
+	// These independent reads share the same repeatable-read snapshot. Pipeline
+	// them so a remote primary does not spend the read budget on serial RTTs.
+	batch := &pgx.Batch{}
+	batch.Queue(`SELECT (SELECT min(occurred_at) FROM request_events WHERE cluster_id=$1),expired_count,(SELECT count(*) FROM request_events WHERE cluster_id=$1 AND kind='gap' AND occurred_at>=$2) FROM event_ledgers WHERE cluster_id=$1`, s.options.ClusterID, start)
+	batch.Queue(`SELECT date_bin(make_interval(secs=>`+intString(out.BucketSeconds)+`),`+timeColumn+`,timestamptz '2000-01-01'),action,country,latency_bucket,`+countExpr+` FROM `+trafficTable+` WHERE `+trafficCondition+` GROUP BY 1,2,3,4 ORDER BY 1`, args...)
+	batch.Queue(nodeSamplesSQL, s.options.ClusterID, now.Add(-7*24*time.Hour), q.Node)
+	results := tx.SendBatch(ctx, batch)
+	defer func() { _ = results.Close() }()
+	if results.QueryRow().Scan(&out.RetainedSince, &out.Expired, &out.LossMarkers) != nil {
+		return StatsSnapshot{}, ErrUnavailable
+	}
+	rows, err := results.Query()
 	if err != nil {
 		return StatsSnapshot{}, ErrUnavailable
 	}
@@ -200,6 +208,15 @@ func (s *Store) Statistics(parent context.Context, q StatsQuery) (StatsSnapshot,
 	if err != nil {
 		return StatsSnapshot{}, ErrUnavailable
 	}
+	rows, err = results.Query()
+	if err != nil {
+		return StatsSnapshot{}, ErrUnavailable
+	}
+	out.Nodes, err = readNodeSamples(rows, now)
+	closeErr := results.Close()
+	if err != nil || closeErr != nil {
+		return StatsSnapshot{}, ErrUnavailable
+	}
 	out.Actions = dimensions(actionCounts)
 	out.Countries = dimensions(countryCounts)
 	for key, count := range timeline {
@@ -225,29 +242,9 @@ func (s *Store) Statistics(parent context.Context, q StatsQuery) (StatsSnapshot,
 	}
 	rawCondition := condition + ` AND kind='decision' AND ($7='' OR domain=$7) AND ($8='' OR source=$8) AND ($9='' OR url=$9) AND ($10='' OR reason=$10)`
 	out.TopScope = "Up to 20,000 most recent matching decisions in the selected window"
-	// An optional top-N panel has a separate statement deadline and savepoint.
-	// Cancellation cannot poison the essential rollups/node snapshot transaction.
-	if _, err = tx.Exec(ctx, "SAVEPOINT optional_top"); err != nil {
-		return StatsSnapshot{}, ErrUnavailable
-	}
-	if _, err = tx.Exec(ctx, "SET LOCAL statement_timeout='250ms'"); err != nil {
-		return StatsSnapshot{}, ErrUnavailable
-	}
-	out.Top, err = queryTop(ctx, tx, args, rawCondition)
-	if err != nil {
-		out.TopUnavailable = true
-		out.Top = map[string][]Dimension{}
-		if _, err = tx.Exec(ctx, "ROLLBACK TO SAVEPOINT optional_top"); err != nil {
-			return StatsSnapshot{}, ErrUnavailable
-		}
-	}
-	if _, err = tx.Exec(ctx, "SET LOCAL statement_timeout='1500ms'"); err != nil {
-		return StatsSnapshot{}, ErrUnavailable
-	}
-	if _, err = tx.Exec(ctx, "RELEASE SAVEPOINT optional_top"); err != nil {
-		return StatsSnapshot{}, ErrUnavailable
-	}
-	out.Nodes, err = s.nodeSamples(ctx, tx, now, q.Node)
+	// Optional rankings keep a separate statement deadline and recoverable
+	// savepoint without imposing a network round trip for each control command.
+	out.Top, out.TopUnavailable, err = queryOptionalTop(ctx, tx, args, rawCondition)
 	if err != nil {
 		return StatsSnapshot{}, ErrUnavailable
 	}
@@ -299,18 +296,17 @@ func quantile(counts []uint64, p float64) *float64 {
 	}
 	return nil
 }
-func (s *Store) nodeSamples(ctx context.Context, tx pgx.Tx, now time.Time, node string) ([]NodeSample, error) {
-	rows, err := tx.Query(ctx, `WITH nodes AS (SELECT DISTINCT node_id FROM event_node_samples WHERE cluster_id=$1 AND NOT is_diagnostic AND occurred_at>=$2 AND ($3='' OR node_id::text=$3) ORDER BY node_id LIMIT 64) SELECT n.node_id::text,s.node_name,s.occurred_at,s.received_at,s.snapshot FROM nodes n CROSS JOIN LATERAL(SELECT * FROM event_node_samples e WHERE e.cluster_id=$1 AND e.node_id=n.node_id AND NOT is_diagnostic ORDER BY occurred_at DESC,seq DESC LIMIT 2) s ORDER BY n.node_id,s.occurred_at DESC`, s.options.ClusterID, now.Add(-7*24*time.Hour), node)
-	if err != nil {
-		return nil, err
-	}
+
+const nodeSamplesSQL = `WITH nodes AS (SELECT DISTINCT node_id FROM event_node_samples WHERE cluster_id=$1 AND NOT is_diagnostic AND occurred_at>=$2 AND ($3='' OR node_id::text=$3) ORDER BY node_id LIMIT 64) SELECT n.node_id::text,s.node_name,s.occurred_at,s.received_at,s.snapshot FROM nodes n CROSS JOIN LATERAL(SELECT * FROM event_node_samples e WHERE e.cluster_id=$1 AND e.node_id=n.node_id AND NOT is_diagnostic ORDER BY occurred_at DESC,seq DESC LIMIT 2) s ORDER BY n.node_id,s.occurred_at DESC`
+
+func readNodeSamples(rows pgx.Rows, now time.Time) ([]NodeSample, error) {
 	defer rows.Close()
 	out := []NodeSample{}
 	last := ""
 	for rows.Next() {
 		var sample NodeSample
 		var raw []byte
-		if err = rows.Scan(&sample.NodeID, &sample.NodeName, &sample.Time, &sample.ReceivedAt, &raw); err != nil {
+		if err := rows.Scan(&sample.NodeID, &sample.NodeName, &sample.Time, &sample.ReceivedAt, &raw); err != nil {
 			return nil, err
 		}
 		if json.Unmarshal(raw, &sample.Snapshot) != nil {
@@ -419,20 +415,44 @@ func (s *Store) Diagnostics(parent context.Context, node string) (Diagnostics, e
 	return out, nil
 }
 
-func queryTop(ctx context.Context, tx pgx.Tx, args []any, condition string) (map[string][]Dimension, error) {
+func queryOptionalTop(ctx context.Context, tx pgx.Tx, args []any, condition string) (map[string][]Dimension, bool, error) {
+	batch := &pgx.Batch{}
+	batch.Queue("SAVEPOINT optional_top")
+	batch.Queue("SET LOCAL statement_timeout='250ms'")
+	batch.Queue(`WITH candidates AS MATERIALIZED(SELECT url,domain,source,reason,feed_id FROM request_events WHERE `+condition+` ORDER BY occurred_at DESC,seq DESC LIMIT 20000),grouped AS(SELECT CASE WHEN grouping(url)=0 THEN 'urls' WHEN grouping(domain)=0 THEN 'domains' WHEN grouping(source)=0 THEN 'ips' WHEN grouping(reason)=0 THEN 'reasons' ELSE 'feeds' END AS dimension,COALESCE(url,domain,source,reason,feed_id,'') AS key,count(*)::bigint AS n FROM candidates GROUP BY GROUPING SETS((url),(domain),(source),(reason),(feed_id))),ranked AS(SELECT *,row_number() OVER(PARTITION BY dimension ORDER BY n DESC,key) AS rank FROM grouped) SELECT dimension,key,n FROM ranked WHERE rank<=20 ORDER BY dimension,n DESC,key`, args...)
+	results := tx.SendBatch(ctx, batch)
+	defer func() { _ = results.Close() }()
+	if _, err := results.Exec(); err != nil {
+		return nil, false, err
+	}
+	if _, err := results.Exec(); err != nil {
+		return nil, false, err
+	}
+	rows, err := results.Query()
 	out := map[string][]Dimension{}
-	rows, err := tx.Query(ctx, `WITH candidates AS MATERIALIZED(SELECT url,domain,source,reason,feed_id FROM request_events WHERE `+condition+` ORDER BY occurred_at DESC,seq DESC LIMIT 20000),grouped AS(SELECT CASE WHEN grouping(url)=0 THEN 'urls' WHEN grouping(domain)=0 THEN 'domains' WHEN grouping(source)=0 THEN 'ips' WHEN grouping(reason)=0 THEN 'reasons' ELSE 'feeds' END AS dimension,COALESCE(url,domain,source,reason,feed_id,'') AS key,count(*)::bigint AS n FROM candidates GROUP BY GROUPING SETS((url),(domain),(source),(reason),(feed_id))),ranked AS(SELECT *,row_number() OVER(PARTITION BY dimension ORDER BY n DESC,key) AS rank FROM grouped) SELECT dimension,key,n FROM ranked WHERE rank<=20 ORDER BY dimension,n DESC,key`, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var dimension string
-		var d Dimension
-		if err = rows.Scan(&dimension, &d.Key, &d.Count); err != nil {
-			return nil, err
+	if err == nil {
+		for rows.Next() {
+			var dimension string
+			var d Dimension
+			if err = rows.Scan(&dimension, &d.Key, &d.Count); err != nil {
+				break
+			}
+			out[dimension] = append(out[dimension], d)
 		}
-		out[dimension] = append(out[dimension], d)
+		if err == nil {
+			err = rows.Err()
+		}
+		rows.Close()
 	}
-	return out, rows.Err()
+	closeErr := results.Close()
+	unavailable := err != nil || closeErr != nil
+	cleanup := "SET LOCAL statement_timeout='1500ms'; RELEASE SAVEPOINT optional_top"
+	if unavailable {
+		out = map[string][]Dimension{}
+		cleanup = "ROLLBACK TO SAVEPOINT optional_top; " + cleanup
+	}
+	if _, err = tx.Exec(ctx, cleanup); err != nil {
+		return nil, false, err
+	}
+	return out, unavailable, nil
 }
