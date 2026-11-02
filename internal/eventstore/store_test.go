@@ -6,9 +6,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
+	"net"
 	"rauth/internal/pgtest"
 	"rauth/internal/requestevent"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -250,4 +252,128 @@ func TestReadOnlyAuthorityCannotClaimCollector(t *testing.T) {
 	var token *string
 	require.NoError(t, pool.QueryRow(background, "SELECT owner_token::text FROM event_ledgers WHERE cluster_id=$1", o.ClusterID).Scan(&token))
 	require.Nil(t, token)
+}
+
+func TestHistoryRemainsReadableWhileCollectorInsertWaitsForSQL(t *testing.T) {
+	pool := setup(t)
+	s := open(t, pool, options())
+	node := uuid.NewString()
+	first := decision(node)
+	_, err := s.Ingest(background, node, []requestevent.Event{first})
+	require.NoError(t, err)
+	// Warm the independent history connection before blocking a collector write.
+	prior, err := s.After(background, 0, "")
+	require.NoError(t, err)
+	blocker, err := pool.Begin(background)
+	require.NoError(t, err)
+	defer func() { _ = blocker.Rollback(background) }()
+	_, err = blocker.Exec(background, "LOCK TABLE request_events IN SHARE MODE")
+	require.NoError(t, err)
+	done := make(chan error, 1)
+	next := decision(node)
+	go func() { _, err := s.Ingest(background, node, []requestevent.Event{next}); done <- err }()
+	// This is a real database lock wait, not a mutex-only simulation.
+	waiting := false
+	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); {
+		require.NoError(t, pool.QueryRow(background, `SELECT EXISTS(SELECT 1 FROM pg_locks WHERE relation='request_events'::regclass AND mode='RowExclusiveLock' AND NOT granted)`).Scan(&waiting))
+		if waiting {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !waiting {
+		_ = blocker.Rollback(background)
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+		}
+		t.Fatal("collector did not reach the controlled SQL lock")
+	}
+	readDone := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(background, 500*time.Millisecond)
+		defer cancel()
+		batch, err := s.After(ctx, 1, "")
+		if err == nil && len(batch.Events) != 0 {
+			err = ErrInvalid
+		}
+		readDone <- err
+	}()
+	var readErr error
+	select {
+	case readErr = <-readDone:
+	case <-time.After(time.Second):
+		readErr = context.DeadlineExceeded
+	}
+	// Always release the SQL wait before asserting, including on old-code failure.
+	require.NoError(t, blocker.Rollback(background))
+	select {
+	case err = <-done:
+		require.NoError(t, err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("collector did not finish after lock release")
+	}
+	require.NoError(t, readErr, "history must not wait behind network-bound collector writes")
+	select {
+	case <-prior.Changed:
+	default:
+		t.Fatal("committed insert must wake the prior reader")
+	}
+	batch, err := s.After(background, 1, "")
+	require.NoError(t, err)
+	require.Len(t, batch.Events, 1)
+	require.Equal(t, next.EventID, batch.Events[0].EventID)
+}
+
+type countingConnection struct {
+	net.Conn
+	writes *atomic.Int64
+}
+
+func (c countingConnection) Write(p []byte) (int, error) {
+	c.writes.Add(1)
+	return c.Conn.Write(p)
+}
+
+func TestMaximumBatchUsesBoundedNetworkWritesAndReplaysOnce(t *testing.T) {
+	pool := setup(t)
+	cfg := pool.Config()
+	var writes atomic.Int64
+	dial := cfg.ConnConfig.DialFunc
+	cfg.ConnConfig.DialFunc = func(ctx context.Context, network, address string) (net.Conn, error) {
+		connection, err := dial(ctx, network, address)
+		if err != nil {
+			return nil, err
+		}
+		return countingConnection{Conn: connection, writes: &writes}, nil
+	}
+	selected, err := pgxpool.NewWithConfig(background, cfg)
+	require.NoError(t, err)
+	t.Cleanup(selected.Close)
+	s := open(t, selected, options())
+	node := uuid.NewString()
+	events := make([]requestevent.Event, requestevent.MaxBatch)
+	for i := range events {
+		if i%10 == 0 {
+			events[i] = metricEvent(node, 1)
+		} else {
+			events[i] = decision(node)
+		}
+	}
+	writes.Store(0)
+	ack, err := s.Ingest(background, node, events)
+	require.NoError(t, err)
+	require.Len(t, ack, requestevent.MaxBatch)
+	require.Less(t, writes.Load(), int64(60), "a batch must not send one SQL request per event")
+	writes.Store(0)
+	again, err := s.Ingest(background, node, events)
+	require.NoError(t, err)
+	require.Equal(t, ack, again)
+	require.Less(t, writes.Load(), int64(60))
+	status, err := s.Status(background)
+	require.NoError(t, err)
+	require.EqualValues(t, requestevent.MaxBatch, status.Retained)
+	snapshot, err := s.Statistics(background, StatsQuery{Range: "5m"})
+	require.NoError(t, err)
+	require.EqualValues(t, 90, snapshot.Total, "duplicate ACK replay must not double count decisions")
 }
