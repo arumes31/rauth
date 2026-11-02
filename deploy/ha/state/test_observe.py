@@ -122,6 +122,34 @@ class ObservationTests(unittest.TestCase):
         self.assertEqual(r["issue"], "identity_mismatch")
         self.assertEqual(r["dcs_cluster_id"], "99999")
 
+    def test_learner_and_invalid_voter_flags_do_not_count_as_healthy_voters(self):
+        c = config()
+        for flag in (True, "true", 1, None, False):
+
+            def response(_config, _member, service, path):
+                if path == "/health":
+                    return 200, {"health": "true"}, time.time() + 86400
+                if path == "/v3/maintenance/status":
+                    return (
+                        200,
+                        {
+                            "header": {"cluster_id": "67890", "member_id": "11"},
+                            "leader": "11",
+                            "dbSize": "1024",
+                            "dbSizeQuota": "67108864",
+                            "isLearner": flag,
+                        },
+                        time.time() + 86400,
+                    )
+                raise RuntimeError("Database unavailable in voter-only regression")
+
+            with (
+                self.subTest(flag=flag),
+                patch.object(observe, "request", side_effect=response),
+            ):
+                r = observe.member_probe(c, c["members"][0])
+                self.assertEqual(r["dcs_ready"], flag is False)
+
     def test_unreachable_peer_never_emits_exception_or_credentials(self):
         with patch.object(
             observe, "request", side_effect=RuntimeError("private-key-path and secret")

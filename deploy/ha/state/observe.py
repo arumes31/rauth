@@ -288,6 +288,7 @@ def member_probe(config, member):
             and code_status == 200
             and health.get("health") in (True, "true")
             and not data.get("errors")
+            and data.get("isLearner", False) is False
             and result["dcs_quota_bytes"] > 0
             and result["dcs_bytes"] <= result["dcs_quota_bytes"]
         )
