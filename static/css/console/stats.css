@@ -215,3 +215,24 @@
     transition: none !important;
   }
 }
+
+.stats-ha-members {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4, 1rem);
+}
+.stats-ha-member {
+  min-width: 0;
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.25));
+  border-radius: 0.5rem;
+  padding: 1rem;
+}
+.stats-ha-member p {
+  overflow-wrap: anywhere;
+  margin: 0.45rem 0;
+}
+@media (max-width: 850px) {
+  .stats-ha-members {
+    grid-template-columns: 1fr;
+  }
+}

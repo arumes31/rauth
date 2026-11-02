@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"rauth/internal/clusterconfig"
 	"rauth/internal/core"
+	"rauth/internal/hahealth"
 	"rauth/internal/handlers"
 	"rauth/internal/middleware"
 	"strings"
@@ -142,7 +143,11 @@ func main() {
 	if cluster != nil && cluster.events != nil {
 		requestEvents = cluster.events
 	}
-	setupRoutesWithEventHistory(e, cfg, cluster != nil && cluster.spec.Role == clusterconfig.Worker, policyStatus, requestEvents)
+	var haStatus func() hahealth.View
+	if cluster != nil && cluster.haObserver != nil {
+		haStatus = cluster.haObserver.View
+	}
+	setupRoutesWithEventHistory(e, cfg, cluster != nil && cluster.spec.Role == clusterconfig.Worker, policyStatus, requestEvents, haStatus)
 	if cluster != nil {
 		e.GET("/health", cluster.Health)
 		e.GET("/livez", func(c echo.Context) error { return c.NoContent(http.StatusOK) })
@@ -517,13 +522,13 @@ func setupRoutesRole(e *echo.Echo, cfg *core.Config, worker bool) {
 	setupRoutesWithPolicyStatus(e, cfg, worker, nil)
 }
 func setupRoutesWithPolicyStatus(e *echo.Echo, cfg *core.Config, worker bool, readStatus func(context.Context) (any, error)) {
-	setupRoutesWithEventHistory(e, cfg, worker, readStatus, nil)
+	setupRoutesWithEventHistory(e, cfg, worker, readStatus, nil, nil)
 }
-func setupRoutesWithEventHistory(e *echo.Echo, cfg *core.Config, worker bool, readStatus func(context.Context) (any, error), events handlers.RequestEventSource) {
+func setupRoutesWithEventHistory(e *echo.Echo, cfg *core.Config, worker bool, readStatus func(context.Context) (any, error), events handlers.RequestEventSource, readHA func() hahealth.View) {
 	e.GET("/static/*", echo.WrapHandler(http.FileServer(http.FS(noDirListingFS{staticFS}))))
 
 	authHandler := &handlers.AuthHandler{Cfg: cfg}
-	adminHandler := &handlers.AdminHandler{Cfg: cfg, ReadPolicyStatus: readStatus, RequestEvents: events}
+	adminHandler := &handlers.AdminHandler{Cfg: cfg, ReadPolicyStatus: readStatus, RequestEvents: events, ReadHAStatus: readHA}
 	profileHandler := &handlers.ProfileHandler{Cfg: cfg}
 	webauthnHandler := &handlers.WebAuthnHandler{Cfg: cfg}
 	healthHandler := &handlers.HealthHandler{Cfg: cfg}

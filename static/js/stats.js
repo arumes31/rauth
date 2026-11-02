@@ -464,6 +464,102 @@ async function history(before = 0) {
       text("statsHistoryState", "Decision history unavailable.");
   }
 }
+
+let lastHAView = null;
+function renderHA(view) {
+  const members = $("statsHAMembers");
+  if (!members) return;
+  members.replaceChildren();
+  if (!view || typeof view !== "object" || !view.configured) {
+    lastHAView = null;
+    text("statsHAState", "Not configured");
+    text("statsHASummary", "No HA observation source is configured.");
+    text(
+      "statsHACoverage",
+      "Authentication readiness is checked independently.",
+    );
+    return;
+  }
+  if (view.report) lastHAView = view;
+  else if (lastHAView?.report) view = { ...view, report: lastHAView.report };
+  const fresh = view.available === true && view.stale !== true;
+  const state = fresh
+    ? view.state === "healthy"
+      ? "Observed services healthy"
+      : "Degraded"
+    : view.stale
+      ? "Stale"
+      : "Unavailable";
+  text("statsHAState", state);
+  text(
+    "statsHASummary",
+    fresh
+      ? `Quorum ${view.healthy_voters}/3 · Running databases ${view.running_data_members}/3 · Verified primary ${view.verified_leaders} · Synchronous replicas ${view.synchronous_replicas}`
+      : "Current HA status is unknown. Last observations are retained below.",
+  );
+  text(
+    "statsHACoverage",
+    `${view.report?.mode === "isolated-test" ? "Isolated test cluster · " : ""}Observed ${time(view.report?.checked_at)} · Fencing not observed · Authentication readiness is independent`,
+  );
+  for (const member of view.report?.members || []) {
+    const databaseIdentity =
+      member.system_id === view.report.expected_system_id;
+    const dcsIdentity =
+      member.dcs_cluster_id === view.report.expected_dcs_cluster_id;
+    const card = element("article", "", "stats-ha-member");
+    card.append(element("h3", member.name));
+    const add = (label, value) => {
+      const row = element("p");
+      row.append(element("strong", label + ": "), element("span", value));
+      card.append(row);
+    };
+    add(
+      "PostgreSQL",
+      fresh
+        ? member.database_ready
+          ? databaseIdentity
+            ? member.role
+            : "Identity mismatch"
+          : "Unavailable"
+        : "Last known: " + member.role,
+    );
+    add(
+      "Primary lease",
+      fresh
+        ? member.leader_verified
+          ? "Verified"
+          : "Not primary / unavailable"
+        : "Not observed",
+    );
+    add(
+      "Replication lag",
+      fresh && member.lag_bytes != null
+        ? bytes(member.lag_bytes)
+        : "Not observed",
+    );
+    add("Timeline", member.timeline || "Not observed");
+    add(
+      "Server version",
+      member.server_version
+        ? `${Math.floor(member.server_version / 10000)}.${member.server_version % 10000}`
+        : "Not observed",
+    );
+    add(
+      "Quorum voter",
+      fresh ? (member.dcs_ready ? "Healthy" : "Unavailable") : "Not observed",
+    );
+    add(
+      "DCS database",
+      fresh && member.dcs_quota_bytes
+        ? `${bytes(member.dcs_bytes)} / ${bytes(member.dcs_quota_bytes)}`
+        : "Not observed",
+    );
+    add("TLS leaf expires", time(member.certificate_expires_at));
+    if (member.issue) add("Observation", member.issue.replaceAll("_", " "));
+    members.append(card);
+  }
+}
+
 async function operations() {
   if (paused) return;
   const current = generation;
@@ -480,6 +576,7 @@ async function operations() {
       `Active sessions: ${formatNumber(data.active_sessions)} · ${data.session_scope}`,
     );
     text("statsOperations", JSON.stringify(data, null, 2));
+    renderHA(data.ha_observation);
     text("statsOperationsState", `Observed ${time(data.checked_at)}`);
     const feeds = $("statsFeedHealth");
     feeds.replaceChildren();
@@ -492,11 +589,14 @@ async function operations() {
       );
     }
   } catch (error) {
-    if (error.name !== "AbortError")
+    if (error.name !== "AbortError") {
+      if (lastHAView)
+        renderHA({ configured: true, available: false, stale: true });
       text(
         "statsOperationsState",
         "Operations unavailable; previous observation is stale",
       );
+    }
   }
 }
 function connect() {

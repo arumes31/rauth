@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "cluster_id": "11111111-1111-4111-8111-111111111111",
+  "mode": "isolated-test",
+  "source_ip": "100.64.99.1",
+  "expected_system_id": "1",
+  "expected_dcs_cluster_id": "1",
+  "output_dir": "/output",
+  "output_device": "8:1",
+  "members": [
+    {
+      "name": "state-a",
+      "ip": "100.64.99.1"
+    },
+    {
+      "name": "state-b",
+      "ip": "100.64.99.2"
+    },
+    {
+      "name": "state-c",
+      "ip": "100.64.99.3"
+    }
+  ],
+  "patroni_ca": "/pki/patroni-ca.crt",
+  "patroni_certificate": "/pki/patroni-certificate.crt",
+  "patroni_key": "/pki/patroni-key.key",
+  "etcd_ca": "/pki/etcd-ca.crt",
+  "etcd_certificate": "/pki/etcd-certificate.crt",
+  "etcd_key": "/pki/etcd-key.key"
+}

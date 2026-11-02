@@ -111,6 +111,9 @@ func (h *AdminHandler) StatsOperations(c echo.Context) error {
 		active = &v
 	}
 	out := map[string]any{"active_sessions": active, "session_scope": "authoritative control observation", "checked_at": time.Now().UTC(), "ha_observation": "not configured"}
+	if h.ReadHAStatus != nil {
+		out["ha_observation"] = h.ReadHAStatus()
+	}
 	feedViews := []map[string]any{}
 	ctxFeeds, cancelFeeds := context.WithTimeout(c.Request().Context(), time.Second)
 	feeds, feedErr := core.ListIPFeeds(ctxFeeds)

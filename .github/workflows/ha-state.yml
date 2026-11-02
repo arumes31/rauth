@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: python3 -m unittest discover -s deploy/ha/state -p test_state.py -v
+      - run: python3 -m unittest discover -s deploy/ha/state -p 'test_*.py' -v
       - name: Verify real etcd gateway TLS and certificate purposes
         run: sudo python3 deploy/ha/state/test_etcd_gateway.py
 

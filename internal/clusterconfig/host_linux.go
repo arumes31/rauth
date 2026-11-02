@@ -213,3 +213,30 @@ func validateEventDirectory(c Config) error {
 	}
 	return validateDataDirectory(c.Events.LocalRoot, c.MountDevice)
 }
+
+// Keep the report bound to the declared host filesystem even if an operator
+// substitutes a nested mount. The standard private-file opener rejects symlinks,
+// FIFOs, excessive permissions and untrusted owners before reading.
+func readHAObservation(c Config, limit int64) ([]byte, error) {
+	if limit < 1 || limit > 1<<20 || validateDataDirectory(filepath.Dir(c.HAObservationFile), c.MountDevice) != nil {
+		return nil, ErrMount
+	}
+	file, err := openPrivate(c.HAObservationFile)
+	if err != nil {
+		return nil, ErrPrivateFile
+	}
+	defer func() { _ = file.Close() }()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, ErrPrivateFile
+	}
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || fmt.Sprintf("%d:%d", unix.Major(uint64(st.Dev)), unix.Minor(uint64(st.Dev))) != c.MountDevice {
+		return nil, ErrMount
+	}
+	body, err := io.ReadAll(io.LimitReader(file, limit+1))
+	if err != nil || int64(len(body)) > limit {
+		return nil, ErrPrivateFile
+	}
+	return body, nil
+}

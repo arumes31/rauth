@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"rauth/internal/core"
 	"rauth/internal/eventstore"
+	"rauth/internal/hahealth"
 	"strings"
 
 	"github.com/labstack/echo/v4"
@@ -18,6 +19,7 @@ type RequestEventSource interface {
 
 type AdminHandler struct {
 	RequestEvents    RequestEventSource
+	ReadHAStatus     func() hahealth.View
 	Cfg              *core.Config
 	ReadPolicyStatus func(context.Context) (any, error)
 }

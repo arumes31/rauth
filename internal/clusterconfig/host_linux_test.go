@@ -353,3 +353,39 @@ func TestEventOperatorCredentialIsGuardedAndNeverAvailableToWorkers(t *testing.T
 		})
 	}
 }
+
+func TestHAObservationUsesPrivateRegularFilesOnTheDeclaredDevice(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.Chmod(root, 0o700))
+	file := filepath.Join(root, "ha.json")
+	require.NoError(t, os.WriteFile(file, []byte("{}"), 0o600))
+	info, err := os.Stat(root)
+	require.NoError(t, err)
+	st := info.Sys().(*syscall.Stat_t)
+	c := Config{HAObservationFile: file, MountDevice: fmt.Sprintf("%d:%d", unix.Major(uint64(st.Dev)), unix.Minor(uint64(st.Dev)))}
+	raw, err := readHAObservation(c, 32)
+	require.NoError(t, err)
+	require.Equal(t, "{}", string(raw))
+	bad := c
+	bad.MountDevice = "999:999"
+	_, err = readHAObservation(bad, 32)
+	require.Error(t, err)
+	require.NoError(t, os.Chmod(file, 0o644))
+	_, err = readHAObservation(c, 32)
+	require.Error(t, err)
+	require.NoError(t, os.Chmod(file, 0o600))
+	link := filepath.Join(root, "link.json")
+	require.NoError(t, os.Symlink(file, link))
+	bad = c
+	bad.HAObservationFile = link
+	_, err = readHAObservation(bad, 32)
+	require.Error(t, err)
+	fifo := filepath.Join(root, "fifo")
+	require.NoError(t, unix.Mkfifo(fifo, 0o600))
+	bad = c
+	bad.HAObservationFile = fifo
+	_, err = readHAObservation(bad, 32)
+	require.Error(t, err, "special files must fail without waiting for a writer")
+	_, err = readHAObservation(c, 1)
+	require.Error(t, err, "bounded read rejects oversized reports")
+}

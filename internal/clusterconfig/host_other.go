@@ -13,3 +13,5 @@ func validateSourceDirectory(Config) error   { return ErrUnsupported }
 func openGeoSource(Config) (*os.File, error) { return nil, ErrUnsupported }
 
 func validateEventDirectory(Config) error { return ErrUnsupported }
+
+func readHAObservation(Config, int64) ([]byte, error) { return nil, ErrMount }

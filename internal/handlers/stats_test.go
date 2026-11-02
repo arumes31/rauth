@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"rauth/internal/core"
 	"rauth/internal/eventstore"
+	"rauth/internal/hahealth"
 	"testing"
 	"time"
 )
@@ -107,4 +108,27 @@ func TestStatsConfiguredButUnavailableDoesNotUseMemoryFeed(t *testing.T) {
 	srv, cookie := feedTestServerWithEvents(t, nil)
 	resp := statsGet(t, srv.URL, "data", cookie)
 	require.Equal(t, 503, resp.StatusCode)
+}
+
+func TestHAOperationsRemainAdministratorOnlyAndUnavailableTelemetryIsExplicit(t *testing.T) {
+	setupHandlersTest(t)
+	srv, cookie := feedTestServerWithEvents(t, &statsFixture{}, func(h *AdminHandler) {
+		h.ReadHAStatus = func() hahealth.View {
+			return hahealth.View{Configured: true, State: "unavailable", Fencing: "not_observed"}
+		}
+	})
+	anonymous := statsGet(t, srv.URL, "operations", nil)
+	require.Equal(t, 302, anonymous.StatusCode)
+	require.NoError(t, anonymous.Body.Close())
+	response := statsGet(t, srv.URL, "operations", cookie)
+	require.Equal(t, 200, response.StatusCode)
+	raw, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), `"ha_observation":{"configured":true`)
+	require.Contains(t, string(raw), `"state":"unavailable"`)
+	require.Equal(t, "no-store", response.Header.Get("Cache-Control"))
+	require.NoError(t, response.Body.Close())
+	require.NoError(t, core.UpdateUser("feedadmin", map[string]interface{}{"is_admin": "0"}))
+	denied := statsGet(t, srv.URL, "operations", cookie)
+	require.Equal(t, 403, denied.StatusCode)
 }

@@ -91,7 +91,9 @@ const payload = {
   loss_markers: 0,
   coverage: "retained history",
 };
-async function fixture({ mapStatus = 200 } = {}) {
+async function fixture({ mapStatus = 200, ha = undefined } = {}) {
+  let currentHA = ha;
+  let operationsFail = false;
   const template = await readFile(
     new URL("../templates/stats.html", import.meta.url),
     "utf8",
@@ -149,31 +151,34 @@ async function fixture({ mapStatus = 200 } = {}) {
     },
   };
   const fetch = async (url) => {
+    if (operationsFail && url.includes("/operations")) return { ok: false };
     fetches.push(url);
     return {
       ok: !url.includes("/static/") || mapStatus === 200,
       json: async () =>
         url.includes("/static/")
           ? []
-          : url.includes("/history")
-            ? {
-                events: [
-                  {
-                    time: now,
-                    url: "<script>secret</script>",
-                    source: "203.0.113.5",
-                    country: "AT",
-                    action: "blocked",
-                    node_name: "<worker>",
-                    node_id: nodeID,
-                    processing_us: 1000,
-                  },
-                ],
-                before: 0,
-              }
-            : url.includes("/diagnostics")
-              ? { time: now, complete: true, parts: [] }
-              : {},
+          : url.includes("/operations")
+            ? { ha_observation: currentHA, checked_at: now, feeds: [] }
+            : url.includes("/history")
+              ? {
+                  events: [
+                    {
+                      time: now,
+                      url: "<script>secret</script>",
+                      source: "203.0.113.5",
+                      country: "AT",
+                      action: "blocked",
+                      node_name: "<worker>",
+                      node_id: nodeID,
+                      processing_us: 1000,
+                    },
+                  ],
+                  before: 0,
+                }
+              : url.includes("/diagnostics")
+                ? { time: now, complete: true, parts: [] }
+                : {},
     };
   };
   const context = vm.createContext({
@@ -200,7 +205,21 @@ async function fixture({ mapStatus = 200 } = {}) {
     context,
   );
   await new Promise((resolve) => setImmediate(resolve));
-  return { elements, EventSource, stream: EventSource.all[0], fetches };
+  return {
+    elements,
+    EventSource,
+    stream: EventSource.all[0],
+    fetches,
+    async failOperations() {
+      operationsFail = true;
+      await context.operations();
+    },
+    async updateHA(view) {
+      currentHA = view;
+      operationsFail = false;
+      await context.operations();
+    },
+  };
 }
 test("Stats numeric formatters distinguish absent coverage from zero", () => {
   assert.equal(core.formatNumber(null), "—");
@@ -260,4 +279,77 @@ test("unavailable map preserves a visible notice after traffic tables render", a
   f.stream.emit("stats", payload);
   assert.match(f.elements.get("statsMapStatus").textContent, /Map unavailable/);
   assert.match(f.elements.get("statsCountries").textContent, /AT/);
+});
+
+test("HA panel shows scoped health and stops showing healthy when observations become stale", async () => {
+  const ha = {
+    configured: true,
+    available: true,
+    stale: false,
+    state: "healthy",
+    healthy_voters: 3,
+    running_data_members: 3,
+    verified_leaders: 1,
+    synchronous_replicas: 1,
+    report: {
+      mode: "isolated-test",
+      checked_at: now,
+      members: [
+        {
+          name: "<state-a>",
+          database_ready: true,
+          role: "primary",
+          leader_verified: true,
+          timeline: 3,
+          server_version: 180006,
+          lag_bytes: 0,
+          dcs_ready: true,
+          dcs_bytes: 1024,
+          dcs_quota_bytes: 67108864,
+        },
+      ],
+    },
+  };
+  const f = await fixture({ ha });
+  assert.equal(
+    f.elements.get("statsHAState").textContent,
+    "Observed services healthy",
+  );
+  assert.match(f.elements.get("statsHASummary").textContent, /Quorum 3\/3/);
+  assert.match(f.elements.get("statsHAMembers").textContent, /<state-a>/);
+  assert.match(f.elements.get("statsHAMembers").textContent, /18\.6/);
+  assert.match(
+    f.elements.get("statsHACoverage").textContent,
+    /Fencing not observed/,
+  );
+  await f.updateHA({ ...ha, available: false, stale: true, state: "stale" });
+  assert.equal(f.elements.get("statsHAState").textContent, "Stale");
+  assert.match(f.elements.get("statsHASummary").textContent, /unknown/);
+  assert.match(
+    f.elements.get("statsHAMembers").textContent,
+    /Last known: primary/,
+  );
+  assert.doesNotMatch(
+    f.elements.get("statsHAMembers").textContent,
+    /Quorum voter: Healthy/,
+  );
+  await f.updateHA({ configured: true, available: false, stale: true });
+  assert.match(
+    f.elements.get("statsHAMembers").textContent,
+    /<state-a>/,
+    "retain last observation when a refresh has no report",
+  );
+  await f.updateHA("not configured");
+  assert.equal(f.elements.get("statsHAState").textContent, "Not configured");
+});
+
+test("an operations fetch failure never invents an HA configuration", async () => {
+  const f = await fixture();
+  assert.equal(f.elements.get("statsHAState").textContent, "Not configured");
+  await f.failOperations();
+  assert.equal(f.elements.get("statsHAState").textContent, "Not configured");
+  assert.match(
+    f.elements.get("statsOperationsState").textContent,
+    /unavailable/,
+  );
 });
