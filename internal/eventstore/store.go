@@ -50,6 +50,7 @@ type Store struct {
 	options      Options
 	epoch, token string
 	mu           sync.Mutex
+	lockMu       sync.Mutex
 	changedMu    sync.Mutex
 	readMu       sync.Mutex
 	readCache    map[historyKey]historyEntry
@@ -150,8 +151,12 @@ func Open(ctx context.Context, pool *pgxpool.Pool, o Options) (*Store, error) {
 	}
 	s.lock = conn
 	var acquired bool
-	if conn.QueryRow(ctx, "SELECT pg_try_advisory_lock(hashtextextended($1,0))", s.lockName()).Scan(&acquired) != nil || !acquired {
-		conn.Release()
+	var idleTimeout string
+	// A broken network hop can leave the server-side advisory lock alive
+	// after the client has abandoned it. Bound that orphan lifetime on this
+	// dedicated session only; Status heartbeats keep a healthy owner alive.
+	if conn.QueryRow(ctx, "SELECT set_config('idle_session_timeout','30s',false),pg_try_advisory_lock(hashtextextended($1,0))", s.lockName()).Scan(&idleTimeout, &acquired) != nil || idleTimeout != "30s" || !acquired {
+		s.releaseLock()
 		return nil, ErrUnavailable
 	}
 	fail := func() (*Store, error) { s.releaseLock(); return nil, ErrUnavailable }
@@ -573,9 +578,16 @@ func (s *Store) after(ctx context.Context, cursor uint64, node string) (Batch, e
 	return b, nil
 }
 func (s *Store) Status(ctx context.Context) (Status, error) {
+	// Read health through the reserved lock session itself. This renews its
+	// idle lease and checks ownership in the same network round trip.
+	s.lockMu.Lock()
+	defer s.lockMu.Unlock()
+	if s.lock == nil {
+		return Status{}, ErrUnavailable
+	}
 	var st Status
 	var oldest *time.Time
-	err := s.pool.QueryRow(ctx, `SELECT event_count,payload_bytes,expired_count,(SELECT min(occurred_at) FROM request_events WHERE cluster_id=$1),pg_database_size(current_database()) FROM event_ledgers WHERE cluster_id=$1 AND owner_token=$2 AND NOT pg_is_in_recovery() AND current_setting('transaction_read_only')='off'`, s.options.ClusterID, s.token).Scan(&st.Retained, &st.PayloadBytes, &st.Expired, &oldest, &st.DatabaseBytes)
+	err := s.lock.QueryRow(ctx, `SELECT event_count,payload_bytes,expired_count,(SELECT min(occurred_at) FROM request_events WHERE cluster_id=$1),pg_database_size(current_database()) FROM event_ledgers WHERE cluster_id=$1 AND owner_token=$2 AND NOT pg_is_in_recovery() AND current_setting('transaction_read_only')='off'`, s.options.ClusterID, s.token).Scan(&st.Retained, &st.PayloadBytes, &st.Expired, &oldest, &st.DatabaseBytes)
 	if err != nil {
 		return st, ErrUnavailable
 	}
@@ -591,14 +603,18 @@ func (s *Store) notifyLocked() {
 	s.changed = make(chan struct{})
 }
 func (s *Store) releaseLock() {
+	s.lockMu.Lock()
+	defer s.lockMu.Unlock()
 	if s.lock == nil {
 		return
 	}
+	// Never return a session-scoped lock (or its idle timeout) to the pool,
+	// including when SQL unlock cannot reach the server during a WAN outage.
+	conn := s.lock.Hijack()
+	s.lock = nil
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	_, _ = s.lock.Exec(ctx, "SELECT pg_advisory_unlock(hashtextextended($1,0))", s.lockName())
-	s.lock.Release()
-	s.lock = nil
+	_ = conn.Close(ctx)
 }
 func (s *Store) Close() error {
 	s.mu.Lock()
