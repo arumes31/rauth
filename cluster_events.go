@@ -287,7 +287,7 @@ func (e *clusterEvents) collectorLoop() {
 	}
 	warned := false
 	for e.ctx.Err() == nil {
-		ctx, cancel := context.WithTimeout(e.ctx, eventrelay.IngestTimeout)
+		ctx, cancel := context.WithTimeout(e.ctx, eventstore.OpenTimeout)
 		store, err := eventstore.Open(ctx, pool, eventstore.Options{ClusterID: e.spec.ClusterID, MaxBytes: maxBytes, MaxAge: age})
 		cancel()
 		if err != nil {

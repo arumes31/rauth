@@ -32,6 +32,10 @@ const SchemaVersion = 3
 // Reader SQL execution is independently capped at two seconds.
 const ReadTimeout = 10 * time.Second
 
+// OpenTimeout covers two cold sessions: ownership fencing and transactions.
+// It is independent of per-batch ingest and server SQL execution deadlines.
+const OpenTimeout = 15 * time.Second
+
 //go:embed schema.sql
 var schema string
 
