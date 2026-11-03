@@ -204,7 +204,6 @@ func Open(ctx context.Context, pool *pgxpool.Pool, o Options) (*Store, error) {
 			_, err := conn.Exec(ctx, "SET default_transaction_read_only=on; SET statement_timeout='2s'")
 			return err
 		}
-		cfg.ConnConfig.RuntimeParams["statement_timeout"] = "1500"
 		*target, err = pgxpool.NewWithConfig(ctx, cfg)
 		if err != nil {
 			if s.history != nil {
