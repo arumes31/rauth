@@ -27,8 +27,13 @@ func (h *clusterHealth) refresh(parent context.Context) {
 	defer h.refreshMu.Unlock()
 	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
 	defer cancel()
-	authOK := h.authority(ctx) == nil
-	enrolledOK := h.enrollment(ctx) == nil
+	// Independent authority pools share the same 3s budget. Sequential probes
+	// otherwise spend enrollment's deadline on auth connection/idle-ping work.
+	var authOK, enrolledOK bool
+	var checks sync.WaitGroup
+	checks.Go(func() { authOK = h.authority(ctx) == nil })
+	checks.Go(func() { enrolledOK = h.enrollment(ctx) == nil })
+	checks.Wait() // Publish health only after both current observations finish.
 	h.mu.Lock()
 	h.checkedAt = h.now()
 	h.authOK, h.enrolledOK = authOK, enrolledOK
