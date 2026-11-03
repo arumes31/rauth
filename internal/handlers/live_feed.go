@@ -114,7 +114,7 @@ func (h *AdminHandler) LiveFeed(c echo.Context) error {
 	}
 	read := func(cursor uint64) (eventstore.Batch, error) {
 		if h.RequestEvents != nil {
-			ctx, cancel := context.WithTimeout(c.Request().Context(), 2*time.Second)
+			ctx, cancel := context.WithTimeout(c.Request().Context(), eventstore.ReadTimeout)
 			defer cancel()
 			return h.RequestEvents.After(ctx, cursor, node)
 		}
@@ -157,7 +157,7 @@ func (h *AdminHandler) LiveFeed(c echo.Context) error {
 		FeedStart(context.Context, string, int) (uint64, error)
 	})
 	startFor := func(limit int) (uint64, error) {
-		ctx, cancel := context.WithTimeout(c.Request().Context(), 2*time.Second)
+		ctx, cancel := context.WithTimeout(c.Request().Context(), eventstore.ReadTimeout)
 		defer cancel()
 		return tail.FeedStart(ctx, node, limit)
 	}
@@ -188,6 +188,14 @@ func (h *AdminHandler) LiveFeed(c echo.Context) error {
 			replayLimited = true
 		}
 	}
+	// Cold history/tail lookups may outlive a revocation. Recheck before
+	// committing headers or disclosing any retained request metadata.
+	if valid, err := h.feedSessionValid(c, user, token); err != nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "Authorization temporarily unavailable")
+	} else if !valid {
+		return echo.NewHTTPError(http.StatusForbidden)
+	}
+	lastAuth := time.Now()
 	hdr := c.Response().Header()
 	hdr.Set(echo.HeaderContentType, "text/event-stream")
 	hdr.Set(echo.HeaderCacheControl, "no-store")
@@ -228,7 +236,6 @@ func (h *AdminHandler) LiveFeed(c echo.Context) error {
 	}
 	ticker := time.NewTicker(liveFeedAuthInterval)
 	defer ticker.Stop()
-	lastAuth := time.Now()
 	stillAuthorized := func(force bool) bool {
 		if !force && time.Since(lastAuth) < liveFeedAuthInterval {
 			return true

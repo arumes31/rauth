@@ -131,7 +131,7 @@ func (s *Store) Statistics(parent context.Context, q StatsQuery) (StatsSnapshot,
 	if err != nil {
 		return StatsSnapshot{}, err
 	}
-	ctx, cancel := context.WithTimeout(parent, 2*time.Second)
+	ctx, cancel := context.WithTimeout(parent, ReadTimeout)
 	defer cancel()
 	tx, err := s.stats.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
@@ -345,7 +345,7 @@ func (s *Store) Decisions(parent context.Context, q StatsQuery) ([]requestevent.
 	if err != nil || q.Before > math.MaxInt64 {
 		return nil, ErrInvalid
 	}
-	ctx, cancel := context.WithTimeout(parent, 2*time.Second)
+	ctx, cancel := context.WithTimeout(parent, ReadTimeout)
 	defer cancel()
 	if q.Before > math.MaxInt64 {
 		return nil, ErrInvalid
@@ -388,7 +388,7 @@ func (s *Store) Diagnostics(parent context.Context, node string) (Diagnostics, e
 	if !requestevent.ValidID(node) {
 		return Diagnostics{}, ErrInvalid
 	}
-	ctx, cancel := context.WithTimeout(parent, 2*time.Second)
+	ctx, cancel := context.WithTimeout(parent, ReadTimeout)
 	defer cancel()
 	out := Diagnostics{NodeID: node, Parts: []requestevent.MetricSnapshot{}}
 	rows, err := s.stats.Query(ctx, `WITH latest AS (SELECT snapshot->>'capture_id' AS capture FROM event_node_samples WHERE cluster_id=$1 AND node_id=$2 AND is_diagnostic ORDER BY occurred_at DESC,seq DESC LIMIT 1) SELECT node_name,occurred_at,snapshot FROM event_node_samples WHERE cluster_id=$1 AND node_id=$2 AND is_diagnostic AND snapshot->>'capture_id'=(SELECT capture FROM latest) ORDER BY seq LIMIT 8`, s.options.ClusterID, node)

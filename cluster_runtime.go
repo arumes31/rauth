@@ -45,6 +45,7 @@ type clusterRuntime struct {
 	publisher           *core.ControllerPolicyPublisher
 	client              *clustertransport.Client
 	relayClient         privateRPCClient
+	adminRelayClient    privateRPCClient
 	pools               []*pgxpool.Pool
 	ctx                 context.Context
 	cancel              context.CancelFunc
@@ -133,6 +134,12 @@ func newClusterRuntime(parent context.Context, cfg *core.Config, material *clust
 		return nil, errClusterRuntime
 	}
 	r.relayClient = r.client
+	// Administration can perform three sequential cold event lookups before
+	// flushing stream headers. Ordinary policy/status RPC budgets stay separate.
+	r.adminRelayClient, err = material.ControllerClientWithTimeouts(0, adminRelayHeaderTimeout)
+	if err != nil {
+		return nil, errClusterRuntime
+	}
 	r.health = newClusterHealth(core.CheckAuthenticationAuthority, func(ctx context.Context) error { return r.registry.Authorize(ctx, r.self, clustertransport.PolicyRead) })
 	source, err := clusterstate.NewReader(heads, blobs, material.Verifier())
 	if err != nil {
@@ -275,6 +282,9 @@ func (r *clusterRuntime) Close() {
 		}
 		if r.client != nil {
 			r.client.CloseIdleConnections()
+		}
+		if client, ok := r.adminRelayClient.(interface{ CloseIdleConnections() }); ok {
+			client.CloseIdleConnections()
 		}
 		for _, pool := range r.pools {
 			pool.Close()

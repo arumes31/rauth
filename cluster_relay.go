@@ -16,10 +16,15 @@ import (
 	"rauth/internal/clusterpolicy"
 	"rauth/internal/clustertransport"
 	"rauth/internal/core"
+	"rauth/internal/eventstore"
 	"strings"
+	"time"
 )
 
 const relayBodyLimit = 1 << 20
+
+// Allow three bounded feed lookups plus authorization and WAN overhead.
+const adminRelayHeaderTimeout = 3*eventstore.ReadTimeout + 15*time.Second
 
 var relayHeaderNames = map[string]bool{"Accept": true, "Accept-Language": true, "Content-Type": true, "Cookie": true, "Origin": true, "Referer": true, "Sec-Fetch-Site": true, "Sec-Fetch-Mode": true, "Sec-Fetch-Dest": true, "X-Csrf-Token": true, "User-Agent": true, "Last-Event-Id": true}
 
@@ -79,7 +84,7 @@ func (r *clusterRuntime) AdminRelay(cfg *core.Config) echo.MiddlewareFunc {
 			if r.spec.Role != clusterconfig.Worker || !adminNamespace(c.Request().URL.Path) {
 				return next(c)
 			}
-			if r.relayClient == nil {
+			if r.adminRelayClient == nil {
 				return echo.NewHTTPError(http.StatusServiceUnavailable, "Administration is temporarily unavailable")
 			}
 			request := c.Request()
@@ -113,7 +118,7 @@ func (r *clusterRuntime) AdminRelay(cfg *core.Config) echo.MiddlewareFunc {
 				return echo.NewHTTPError(http.StatusServiceUnavailable, "Administration is temporarily unavailable")
 			}
 			upstream.Header.Set("Content-Type", "application/json")
-			response, err := r.relayClient.Do(upstream)
+			response, err := r.adminRelayClient.Do(upstream)
 			if err != nil {
 				return echo.NewHTTPError(http.StatusServiceUnavailable, "Administration is temporarily unavailable")
 			}
