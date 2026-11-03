@@ -127,7 +127,7 @@ func TestAuthorityCriticalPoolRecoversColdDuringContinuousCalls(t *testing.T) {
 	pool := newAuthorityWANPool(t, authorityWANConfig(t, read.Config(), 2, true, 400*time.Millisecond, enabled, "authority-cold-critical-"+uuid.NewString()))
 	reader, err := clusterregistry.NewReader(pool, cluster)
 	require.NoError(t, err)
-	authorityContinuousCalls(t, reader, e, true)
+	authorityContinuousCalls(t, reader, e, false)
 	require.GreaterOrEqual(t, pool.Stat().NewConnsCount(), int64(2))
 	require.LessOrEqual(t, pool.Stat().TotalConns(), int32(2))
 }
