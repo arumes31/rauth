@@ -3,6 +3,7 @@ package eventstore
 import (
 	"context"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"rauth/internal/requestevent"
@@ -107,4 +108,22 @@ func TestCollectorStatusAndCloseSerializeReservedConnection(t *testing.T) {
 	}
 	require.NoError(t, s.Close())
 	group.Wait()
+}
+
+func TestCollectorLockQueryHasServerDeadline(t *testing.T) {
+	pool := setup(t)
+	s := open(t, pool, options())
+	pid := s.lock.Conn().PgConn().PID()
+	// Leave the client deadline longer: cancellation must come from PostgreSQL,
+	// even when a disconnected caller could not deliver its own cancel request.
+	ctx, cancel := context.WithTimeout(background, 9*time.Second)
+	defer cancel()
+	_, err := s.lock.Exec(ctx, "SELECT pg_sleep(20)")
+	var server *pgconn.PgError
+	require.ErrorAs(t, err, &server, "the server must bound active work on its lock session")
+	require.Equal(t, "57014", server.Code)
+	require.NoError(t, ctx.Err(), "the server must cancel before the client deadline")
+	require.Equal(t, pid, s.lock.Conn().PgConn().PID())
+	_, err = s.Status(background)
+	require.NoError(t, err, "a timed-out statement must not destroy healthy ownership")
 }

@@ -151,11 +151,12 @@ func Open(ctx context.Context, pool *pgxpool.Pool, o Options) (*Store, error) {
 	}
 	s.lock = conn
 	var acquired bool
-	var idleTimeout string
+	var idleTimeout, statementTimeout string
 	// A broken network hop can leave the server-side advisory lock alive
 	// after the client has abandoned it. Bound that orphan lifetime on this
 	// dedicated session only; Status heartbeats keep a healthy owner alive.
-	if conn.QueryRow(ctx, "SELECT set_config('idle_session_timeout','30s',false),pg_try_advisory_lock(hashtextextended($1,0))", s.lockName()).Scan(&idleTimeout, &acquired) != nil || idleTimeout != "30s" || !acquired {
+	// Also bound server work: idle expiry does not apply during a query.
+	if conn.QueryRow(ctx, "SELECT set_config('idle_session_timeout','30s',false),set_config('statement_timeout','5s',false),pg_try_advisory_lock(hashtextextended($1,0))", s.lockName()).Scan(&idleTimeout, &statementTimeout, &acquired) != nil || idleTimeout != "30s" || statementTimeout != "5s" || !acquired {
 		s.releaseLock()
 		return nil, ErrUnavailable
 	}
