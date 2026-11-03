@@ -29,3 +29,18 @@ func TestEventHealthExpiresIndependentlyOfAuthHealth(t *testing.T) {
 		require.True(t, got.Configured)
 	}
 }
+
+func TestEventHealthPublicationStartsFreshnessAfterSlowObservation(t *testing.T) {
+	events := &clusterEvents{}
+	// Model a check that started outside the freshness window but completed now.
+	started := time.Now().Add(-7 * time.Second)
+	published := time.Now()
+	events.publishHealth(clusterEventHealth{Configured: true, LocalReady: true, CollectorReady: true, CheckedAt: started})
+	got := events.snapshot()
+	require.True(t, got.LocalReady)
+	require.True(t, got.CollectorReady)
+	require.False(t, got.CheckedAt.Before(published))
+	// The unchanged expiry still rejects an actually stale published result.
+	events.cached.CheckedAt = time.Now().Add(-7 * time.Second)
+	require.False(t, events.snapshot().CollectorReady)
+}
