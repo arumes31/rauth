@@ -10,3 +10,5 @@ Evidence: post-PR810 canaries intermittently return Stats503 while auth remains 
 4. Review exact patch, CI and immutable binary before any new canary upgrade. No host reset or production route change.
 
 The existing1s baseline failure is retained in ha-event-health-wan-diagnostic-v2.private.json. No archive/WAL edits are part of this repair.
+
+Review refinement: stamp event-health CheckedAt when the completed observation is published, rather than before the probes. Keep the existing6s snapshot expiry and authentication freshness unchanged. A focused regression covers a successful observation that began more than6s ago.

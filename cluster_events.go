@@ -98,6 +98,15 @@ func (e *clusterEvents) snapshot() clusterEventHealth {
 	}
 	return out
 }
+
+// publishHealth timestamps the completed observation, so slow successful probes
+// do not consume the snapshot freshness window before their result is visible.
+func (e *clusterEvents) publishHealth(health clusterEventHealth) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	health.CheckedAt = time.Now().UTC()
+	e.cached = health
+}
 func (e *clusterEvents) committer() eventrelay.Committer {
 	e.mu.RLock()
 	store := e.collector
@@ -363,7 +372,7 @@ func (e *clusterEvents) observeLoop() {
 		e.mu.RLock()
 		local, writer, sender, collector := e.local, e.writer, e.sender, e.collector
 		e.mu.RUnlock()
-		health := clusterEventHealth{Configured: true, NodeID: e.spec.NodeID, NodeName: e.spec.Events.NodeName, UncommittedDrops: e.earlyDrops.Load(), CheckedAt: time.Now().UTC()}
+		health := clusterEventHealth{Configured: true, NodeID: e.spec.NodeID, NodeName: e.spec.Events.NodeName, UncommittedDrops: e.earlyDrops.Load()}
 		if local != nil && writer != nil {
 			ctx, cancel := context.WithTimeout(e.ctx, time.Second)
 			status, err := local.Status(ctx)
@@ -385,9 +394,7 @@ func (e *clusterEvents) observeLoop() {
 				health.Central = &status
 			}
 		}
-		e.mu.Lock()
-		e.cached = health
-		e.mu.Unlock()
+		e.publishHealth(health)
 		select {
 		case <-e.ctx.Done():
 			return
