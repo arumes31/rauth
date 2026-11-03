@@ -330,7 +330,7 @@ func (e *clusterEvents) collectorLoop() {
 					active = false
 				}
 			case <-check.C:
-				ctx, cancel := context.WithTimeout(e.ctx, time.Second)
+				ctx, cancel := context.WithTimeout(e.ctx, eventstore.HealthTimeout)
 				_, err = store.Status(ctx)
 				cancel()
 				if err != nil {
@@ -377,7 +377,7 @@ func (e *clusterEvents) observeLoop() {
 			health.Delivery = sender.Status()
 		}
 		if collector != nil {
-			ctx, cancel := context.WithTimeout(e.ctx, time.Second)
+			ctx, cancel := context.WithTimeout(e.ctx, eventstore.HealthTimeout)
 			status, err := collector.Status(ctx)
 			cancel()
 			health.CollectorReady = err == nil

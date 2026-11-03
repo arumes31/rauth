@@ -36,6 +36,10 @@ const ReadTimeout = 10 * time.Second
 // It is independent of per-batch ingest and server SQL execution deadlines.
 const OpenTimeout = 15 * time.Second
 
+// HealthTimeout covers concurrent heartbeats sharing the reserved lock session
+// across WAN links. Ownership checks and the server-side idle lease are unchanged.
+const HealthTimeout = 3 * time.Second
+
 //go:embed schema.sql
 var schema string
 
