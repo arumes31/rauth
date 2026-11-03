@@ -49,7 +49,7 @@ type Store struct {
 	lock         *pgxpool.Conn
 	options      Options
 	epoch, token string
-	mu           sync.Mutex
+	writer       chan struct{}
 	lockMu       sync.Mutex
 	changedMu    sync.Mutex
 	readMu       sync.Mutex
@@ -144,7 +144,7 @@ func Open(ctx context.Context, pool *pgxpool.Pool, o Options) (*Store, error) {
 	if pool == nil || o.validate() != nil || pool.Config().MaxConns < 3 {
 		return nil, ErrInvalid
 	}
-	s := &Store{pool: pool, options: o, token: uuid.NewString(), changed: make(chan struct{}), now: time.Now}
+	s := &Store{writer: make(chan struct{}, 1), pool: pool, options: o, token: uuid.NewString(), changed: make(chan struct{}), now: time.Now}
 	conn, err := pool.Acquire(ctx)
 	if err != nil {
 		return nil, ErrUnavailable
@@ -241,7 +241,48 @@ func (s *Store) Ingest(ctx context.Context, peer string, events []requestevent.E
 	}
 	return s.insert(ctx, peer, events)
 }
-func (s *Store) Maintain(ctx context.Context) error { _, err := s.insert(ctx, "", nil); return err }
+func (s *Store) Maintain(ctx context.Context) error {
+	now := s.now().UTC()
+	for {
+		if !s.lockWriter(ctx) {
+			return ErrUnavailable
+		}
+		if s.closed {
+			s.unlockWriter()
+			return ErrUnavailable
+		}
+		changed, err := s.trimOnce(ctx, 0, 0, now)
+		// Hand the writer gate to queued uploads between committed chunks.
+		s.unlockWriter()
+		if err != nil {
+			return err
+		}
+		if !changed {
+			return nil
+		}
+	}
+}
+
+// lockWriter keeps requests waiting for another bounded upload from retaining
+// receiver slots after their own context expires. Close still waits for the
+// current writer using the same gate.
+func (s *Store) lockWriter(ctx context.Context) bool {
+	if ctx.Err() != nil {
+		return false
+	}
+	select {
+	case s.writer <- struct{}{}:
+		if ctx.Err() != nil {
+			s.unlockWriter()
+			return false
+		}
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+func (s *Store) unlockWriter() { <-s.writer }
+
 func (s *Store) insert(ctx context.Context, peer string, events []requestevent.Event) ([]string, error) {
 	if len(events) > requestevent.MaxBatch {
 		return nil, ErrInvalid
@@ -258,8 +299,10 @@ func (s *Store) insert(ctx context.Context, peer string, events []requestevent.E
 		raws[i], _ = json.Marshal(e)
 		acks[i] = e.EventID
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	if !s.lockWriter(ctx) {
+		return nil, ErrUnavailable
+	}
+	defer s.unlockWriter()
 	if s.closed {
 		return nil, ErrUnavailable
 	}
@@ -371,27 +414,40 @@ func (s *Store) existing(ctx context.Context, q eventQuerier, peer string, event
 func (s *Store) telemetryLimit() int64 { return min(s.options.MaxBytes/8, 256<<20) }
 func (s *Store) trim(ctx context.Context, incoming, incomingTelemetry int64, now time.Time) error {
 	for {
-		tx, used, _, err := s.begin(ctx)
+		changed, err := s.trimOnce(ctx, incoming, incomingTelemetry, now)
 		if err != nil {
 			return err
 		}
-		changed, err := s.trimChunk(ctx, tx, incoming, incomingTelemetry, now, used)
-		if err != nil {
-			_ = tx.Rollback(ctx)
-			if errors.Is(err, ErrInvalid) {
-				return err
-			}
-			return storageFailure(err)
-		}
 		if !changed {
-			_ = tx.Rollback(ctx)
 			return nil
 		}
-		if err = tx.Commit(ctx); err != nil {
-			return storageFailure(err)
-		}
-		s.notifyLocked()
 	}
+}
+
+// trimOnce runs with the writer gate held. Each chunk remains independently
+// fenced and committed so a later timeout preserves completed cleanup progress.
+func (s *Store) trimOnce(ctx context.Context, incoming, incomingTelemetry int64, now time.Time) (bool, error) {
+	tx, used, _, err := s.begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	changed, err := s.trimChunk(ctx, tx, incoming, incomingTelemetry, now, used)
+	if err != nil {
+		_ = tx.Rollback(ctx)
+		if errors.Is(err, ErrInvalid) {
+			return false, err
+		}
+		return false, storageFailure(err)
+	}
+	if !changed {
+		_ = tx.Rollback(ctx)
+		return false, nil
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return false, storageFailure(err)
+	}
+	s.notifyLocked()
+	return true, nil
 }
 func (s *Store) trimChunk(ctx context.Context, tx pgx.Tx, incoming, incomingTelemetry int64, now time.Time, used int64) (bool, error) {
 	type item struct {
@@ -403,13 +459,24 @@ func (s *Store) trimChunk(ctx context.Context, tx pgx.Tx, incoming, incomingTele
 		return false, err
 	}
 	removed, removedHistory, last := int64(0), int64(0), int64(0)
-	remove := func(i item) error {
-		if err := s.removeStatistics(ctx, tx, i.seq); err != nil {
-			return err
+	pending := &pgx.Batch{}
+	flush := func() error {
+		if pending.Len() == 0 {
+			return nil
 		}
-		if _, err := tx.Exec(ctx, `DELETE FROM request_events WHERE cluster_id=$1 AND seq=$2`, s.options.ClusterID, i.seq); err != nil {
-			return err
+		// Close drains every result, including errors, before another query or
+		// rollback. At most 128 deletions / 384 statements fit in this chunk.
+		err := tx.SendBatch(ctx, pending).Close()
+		pending = &pgx.Batch{}
+		return err
+	}
+	remove := func(i item) {
+		// Only decisions own traffic aggregates. Telemetry samples cascade
+		// from the event deletion, and loss markers have no aggregate row.
+		if i.kind == "decision" {
+			s.queueRemoveStatistics(pending, i.seq)
 		}
+		pending.Queue(`DELETE FROM request_events WHERE cluster_id=$1 AND seq=$2`, s.options.ClusterID, i.seq)
 		used -= i.size
 		if i.kind == "telemetry" {
 			telemetry -= i.size
@@ -420,7 +487,6 @@ func (s *Store) trimChunk(ctx context.Context, tx pgx.Tx, incoming, incomingTele
 			}
 		}
 		removed++
-		return nil
 	}
 	collect := func(sql string, args ...any) ([]item, error) {
 		rows, err := tx.Query(ctx, sql, args...)
@@ -445,9 +511,10 @@ func (s *Store) trimChunk(ctx context.Context, tx pgx.Tx, incoming, incomingTele
 		return false, err
 	}
 	for _, i := range expired {
-		if err = remove(i); err != nil {
-			return false, err
-		}
+		remove(i)
+	}
+	if err = flush(); err != nil {
+		return false, err
 	}
 	telemetryPressure := func() bool {
 		return telemetry+incomingTelemetry > s.telemetryLimit() || used+incoming > s.options.MaxBytes
@@ -461,9 +528,11 @@ func (s *Store) trimChunk(ctx context.Context, tx pgx.Tx, incoming, incomingTele
 			if removed == 128 || !telemetryPressure() {
 				break
 			}
-			if err = remove(i); err != nil {
-				return false, err
-			}
+			remove(i)
+		}
+		// Later selections must see the rows removed by this phase.
+		if err = flush(); err != nil {
+			return false, err
 		}
 	}
 	if removed < 128 && (telemetry+incomingTelemetry > s.telemetryLimit() || incomingTelemetry > 0 && used+incoming > s.options.MaxBytes) {
@@ -478,9 +547,11 @@ func (s *Store) trimChunk(ctx context.Context, tx pgx.Tx, incoming, incomingTele
 			if removed == 128 || used+incoming <= s.options.MaxBytes {
 				break
 			}
-			if err = remove(i); err != nil {
-				return false, err
-			}
+			remove(i)
+		}
+		// Later selections must see the rows removed by this phase.
+		if err = flush(); err != nil {
+			return false, err
 		}
 	}
 	if removed == 0 {
@@ -618,8 +689,8 @@ func (s *Store) releaseLock() {
 	_ = conn.Close(ctx)
 }
 func (s *Store) Close() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.lockWriter(context.Background())
+	defer s.unlockWriter()
 	if s.closed {
 		return nil
 	}
@@ -681,15 +752,11 @@ func (s *Store) queueStatistics(batch *pgx.Batch, seq int64, e requestevent.Even
 	}
 	return nil
 }
-func (s *Store) removeStatistics(ctx context.Context, tx pgx.Tx, seq int64) error {
+func (s *Store) queueRemoveStatistics(batch *pgx.Batch, seq int64) {
 	// Delete singleton aggregate rows before decrementing to preserve CHECK>0.
 	args := []any{s.options.ClusterID, seq}
-	_, err := tx.Exec(ctx, `DELETE FROM event_traffic_minute a USING request_events e WHERE e.cluster_id=$1 AND e.seq=$2 AND e.kind='decision' AND a.cluster_id=e.cluster_id AND a.node_id=e.node_id AND a.minute=date_trunc('minute',e.occurred_at) AND a.action=e.action AND a.country=e.country AND a.latency_bucket=e.latency_bucket AND a.decisions=1`, args...)
-	if err != nil {
-		return err
-	}
-	_, err = tx.Exec(ctx, `UPDATE event_traffic_minute a SET decisions=a.decisions-1,processing_us=a.processing_us-e.processing_us FROM request_events e WHERE e.cluster_id=$1 AND e.seq=$2 AND e.kind='decision' AND a.cluster_id=e.cluster_id AND a.node_id=e.node_id AND a.minute=date_trunc('minute',e.occurred_at) AND a.action=e.action AND a.country=e.country AND a.latency_bucket=e.latency_bucket`, args...)
-	return err
+	batch.Queue(`DELETE FROM event_traffic_minute a USING request_events e WHERE e.cluster_id=$1 AND e.seq=$2 AND e.kind='decision' AND a.cluster_id=e.cluster_id AND a.node_id=e.node_id AND a.minute=date_trunc('minute',e.occurred_at) AND a.action=e.action AND a.country=e.country AND a.latency_bucket=e.latency_bucket AND a.decisions=1`, args...)
+	batch.Queue(`UPDATE event_traffic_minute a SET decisions=a.decisions-1,processing_us=a.processing_us-e.processing_us FROM request_events e WHERE e.cluster_id=$1 AND e.seq=$2 AND e.kind='decision' AND a.cluster_id=e.cluster_id AND a.node_id=e.node_id AND a.minute=date_trunc('minute',e.occurred_at) AND a.action=e.action AND a.country=e.country AND a.latency_bucket=e.latency_bucket`, args...)
 }
 
 // FeedStart measures display/replay windows in decisions and loss markers,
