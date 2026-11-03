@@ -55,7 +55,7 @@ func TestLiveFeedAllowsColdHistoryAndTail(t *testing.T) {
 			events := &coldHistoryFeed{delayAt: stage, changed: make(chan struct{})}
 			srv, cookie := feedTestServerWithEvents(t, events)
 			response := openFeed(t, srv, cookie, "")
-			defer response.Body.Close()
+			defer func() { require.NoError(t, response.Body.Close()) }()
 			require.Equal(t, 200, response.StatusCode)
 			reader := bufio.NewReader(response.Body)
 			kind, _, _ := readFeedEvent(t, reader)
