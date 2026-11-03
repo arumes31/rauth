@@ -32,7 +32,7 @@ func relayConfig() *core.Config {
 	return &core.Config{CookieDomains: []string{"example.com"}, SSOCanonicalOrigin: "https://auth.example.com", TrustedProxies: []string{"10.253.42.2"}, TrustXRealIP: true}
 }
 func relayWorker(client privateRPCClient) *clusterRuntime {
-	return &clusterRuntime{spec: clusterconfig.Config{Role: clusterconfig.Worker, Controller: clusterconfig.Controller{Endpoint: "https://100.72.1.1:9443"}}, relayClient: client}
+	return &clusterRuntime{spec: clusterconfig.Config{Role: clusterconfig.Worker, Controller: clusterconfig.Controller{Endpoint: "https://100.72.1.1:9443"}}, relayClient: client, adminRelayClient: client}
 }
 func TestClusterAdminRelayPreservesBrowserContextAndResponse(t *testing.T) {
 	cfg := relayConfig()
@@ -293,4 +293,20 @@ func TestClusterIPExtractionUsesOnlyFrozenCloudflareRanges(t *testing.T) {
 	request.Header.Set("X-Real-IP", "104.16.0.1")
 	request.Header.Set("X-Forwarded-For", "104.16.0.1")
 	assert.Equal(t, "104.16.0.1", extract(request), "the process-global default must not override the enrolled frozen list")
+}
+
+func TestClusterAdminRelayUsesDedicatedClient(t *testing.T) {
+	runtime := relayWorker(testRPCClient(func(*http.Request) (*http.Response, error) {
+		t.Fatal("ordinary private RPC client used for administration")
+		return nil, errors.New("wrong client")
+	}))
+	runtime.adminRelayClient = testRPCClient(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("dedicated-admin"))}, nil
+	})
+	e := echo.New()
+	e.Use(runtime.AdminRelay(relayConfig()))
+	out := httptest.NewRecorder()
+	e.ServeHTTP(out, httptest.NewRequest(http.MethodGet, "https://auth.example.com/rauthmgmt/live-feed", nil))
+	require.Equal(t, http.StatusOK, out.Code)
+	require.Equal(t, "dedicated-admin", out.Body.String())
 }
