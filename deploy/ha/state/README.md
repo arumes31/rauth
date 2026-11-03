@@ -153,3 +153,11 @@ Bootstrap failures and escaped supervisor-runtime failures have separate
 diagnostics. Runtime diagnostics include the exception type and stack file/line
 frames, without exception text, source lines or local values that could contain
 private database URLs or credentials.
+
+### Prepared OpenRC counterpart
+
+`package_openrc.py` renders an uninstalled native OpenRC service, the identical
+verified loader/bundle and private bounded RAM metadata. It changes no guard
+identity/schema or Docker restart policy and installs/starts nothing. See
+[OPENRC.md](OPENRC.md) for native namespace, tools, storage, logging and lifecycle
+requirements. Portable tests do not prove actual Alpine/OpenRC boot or fencing.
