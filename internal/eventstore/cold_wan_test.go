@@ -73,7 +73,7 @@ func coldReaderStore(t *testing.T, delay time.Duration) (*Store, *atomic.Bool, r
 }
 
 func TestColdReadersAcrossWAN(t *testing.T) {
-	for _, delay := range []time.Duration{225 * time.Millisecond, 250 * time.Millisecond} {
+	for _, delay := range []time.Duration{225 * time.Millisecond, 250 * time.Millisecond, 400 * time.Millisecond} {
 		for _, kind := range []string{"statistics", "history", "diagnostics", "feed", "tail"} {
 			t.Run(delay.String()+"/"+kind, func(t *testing.T) {
 				s, _, event, diagnostic := coldReaderStore(t, delay)
@@ -99,7 +99,7 @@ func TestColdReadersAcrossWAN(t *testing.T) {
 					require.NoError(t, err)
 					require.Zero(t, cursor)
 				case "feed":
-					ctx, cancel := context.WithTimeout(background, 5*time.Second)
+					ctx, cancel := context.WithTimeout(background, ReadTimeout)
 					defer cancel()
 					batch, err := s.After(ctx, 0, event.NodeID)
 					require.NoError(t, err)
@@ -109,7 +109,7 @@ func TestColdReadersAcrossWAN(t *testing.T) {
 					require.NoError(t, err)
 					require.Zero(t, cursor)
 				}
-				require.Less(t, time.Since(started), 6*time.Second, "cold read and its bounded feed lookup must finish")
+				require.Less(t, time.Since(started), ReadTimeout+time.Second, "cold read and its bounded feed lookup must finish")
 			})
 		}
 	}
@@ -150,7 +150,7 @@ func TestReaderServerDeadlineRemainsShorterThanReadBudget(t *testing.T) {
 // The collector needs two cold sessions: one reserved advisory-lock connection
 // and one transaction connection. Its event-only startup budget covers both.
 func TestColdCollectorOpenAcrossWAN(t *testing.T) {
-	for _, delay := range []time.Duration{225 * time.Millisecond, 250 * time.Millisecond} {
+	for _, delay := range []time.Duration{225 * time.Millisecond, 250 * time.Millisecond, 400 * time.Millisecond} {
 		t.Run(delay.String(), func(t *testing.T) {
 			pool := setup(t)
 			o := options()

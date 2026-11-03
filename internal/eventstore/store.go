@@ -30,7 +30,7 @@ const SchemaVersion = 3
 
 // ReadTimeout includes cold TLS/leader selection and reader-session setup.
 // Reader SQL execution is independently capped at two seconds.
-const ReadTimeout = 5 * time.Second
+const ReadTimeout = 10 * time.Second
 
 //go:embed schema.sql
 var schema string
