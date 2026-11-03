@@ -29,14 +29,15 @@ func TestReceiverAllowsWANCommitAndHonorsParentCancellation(t *testing.T) {
 	require.Equal(t, http.StatusOK, invoke(handler, encoded([]requestevent.Event{e})).Code, "a committed WAN upload must survive the former three-second limit")
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	req := httptest.NewRequest(http.MethodPost, "/v1/events", strings.NewReader(encoded([]requestevent.Event{event(node)}))).WithContext(ctx)
+	canceled := event(node)
+	req := httptest.NewRequest(http.MethodPost, "/v1/events", strings.NewReader(encoded([]requestevent.Event{canceled}))).WithContext(ctx)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	started := time.Now()
 	handler.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	require.Less(t, time.Since(started), time.Second, "the larger event budget must not ignore caller cancellation")
-	require.NotContains(t, rec.Body.String(), e.EventID, "failed commit must not acknowledge an event")
+	require.NotContains(t, rec.Body.String(), canceled.EventID, "failed commit must not acknowledge an event")
 }
 
 func TestSenderWaitsForWANCommitAndRetainsCanceledUpload(t *testing.T) {

@@ -78,6 +78,8 @@ func TestRetentionMakesProgressAcrossWAN(t *testing.T) {
 				started := time.Now()
 				ids, ingestErr := s.Ingest(ctx, node, []requestevent.Event{incoming})
 				cancel()
+				const attemptGrace = time.Second
+				require.LessOrEqual(t, time.Since(started), 10*time.Second+attemptGrace, "Ingest exceeded its attempt budget")
 				var remaining int
 				require.NoError(t, pool.QueryRow(background, "SELECT count(*) FROM request_events WHERE kind='telemetry'").Scan(&remaining))
 				t.Logf("write_delay=%s attempt=%d elapsed=%s expired_telemetry_remaining=%d", delay, attempt, time.Since(started), remaining)
@@ -265,4 +267,52 @@ func TestMaintenanceYieldsToQueuedWriterBetweenChunks(t *testing.T) {
 	var retained int
 	require.NoError(t, pool.QueryRow(background, "SELECT count(*) FROM request_events").Scan(&retained))
 	require.Zero(t, retained)
+}
+
+// Removal must decrement a shared bucket without dropping its retained decision.
+func TestRetentionPartialRemovalPreservesSharedMinuteBucket(t *testing.T) {
+	pool := setup(t)
+	s := open(t, pool, Options{ClusterID: uuid.NewString(), MaxBytes: 16 << 20, MaxAge: time.Minute})
+	node := uuid.NewString()
+	minute := time.Now().UTC().Truncate(time.Minute)
+	now := minute.Add(10 * time.Second)
+	s.now = func() time.Time { return now }
+	expired := decision(node)
+	expired.Time = now
+	expired.ProcessingMicros = 1234
+	_, err := s.Ingest(background, node, []requestevent.Event{expired})
+	require.NoError(t, err)
+	now = minute.Add(40 * time.Second)
+	retained := expired
+	retained.EventID = uuid.NewString()
+	retained.Time = now
+	retained.ProcessingMicros = 2345
+	require.Equal(t, latencyBucket(expired.ProcessingMicros), latencyBucket(retained.ProcessingMicros))
+	_, err = s.Ingest(background, node, []requestevent.Event{retained})
+	require.NoError(t, err)
+	var buckets, traffic, processing int64
+	require.NoError(t, pool.QueryRow(background, "SELECT count(*),sum(decisions),sum(processing_us)::bigint FROM event_traffic_minute").Scan(&buckets, &traffic, &processing))
+	require.EqualValues(t, 1, buckets)
+	require.EqualValues(t, 2, traffic)
+	require.EqualValues(t, 3579, processing)
+	now = minute.Add(90 * time.Second)
+	require.NoError(t, s.Maintain(background))
+	var ids []string
+	rows, err := pool.Query(background, "SELECT event_id::text FROM request_events ORDER BY seq")
+	require.NoError(t, err)
+	for rows.Next() {
+		var id string
+		require.NoError(t, rows.Scan(&id))
+		ids = append(ids, id)
+	}
+	require.NoError(t, rows.Err())
+	rows.Close()
+	require.Equal(t, []string{retained.EventID}, ids)
+	require.NoError(t, pool.QueryRow(background, "SELECT count(*),sum(decisions),sum(processing_us)::bigint FROM event_traffic_minute").Scan(&buckets, &traffic, &processing))
+	require.EqualValues(t, 1, buckets)
+	require.EqualValues(t, 1, traffic)
+	require.EqualValues(t, retained.ProcessingMicros, processing)
+	var ledgerCount int64
+	require.NoError(t, pool.QueryRow(background, "SELECT event_count FROM event_ledgers WHERE cluster_id=$1", s.options.ClusterID).Scan(&ledgerCount))
+	require.EqualValues(t, 1, ledgerCount)
 }
