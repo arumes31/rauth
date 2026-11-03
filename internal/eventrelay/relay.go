@@ -20,6 +20,11 @@ import (
 
 const MaxBody = 1 << 20
 
+// Event uploads have bounded WAN budgets separate from authentication. The
+// sender includes transport/authorization time outside the receiver's SQL work.
+const IngestTimeout = 10 * time.Second
+const DeliveryTimeout = 15 * time.Second
+
 var ErrDelivery = errors.New("event delivery unavailable")
 
 type Envelope struct {
@@ -102,7 +107,7 @@ func Receiver(current func() Committer, assigned map[string]bool) http.Handler {
 				return
 			}
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		ctx, cancel := context.WithTimeout(r.Context(), IngestTimeout)
 		defer cancel()
 		ids, err := collector.Ingest(ctx, peer.NodeID, body.Events)
 		switch {
@@ -203,7 +208,7 @@ func (s *Sender) Run(ctx context.Context) error {
 	}
 }
 func (s *Sender) deliver(parent context.Context, live bool) error {
-	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
+	ctx, cancel := context.WithTimeout(parent, DeliveryTimeout)
 	defer cancel()
 	events, err := s.box.Pending(ctx, live)
 	if err != nil {

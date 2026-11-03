@@ -14,15 +14,16 @@ import (
 )
 
 type ClientConfig struct {
-	Endpoint       string
-	LocalServiceIP string
-	ClusterID      string
-	LocalNodeID    string
-	RemoteNodeID   string
-	RemoteKeys     [][32]byte
-	Certificate    tls.Certificate
-	Roots          *x509.CertPool
-	Timeout        time.Duration
+	Endpoint              string
+	LocalServiceIP        string
+	ClusterID             string
+	LocalNodeID           string
+	RemoteNodeID          string
+	RemoteKeys            [][32]byte
+	Certificate           tls.Certificate
+	Roots                 *x509.CertPool
+	Timeout               time.Duration
+	ResponseHeaderTimeout time.Duration
 }
 type Client struct {
 	endpoint  *url.URL
@@ -49,6 +50,12 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 	if timeout < time.Second || timeout > 120*time.Second {
 		return nil, ErrConfiguration
 	}
+	headerTimeout := cfg.ResponseHeaderTimeout
+	if headerTimeout == 0 {
+		headerTimeout = 10 * time.Second
+	} else if headerTimeout < time.Second || headerTimeout > timeout {
+		return nil, ErrConfiguration
+	}
 	leaf, err := certificateLeaf(cfg.Certificate)
 	if err != nil || leaf.VerifyHostname(local.String()) != nil {
 		return nil, ErrConfiguration
@@ -67,7 +74,7 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 		}
 		return dialer.DialContext(ctx, network, address)
 	}
-	tr := &http.Transport{Proxy: nil, DialContext: dial, TLSClientConfig: secure, TLSHandshakeTimeout: 5 * time.Second, ResponseHeaderTimeout: 10 * time.Second, IdleConnTimeout: 90 * time.Second, MaxConnsPerHost: 8, MaxIdleConns: 8, MaxIdleConnsPerHost: 4, DisableCompression: true}
+	tr := &http.Transport{Proxy: nil, DialContext: dial, TLSClientConfig: secure, TLSHandshakeTimeout: 5 * time.Second, ResponseHeaderTimeout: headerTimeout, IdleConnTimeout: 90 * time.Second, MaxConnsPerHost: 8, MaxIdleConns: 8, MaxIdleConnsPerHost: 4, DisableCompression: true}
 	c := &Client{endpoint: endpoint, transport: tr}
 	c.http = &http.Client{Transport: tr, Timeout: timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	return c, nil

@@ -90,11 +90,18 @@ func (l *Loaded) ServerTLS() (*tls.Config, error) {
 	return clustertransport.ServerTLS(l.certificate, l.roots, l.config.ClusterID, l.config.NodeID)
 }
 func (l *Loaded) ControllerClient() (*clustertransport.Client, error) {
+	return l.ControllerClientWithTimeouts(0, 0)
+}
+
+// ControllerClientWithTimeouts preserves the same node enrollment and TLS pins
+// while allowing event delivery its own bounded transport budget. Zero values
+// retain the existing defaults used by other private RPCs.
+func (l *Loaded) ControllerClientWithTimeouts(timeout, headerTimeout time.Duration) (*clustertransport.Client, error) {
 	pins, err := l.config.ControllerPins()
 	if err != nil {
 		return nil, err
 	}
-	return clustertransport.NewClient(clustertransport.ClientConfig{Endpoint: l.config.Controller.Endpoint, LocalServiceIP: l.config.ServiceIP, ClusterID: l.config.ClusterID, LocalNodeID: l.config.NodeID, RemoteNodeID: l.config.Controller.NodeID, RemoteKeys: pins, Certificate: l.certificate, Roots: l.roots})
+	return clustertransport.NewClient(clustertransport.ClientConfig{Endpoint: l.config.Controller.Endpoint, LocalServiceIP: l.config.ServiceIP, ClusterID: l.config.ClusterID, LocalNodeID: l.config.NodeID, RemoteNodeID: l.config.Controller.NodeID, RemoteKeys: pins, Certificate: l.certificate, Roots: l.roots, Timeout: timeout, ResponseHeaderTimeout: headerTimeout})
 }
 
 // Load validates its existing host mount before reading further node files. It

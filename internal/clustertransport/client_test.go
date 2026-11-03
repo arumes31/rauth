@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func endpointClientFixture(t *testing.T, handler http.Handler) (*Client, *httptest.Server, *atomic.Int32) {
+func endpointClientFixture(t *testing.T, handler http.Handler, configure ...func(*ClientConfig)) (*Client, *httptest.Server, *atomic.Int32) {
 	t.Helper()
 	ca := newIssuer(t, "endpoint-client")
 	serverPair := ca.issue(t, serverID, "endpoint-server", func(c *x509.Certificate) { c.IPAddresses = []net.IP{net.ParseIP("100.64.0.12")} })
@@ -37,7 +37,11 @@ func endpointClientFixture(t *testing.T, handler http.Handler) (*Client, *httpte
 	t.Cleanup(server.Close)
 	_, port, err := net.SplitHostPort(server.Listener.Addr().String())
 	require.NoError(t, err)
-	c, err := NewClient(ClientConfig{Endpoint: "https://100.64.0.12:" + port, LocalServiceIP: "100.64.0.11", ClusterID: clusterID, LocalNodeID: clientID, RemoteNodeID: serverID, RemoteKeys: [][32]byte{pin(t, serverPair)}, Certificate: clientPair, Roots: ca.roots})
+	clientConfig := ClientConfig{Endpoint: "https://100.64.0.12:" + port, LocalServiceIP: "100.64.0.11", ClusterID: clusterID, LocalNodeID: clientID, RemoteNodeID: serverID, RemoteKeys: [][32]byte{pin(t, serverPair)}, Certificate: clientPair, Roots: ca.roots}
+	for _, change := range configure {
+		change(&clientConfig)
+	}
+	c, err := NewClient(clientConfig)
 	require.NoError(t, err)
 	t.Cleanup(c.CloseIdleConnections)
 	calls := new(atomic.Int32)
@@ -57,6 +61,8 @@ func TestPrivateClientPinsEndpointAndOverwritesHTTPHost(t *testing.T) {
 	}))
 	assert.Nil(t, c.transport.Proxy, "environment proxy settings must not replace the node service route")
 	assert.Nil(t, c.http.Jar, "browser cookies must not persist across private RPCs")
+	assert.Equal(t, 10*time.Second, c.transport.ResponseHeaderTimeout, "ordinary private RPC defaults are unchanged")
+	assert.Equal(t, 60*time.Second, c.http.Timeout)
 	req, err := http.NewRequest(http.MethodGet, c.endpoint.String()+"/v1/policy", nil)
 	require.NoError(t, err)
 	req.Host = "untrusted.example.test"
@@ -109,7 +115,7 @@ func TestPrivateClientRejectsUnenrolledSourceAndWrongLocalCertificateIP(t *testi
 		require.ErrorIs(t, err, ErrConfiguration, "the actual dialer also rejects non-enrolled destinations before opening a socket")
 	}
 	c.CloseIdleConnections()
-	for _, change := range []func(*ClientConfig){func(c *ClientConfig) { c.LocalServiceIP = "127.0.0.1" }, func(c *ClientConfig) { c.Endpoint = "https://127.0.0.1:9443" }, func(c *ClientConfig) { c.Timeout = 10 * time.Minute }, func(c *ClientConfig) { c.Timeout = time.Millisecond }} {
+	for _, change := range []func(*ClientConfig){func(c *ClientConfig) { c.LocalServiceIP = "127.0.0.1" }, func(c *ClientConfig) { c.Endpoint = "https://127.0.0.1:9443" }, func(c *ClientConfig) { c.Timeout = 10 * time.Minute }, func(c *ClientConfig) { c.Timeout = time.Millisecond }, func(c *ClientConfig) { c.ResponseHeaderTimeout = -time.Second }, func(c *ClientConfig) { c.ResponseHeaderTimeout = time.Millisecond }, func(c *ClientConfig) { c.Timeout = 15 * time.Second; c.ResponseHeaderTimeout = 16 * time.Second }} {
 		copy := base
 		change(&copy)
 		_, err := NewClient(copy)
@@ -135,4 +141,21 @@ func TestTLS12IsNotAccepted(t *testing.T) {
 	c := &http.Client{Transport: tr, Timeout: 3 * time.Second}
 	_, err := c.Get(server.URL)
 	require.Error(t, err)
+}
+
+func TestPrivateClientEventBudgetWaitsForCommittedResponse(t *testing.T) {
+	c, _, _ := endpointClientFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-time.After(10100 * time.Millisecond):
+			w.WriteHeader(http.StatusNoContent)
+		case <-r.Context().Done():
+			return
+		}
+	}), func(cfg *ClientConfig) { cfg.Timeout = 15 * time.Second; cfg.ResponseHeaderTimeout = 14 * time.Second })
+	req, err := http.NewRequest(http.MethodPost, c.endpoint.String()+"/v1/events", nil)
+	require.NoError(t, err)
+	resp, err := c.Do(req)
+	require.NoError(t, err, "the transport must allow authorization and commit beyond the former ten-second header limit")
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusNoContent, resp.StatusCode)
 }

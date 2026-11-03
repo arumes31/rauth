@@ -403,13 +403,24 @@ func (s *Store) trimChunk(ctx context.Context, tx pgx.Tx, incoming, incomingTele
 		return false, err
 	}
 	removed, removedHistory, last := int64(0), int64(0), int64(0)
-	remove := func(i item) error {
-		if err := s.removeStatistics(ctx, tx, i.seq); err != nil {
-			return err
+	pending := &pgx.Batch{}
+	flush := func() error {
+		if pending.Len() == 0 {
+			return nil
 		}
-		if _, err := tx.Exec(ctx, `DELETE FROM request_events WHERE cluster_id=$1 AND seq=$2`, s.options.ClusterID, i.seq); err != nil {
-			return err
+		// Close drains every result, including errors, before another query or
+		// rollback. At most 128 deletions / 384 statements fit in this chunk.
+		err := tx.SendBatch(ctx, pending).Close()
+		pending = &pgx.Batch{}
+		return err
+	}
+	remove := func(i item) {
+		// Only decisions own traffic aggregates. Telemetry samples cascade
+		// from the event deletion, and loss markers have no aggregate row.
+		if i.kind == "decision" {
+			s.queueRemoveStatistics(pending, i.seq)
 		}
+		pending.Queue(`DELETE FROM request_events WHERE cluster_id=$1 AND seq=$2`, s.options.ClusterID, i.seq)
 		used -= i.size
 		if i.kind == "telemetry" {
 			telemetry -= i.size
@@ -420,7 +431,6 @@ func (s *Store) trimChunk(ctx context.Context, tx pgx.Tx, incoming, incomingTele
 			}
 		}
 		removed++
-		return nil
 	}
 	collect := func(sql string, args ...any) ([]item, error) {
 		rows, err := tx.Query(ctx, sql, args...)
@@ -445,9 +455,10 @@ func (s *Store) trimChunk(ctx context.Context, tx pgx.Tx, incoming, incomingTele
 		return false, err
 	}
 	for _, i := range expired {
-		if err = remove(i); err != nil {
-			return false, err
-		}
+		remove(i)
+	}
+	if err = flush(); err != nil {
+		return false, err
 	}
 	telemetryPressure := func() bool {
 		return telemetry+incomingTelemetry > s.telemetryLimit() || used+incoming > s.options.MaxBytes
@@ -461,9 +472,11 @@ func (s *Store) trimChunk(ctx context.Context, tx pgx.Tx, incoming, incomingTele
 			if removed == 128 || !telemetryPressure() {
 				break
 			}
-			if err = remove(i); err != nil {
-				return false, err
-			}
+			remove(i)
+		}
+		// Later selections must see the rows removed by this phase.
+		if err = flush(); err != nil {
+			return false, err
 		}
 	}
 	if removed < 128 && (telemetry+incomingTelemetry > s.telemetryLimit() || incomingTelemetry > 0 && used+incoming > s.options.MaxBytes) {
@@ -478,9 +491,11 @@ func (s *Store) trimChunk(ctx context.Context, tx pgx.Tx, incoming, incomingTele
 			if removed == 128 || used+incoming <= s.options.MaxBytes {
 				break
 			}
-			if err = remove(i); err != nil {
-				return false, err
-			}
+			remove(i)
+		}
+		// Later selections must see the rows removed by this phase.
+		if err = flush(); err != nil {
+			return false, err
 		}
 	}
 	if removed == 0 {
@@ -681,15 +696,11 @@ func (s *Store) queueStatistics(batch *pgx.Batch, seq int64, e requestevent.Even
 	}
 	return nil
 }
-func (s *Store) removeStatistics(ctx context.Context, tx pgx.Tx, seq int64) error {
+func (s *Store) queueRemoveStatistics(batch *pgx.Batch, seq int64) {
 	// Delete singleton aggregate rows before decrementing to preserve CHECK>0.
 	args := []any{s.options.ClusterID, seq}
-	_, err := tx.Exec(ctx, `DELETE FROM event_traffic_minute a USING request_events e WHERE e.cluster_id=$1 AND e.seq=$2 AND e.kind='decision' AND a.cluster_id=e.cluster_id AND a.node_id=e.node_id AND a.minute=date_trunc('minute',e.occurred_at) AND a.action=e.action AND a.country=e.country AND a.latency_bucket=e.latency_bucket AND a.decisions=1`, args...)
-	if err != nil {
-		return err
-	}
-	_, err = tx.Exec(ctx, `UPDATE event_traffic_minute a SET decisions=a.decisions-1,processing_us=a.processing_us-e.processing_us FROM request_events e WHERE e.cluster_id=$1 AND e.seq=$2 AND e.kind='decision' AND a.cluster_id=e.cluster_id AND a.node_id=e.node_id AND a.minute=date_trunc('minute',e.occurred_at) AND a.action=e.action AND a.country=e.country AND a.latency_bucket=e.latency_bucket`, args...)
-	return err
+	batch.Queue(`DELETE FROM event_traffic_minute a USING request_events e WHERE e.cluster_id=$1 AND e.seq=$2 AND e.kind='decision' AND a.cluster_id=e.cluster_id AND a.node_id=e.node_id AND a.minute=date_trunc('minute',e.occurred_at) AND a.action=e.action AND a.country=e.country AND a.latency_bucket=e.latency_bucket AND a.decisions=1`, args...)
+	batch.Queue(`UPDATE event_traffic_minute a SET decisions=a.decisions-1,processing_us=a.processing_us-e.processing_us FROM request_events e WHERE e.cluster_id=$1 AND e.seq=$2 AND e.kind='decision' AND a.cluster_id=e.cluster_id AND a.node_id=e.node_id AND a.minute=date_trunc('minute',e.occurred_at) AND a.action=e.action AND a.country=e.country AND a.latency_bucket=e.latency_bucket`, args...)
 }
 
 // FeedStart measures display/replay windows in decisions and loss markers,

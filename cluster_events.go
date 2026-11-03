@@ -209,7 +209,7 @@ func (e *clusterEvents) localLoop() {
 			}
 			continue
 		}
-		client, err := e.material.ControllerClient()
+		client, err := e.material.ControllerClientWithTimeouts(eventrelay.DeliveryTimeout, eventrelay.DeliveryTimeout-time.Second)
 		if err != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			_ = writer.Close(ctx)
@@ -323,7 +323,7 @@ func (e *clusterEvents) collectorLoop() {
 			case <-e.ctx.Done():
 				active = false
 			case <-maintenance.C:
-				ctx, cancel := context.WithTimeout(e.ctx, 2*time.Second)
+				ctx, cancel := context.WithTimeout(e.ctx, eventrelay.IngestTimeout)
 				err = store.Maintain(ctx)
 				cancel()
 				if err != nil {
