@@ -1,4 +1,3 @@
-import os
 import stat
 from types import SimpleNamespace as N
 import unittest

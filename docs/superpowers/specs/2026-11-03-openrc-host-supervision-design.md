@@ -1,6 +1,6 @@
 # OpenRC counterpart for verified host supervision
 
-Source-only preparation, uncommitted. No host changes, helper creation, service start, reset, PR or push.
+Renderer and RAM adapter for native OpenRC workers. Installation and service activation are separate operator steps.
 
 The requested implementation is a native OpenRC wrapper around the existing `package_supervisor.BOOTSTRAP` and unchanged `supervise.py` CLI/schema2. The same source bundle/digest and live mount UUID/held-FD checks run before any data-disk source is executed. `prepare.py`, guard-exec and identity schemas stay unchanged. All owned Docker roles retain restart=no, exact bind/image/authority pins and their own Tailscale provider.
 
@@ -24,8 +24,8 @@ The supervisor remains responsible for role retries, scope/bind validation, witn
 
 ## Prerequisites and acceptance
 
-Massiv has Python3.14 and OpenRC tools but still needs proof of native host mount/PID execution and util-linux `findmnt` JSON support at `/usr/bin/findmnt`. A chroot-only command is not a native process-management bridge: OpenRC starts its child in the caller namespaces, unlike Oracle's host systemd broker. A scoped installer may therefore need a separately approved bounded host-namespace entry path. No such helper/job is executed here.
+The target Alpine worker (Massiv) has Python 3.14 and OpenRC tools but still needs proof of native host mount/PID execution and util-linux `findmnt` JSON support at `/usr/bin/findmnt`. A chroot-only command is not a native process-management bridge: OpenRC starts its child in the caller namespaces, unlike the Ubuntu worker’s host systemd broker. A scoped installer may therefore need a separately approved bounded host-namespace entry path. No such helper/job is executed here.
 
-Oracle uses the existing systemd generator. A future capped DBus dispatch client can request a bounded root-owned native job after AppArmor policy is explicitly handled; its client has no data/PKI write authority beyond approved scoped installation. The loader still verifies exact live UUID + held descriptors + SHA before running the job payload. Client library exposure is not native-job acceptance.
+The Ubuntu worker (Oracle) uses the existing systemd generator. A future capped DBus dispatch client can request a bounded root-owned native job after AppArmor policy is explicitly handled; its client has no data/PKI write authority beyond approved scoped installation. The loader still verifies exact live UUID + held descriptors + SHA before running the job payload. Client library exposure is not native-job acceptance.
 
-Portable tests will prove exact loader reuse, argument quoting, path injection refusal, dependency/stop/respawn rendering and wrong/foreign RAM mount refusal under mocks. Existing package/supervisor tests run unchanged. Native Alpine/OpenRC start/stop, daemon loss, PID tracking, tmpfs flags, UUID refusal before Docker starts and boot recovery remain explicit future host acceptance. No current acceptance is inferred from Windows model tests.
+Portable tests verify exact loader reuse, argument quoting, path injection refusal, dependency/stop/respawn rendering and wrong/foreign RAM mount refusal under mocks. Existing package/supervisor tests run unchanged. Native Alpine/OpenRC start/stop, daemon loss, PID tracking, tmpfs flags, UUID refusal before Docker starts and boot recovery remain explicit future host acceptance. Tests run on Windows mock Linux mount operations; native Alpine checks remain required.
