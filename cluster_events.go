@@ -264,7 +264,7 @@ func (e *clusterEvents) collectorLoop() {
 	}
 	config.MaxConns = 3
 	config.MinConns = 0
-	config.ConnConfig.ConnectTimeout = 2 * time.Second
+	config.ConnConfig.ConnectTimeout = 5 * time.Second
 	pool, err := pgxpool.NewWithConfig(e.ctx, config)
 	if err != nil {
 		return
@@ -287,7 +287,7 @@ func (e *clusterEvents) collectorLoop() {
 	}
 	warned := false
 	for e.ctx.Err() == nil {
-		ctx, cancel := context.WithTimeout(e.ctx, 3*time.Second)
+		ctx, cancel := context.WithTimeout(e.ctx, eventrelay.IngestTimeout)
 		store, err := eventstore.Open(ctx, pool, eventstore.Options{ClusterID: e.spec.ClusterID, MaxBytes: maxBytes, MaxAge: age})
 		cancel()
 		if err != nil {

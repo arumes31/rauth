@@ -114,7 +114,7 @@ func (h *AdminHandler) LiveFeed(c echo.Context) error {
 	}
 	read := func(cursor uint64) (eventstore.Batch, error) {
 		if h.RequestEvents != nil {
-			ctx, cancel := context.WithTimeout(c.Request().Context(), 2*time.Second)
+			ctx, cancel := context.WithTimeout(c.Request().Context(), eventstore.ReadTimeout)
 			defer cancel()
 			return h.RequestEvents.After(ctx, cursor, node)
 		}
@@ -157,7 +157,7 @@ func (h *AdminHandler) LiveFeed(c echo.Context) error {
 		FeedStart(context.Context, string, int) (uint64, error)
 	})
 	startFor := func(limit int) (uint64, error) {
-		ctx, cancel := context.WithTimeout(c.Request().Context(), 2*time.Second)
+		ctx, cancel := context.WithTimeout(c.Request().Context(), eventstore.ReadTimeout)
 		defer cancel()
 		return tail.FeedStart(ctx, node, limit)
 	}

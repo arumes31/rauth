@@ -28,6 +28,10 @@ var ErrUnavailable = errors.New("event storage unavailable")
 const CentralBytes int64 = 8 << 30
 const SchemaVersion = 3
 
+// ReadTimeout includes cold TLS/leader selection and reader-session setup.
+// Reader SQL execution is independently capped at two seconds.
+const ReadTimeout = 5 * time.Second
+
 //go:embed schema.sql
 var schema string
 
@@ -183,6 +187,9 @@ func Open(ctx context.Context, pool *pgxpool.Pool, o Options) (*Store, error) {
 		cfg := pool.Config()
 		cfg.MaxConns = 2
 		cfg.MinConns = 0
+		cfg.ConnConfig.ConnectTimeout = ReadTimeout
+		// SQL execution is capped separately from cold transport/session setup.
+		cfg.ConnConfig.RuntimeParams["statement_timeout"] = "2s"
 		// target_session_attrs=read-write must inspect the leader before this
 		// reader session switches to read-only. A startup read-only parameter
 		// would make the correct primary fail its own leader-selection check.
@@ -194,7 +201,7 @@ func Open(ctx context.Context, pool *pgxpool.Pool, o Options) (*Store, error) {
 					return err
 				}
 			}
-			_, err := conn.Exec(ctx, "SET default_transaction_read_only=on")
+			_, err := conn.Exec(ctx, "SET default_transaction_read_only=on; SET statement_timeout='2s'")
 			return err
 		}
 		cfg.ConnConfig.RuntimeParams["statement_timeout"] = "1500"
@@ -765,7 +772,7 @@ func (s *Store) FeedStart(parent context.Context, node string, limit int) (uint6
 	if node != "" && !requestevent.ValidID(node) || limit < 1 || limit > 1000 {
 		return 0, ErrInvalid
 	}
-	ctx, cancel := context.WithTimeout(parent, 2*time.Second)
+	ctx, cancel := context.WithTimeout(parent, ReadTimeout)
 	defer cancel()
 	var cursor uint64
 	err := s.history.QueryRow(ctx, `SELECT COALESCE(min(seq)-1,0) FROM (SELECT seq FROM request_events WHERE cluster_id=$1 AND kind<>'telemetry' AND ($2='' OR node_id::text=$2) ORDER BY seq DESC LIMIT $3) recent`, s.options.ClusterID, node, limit).Scan(&cursor)
