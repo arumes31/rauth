@@ -148,3 +148,121 @@ func TestRetentionChunkRollbackPreservesStatistics(t *testing.T) {
 		require.Zero(t, count)
 	}
 }
+
+func TestCanceledIngestDoesNotWaitForAnotherWriter(t *testing.T) {
+	pool := setup(t)
+	s := open(t, pool, options())
+	node := uuid.NewString()
+	ctx, cancel := context.WithTimeout(background, 50*time.Millisecond)
+	defer cancel()
+	require.True(t, s.lockWriter(background))
+	result := make(chan error, 1)
+	go func() { _, err := s.Ingest(ctx, node, []requestevent.Event{decision(node)}); result <- err }()
+	select {
+	case err := <-result:
+		s.unlockWriter()
+		require.ErrorIs(t, err, ErrUnavailable)
+	case <-time.After(time.Second):
+		s.unlockWriter()
+		select {
+		case <-result:
+		case <-time.After(2 * time.Second):
+			t.Fatal("canceled writer failed to finish after lock release")
+		}
+		t.Fatal("canceled ingest held its receiver slot while waiting for another writer")
+	}
+}
+
+func TestMaintenanceYieldsToQueuedWriterBetweenChunks(t *testing.T) {
+	pool := setup(t)
+	s := open(t, pool, options())
+	now := time.Now().UTC()
+	s.now = func() time.Time { return now }
+	node := uuid.NewString()
+	for offset := 0; offset < 260; offset += requestevent.MaxBatch {
+		events := make([]requestevent.Event, 0, min(requestevent.MaxBatch, 260-offset))
+		for range cap(events) {
+			events = append(events, requestevent.Event{Kind: "telemetry", EventID: uuid.NewString(), NodeID: node, NodeName: "fixture", Time: now, Metrics: &requestevent.MetricSnapshot{Schema: 1, InstanceID: uuid.NewString(), StartedAt: now, Points: []requestevent.MetricPoint{}}})
+		}
+		_, err := s.Ingest(background, node, events)
+		require.NoError(t, err)
+	}
+	_, err := pool.Exec(background, `CREATE FUNCTION retention_yield_barrier() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF OLD.seq IN (1,129) THEN PERFORM pg_advisory_xact_lock(110000+OLD.seq); END IF; RETURN OLD; END $$; CREATE TRIGGER retention_yield_barrier BEFORE DELETE ON request_events FOR EACH ROW EXECUTE FUNCTION retention_yield_barrier()`)
+	require.NoError(t, err)
+	blocker, err := pool.Acquire(background)
+	require.NoError(t, err)
+	_, err = blocker.Exec(background, "SELECT pg_advisory_lock(110001),pg_advisory_lock(110129)")
+	require.NoError(t, err)
+	now = now.Add(25 * time.Hour)
+	ctx, cancel := context.WithTimeout(background, 10*time.Second)
+	defer cancel()
+	maintain := make(chan struct{})
+	var maintenanceErr error
+	release := make(chan struct{})
+	writerDone := make(chan struct{})
+	writerStarted := false
+	releaseWriter := func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	}
+	defer func() {
+		releaseWriter()
+		_, _ = blocker.Exec(background, "SELECT pg_advisory_unlock_all()")
+		blocker.Release()
+		select {
+		case <-maintain:
+		case <-time.After(2 * time.Second):
+		}
+		if writerStarted {
+			select {
+			case <-writerDone:
+			case <-time.After(2 * time.Second):
+			}
+		}
+		_, _ = pool.Exec(background, "DROP TRIGGER IF EXISTS retention_yield_barrier ON request_events; DROP FUNCTION IF EXISTS retention_yield_barrier()")
+	}()
+	go func() { maintenanceErr = s.Maintain(ctx); close(maintain) }()
+	require.Eventually(t, func() bool {
+		var waiting bool
+		err := pool.QueryRow(background, "SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND objid=110001 AND NOT granted)").Scan(&waiting)
+		return err == nil && waiting
+	}, 2*time.Second, 10*time.Millisecond)
+	acquired := make(chan bool, 1)
+	started := make(chan struct{})
+	writerStarted = true
+	go func() {
+		defer close(writerDone)
+		close(started)
+		ok := s.lockWriter(ctx)
+		acquired <- ok
+		if ok {
+			<-release
+			s.unlockWriter()
+		}
+	}()
+	<-started
+	time.Sleep(20 * time.Millisecond)
+	_, err = blocker.Exec(background, "SELECT pg_advisory_unlock(110001)")
+	require.NoError(t, err)
+	select {
+	case ok := <-acquired:
+		require.True(t, ok)
+	case <-time.After(2 * time.Second):
+		t.Fatal("maintenance retained the writer gate into the next chunk")
+	}
+	releaseWriter()
+	_, err = blocker.Exec(background, "SELECT pg_advisory_unlock(110129)")
+	require.NoError(t, err)
+	select {
+	case <-maintain:
+		require.NoError(t, maintenanceErr)
+	case <-time.After(2 * time.Second):
+		t.Fatal("maintenance did not finish after the queued writer released")
+	}
+	var retained int
+	require.NoError(t, pool.QueryRow(background, "SELECT count(*) FROM request_events").Scan(&retained))
+	require.Zero(t, retained)
+}
