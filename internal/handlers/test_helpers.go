@@ -66,6 +66,14 @@ func createTestContext(e *echo.Echo, method, path string, f url.Values) (echo.Co
 	// Default RemoteAddr for testing
 	req.RemoteAddr = "127.0.0.1:1234"
 
+	// Since echo v4.16.3, RealIP ignores X-Real-IP unless an IPExtractor is
+	// set. Production always installs one (CreateIPExtractor); here the
+	// loopback peer above plays the trusted proxy, so tests can pick the
+	// client address with X-Real-IP as before.
+	if e.IPExtractor == nil {
+		e.IPExtractor = echo.ExtractIPFromRealIPHeader()
+	}
+
 	rec := httptest.NewRecorder()
 	return e.NewContext(req, rec), rec
 }
