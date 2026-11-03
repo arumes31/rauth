@@ -110,7 +110,11 @@ func (h *AuthHandler) Validate(c echo.Context) error {
 		return h.denyOrBypass(c, rateLimitKey, true)
 	}
 
-	if !core.SessionBindingValid(h.Cfg, c.Request(), token, redisKey, data, clientIP) {
+	bound, bindingErr := core.SessionBindingAuthorization(h.Cfg, c.Request(), token, redisKey, data, clientIP)
+	if bindingErr != nil {
+		return h.sessionAuthorityUnavailable(c)
+	}
+	if !bound {
 		core.ResetRateLimit(rateLimitKey)
 		return h.denyOrBypass(c, rateLimitKey, false)
 	}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"rauth/internal/authstate"
 	"rauth/internal/core"
 	"rauth/internal/eventstore"
 	"rauth/internal/requestevent"
@@ -59,16 +60,29 @@ func feedCursor(raw string) (string, uint64, bool) {
 	return epoch, cursor, err == nil
 }
 
-func (h *AdminHandler) feedSessionValid(c echo.Context, user, token string) bool {
-	data, err := core.ReadAuthSession(c.Request().Context(), token)
-	if err != nil || !core.SessionAudienceValid(data, "") || data["status"] != "valid" || data["username"] != user || !core.SessionAuthorized(data) {
-		return false
+func (h *AdminHandler) feedSessionValid(c echo.Context, user, token string) (bool, error) {
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 3*time.Second)
+	defer cancel()
+	data, err := core.ReadAuthSession(ctx, token)
+	if errors.Is(err, authstate.ErrNotFound) {
+		return false, nil
 	}
-	if !core.SessionBindingValid(h.Cfg, c.Request(), token, "X-rauth-authtoken="+token, data, c.RealIP()) {
-		return false
+	if err != nil {
+		return false, err
 	}
-	admin, err := core.UserIsAdmin(user)
-	return err == nil && admin
+	if !core.SessionAudienceValid(data, "") || data["status"] != "valid" || data["username"] != user {
+		return false, nil
+	}
+	valid, err := core.SessionAuthorization(ctx, data)
+	if err != nil || !valid {
+		return false, err
+	}
+	req := c.Request().WithContext(ctx)
+	valid, err = core.SessionBindingAuthorization(h.Cfg, req, token, "X-rauth-authtoken="+token, data, c.RealIP())
+	if err != nil || !valid {
+		return false, err
+	}
+	return core.UserIsAdminContext(ctx, user)
 }
 
 // LiveFeed streams only operational request metadata. The route is also
@@ -80,7 +94,9 @@ func (h *AdminHandler) LiveFeed(c echo.Context) error {
 	if user == "" || token == "" {
 		return echo.NewHTTPError(http.StatusUnauthorized)
 	}
-	if !h.feedSessionValid(c, user, token) {
+	if valid, err := h.feedSessionValid(c, user, token); err != nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "Authorization temporarily unavailable")
+	} else if !valid {
 		return echo.NewHTTPError(http.StatusForbidden)
 	}
 	if _, ok := c.Response().Writer.(http.Flusher); !ok {
@@ -217,7 +233,12 @@ func (h *AdminHandler) LiveFeed(c echo.Context) error {
 		if !force && time.Since(lastAuth) < liveFeedAuthInterval {
 			return true
 		}
-		if !h.feedSessionValid(c, user, token) {
+		valid, err := h.feedSessionValid(c, user, token)
+		if err != nil {
+			// Close without a terminal event so the client retries.
+			return false
+		}
+		if !valid {
 			_ = write("session-ended", "", map[string]string{"message": "Session or administrator access ended"})
 			return false
 		}
