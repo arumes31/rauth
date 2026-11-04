@@ -494,3 +494,75 @@ class ModelTests(unittest.TestCase):
             actor.run(once=True)
         self.assertIn(("start", "container-app"), docker.calls)
         self.assertEqual(len(actor.attempts["patroni"]), 1)
+
+
+class RenewalTests(unittest.TestCase):
+    def setUp(self):
+        self.cfg, self.ram, self.storage, self.docker, self.clock, _ = fixture()
+        self.cfg["pki_renewal"] = {"directory": "/opt/rauth/rauth-test-state/pki-renewal"}
+        self.actor = supervise.Supervisor(
+            self.cfg,
+            docker=self.docker,
+            storage=self.storage,
+            ram=self.ram,
+            now=lambda: self.clock[0],
+            wait=lambda _s: None,
+        )
+        self.actor.tick()
+        self.files = {"restart-request.json": {"generation": 5}}
+        self.written = []
+        self.actor.handshake = lambda name: self.files.get(name)
+        self.actor.finish_renewal = lambda g, r: self.written.append((g, r))
+        self.roles = {"state-a": "sync_standby", "b": "leader", "c": "replica"}
+        self.switchovers = []
+
+        def patroni(ident, probe, *args):
+            if probe is supervise.SWITCHOVER_PROBE:
+                self.switchovers.append(args)
+                self.roles[args[0]], self.roles[args[1]] = "sync_standby", "leader"
+                return {"status": 503}
+            members = [
+                {"name": n, "role": r, "state": "running" if r == "leader" else "streaming", "lag": None if r == "leader" else 0}
+                for n, r in self.roles.items()
+            ]
+            return {"self": "state-a", "members": members}
+
+        self.docker.patroni = patroni
+
+    def test_config_accepts_directory_inside_root_only(self):
+        supervise.validate(self.cfg)
+        bad = copy.deepcopy(self.cfg)
+        bad["pki_renewal"]["directory"] = "/etc/elsewhere"
+        with self.assertRaises(supervise.Fault):
+            supervise.validate(bad)
+
+    def test_replica_restarts_each_role_once_through_attested_start(self):
+        self.docker.calls.clear()
+        self.actor.renewal()
+        self.assertEqual(self.written, [(5, "ok")])
+        self.assertEqual(self.switchovers, [])
+        self.assertIn(("stop", "container-patroni"), self.docker.calls)
+        self.assertIn(("start", "container-patroni"), self.docker.calls)
+        self.assertNotIn(("stop", "container-app"), self.docker.calls)
+        self.assertIn("attest-patroni", self.ram.calls)
+
+    def test_leader_switches_over_before_restart(self):
+        self.roles = {"state-a": "leader", "b": "sync_standby", "c": "replica"}
+        self.docker.calls.clear()
+        self.actor.renewal()
+        self.assertEqual(self.switchovers, [("state-a", "b")])
+        self.assertEqual(self.written, [(5, "ok")])
+
+    def test_waits_while_unhealthy_and_skips_completed_generation(self):
+        self.roles = {"state-a": "replica", "b": "leader"}
+        self.actor.renewal()
+        self.assertEqual(self.written, [])
+        self.roles = {"state-a": "sync_standby", "b": "leader", "c": "replica"}
+        self.files["restart-done.json"] = {"generation": 5, "result": "ok"}
+        self.actor.renewal()
+        self.assertEqual(self.written, [])
+
+    def test_restart_failure_is_reported(self):
+        self.docker.fail_start = True
+        self.actor.renewal()
+        self.assertEqual(self.written, [(5, "failed")])

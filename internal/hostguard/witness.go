@@ -35,6 +35,8 @@ var requiredTargets = map[string]map[string]bool{
 	"router":    {"/etc/haproxy/haproxy.cfg": false, "/etc/rauth-router": false},
 	"app":       {"/app/data": true},
 	"observer":  {"/output": true, "/pki": false, "/observer/config.json": false, "/observer/observe.py": false},
+	// Leaf renewal writes node PKI files in place and its handshake state.
+	"pki": {"/pki": true, "/var/lib/rauth-pki": true},
 }
 
 func canonicalPath(p string) bool {

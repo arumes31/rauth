@@ -161,3 +161,28 @@ verified loader/bundle and private bounded RAM metadata. It changes no guard
 identity/schema or Docker restart policy and installs/starts nothing. See
 [OPENRC.md](OPENRC.md) for native namespace, tools, storage, logging and lifecycle
 requirements. Portable tests do not prove actual Alpine/OpenRC boot or fencing.
+
+## Automatic leaf renewal (`pki` role)
+
+Physical leaves live 90 days and renew automatically when 30 days or fewer remain. CAs are separate, with a 30-year default, and rotate through an operator overlap rollout. The `pki` role is a supervised container on every node, built from this image (`/usr/local/lib/rauth/pki_renew.py run --config /etc/rauth-pki-renew/config.json`).
+
+- **Issuer: CA master only.** The config's `issuer` section enables it. CA keys are bind-mounted read-only and never leave the master.
+  - Serves TLS 1.3 mutual TLS on the node's own service IP. A client must present a `<node>-rest-client` leaf from the REST CA bundle.
+  - Never mints new identities. A request must carry an unexpired leaf issued by the authority, whose CN is one of the node's eight purposes and whose SANs are only that node's IP and DNS names. It must also carry a CSR with the same subject and a fresh P-256 key.
+  - The renewed leaf copies subject, SAN and extensions.
+  - Only one node renews at a time (3-hour lease). A failed rollout blocks every other node until an operator clears `issuer-state.json`.
+  - Limit: 32 issuances per node per day. Every issuance is appended to `issued.jsonl` with its SHA-256.
+- **Agent: every node.** Checks hourly. Acts only when the cluster shows one running leader and two streaming members at zero lag.
+  1. Takes the lease and renews every leaf.
+  2. Verifies each result: subject, SAN, EKU, key and chain against the installed trust bundles, and a later expiry.
+  3. Backs up the current files under its state directory.
+  4. Rewrites the files in place, preserving inode, owner and mode, so bind mounts and host-guard witnesses stay valid.
+  5. Writes a fsynced `restart-request.json`.
+  
+  Any failure before the commit aborts without changes.
+- **Host supervisor.** With `pki_renewal.directory` configured, it reads the root-owned private handshake. It restarts etcd, Patroni, router and observer once each, through the normal attested start path.
+  - If this node holds the leader, it first moves leadership with a supported switchover to the zero-lag synchronous standby.
+  - After every role it waits for a healthy three-member cluster, then writes `restart-done.json`.
+  - The agent reports `ok` or `failed` to the issuer. An agent restart resumes the wait.
+
+Host-guard role `pki` requires writable `/pki` (node PKI) and `/var/lib/rauth-pki` (handshake and backups). The master additionally mounts the authority read-only. The leaf's EKU decides where it is accepted, so renewal never weakens purpose separation.

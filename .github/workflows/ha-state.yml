@@ -24,7 +24,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: python3 -m unittest discover -s deploy/ha/state -p 'test_*.py' -v
+      - name: Install hash-locked test dependencies
+        run: |
+          python3 -m venv /tmp/ha-test
+          /tmp/ha-test/bin/pip install --require-hashes --no-deps -r deploy/ha/state/requirements-test.lock
+      - run: /tmp/ha-test/bin/python -m unittest discover -s deploy/ha/state -p 'test_*.py' -v
       - name: Verify real etcd gateway TLS and certificate purposes
         run: sudo python3 deploy/ha/state/test_etcd_gateway.py
 
@@ -41,7 +45,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Exercise image permissions from private build staging
-        run: chmod 0600 deploy/ha/state/entrypoint.py deploy/ha/state/archive.py
+        run: chmod 0600 deploy/ha/state/entrypoint.py deploy/ha/state/archive.py deploy/ha/state/pki_renew.py
       - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0

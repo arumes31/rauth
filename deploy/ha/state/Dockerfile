@@ -9,9 +9,9 @@ COPY requirements.lock /tmp/patroni-requirements.lock
 RUN /opt/patroni/bin/pip install --no-cache-dir --require-hashes -r /tmp/patroni-requirements.lock \
     && rm /tmp/patroni-requirements.lock
 RUN /opt/patroni/bin/patroni --version && postgres --version \
-    && /opt/patroni/bin/python -c "import patroni.dcs.etcd3, psycopg"
+    && /opt/patroni/bin/python -c "import patroni.dcs.etcd3, psycopg, cryptography"
 RUN install -d -m 0755 /usr/local/lib/rauth
-COPY --chmod=0444 entrypoint.py archive.py /usr/local/lib/rauth/
+COPY --chmod=0444 entrypoint.py archive.py pki_renew.py /usr/local/lib/rauth/
 USER 999:999
-RUN /opt/patroni/bin/python -c "import runpy; runpy.run_path('/usr/local/lib/rauth/entrypoint.py'); runpy.run_path('/usr/local/lib/rauth/archive.py')"
+RUN /opt/patroni/bin/python -c "import runpy; runpy.run_path('/usr/local/lib/rauth/entrypoint.py'); runpy.run_path('/usr/local/lib/rauth/archive.py'); runpy.run_path('/usr/local/lib/rauth/pki_renew.py')"
 ENTRYPOINT ["/opt/patroni/bin/python", "/usr/local/lib/rauth/entrypoint.py"]

@@ -26,11 +26,52 @@ import uuid
 import prepare
 
 LIMIT = 64 * 1024
-ROLES = ("tailscale", "etcd", "patroni", "router", "app", "observer")
-STOP_ORDER = ("patroni", "router", "app", "observer", "etcd", "tailscale")
+ROLES = ("tailscale", "etcd", "patroni", "router", "app", "observer", "pki")
+STOP_ORDER = ("pki", "patroni", "router", "app", "observer", "etcd", "tailscale")
+# Leaf renewal restarts every TLS consumer once, one at a time, leader last.
+RENEW_ORDER = ("etcd", "patroni", "router", "observer")
+HANDSHAKE_LIMIT = 4096
 NAME = re.compile(r"rauth-[a-z0-9][a-z0-9-]{0,80}\Z")
 SHA = re.compile(r"[0-9a-f]{64}\Z")
 STOP = threading.Event()
+
+
+# Fixed probes run inside the local Patroni container with its own REST client
+# identity. They print bounded JSON; no output reaches logs.
+CLUSTER_PROBE = """
+import json, ssl, urllib.request
+cfg = json.load(open('/etc/rauth/patroni.json'))
+ip = cfg['restapi']['connect_address'].split(':')[0]
+c = ssl.create_default_context(cafile='/etc/rauth-pki/rest-ca.crt')
+c.minimum_version = ssl.TLSVersion.TLSv1_3
+c.load_cert_chain('/etc/rauth-pki/rest-client.crt', '/etc/rauth-pki/rest-client.key')
+c.check_hostname = False
+d = json.load(urllib.request.urlopen('https://%s:8008/cluster' % ip, context=c, timeout=15))
+print(json.dumps({'self': cfg['name'], 'members': [
+    {'name': m['name'], 'role': m['role'], 'state': m['state'], 'lag': m.get('lag')}
+    for m in d['members']]}))
+"""
+SWITCHOVER_PROBE = """
+import base64, json, ssl, sys, urllib.error, urllib.request
+leader, candidate = sys.argv[1:3]
+cfg = json.load(open('/etc/rauth/patroni.json'))
+secret = json.load(open('/etc/rauth-secrets/patroni-auth.json'))['rest']
+ip = cfg['restapi']['connect_address'].split(':')[0]
+assert cfg['name'] == leader
+c = ssl.create_default_context(cafile='/etc/rauth-pki/rest-ca.crt')
+c.minimum_version = ssl.TLSVersion.TLSv1_3
+c.load_cert_chain('/etc/rauth-pki/rest-client.crt', '/etc/rauth-pki/rest-client.key')
+c.check_hostname = False
+auth = base64.b64encode(('rauth_operator:' + secret).encode()).decode()
+req = urllib.request.Request('https://%s:8008/switchover' % ip, method='POST',
+    data=json.dumps({'leader': leader, 'candidate': candidate}).encode(),
+    headers={'Content-Type': 'application/json', 'Authorization': 'Basic ' + auth})
+try:
+    status = urllib.request.urlopen(req, context=c, timeout=45).status
+except urllib.error.HTTPError as e:
+    status = e.code
+print(json.dumps({'status': status}))
+"""
 
 
 class Fault(RuntimeError):
@@ -78,17 +119,8 @@ def absolute(value):
 
 
 def validate(config):
-    exact(
-        config,
-        (
-            "schema",
-            "storage",
-            "service_ip",
-            "launcher_file",
-            "launcher_sha256",
-            "roles",
-        ),
-    )
+    keys = ("schema", "storage", "service_ip", "launcher_file", "launcher_sha256", "roles")
+    exact(config, keys + (("pki_renewal",) if "pki_renewal" in config else ()))
     if type(config["schema"]) is not int or config["schema"] != 2:
         raise Fault("invalid_configuration_schema")
     s = config["storage"]
@@ -142,7 +174,11 @@ def validate(config):
     program = absolute(config["launcher_file"])
     if not program.is_relative_to(root) or not SHA.fullmatch(config["launcher_sha256"]):
         raise Fault("invalid_launcher_pin")
-    if not isinstance(config["roles"], list) or not 1 <= len(config["roles"]) <= 6:
+    if "pki_renewal" in config:
+        exact(config["pki_renewal"], ("directory",))
+        if not absolute(config["pki_renewal"]["directory"]).is_relative_to(root):
+            raise Fault("invalid_pki_renewal_directory")
+    if not isinstance(config["roles"], list) or not 1 <= len(config["roles"]) <= len(ROLES):
         raise Fault("invalid_cohort")
     names, roles = set(), set()
     for role in config["roles"]:
@@ -368,10 +404,13 @@ def atomic(parent, name, body, mode=0o444, owner=(0, 0)):
 
 
 class Docker:
-    def call(self, args, timeout=15):
+    def call(self, args, timeout=15, data=None):
         try:
             result = subprocess.run(
-                ["/usr/bin/docker", *args], capture_output=True, timeout=timeout
+                ["/usr/bin/docker", *args],
+                capture_output=True,
+                timeout=timeout,
+                input=data,
             )
         except (OSError, subprocess.SubprocessError):
             raise Fault("docker_operation_unavailable") from None
@@ -387,6 +426,16 @@ class Docker:
 
     def start(self, ident):
         self.call(["start", ident], 30)
+
+    def patroni(self, ident, probe, *args):
+        """Run a fixed probe with the container's own TLS identity."""
+        return json.loads(
+            self.call(
+                ["exec", "-i", ident, "/opt/patroni/bin/python", "-", *args],
+                60,
+                probe.encode(),
+            )
+        )
 
     def stop(self, ident):
         self.call(["stop", "--time", "35", ident], 40)
@@ -652,10 +701,17 @@ def remap(storage, role, mounts):
 
 class Supervisor:
     def __init__(
-        self, config, docker=None, storage=Storage, ram=None, now=time.monotonic
+        self,
+        config,
+        docker=None,
+        storage=Storage,
+        ram=None,
+        now=time.monotonic,
+        wait=None,
     ):
         self.config, self.docker, self.storage = config, docker or Docker(), storage
         self.ram, self.now = ram or RAM(config), now
+        self.wait = wait or STOP.wait
         self.roles = sorted(config["roles"], key=lambda r: ROLES.index(r["role"]))
         self.known, self.attempts, self.events = {}, {}, {}
 
@@ -824,11 +880,156 @@ class Supervisor:
             if failed:
                 raise Fault("role_preflight_failed")
 
+    # ------------------------------------------------------------ leaf renewal
+
+    def handshake(self, name):
+        directory = self.config["pki_renewal"]["directory"]
+        try:
+            fd = os.open(os.path.join(directory, name), os.O_RDONLY | os.O_NOFOLLOW)
+        except FileNotFoundError:
+            return None
+        try:
+            st = os.fstat(fd)
+            if (
+                not stat.S_ISREG(st.st_mode)
+                or st.st_uid != 0
+                or st.st_mode & 0o077
+                or st.st_size > HANDSHAKE_LIMIT
+            ):
+                raise Fault("unsafe_renewal_handshake")
+            value = document(os.read(fd, HANDSHAKE_LIMIT + 1))
+        except ValueError:
+            raise Fault("invalid_renewal_handshake") from None
+        finally:
+            os.close(fd)
+        if not isinstance(value, dict) or type(value.get("generation")) is not int:
+            raise Fault("invalid_renewal_handshake")
+        return value
+
+    def finish_renewal(self, generation, result):
+        fd = os.open(
+            self.config["pki_renewal"]["directory"],
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+        )
+        try:
+            body = json.dumps({"generation": generation, "result": result}).encode()
+            atomic(fd, "restart-done.json", body, mode=0o600)
+        finally:
+            os.close(fd)
+
+    def cluster(self):
+        info = self.known.get("patroni")
+        if info is None or not info["State"]["Running"]:
+            raise Fault("patroni_unavailable")
+        view = self.docker.patroni(info["Id"], CLUSTER_PROBE)
+        return view["self"], view["members"]
+
+    @staticmethod
+    def healthy(members):
+        leaders = [
+            m for m in members if m["role"] == "leader" and m["state"] == "running"
+        ]
+        others = [m for m in members if m["role"] != "leader"]
+        return (
+            len(members) == 3
+            and len(leaders) == 1
+            and all(
+                m["state"] == "streaming" and m["lag"] in (0, None) for m in others
+            )
+        )
+
+    def cluster_healthy(self):
+        try:
+            return self.healthy(self.cluster()[1])
+        except (Fault, ValueError, KeyError, TypeError):
+            return False
+
+    def await_healthy(self, attempts=30):
+        for _ in range(attempts):
+            if self.cluster_healthy():
+                return
+            self.wait(6)
+        raise Fault("cluster_not_healthy_after_restart")
+
+    def step_down(self):
+        me, members = self.cluster()
+        if not any(m["name"] == me and m["role"] == "leader" for m in members):
+            return
+        candidates = [
+            m["name"]
+            for m in members
+            if m["role"] == "sync_standby"
+            and m["state"] == "streaming"
+            and m["lag"] == 0
+        ]
+        if not candidates:
+            raise Fault("no_switchover_candidate")
+        # 503 means Patroni could not confirm in time; the outcome is polled.
+        self.docker.patroni(
+            self.known["patroni"]["Id"], SWITCHOVER_PROBE, me, candidates[0]
+        )
+        for _ in range(30):
+            self.wait(4)
+            try:
+                me, members = self.cluster()
+            except (Fault, ValueError, KeyError, TypeError):
+                continue
+            if self.healthy(members) and not any(
+                m["name"] == me and m["role"] == "leader" for m in members
+            ):
+                self.event("patroni", "renewal_switchover")
+                return
+        raise Fault("switchover_not_confirmed")
+
+    def restart_for_renewal(self, kind):
+        self.docker.stop(self.known[kind]["Id"])
+        self.known[kind]["State"]["Running"] = False
+        for _ in range(36):
+            try:
+                self.tick()
+            except Fault:
+                pass
+            info = self.known.get(kind)
+            if info is not None and info["State"]["Running"]:
+                return
+            self.wait(5)
+        raise Fault("renewal_restart_failed")
+
+    def renewal(self):
+        """Apply a committed leaf renewal: rolling restart, leader last."""
+        if "pki_renewal" not in self.config:
+            return
+        request = self.handshake("restart-request.json")
+        if request is None:
+            return
+        done = self.handshake("restart-done.json")
+        if done is not None and done["generation"] == request["generation"]:
+            return
+        if not self.cluster_healthy():
+            self.event("pki", "renewal_waiting_for_healthy_cluster")
+            return
+        result = "ok"
+        try:
+            for kind in RENEW_ORDER:
+                if kind not in self.available:
+                    continue
+                if kind == "patroni":
+                    self.step_down()
+                self.restart_for_renewal(kind)
+                self.await_healthy()
+                self.event(kind, "renewal_restarted")
+        except Fault:
+            result = "failed"
+        self.finish_renewal(request["generation"], result)
+        self.event("pki", "renewal_" + result)
+
     def run(self, once=False):
         try:
             while not STOP.is_set():
                 try:
                     self.tick()
+                    if not once:
+                        self.renewal()
                 except StorageFault:
                     self.event("supervisor", "expected_storage_unavailable")
                     self.stop()

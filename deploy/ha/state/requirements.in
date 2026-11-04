@@ -1,1 +1,2 @@
 patroni[etcd3,psycopg3]==4.1.5
+cryptography==50.0.2
