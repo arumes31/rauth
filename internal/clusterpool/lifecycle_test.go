@@ -92,7 +92,11 @@ func TestFirstUseRetainsSameSocketThroughQueuedLateAndCanceledCallers(t *testing
 	}
 	callers.Add(1)
 	go call(nil)
-	<-entered
+	select {
+	case <-entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("first acquisition did not reach PrepareConn")
+	}
 	queued := make(chan struct{}, 4)
 	for range 4 {
 		callers.Add(1)

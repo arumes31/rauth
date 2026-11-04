@@ -86,13 +86,15 @@ func TestFreshConnectionPreservesAfterConnectFailureAndContext(t *testing.T) {
 }
 
 func TestFreshSocketSkipsIdlePingOnlyWhileYoung(t *testing.T) {
-	fresh := map[string]any{freshConnectionKey: true}
-	// TLS+SCRAM construction at 400ms/write leaves ~2.85s of "idle" before the
-	// first handoff; pinging then would exhaust the caller's 3s budget.
-	require.True(t, skipFreshPing(fresh, 2850*time.Millisecond))
-	require.False(t, skipFreshPing(fresh, freshPingGrace), "stale warm sockets are pinged again")
-	require.False(t, skipFreshPing(map[string]any{}, 2*time.Second), "used sockets keep the idle ping")
-	require.False(t, skipFreshPing(map[string]any{freshConnectionKey: "yes"}, time.Second))
+	born := time.Now()
+	fresh := map[string]any{freshConnectionKey: true, freshSinceKey: born}
+	// TLS+SCRAM construction at 400ms/write leaves ~2.85s before the first
+	// handoff; pinging then would exhaust the caller's 3s budget.
+	require.True(t, skipFreshPing(fresh, born.Add(2850*time.Millisecond)))
+	require.False(t, skipFreshPing(fresh, born.Add(freshPingGrace)), "grace is bounded by authentication age, not pgx idle time")
+	require.False(t, skipFreshPing(map[string]any{freshSinceKey: born}, born.Add(time.Second)), "used sockets keep the idle ping")
+	require.False(t, skipFreshPing(map[string]any{freshConnectionKey: true}, born), "no authentication time, no skip")
+	require.False(t, skipFreshPing(map[string]any{freshConnectionKey: "yes", freshSinceKey: born}, born))
 
 	called := false
 	next := shouldPingFresh(func(context.Context, pgxpool.ShouldPingParams) bool { called = true; return true })

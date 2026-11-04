@@ -22,22 +22,26 @@ var ErrWarming = errors.New("cluster authority connection became ready too late 
 // operational error while retaining the new socket for the next fresh call.
 const coldQueryBudget = 2500 * time.Millisecond
 const freshConnectionKey = "rauth.clusterpool.first_use"
+const freshSinceKey = "rauth.clusterpool.authenticated_at"
 
 // A socket that was just authenticated and validated has proven liveness. With
 // TLS+SCRAM at 400ms per write, construction alone takes ~2.85s, so pgx's
 // default idle ping (idle measured from creation) would push the first handoff
 // past the caller's 3s and destroy the new socket on every attempt. Only young,
 // never-handed-out sockets skip the ping; older warm sockets are still checked.
+// Age is measured from authentication, because a rejected first use releases
+// the socket and resets pgx's idle clock.
 const freshPingGrace = 30 * time.Second
 
-func skipFreshPing(data map[string]any, idle time.Duration) bool {
+func skipFreshPing(data map[string]any, now time.Time) bool {
 	fresh, _ := data[freshConnectionKey].(bool)
-	return fresh && idle < freshPingGrace
+	since, ok := data[freshSinceKey].(time.Time)
+	return fresh && ok && now.Sub(since) < freshPingGrace
 }
 
 func shouldPingFresh(next func(context.Context, pgxpool.ShouldPingParams) bool) func(context.Context, pgxpool.ShouldPingParams) bool {
 	return func(ctx context.Context, p pgxpool.ShouldPingParams) bool {
-		if p.Conn != nil && skipFreshPing(p.Conn.PgConn().CustomData(), p.IdleDuration) {
+		if p.Conn != nil && skipFreshPing(p.Conn.PgConn().CustomData(), time.Now()) {
 			return false
 		}
 		if next != nil {
@@ -71,6 +75,7 @@ func preserveFirstUse(cfg *pgxpool.Config) {
 			}
 		}
 		conn.PgConn().CustomData()[freshConnectionKey] = true
+		conn.PgConn().CustomData()[freshSinceKey] = time.Now()
 		return nil
 	}
 	cfg.PrepareConn = func(ctx context.Context, conn *pgx.Conn) (bool, error) {
