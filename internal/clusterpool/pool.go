@@ -23,6 +23,30 @@ var ErrWarming = errors.New("cluster authority connection became ready too late 
 const coldQueryBudget = 2500 * time.Millisecond
 const freshConnectionKey = "rauth.clusterpool.first_use"
 
+// A socket that was just authenticated and validated has proven liveness. With
+// TLS+SCRAM at 400ms per write, construction alone takes ~2.85s, so pgx's
+// default idle ping (idle measured from creation) would push the first handoff
+// past the caller's 3s and destroy the new socket on every attempt. Only young,
+// never-handed-out sockets skip the ping; older warm sockets are still checked.
+const freshPingGrace = 30 * time.Second
+
+func skipFreshPing(data map[string]any, idle time.Duration) bool {
+	fresh, _ := data[freshConnectionKey].(bool)
+	return fresh && idle < freshPingGrace
+}
+
+func shouldPingFresh(next func(context.Context, pgxpool.ShouldPingParams) bool) func(context.Context, pgxpool.ShouldPingParams) bool {
+	return func(ctx context.Context, p pgxpool.ShouldPingParams) bool {
+		if p.Conn != nil && skipFreshPing(p.Conn.PgConn().CustomData(), p.IdleDuration) {
+			return false
+		}
+		if next != nil {
+			return next(ctx, p)
+		}
+		return p.IdleDuration > time.Second
+	}
+}
+
 func prepareFresh(ctx context.Context, data map[string]any) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return true, err
@@ -62,11 +86,11 @@ func preserveFirstUse(cfg *pgxpool.Config) {
 		// AcquireAllIdle instead destroys on any error and is not used by the
 		// application critical pools (nor by pgx's internal puddle maintenance).
 		// Metadata describes socket lifecycle, never a grant.
-		// Driver idle Ping runs BEFORE this callback. A deadline expiring
-		// during that Ping can still destroy a socket; this guard only protects
-		// first handoff once PrepareConn is reached.
+		// Driver idle Ping runs BEFORE this callback; shouldPingFresh keeps
+		// it from consuming a fresh socket's remaining budget.
 		return prepareFresh(ctx, conn.PgConn().CustomData())
 	}
+	cfg.ShouldPing = shouldPingFresh(cfg.ShouldPing)
 }
 
 // Configure preserves the caller's fixed connection budget and TLS/leader

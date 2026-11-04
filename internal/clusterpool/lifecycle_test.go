@@ -134,7 +134,7 @@ func TestFirstUseRetainsSameSocketThroughQueuedLateAndCanceledCallers(t *testing
 	require.True(t, primary)
 	require.EqualValues(t, 1, pool.Stat().NewConnsCount())
 }
-func TestFirstUseGuardDoesNotClaimProtectionBeforeIdlePing(t *testing.T) {
+func TestFirstUseGuardRetainsYoungFreshSocketInsteadOfIdlePing(t *testing.T) {
 	enabled := &atomic.Bool{}
 	defer enabled.Store(false)
 	cfg := lifecycleConfig(t, enabled)
@@ -147,13 +147,15 @@ func TestFirstUseGuardDoesNotClaimProtectionBeforeIdlePing(t *testing.T) {
 	pool, err := pgxpool.NewWithConfig(parent, cfg)
 	require.NoError(t, err)
 	defer func() { cancel(); pool.Close() }()
+	var first *pgx.Conn
 	select {
-	case <-made:
+	case first = <-made:
 	case <-time.After(10 * time.Second):
 		t.Fatal("socket constructor did not finish")
 	}
 	require.Eventually(t, func() bool { return pool.Stat().IdleConns() == 1 }, time.Second, time.Millisecond)
 	enabled.Store(true)
+	// Idle longer than pgx's default 1s ping threshold, as after a slow WAN constructor.
 	time.Sleep(1200 * time.Millisecond)
 	short, stop := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer stop()
@@ -161,7 +163,15 @@ func TestFirstUseGuardDoesNotClaimProtectionBeforeIdlePing(t *testing.T) {
 	if conn != nil {
 		conn.Release()
 	}
-	require.Error(t, err)
-	require.NotErrorIs(t, err, ErrWarming)
-	require.Zero(t, checks.Load(), "idle Ping failed before PrepareConn; no socket-retention claim is valid")
+	require.ErrorIs(t, err, ErrWarming, "the young fresh socket reaches the first-use guard without an idle Ping")
+	require.EqualValues(t, 1, checks.Load())
+	require.Equal(t, 1, int(pool.Stat().IdleConns()), "the socket is retained for the next fresh call")
+	enabled.Store(false)
+	fresh, done := context.WithTimeout(t.Context(), 3*time.Second)
+	defer done()
+	conn, err = pool.Acquire(fresh)
+	require.NoError(t, err)
+	require.Same(t, first.PgConn(), conn.Conn().PgConn())
+	conn.Release()
+	require.EqualValues(t, 1, pool.Stat().NewConnsCount())
 }
