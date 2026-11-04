@@ -39,8 +39,14 @@ func (h *AdminHandler) StatsPage(c echo.Context) error {
 	c.Response().Header().Set("Cache-Control", "no-store")
 	return c.Render(http.StatusOK, "stats.html", map[string]any{"username": c.Get("username"), "root_user": h.Cfg.InitialUser, "csrf": c.Get("csrf"), "stats_page": true, "cluster_enabled": h.ReadPolicyStatus != nil, "users": []any{}, "sessions": []any{}, "bypass_rules": []any{}, "ip_feeds": []any{}})
 }
+func (h *AdminHandler) statsSource() (StatsSource, bool) {
+	if source, ok := h.RequestEvents.(StatsSource); ok {
+		return source, true
+	}
+	return h.LocalStats, h.LocalStats != nil
+}
 func (h *AdminHandler) statistics(c echo.Context, q eventstore.StatsQuery) (eventstore.StatsSnapshot, error) {
-	source, ok := h.RequestEvents.(StatsSource)
+	source, ok := h.statsSource()
 	if !ok {
 		return eventstore.StatsSnapshot{}, eventstore.ErrUnavailable
 	}
@@ -70,7 +76,7 @@ func (h *AdminHandler) StatsHistory(c echo.Context) error {
 	if err != nil {
 		return statsError(err)
 	}
-	source, ok := h.RequestEvents.(StatsSource)
+	source, ok := h.statsSource()
 	if !ok {
 		return statsError(eventstore.ErrUnavailable)
 	}
@@ -86,7 +92,7 @@ func (h *AdminHandler) StatsHistory(c echo.Context) error {
 }
 func (h *AdminHandler) StatsDiagnostics(c echo.Context) error {
 	c.Response().Header().Set("Cache-Control", "no-store")
-	source, ok := h.RequestEvents.(StatsSource)
+	source, ok := h.statsSource()
 	if !ok {
 		return statsError(eventstore.ErrUnavailable)
 	}

@@ -132,3 +132,25 @@ func TestHAOperationsRemainAdministratorOnlyAndUnavailableTelemetryIsExplicit(t 
 	denied := statsGet(t, srv.URL, "operations", cookie)
 	require.Equal(t, 403, denied.StatusCode)
 }
+
+func TestStatsSourcePrefersDurableEventsAndFallsBackToLocal(t *testing.T) {
+	local := eventstore.NewLocalStats()
+	durable := &statsFixture{}
+	h := &AdminHandler{RequestEvents: durable, LocalStats: local}
+	source, ok := h.statsSource()
+	require.True(t, ok)
+	require.Same(t, durable, source.(*statsFixture))
+
+	// A standalone server has no durable event source but still serves Stats.
+	h = &AdminHandler{LocalStats: local}
+	source, ok = h.statsSource()
+	require.True(t, ok)
+	require.Same(t, local, source.(*eventstore.LocalStats))
+	local.Record(core.RequestEvent{Action: "authenticated", Country: "AT", URL: "https://example.test/a", Source: "192.0.2.5", ProcessingMicros: 20})
+	snapshot, err := source.Statistics(context.Background(), eventstore.StatsQuery{Range: "5m"})
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), snapshot.Total)
+
+	_, ok = (&AdminHandler{}).statsSource()
+	require.False(t, ok)
+}
