@@ -294,5 +294,146 @@ class TransportTests(unittest.TestCase):
                 issuer.server_close()
 
 
+CLUSTER = "8389748f-4b47-4d29-832f-5e1155639e3f"
+APP_NODES = {"hodus": "100.72.210.48", "oracle": "100.83.175.79"}
+
+
+def make_identity_ca():
+    from cryptography.hazmat.primitives.asymmetric import ed25519
+
+    key = ed25519.Ed25519PrivateKey.generate()
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "RAuth production node CA " + CLUSTER)])
+    cert = (
+        x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(NOW - datetime.timedelta(days=1)).not_valid_after(NOW + datetime.timedelta(days=10000))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=1), critical=True)
+        .sign(key, None)
+    )
+    return cert, key
+
+
+def make_identity(ca, node, ip, uri=None, key=None, days_left=20):
+    import ipaddress
+
+    from cryptography.hazmat.primitives.asymmetric import ed25519
+
+    cert, cakey = ca
+    key = key or ed25519.Ed25519PrivateKey.generate()
+    uri = uri or "spiffe://rauth/%s/node/%s" % (CLUSTER, "11111111-2222-4333-8444-555555555555")
+    leaf = (
+        x509.CertificateBuilder().subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "RAuth production " + node)]))
+        .issuer_name(cert.subject).public_key(key.public_key()).serial_number(x509.random_serial_number())
+        .not_valid_before(NOW - datetime.timedelta(days=70)).not_valid_after(NOW + datetime.timedelta(days=days_left))
+        .add_extension(x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address(ip)), x509.UniformResourceIdentifier(uri)]), critical=False)
+        .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH, ExtendedKeyUsageOID.CLIENT_AUTH]), critical=False)
+        .sign(cakey, None)
+    )
+    return leaf, key
+
+
+def identity_csr(cert, key):
+    return pem(x509.CertificateSigningRequestBuilder().subject_name(cert.subject).sign(key, None)).decode()
+
+
+@unittest.skipIf(pki_renew is None, "cryptography is not installed")
+class IdentityTests(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        d = Path(self.dir.name)
+        self.ca = make_identity_ca()
+        (d / "node-ca.crt").write_bytes(pem(self.ca[0]))
+        (d / "node-ca.key").write_bytes(keypem(self.ca[1]))
+        self.authority = pki_renew.IdentityAuthority({"ca_cert": str(d / "node-ca.crt"), "ca_key": str(d / "node-ca.key"), "nodes": APP_NODES, "cluster_id": CLUSTER})
+        self.d = d
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def test_same_key_renewal_and_refusals(self):
+        from cryptography.hazmat.primitives.asymmetric import ed25519
+
+        leaf, key = make_identity(self.ca, "oracle", "100.83.175.79")
+        new = x509.load_pem_x509_certificate(pki_renew.check_identity(self.authority, "oracle", pem(leaf).decode(), identity_csr(leaf, key), now=NOW).encode())
+        self.assertEqual(pki_renew.spki(new.public_key()), pki_renew.spki(key.public_key()))
+        self.assertEqual(pki_renew.uris(new), pki_renew.uris(leaf))
+        self.assertGreater(pki_renew.expiry(new), pki_renew.expiry(leaf))
+        other_key = ed25519.Ed25519PrivateKey.generate()
+        foreign, fkey = make_identity(self.ca, "oracle", "100.83.175.79", uri="spiffe://rauth/other/node/x")
+        cases = {
+            "identity_key_must_not_change": ("oracle", leaf, identity_csr(leaf, other_key)),
+            "identity_not_owned_by_node": ("hodus", leaf, identity_csr(leaf, key)),
+            "identity_uri_not_in_cluster": ("oracle", foreign, identity_csr(foreign, fkey)),
+        }
+        for reason, (node, cert, csr) in cases.items():
+            with self.subTest(reason), self.assertRaises(pki_renew.Refused) as raised:
+                pki_renew.check_identity(self.authority, node, pem(cert).decode(), csr, now=NOW)
+            self.assertEqual(str(raised.exception), reason)
+
+    def test_application_only_agent_renews_identity_and_requests_app_restart(self):
+        leaf, key = make_identity(self.ca, "oracle", "100.83.175.79")
+        (self.d / "state").mkdir()
+        (self.d / "node.crt").write_bytes(pem(leaf))
+        (self.d / "node.key").write_bytes(keypem(key))
+        state = pki_renew.IssuerState(self.d)
+
+        def client(path, body):
+            if path == "/v1/begin":
+                return {"lease": state.begin("oracle", time.time())}
+            if path == "/v1/identity":
+                return {"certificate": pki_renew.check_identity(self.authority, "oracle", body["current"], body["csr"], now=NOW)}
+            state.done("oracle", body["lease"], body["result"], time.time())
+            return {}
+
+        requests = []
+
+        def sleep(_):
+            request = json.loads((self.d / "state" / "restart-request.json").read_text())
+            requests.append(request)
+            pki_renew.atomic_write(self.d / "state" / "restart-done.json", json.dumps({"generation": request["generation"], "result": "ok"}).encode())
+
+        cfg = {"node": "oracle", "state_dir": str(self.d / "state"), "identity": {"cert": str(self.d / "node.crt"), "key": str(self.d / "node.key"), "ca": str(self.d / "node-ca.crt")}}
+        agent = pki_renew.Agent(cfg, client=client, now=lambda: NOW, sleep=sleep)
+        key_before = (self.d / "node.key").read_bytes()
+        self.assertEqual(agent.renew(), "renewed")
+        self.assertEqual(requests[0]["roles"], ["app"])
+        self.assertEqual((self.d / "node.key").read_bytes(), key_before)
+        self.assertGreater(agent.days_left("identity"), 80)
+
+    def test_node_identity_authenticates_to_identity_route_only(self):
+        global NOW
+        saved, NOW = NOW, datetime.datetime.now(datetime.timezone.utc)
+        try:
+            rest = make_ca("rest")
+            ca = make_identity_ca()
+            server, skey = make_leaf(rest, "hodus-rest-server", ["127.0.0.1"])
+            leaf, key = make_identity(ca, "oracle", "100.83.175.79")
+        finally:
+            NOW = saved
+        d = self.d
+        (d / "authority").mkdir()
+        (d / "authority" / "rest.crt").write_bytes(pem(rest[0]))
+        (d / "authority" / "rest.key").write_bytes(keypem(rest[1]))
+        (d / "rest-ca.crt").write_bytes(pem(rest[0]))
+        (d / "id-ca.crt").write_bytes(pem(ca[0]))
+        (d / "id-ca.key").write_bytes(keypem(ca[1]))
+        for name, c, k in (("server", server, skey), ("node", leaf, key)):
+            (d / (name + ".crt")).write_bytes(pem(c))
+            (d / (name + ".key")).write_bytes(keypem(k))
+        issuer = pki_renew.make_issuer({"listen": "127.0.0.1:0", "authority_dir": str(d / "authority"), "state_dir": str(d), "scope": SCOPE, "nodes": NODES, "server_cert": str(d / "server.crt"), "server_key": str(d / "server.key"), "client_ca": str(d / "rest-ca.crt"), "identity": {"ca_cert": str(d / "id-ca.crt"), "ca_key": str(d / "id-ca.key"), "nodes": APP_NODES, "cluster_id": CLUSTER}})
+        threading.Thread(target=issuer.serve_forever, daemon=True).start()
+        try:
+            agent = pki_renew.Agent({"node": "oracle", "state_dir": str(d), "issuer": "127.0.0.1:%d" % issuer.server_address[1], "issuer_ca": str(d / "rest-ca.crt"), "client_cert": str(d / "node.crt"), "client_key": str(d / "node.key")})
+            lease = agent.client("/v1/begin", {})["lease"]
+            csr = identity_csr(leaf, key)
+            renewed = agent.client("/v1/identity", {"lease": lease, "current": pem(leaf).decode(), "csr": csr})["certificate"]
+            self.assertIn("BEGIN CERTIFICATE", renewed)
+            with self.assertRaises(pki_renew.Refused):
+                agent.client("/v1/renew", {"lease": lease, "current": pem(leaf).decode(), "csr": csr})
+        finally:
+            issuer.shutdown()
+            issuer.server_close()
+
+
 if __name__ == "__main__":
     unittest.main()

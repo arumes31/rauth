@@ -566,3 +566,20 @@ class RenewalTests(unittest.TestCase):
         self.docker.fail_start = True
         self.actor.renewal()
         self.assertEqual(self.written, [(5, "failed")])
+
+
+class RenewalRoleGroupTests(RenewalTests):
+    def test_identity_renewal_restarts_only_the_application(self):
+        self.files = {"restart-request.json": {"generation": 9, "roles": ["app"]}}
+        self.docker.calls.clear()
+        self.actor.renewal()
+        self.assertEqual(self.written, [(9, "ok")])
+        self.assertIn(("stop", "container-app"), self.docker.calls)
+        self.assertNotIn(("stop", "container-patroni"), self.docker.calls)
+
+    def test_unknown_role_group_is_rejected(self):
+        self.files = {"restart-request.json": {"generation": 3, "roles": ["tailscale"]}}
+        self.docker.calls.clear()
+        self.actor.renewal()
+        self.assertEqual(self.written, [(3, "failed")])
+        self.assertFalse([c for c in self.docker.calls if c[0] == "stop"])

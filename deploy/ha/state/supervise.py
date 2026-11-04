@@ -1005,18 +1005,27 @@ class Supervisor:
         done = self.handshake("restart-done.json")
         if done is not None and done["generation"] == request["generation"]:
             return
-        if not self.cluster_healthy():
+        groups = request.get("roles", ["physical"])
+        if not isinstance(groups, list) or not groups or not set(groups) <= {"physical", "app"}:
+            self.finish_renewal(request["generation"], "failed")
+            self.event("pki", "renewal_invalid_request")
+            return
+        kinds = (RENEW_ORDER if "physical" in groups else ()) + (("app",) if "app" in groups else ())
+        # Application-only nodes have no local database cluster to gate on.
+        gated = "patroni" in self.available
+        if gated and not self.cluster_healthy():
             self.event("pki", "renewal_waiting_for_healthy_cluster")
             return
         result = "ok"
         try:
-            for kind in RENEW_ORDER:
+            for kind in kinds:
                 if kind not in self.available:
                     continue
                 if kind == "patroni":
                     self.step_down()
                 self.restart_for_renewal(kind)
-                self.await_healthy()
+                if gated:
+                    self.await_healthy()
                 self.event(kind, "renewal_restarted")
         except Fault:
             result = "failed"

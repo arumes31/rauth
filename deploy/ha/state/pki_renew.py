@@ -12,6 +12,9 @@ agent:  runs on every node. When any leaf has <= renew_before_days left and
         each result, writes the files in place (inode/owner/mode preserved),
         then asks the host supervisor for a leader-aware rolling restart via a
         fsynced handshake file and reports the outcome to the issuer.
+Application node identities (the enrolled node.crt used for the private
+cluster transport) renew on the SAME key, so controller SPKI pins and node
+enrollments stay valid; only the application container restarts.
 CA private keys never leave the master; agents generate their own keys.
 """
 
@@ -33,7 +36,7 @@ import uuid
 from cryptography import x509
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric import ec, ed25519
 from cryptography.x509.oid import NameOID
 
 LIMIT = 64 * 1024
@@ -240,6 +243,70 @@ def check_and_issue(authority, policy, node, current_pem, csr_pem, now=None, lea
     return builder.sign(ca_key, hashes.SHA256()).public_bytes(serialization.Encoding.PEM).decode()
 
 
+def uris(cert):
+    try:
+        ext = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+    except x509.ExtensionNotFound:
+        return []
+    return ext.get_values_for_type(x509.UniformResourceIdentifier)
+
+
+class IdentityAuthority:
+    """Application node CA (often Ed25519) used for same-key identity renewal."""
+
+    def __init__(self, cfg):
+        self.ca = x509.load_pem_x509_certificate(read_private(cfg["ca_cert"]))
+        self.key = serialization.load_pem_private_key(read_private(cfg["ca_key"]), None)
+        if spki(self.ca.public_key()) != spki(self.key.public_key()):
+            raise ValueError("identity CA key mismatch")
+        self.nodes, self.cluster = cfg["nodes"], cfg["cluster_id"]
+
+    def name_of(self, cert):
+        """Node name for a certificate issued by this CA, by its only IP SAN."""
+        if not signed_by(cert, self.ca):
+            return None
+        ips, dns, other = sans(cert)
+        if len(ips) != 1 or dns:
+            return None
+        return next((n for n, ip in self.nodes.items() if ip in ips), None)
+
+
+def check_identity(authority, node, current_pem, csr_pem, now=None, leaf_days=90):
+    """Re-issue an application node identity on its existing key."""
+    now = now or utcnow()
+    try:
+        current = x509.load_pem_x509_certificate(current_pem.encode())
+        csr = x509.load_pem_x509_csr(csr_pem.encode())
+    except (ValueError, TypeError, AttributeError):
+        raise Refused("malformed_request") from None
+    if authority.name_of(current) != node:
+        raise Refused("identity_not_owned_by_node")
+    if not start_of(current) <= now <= expiry(current):
+        raise Refused("current_not_valid_now")
+    prefix = "spiffe://rauth/" + authority.cluster + "/node/"
+    names = uris(current)
+    if len(names) != 1 or not names[0].startswith(prefix):
+        raise Refused("identity_uri_not_in_cluster")
+    if not csr.is_signature_valid or csr.subject != current.subject:
+        raise Refused("csr_invalid_or_subject_mismatch")
+    if spki(csr.public_key()) != spki(current.public_key()):
+        # Same key: controller pins and enrollments are bound to this SPKI.
+        raise Refused("identity_key_must_not_change")
+    builder = (
+        x509.CertificateBuilder()
+        .subject_name(current.subject)
+        .issuer_name(authority.ca.subject)
+        .public_key(current.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - datetime.timedelta(minutes=5))
+        .not_valid_after(min(now + datetime.timedelta(days=leaf_days), expiry(authority.ca)))
+    )
+    for ext in current.extensions:
+        builder = builder.add_extension(ext.value, ext.critical)
+    algorithm = None if isinstance(authority.key, (ed25519.Ed25519PrivateKey,)) else hashes.SHA256()
+    return builder.sign(authority.key, algorithm).public_bytes(serialization.Encoding.PEM).decode()
+
+
 class IssuerState:
     """Lease, block and rate state; one fsynced JSON document."""
 
@@ -301,14 +368,22 @@ class IssuerState:
             self.save(s)
 
 
-def peer_node(sock):
+def peer_identity(sock, identity=None):
+    """('physical', node) for a REST client leaf, ('app', node) for a node identity."""
     cert = x509.load_der_x509_certificate(sock.getpeercert(binary_form=True))
+    if identity is not None:
+        name = identity.name_of(cert)
+        if name is not None:
+            return "app", name
     cn = common_name(cert)
-    return cn[: -len("-rest-client")] if cn.endswith("-rest-client") else None
+    if cn.endswith("-rest-client"):
+        return "physical", cn[: -len("-rest-client")]
+    return None, None
 
 
 def make_issuer(cfg):
     authority = Authority(cfg["authority_dir"])
+    identity = IdentityAuthority(cfg["identity"]) if "identity" in cfg else None
     state = IssuerState(cfg["state_dir"])
     policy = {"scope": cfg["scope"], "nodes": cfg["nodes"]}
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -316,6 +391,8 @@ def make_issuer(cfg):
     ctx.verify_mode = ssl.CERT_REQUIRED
     ctx.load_cert_chain(cfg["server_cert"], cfg["server_key"])
     ctx.load_verify_locations(cfg["client_ca"])
+    if identity is not None:
+        ctx.load_verify_locations(cfg["identity"]["ca_cert"])
 
     class Handler(http.server.BaseHTTPRequestHandler):
         timeout = 30
@@ -340,15 +417,25 @@ def make_issuer(cfg):
 
         def do_POST(self):
             now = time.time()
-            node = peer_node(self.connection)
+            kind, node = peer_identity(self.connection, identity)
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                if node not in policy["nodes"] or not 0 < length <= LIMIT:
+                known = node in policy["nodes"] or (identity is not None and node in identity.nodes)
+                if kind is None or not known or not 0 < length <= LIMIT:
                     raise Refused("unauthenticated_or_oversized")
                 body = json.loads(self.rfile.read(length))
                 if self.path == "/v1/begin":
                     self.reply(200, {"lease": state.begin(node, now)})
+                elif self.path == "/v1/identity":
+                    if identity is None or not state.holds(node, body.get("lease"), now):
+                        raise Refused("no_lease")
+                    pem = check_identity(identity, node, body["current"], body["csr"], leaf_days=cfg.get("leaf_days", 90))
+                    cert = x509.load_pem_x509_certificate(pem.encode())
+                    state.record(node, common_name(cert), cert.fingerprint(hashes.SHA256()).hex(), now)
+                    self.reply(200, {"certificate": pem})
                 elif self.path == "/v1/renew":
+                    if kind != "physical":
+                        raise Refused("physical_identity_required")
                     if not state.holds(node, body.get("lease"), now):
                         raise Refused("no_lease")
                     pem = check_and_issue(authority, policy, node, body["current"], body["csr"], leaf_days=cfg.get("leaf_days", 90))
@@ -427,6 +514,8 @@ class Agent:
             conn.close()
 
     def healthy(self):
+        if not self.cfg.get("leaves"):
+            return True  # application-only node: no local database cluster
         try:
             members = self.cluster()
         except (OSError, ValueError, KeyError, ssl.SSLError, http.client.HTTPException):
@@ -437,7 +526,7 @@ class Agent:
 
     def leaves(self):
         out = []
-        for leaf in self.cfg["leaves"]:
+        for leaf in self.cfg.get("leaves", []):
             if "pem" in leaf:
                 raw = read_private(leaf["pem"])
                 out.append((leaf, pem_certs(raw)[0]))
@@ -445,9 +534,20 @@ class Agent:
                 out.append((leaf, x509.load_pem_x509_certificate(read_private(leaf["cert"]))))
         return out
 
-    def days_left(self):
+    def identity(self):
+        spec = self.cfg.get("identity")
+        return None if spec is None else x509.load_pem_x509_certificate(read_private(spec["cert"]))
+
+    def days_left(self, which="all"):
         now = self.now()
-        return min((expiry(c) - now).total_seconds() / 86400 for _, c in self.leaves())
+        certs = []
+        if which in ("all", "physical"):
+            certs += [c for _, c in self.leaves()]
+        if which in ("all", "identity") and self.cfg.get("identity"):
+            certs.append(self.identity())
+        if not certs:
+            return float("inf")
+        return min((expiry(c) - now).total_seconds() / 86400 for c in certs)
 
     def trust(self):
         cas = []
@@ -478,13 +578,16 @@ class Agent:
             ok = self.wait_restart(request["generation"], self.cfg.get("restart_timeout", 7200))
             self.client("/v1/done", {"lease": request["lease"], "result": "ok" if ok else "failed"})
             return "resumed_" + ("ok" if ok else "failed")
-        if self.days_left() > self.cfg.get("renew_before_days", 30):
+        threshold = self.cfg.get("renew_before_days", 30)
+        physical = self.days_left("physical") <= threshold
+        identity = self.days_left("identity") <= threshold
+        if not physical and not identity:
             return "fresh"
         if not self.healthy():
             return "cluster_not_healthy"
         lease = self.client("/v1/begin", {})["lease"]
         try:
-            staged = self.issue_all(lease)
+            staged = (self.issue_all(lease) if physical else []) + (self.issue_identity(lease) if identity else [])
         except Exception:
             self.client("/v1/done", {"lease": lease, "result": "aborted"})
             raise
@@ -495,7 +598,8 @@ class Agent:
         except Exception:
             self.client("/v1/done", {"lease": lease, "result": "failed"})
             raise
-        atomic_write(self.state_dir / "restart-request.json", json.dumps({"generation": generation, "lease": lease, "requested_at": self.now().isoformat()}).encode())
+        roles = (["physical"] if physical else []) + (["app"] if identity else [])
+        atomic_write(self.state_dir / "restart-request.json", json.dumps({"generation": generation, "lease": lease, "roles": roles, "requested_at": self.now().isoformat()}).encode())
         self.log(event="committed", generation=generation, files=len(staged))
         ok = self.wait_restart(generation, self.cfg.get("restart_timeout", 7200))
         self.client("/v1/done", {"lease": lease, "result": "ok" if ok else "failed"})
@@ -531,10 +635,33 @@ class Agent:
             staged += [(copy["cert"], certpem), (copy["key"], keypem)]
         return staged
 
+    def issue_identity(self, lease):
+        spec = self.cfg["identity"]
+        current = self.identity()
+        key = serialization.load_pem_private_key(read_private(spec["key"]), None)
+        algorithm = None if isinstance(key, ed25519.Ed25519PrivateKey) else hashes.SHA256()
+        csr = x509.CertificateSigningRequestBuilder().subject_name(current.subject).sign(key, algorithm)
+        pem = self.client("/v1/identity", {"lease": lease, "current": current.public_bytes(serialization.Encoding.PEM).decode(), "csr": csr.public_bytes(serialization.Encoding.PEM).decode()})["certificate"]
+        new = x509.load_pem_x509_certificate(pem.encode())
+        cas = pem_certs(read_private(spec["ca"]))
+        if (
+            new.subject != current.subject
+            or new.issuer != current.issuer
+            or sans(new) != sans(current)
+            or uris(new) != uris(current)
+            or spki(new.public_key()) != spki(current.public_key())
+            or expiry(new) <= expiry(current)
+            or not any(signed_by(new, ca) for ca in cas)
+        ):
+            raise Refused("issued_identity_failed_verification")
+        return [(spec["cert"], pem.encode())]
+
     def backup(self, generation):
         target = self.state_dir / ("backup-%d" % generation)
         target.mkdir(mode=0o700)
-        paths = [p for leaf in self.cfg["leaves"] for p in ([leaf["pem"]] if "pem" in leaf else [leaf["cert"], leaf["key"]])]
+        paths = [p for leaf in self.cfg.get("leaves", []) for p in ([leaf["pem"]] if "pem" in leaf else [leaf["cert"], leaf["key"]])]
+        if self.cfg.get("identity"):
+            paths.append(self.cfg["identity"]["cert"])
         paths += [p for c in self.cfg.get("copies", []) for p in (c["cert"], c["key"])]
         for path in paths:
             atomic_write(target / re.sub(r"[^A-Za-z0-9._-]", "_", path.strip("/")), read_private(path))
@@ -543,6 +670,8 @@ class Agent:
         # Keys before certificates: a reader that races sees the old cert with
         # a new key only until the cert lands; processes reload on restart.
         for path, body in sorted(staged, key=lambda item: not item[0].endswith(".key")):
+            if os.path.exists(path) and read_private(path) == body:
+                continue
             rewrite_in_place(path, body)
 
     def run(self):

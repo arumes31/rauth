@@ -185,4 +185,10 @@ Physical leaves live 90 days and renew automatically when 30 days or fewer remai
   - After every role it waits for a healthy three-member cluster, then writes `restart-done.json`.
   - The agent reports `ok` or `failed` to the issuer. An agent restart resumes the wait.
 
+**Application node identities.** The enrolled `node.crt` used by the private cluster transport also renews 30 days before expiry, through `/v1/identity` when the issuer config has an `identity` section (node CA certificate and key, node name to IP, cluster ID).
+- The identity keeps the **same key**, so controller SPKI pins and registry enrollments stay valid.
+- The issuer requires the leaf's only IP SAN to belong to the authenticated node and its SPIFFE URI to be inside the cluster.
+- An application-only node, such as a worker without a database member, authenticates with its own node identity. It can use only this route, never physical renewal.
+- Its restart request names only the `app` group, so the supervisor restarts just the application. That isn't health-gated where no local Patroni exists.
+
 Host-guard role `pki` requires writable `/pki` (node PKI) and `/var/lib/rauth-pki` (handshake and backups). The master additionally mounts the authority read-only. The leaf's EKU decides where it is accepted, so renewal never weakens purpose separation.
