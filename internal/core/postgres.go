@@ -193,6 +193,10 @@ func configureAuthStateDatabase(cfg *Config, poolCfg *pgxpool.Config) error {
 		}
 	}
 	poolCfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		// Pool constructors outlive request cancellation; ConnectTimeout ends
+		// before this callback, so its live primary check needs its own bound.
+		ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
 		var writable bool
 		if err := conn.QueryRow(ctx, "SELECT NOT pg_is_in_recovery() AND current_setting('transaction_read_only')='off'").Scan(&writable); err != nil {
 			return err

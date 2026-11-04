@@ -61,3 +61,48 @@ func TestClusterHealthChecksHonorCancellation(t *testing.T) {
 	assert.False(t, a)
 	assert.False(t, e)
 }
+
+func TestClusterHealthIndependentProbesShareDeadlineAndJoin(t *testing.T) {
+	entered := make(chan time.Time, 2)
+	release := make(chan struct{})
+	check := func(ctx context.Context) error {
+		deadline, ok := ctx.Deadline()
+		if !ok {
+			return errors.New("missing health deadline")
+		}
+		entered <- deadline
+		select {
+		case <-release:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	h := newClusterHealth(check, check)
+	finished := make(chan struct{})
+	go func() { h.refresh(context.Background()); close(finished) }()
+	var deadlines []time.Time
+	for range 2 {
+		select {
+		case d := <-entered:
+			deadlines = append(deadlines, d)
+		case <-time.After(time.Second):
+			t.Fatal("independent health probes must overlap")
+		}
+	}
+	assert.True(t, deadlines[0].Equal(deadlines[1]))
+	a, e := h.status()
+	assert.False(t, a)
+	assert.False(t, e)
+	h.refresh(context.Background()) // Existing refresh exclusion prevents a second pair.
+	close(release)
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("health join did not finish")
+	}
+	a, e = h.status()
+	assert.True(t, a)
+	assert.True(t, e)
+	assert.Empty(t, entered)
+}

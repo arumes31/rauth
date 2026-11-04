@@ -16,6 +16,7 @@ import (
 	"net/netip"
 	"rauth/internal/clusterconfig"
 	"rauth/internal/clusterpolicy"
+	"rauth/internal/clusterpool"
 	"rauth/internal/clusterregistry"
 	"rauth/internal/clusterstate"
 	"rauth/internal/clusterstatus"
@@ -90,9 +91,9 @@ func newClusterRuntime(parent context.Context, cfg *core.Config, material *clust
 		if e != nil {
 			return nil, errClusterRuntime
 		}
-		config.MaxConns = maxConns
-		config.MinConns = 0
-		config.ConnConfig.ConnectTimeout = 3 * time.Second
+		if clusterpool.Configure(config, maxConns, name == "head" || name == "registry") != nil {
+			return nil, errClusterRuntime
+		}
 		pool, e := pgxpool.NewWithConfig(ctx, config)
 		if e != nil {
 			return nil, errClusterRuntime
@@ -114,6 +115,23 @@ func newClusterRuntime(parent context.Context, cfg *core.Config, material *clust
 	}
 	r.registry, err = clusterregistry.NewReader(registryPool, spec.ClusterID)
 	if err != nil {
+		return nil, errClusterRuntime
+	}
+	critical := []*pgxpool.Pool{heads, registryPool}
+	if spec.Role == clusterconfig.Control && spec.Events != nil {
+		eventsRegistryPool, e := openPool("registry", 1)
+		if e != nil {
+			return nil, e
+		}
+		r.eventRegistry, e = clusterregistry.NewReader(eventsRegistryPool, spec.ClusterID)
+		if e != nil {
+			return nil, errClusterRuntime
+		}
+		critical = append(critical, eventsRegistryPool)
+	}
+	// Warm transport before the original 3s current enrollment checks. A Ping
+	// is never enrollment, a policy observation or a restored freshness lease.
+	if clusterpool.Warm(ctx, critical...) != nil {
 		return nil, errClusterRuntime
 	}
 	serverTLS, err := material.ServerTLS()
@@ -200,16 +218,6 @@ func newClusterRuntime(parent context.Context, cfg *core.Config, material *clust
 			p := r.worker.Status().Policy
 			auth, enrollment := r.health.status()
 			return requestevent.NodeHealth{Ready: p.Ready && auth && enrollment, AuthReady: auth, EnrollmentReady: enrollment, PolicyReady: p.Ready, Applied: p.Applied.Revision, Desired: p.Desired.Revision, LeaseExpiresAt: p.LeaseExpiresAt}
-		}
-	}
-	if r.events != nil && spec.Role == clusterconfig.Control {
-		eventsRegistryPool, e := openPool("registry", 1)
-		if e != nil {
-			return nil, e
-		}
-		r.eventRegistry, e = clusterregistry.NewReader(eventsRegistryPool, spec.ClusterID)
-		if e != nil {
-			return nil, errClusterRuntime
 		}
 	}
 	if spec.Role == clusterconfig.Control && spec.HAObservationFile != "" {
