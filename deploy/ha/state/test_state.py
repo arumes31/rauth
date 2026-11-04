@@ -280,6 +280,14 @@ class NativeFilesystemTests(unittest.TestCase):
                 self.assertFalse(list(archive.iterdir()))
             finally:
                 wal_archive.LIMIT = old
+            old = wal_archive.FREE_FLOOR
+            try:
+                wal_archive.FREE_FLOOR = 1 << 62
+                with self.assertRaises(ValueError):
+                    wal_archive.archive(source, name, archive)
+                self.assertFalse(list(archive.iterdir()))
+            finally:
+                wal_archive.FREE_FLOOR = old
 
     def test_directory_fd_blocks_symlink_redirection(self):
         with tempfile.TemporaryDirectory() as t:

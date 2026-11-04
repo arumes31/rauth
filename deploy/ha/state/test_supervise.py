@@ -583,3 +583,60 @@ class RenewalRoleGroupTests(RenewalTests):
         self.actor.renewal()
         self.assertEqual(self.written, [(3, "failed")])
         self.assertFalse([c for c in self.docker.calls if c[0] == "stop"])
+class BackupScheduleTests(unittest.TestCase):
+    def setUp(self):
+        self.cfg, self.ram, self.storage, self.docker, self.clock, _ = fixture()
+        self.cfg["backup"] = {"interval_hours": 6, "keep": 4}
+        self.actor = supervise.Supervisor(
+            self.cfg, docker=self.docker, storage=self.storage, ram=self.ram,
+            now=lambda: self.clock[0], wait=lambda _s: None,
+        )
+        self.actor.tick()
+        self.healthy = True
+        self.actor.cluster_healthy = lambda: self.healthy
+        self.spawned = []
+
+        class Process:
+            def __init__(proc):
+                proc.returncode, proc.done = None, False
+                proc.stdout = io.BytesIO(b'{"backup": {"verified": true}, "kept": []}')
+
+            def poll(proc):
+                return proc.returncode if proc.done else None
+
+        def spawn(ident, keep):
+            proc = Process()
+            self.spawned.append((ident, keep, proc))
+            return proc
+
+        self.docker.spawn_backup = spawn
+
+    def test_schedule_validation(self):
+        supervise.validate(self.cfg)
+        for bad in ({"interval_hours": 0, "keep": 4}, {"interval_hours": 6, "keep": 0}, {"interval_hours": 6}):
+            cfg = copy.deepcopy(self.cfg)
+            cfg["backup"] = bad
+            with self.assertRaises(supervise.Fault):
+                supervise.validate(cfg)
+
+    def test_runs_after_stagger_without_blocking_and_reschedules(self):
+        self.actor.backup()
+        self.assertEqual(self.spawned, [])
+        self.clock[0] = self.actor.backup_due
+        self.actor.backup()
+        self.assertEqual([(i, k) for i, k, _ in self.spawned], [("container-patroni", 4)])
+        self.actor.backup()  # still running: no second process
+        self.assertEqual(len(self.spawned), 1)
+        proc = self.spawned[0][2]
+        proc.returncode, proc.done = 0, True
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            self.actor.backup()
+        self.assertIn('"completed"', out.getvalue())
+        self.assertEqual(self.actor.backup_due, self.clock[0] + 6 * 3600)
+
+    def test_unhealthy_cluster_defers(self):
+        self.healthy = False
+        self.clock[0] = self.actor.backup_due
+        self.actor.backup()
+        self.assertEqual(self.spawned, [])
+        self.assertEqual(self.actor.backup_due, self.clock[0] + 300)

@@ -192,3 +192,19 @@ Physical leaves live 90 days and renew automatically when 30 days or fewer remai
 - Its restart request names only the `app` group, so the supervisor restarts just the application. That isn't health-gated where no local Patroni exists.
 
 Host-guard role `pki` requires writable `/pki` (node PKI) and `/var/lib/rauth-pki` (handshake and backups). The master additionally mounts the authority read-only. The leaf's EKU decides where it is accepted, so renewal never weakens purpose separation.
+
+## Base backups and archived-WAL retention
+
+`backup.py` runs inside each node's Patroni container (UID 999), which already holds the replication credential, the SQL CA and the archive bind. With an optional supervisor config `"backup": {"interval_hours": 6, "keep": 4}`, the host supervisor starts it as a non-blocking `docker exec`. It runs only while the cluster is healthy, and the first run on each node is staggered.
+
+Each run:
+1. Takes a self-contained base backup of the local server over verified TLS (`pg_basebackup -F t -z -X stream --manifest-checksums=SHA256`) into `archive/base/<UTC>.pending`.
+2. Verifies it with `pg_verifybackup` and publishes it by atomic rename.
+3. Keeps the newest `keep` verified backups.
+4. Prunes archived WAL segments that end at or before the oldest kept backup's start LSN. Timeline history files are always kept.
+
+A failed or unverified run removes only its own pending directory and prunes nothing.
+
+`archive.py` stops archiving at 64 GiB of loose WAL or 8 GiB free space. A missing backup therefore keeps WAL in `pg_wal` rather than filling the disk.
+
+These are local, per-node backups for point-in-time recovery inside each site. Off-host disaster recovery is a separate step.
