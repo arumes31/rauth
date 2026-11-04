@@ -33,7 +33,7 @@ func (q StatsQuery) Window(now time.Time) (time.Time, time.Duration, error) {
 	if duration == 0 || q.Node != "" && !requestevent.ValidID(q.Node) || q.Before > math.MaxInt64 {
 		return time.Time{}, 0, ErrInvalid
 	}
-	if q.Country != "" && q.Country != "unknown" && (len(q.Country) != 2 || q.Country[0] < 'A' || q.Country[0] > 'Z' || q.Country[1] < 'A' || q.Country[1] > 'Z') {
+	if q.Country != "" && q.Country != "unknown" && q.Country != "other" && (len(q.Country) != 2 || q.Country[0] < 'A' || q.Country[0] > 'Z' || q.Country[1] < 'A' || q.Country[1] > 'Z') {
 		return time.Time{}, 0, ErrInvalid
 	}
 	if q.Action != "" {

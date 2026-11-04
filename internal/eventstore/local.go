@@ -24,15 +24,24 @@ type LocalStats struct {
 	count    int
 	seq      uint64
 	overflow uint64
+	latest   time.Time
 }
 
 const (
 	localMinuteSlots   = 24*60 + 2
-	localHalfHourSlots = 7 * 48
+	localHalfHourSlots = 7*48 + 2
 	localRecentLimit   = 20000
 	localCellLimit     = 96
 	localOtherCountry  = "other"
+	localActions       = 6
+	// Records older than this behind the newest one mean the clock stepped back.
+	localClockStep = 2 * time.Minute
 )
+
+// localCellBound is the exact per-bucket cell bound: localCellLimit distinct
+// cells plus one folded "other" country cell per action and latency bucket
+// (including unknown latency).
+func localCellBound() int { return localCellLimit + localActions*(len(latencyEdges)+2) }
 
 type localCell struct {
 	action  string
@@ -75,6 +84,14 @@ func (l *LocalStats) Record(raw requestevent.Event) {
 	cell := localCell{e.Action, e.Country, latencyBucket(e.ProcessingMicros)}
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if !l.latest.IsZero() && e.Time.Before(l.latest.Add(-localClockStep)) {
+		// The wall clock stepped back. Drop buckets from the abandoned future so
+		// aggregates never mix them with, or lose, current traffic.
+		l.discardAfter(e.Time)
+	}
+	if e.Time.After(l.latest) || e.Time.Before(l.latest.Add(-localClockStep)) {
+		l.latest = e.Time
+	}
 	l.add(l.minutes, e.Time.Truncate(time.Minute), time.Minute, cell)
 	l.add(l.halves, e.Time.Truncate(30*time.Minute), 30*time.Minute, cell)
 	l.seq++
@@ -89,18 +106,49 @@ func (l *LocalStats) Record(raw requestevent.Event) {
 	}
 }
 
+func (l *LocalStats) discardAfter(at time.Time) {
+	for _, slots := range [][]localBucket{l.minutes, l.halves} {
+		for i := range slots {
+			if slots[i].at.After(at) {
+				slots[i] = localBucket{}
+			}
+		}
+	}
+	kept := l.recentLocked()[:0]
+	for _, e := range l.recentLocked() {
+		if !e.Time.After(at) {
+			kept = append(kept, e)
+		}
+	}
+	l.start, l.count = 0, len(kept)
+	copy(l.ring, kept)
+}
+
 func (l *LocalStats) add(slots []localBucket, at time.Time, step time.Duration, cell localCell) {
 	slot := &slots[int((at.Unix()/int64(step/time.Second))%int64(len(slots)))]
 	if !slot.at.Equal(at) {
 		slot.at = at
 		slot.cells = map[localCell]uint64{}
 	}
-	if _, ok := slot.cells[cell]; !ok && len(slot.cells) >= localCellLimit {
-		// Keep memory bounded under many distinct countries. Totals stay exact.
-		cell.country = localOtherCountry
-		l.overflow++
+	if _, ok := slot.cells[cell]; !ok && cell.country != localOtherCountry {
+		if distinct := len(slot.cells) - l.foldedCells(slot); distinct >= localCellLimit {
+			// Keep memory bounded under many distinct countries. Totals,
+			// actions and latency stay exact; see localCellBound.
+			cell.country = localOtherCountry
+			l.overflow++
+		}
 	}
 	slot.cells[cell]++
+}
+
+func (l *LocalStats) foldedCells(slot *localBucket) int {
+	n := 0
+	for c := range slot.cells {
+		if c.country == localOtherCountry {
+			n++
+		}
+	}
+	return n
 }
 
 func (q StatsQuery) rawFiltered() bool {
@@ -130,7 +178,11 @@ func (l *LocalStats) Statistics(ctx context.Context, q StatsQuery) (StatsSnapsho
 	if duration > 24*time.Hour {
 		step = 30 * time.Minute
 	}
+	// Report the oldest data the bounded storage can still serve.
 	retained := l.started
+	if oldest := now.Truncate(30 * time.Minute).Add(-(localHalfHourSlots - 2) * 30 * time.Minute); oldest.After(retained) {
+		retained = oldest
+	}
 	out := StatsSnapshot{GeneratedAt: now, Start: start, End: now, BucketSeconds: int64(step / time.Second), Query: q, Actions: []Dimension{}, Countries: []Dimension{}, Timeline: []TrafficPoint{}, Top: map[string][]Dimension{}, Nodes: []NodeSample{}, RetainedSince: &retained,
 		Coverage: "this server process only (standalone mode, no cluster event store); history resets on restart"}
 	actionCounts, countryCounts := map[string]uint64{}, map[string]uint64{}
@@ -160,6 +212,8 @@ func (l *LocalStats) Statistics(ctx context.Context, q StatsQuery) (StatsSnapsho
 		slots, cutoff := l.minutes, start
 		if step == 30*time.Minute {
 			slots, cutoff = l.halves, start.Truncate(step)
+			// Half-hour cells cannot be split; report the boundary counted.
+			out.Start = cutoff
 		}
 		for _, b := range slots {
 			if b.cells == nil || b.at.Before(cutoff) || b.at.After(now) {

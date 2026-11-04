@@ -103,18 +103,61 @@ func TestLocalStatsDecisionsPageNewestFirst(t *testing.T) {
 	}
 }
 
-func TestLocalStatsBoundsCountryCells(t *testing.T) {
+func TestLocalStatsBoundsCellsAcrossActionsAndLatency(t *testing.T) {
 	clock := &localClock{time.Date(2026, 11, 4, 12, 0, 30, 0, time.UTC)}
 	l := newLocalStats(clock.now)
-	for i := 0; i < localCellLimit+40; i++ {
-		c := string(rune('A'+i/26%26)) + string(rune('A'+i%26))
-		l.Record(localEvent(clock.t, "blocked", c, "", "198.51.100.1", 10))
+	actions := []string{"authenticated", "bypass", "login_required", "rate_limited", "blocked", "error"}
+	latencies := []int64{0, 1, 2000, 5000, 20000, 50000, 200000, 500000, 2000000, 5000000, 20000000, 40000000, 90000000, 200000000, 700000000}
+	total := 0
+	for i := 0; i < 26*26; i++ {
+		c := string(rune('A'+i/26)) + string(rune('A'+i%26))
+		for j, a := range actions {
+			l.Record(localEvent(clock.t, a, c, "", "198.51.100.1", latencies[(i+j)%len(latencies)]))
+			total++
+		}
 	}
-	if n := len(l.minutes[int((clock.t.Truncate(time.Minute).Unix()/60)%int64(len(l.minutes)))].cells); n > localCellLimit+1 {
-		t.Fatalf("cells=%d", n)
+	slot := l.minutes[int((clock.t.Truncate(time.Minute).Unix()/60)%int64(len(l.minutes)))]
+	if n := len(slot.cells); n > localCellBound() {
+		t.Fatalf("cells=%d bound=%d", n, localCellBound())
 	}
-	s, _ := l.Statistics(context.Background(), StatsQuery{Range: "5m"})
-	if s.Total != uint64(localCellLimit+40) {
-		t.Fatalf("total=%d", s.Total)
+	s, err := l.Statistics(context.Background(), StatsQuery{Range: "5m"})
+	if err != nil || s.Total != uint64(total) || s.Latency.Samples+s.Latency.Unknown != uint64(total) {
+		t.Fatalf("total=%d latency=%+v err=%v", s.Total, s.Latency, err)
+	}
+	if s, err = l.Statistics(context.Background(), StatsQuery{Range: "5m", Country: "other"}); err != nil || s.Total == 0 {
+		t.Fatalf("other filter total=%d err=%v", s.Total, err)
+	}
+}
+
+func TestLocalStatsClockStepBackDiscardsAbandonedFuture(t *testing.T) {
+	clock := &localClock{time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)}
+	l := newLocalStats(clock.now)
+	l.Record(localEvent(clock.t, "blocked", "AT", "https://a.example/", "198.51.100.1", 10))
+	clock.t = clock.t.Add(-26 * time.Hour)
+	l.Record(localEvent(clock.t, "authenticated", "AT", "https://a.example/", "198.51.100.1", 10))
+	clock.t = clock.t.Add(26*time.Hour + time.Minute)
+	s, err := l.Statistics(context.Background(), StatsQuery{Range: "24h"})
+	if err != nil || s.Total != 0 {
+		t.Fatalf("future bucket survived: total=%d err=%v", s.Total, err)
+	}
+	page, _ := l.Decisions(context.Background(), StatsQuery{Range: "7d"})
+	if len(page) != 1 || page[0].Action != "authenticated" {
+		t.Fatalf("decisions=%v", page)
+	}
+}
+
+func TestLocalStatsSevenDayStartAndRetention(t *testing.T) {
+	clock := &localClock{time.Date(2026, 11, 4, 12, 17, 0, 0, time.UTC)}
+	l := newLocalStats(clock.now)
+	clock.t = clock.t.Add(10 * 24 * time.Hour)
+	s, err := l.Statistics(context.Background(), StatsQuery{Range: "7d"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Start.Minute()%30 != 0 || s.Start.After(clock.t.Add(-7*24*time.Hour)) {
+		t.Fatalf("start=%v", s.Start)
+	}
+	if s.RetainedSince == nil || clock.t.Sub(*s.RetainedSince) > 7*24*time.Hour+30*time.Minute {
+		t.Fatalf("retained_since=%v", s.RetainedSince)
 	}
 }
