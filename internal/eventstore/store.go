@@ -69,6 +69,9 @@ type Store struct {
 	changed      chan struct{}
 	closed       bool
 	now          func() time.Time
+	// received is the latest assigned received_at. It is only read and
+	// written under the writer gate by the single fenced owner.
+	received time.Time
 }
 type Batch struct {
 	Events                              []requestevent.Event
@@ -184,6 +187,10 @@ func Open(ctx context.Context, pool *pgxpool.Pool, o Options) (*Store, error) {
 		return fail()
 	}
 	err = tx.QueryRow(ctx, `UPDATE event_ledgers SET owner_token=$2 WHERE cluster_id=$1 AND owner_role=current_user RETURNING epoch::text`, o.ClusterID, s.token).Scan(&s.epoch)
+	if err == nil {
+		// Seed the monotonic received_at clock from retained history.
+		err = tx.QueryRow(ctx, `SELECT COALESCE(max(received_at),'epoch'::timestamptz) FROM request_events WHERE cluster_id=$1`, o.ClusterID).Scan(&s.received)
+	}
 	if err != nil {
 		_ = tx.Rollback(ctx)
 		return fail()
@@ -359,9 +366,14 @@ func (s *Store) insert(ctx context.Context, peer string, events []requestevent.E
 	if incoming > s.options.MaxBytes || incomingTelemetry > s.telemetryLimit() {
 		return nil, ErrInvalid
 	}
-	// Assign received_at under the writer gate with seq, so it is nondecreasing
-	// in seq (see mayHaveExpired) and includes queue wait.
+	// Assign received_at under the writer gate with seq and never let it move
+	// backwards, so it is nondecreasing in seq even across wall-clock steps
+	// (see mayHaveExpired). It also includes queue wait.
 	now = s.now().UTC()
+	if now.Before(s.received) {
+		now = s.received
+	}
+	s.received = now
 	tx, l, err := s.retainedWriter(ctx, incoming, incomingTelemetry, now)
 	if err != nil {
 		return nil, err
@@ -616,9 +628,9 @@ func (s *Store) trimChunk(ctx context.Context, tx pgx.Tx, incoming, incomingTele
 	return true, err
 }
 
-// expiryProbeMargin covers wall-clock steps between batches. received_at is
-// assigned under the writer gate together with seq, so it is nondecreasing in
-// seq apart from clock adjustments.
+// expiryProbeMargin is defence in depth. received_at is assigned under the
+// writer gate together with seq and clamped to never decrease, so the oldest
+// telemetry row by seq is also the oldest by received_at.
 const expiryProbeMargin = 5 * time.Minute
 
 // mayHaveExpired is an index-only negative check that avoids scanning every
