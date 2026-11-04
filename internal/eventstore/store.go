@@ -233,20 +233,37 @@ func primary(ctx context.Context, tx pgx.Tx) error {
 	}
 	return nil
 }
-func (s *Store) begin(ctx context.Context) (pgx.Tx, int64, int64, error) {
+
+// ledger is the fenced writer state read under the ledger row lock.
+type ledger struct{ used, high, telemetry int64 }
+
+// begin opens a fenced writer transaction. The synchronous-commit setting,
+// writable-primary safety check and owner ledger lock are pipelined into one
+// round trip; every result is drained and validated before any mutation.
+func (s *Store) begin(ctx context.Context) (pgx.Tx, ledger, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return nil, 0, 0, ErrUnavailable
+		return nil, ledger{}, ErrUnavailable
 	}
-	fail := func() (pgx.Tx, int64, int64, error) { _ = tx.Rollback(ctx); return nil, 0, 0, ErrUnavailable }
-	if primary(ctx, tx) != nil {
+	fail := func() (pgx.Tx, ledger, error) { _ = tx.Rollback(ctx); return nil, ledger{}, ErrUnavailable }
+	batch := &pgx.Batch{}
+	batch.Queue("SET LOCAL synchronous_commit=on")
+	batch.Queue("SELECT NOT pg_is_in_recovery() AND current_setting('transaction_read_only')='off' AND current_setting('fsync')='on' AND current_setting('full_page_writes')='on'")
+	batch.Queue(`SELECT payload_bytes,high_water,telemetry_bytes FROM event_ledgers WHERE cluster_id=$1 AND owner_token=$2 AND owner_role=current_user FOR UPDATE`, s.options.ClusterID, s.token)
+	results := tx.SendBatch(ctx, batch)
+	var writable bool
+	var l ledger
+	_, err = results.Exec()
+	if err == nil {
+		err = results.QueryRow().Scan(&writable)
+	}
+	if err == nil {
+		err = results.QueryRow().Scan(&l.used, &l.high, &l.telemetry)
+	}
+	if closeErr := results.Close(); err != nil || closeErr != nil || !writable {
 		return fail()
 	}
-	var used, high int64
-	if tx.QueryRow(ctx, `SELECT payload_bytes,high_water FROM event_ledgers WHERE cluster_id=$1 AND owner_token=$2 AND owner_role=current_user FOR UPDATE`, s.options.ClusterID, s.token).Scan(&used, &high) != nil {
-		return fail()
-	}
-	return tx, used, high, nil
+	return tx, l, nil
 }
 func (s *Store) Epoch() string { return s.epoch }
 func (s *Store) Ingest(ctx context.Context, peer string, events []requestevent.Event) ([]string, error) {
@@ -342,14 +359,15 @@ func (s *Store) insert(ctx context.Context, peer string, events []requestevent.E
 	if incoming > s.options.MaxBytes || incomingTelemetry > s.telemetryLimit() {
 		return nil, ErrInvalid
 	}
-	if err := s.trim(ctx, incoming, incomingTelemetry, now); err != nil {
-		return nil, err
-	}
-	tx, used, high, err := s.begin(ctx)
+	// Assign received_at under the writer gate with seq, so it is nondecreasing
+	// in seq (see mayHaveExpired) and includes queue wait.
+	now = s.now().UTC()
+	tx, l, err := s.retainedWriter(ctx, incoming, incomingTelemetry, now)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	used, high := l.used, l.high
 	old, err = s.existing(ctx, tx, peer, events)
 	if err != nil {
 		return nil, err
@@ -393,6 +411,34 @@ func (s *Store) insert(ctx context.Context, peer string, events []requestevent.E
 	return acks, nil
 }
 
+// retainedWriter runs retention chunks, committing each changed chunk in its
+// own fenced transaction, and returns the first unchanged chunk's still-open
+// fenced transaction for the insert. No ROLLBACK, second fence or second
+// ledger acquisition separates the final retention check from the insert.
+func (s *Store) retainedWriter(ctx context.Context, incoming, incomingTelemetry int64, now time.Time) (pgx.Tx, ledger, error) {
+	for {
+		tx, l, err := s.begin(ctx)
+		if err != nil {
+			return nil, ledger{}, err
+		}
+		changed, err := s.trimChunk(ctx, tx, incoming, incomingTelemetry, now, l)
+		if err != nil {
+			_ = tx.Rollback(ctx)
+			if errors.Is(err, ErrInvalid) {
+				return nil, ledger{}, err
+			}
+			return nil, ledger{}, storageFailure(err)
+		}
+		if !changed {
+			return tx, l, nil
+		}
+		if err = tx.Commit(ctx); err != nil {
+			return nil, ledger{}, storageFailure(err)
+		}
+		s.notifyLocked()
+	}
+}
+
 type eventQuerier interface {
 	Query(context.Context, string, ...any) (pgx.Rows, error)
 }
@@ -426,26 +472,15 @@ func (s *Store) existing(ctx context.Context, q eventQuerier, peer string, event
 }
 
 func (s *Store) telemetryLimit() int64 { return min(s.options.MaxBytes/8, 256<<20) }
-func (s *Store) trim(ctx context.Context, incoming, incomingTelemetry int64, now time.Time) error {
-	for {
-		changed, err := s.trimOnce(ctx, incoming, incomingTelemetry, now)
-		if err != nil {
-			return err
-		}
-		if !changed {
-			return nil
-		}
-	}
-}
 
 // trimOnce runs with the writer gate held. Each chunk remains independently
 // fenced and committed so a later timeout preserves completed cleanup progress.
 func (s *Store) trimOnce(ctx context.Context, incoming, incomingTelemetry int64, now time.Time) (bool, error) {
-	tx, used, _, err := s.begin(ctx)
+	tx, l, err := s.begin(ctx)
 	if err != nil {
 		return false, err
 	}
-	changed, err := s.trimChunk(ctx, tx, incoming, incomingTelemetry, now, used)
+	changed, err := s.trimChunk(ctx, tx, incoming, incomingTelemetry, now, l)
 	if err != nil {
 		_ = tx.Rollback(ctx)
 		if errors.Is(err, ErrInvalid) {
@@ -463,15 +498,12 @@ func (s *Store) trimOnce(ctx context.Context, incoming, incomingTelemetry int64,
 	s.notifyLocked()
 	return true, nil
 }
-func (s *Store) trimChunk(ctx context.Context, tx pgx.Tx, incoming, incomingTelemetry int64, now time.Time, used int64) (bool, error) {
+func (s *Store) trimChunk(ctx context.Context, tx pgx.Tx, incoming, incomingTelemetry int64, now time.Time, l ledger) (bool, error) {
 	type item struct {
 		seq, size int64
 		kind      string
 	}
-	var telemetry int64
-	if err := tx.QueryRow(ctx, `SELECT telemetry_bytes FROM event_ledgers WHERE cluster_id=$1 AND owner_token=$2`, s.options.ClusterID, s.token).Scan(&telemetry); err != nil {
-		return false, err
-	}
+	used, telemetry := l.used, l.telemetry
 	removed, removedHistory, last := int64(0), int64(0), int64(0)
 	pending := &pgx.Batch{}
 	flush := func() error {
@@ -520,9 +552,18 @@ func (s *Store) trimChunk(ctx context.Context, tx pgx.Tx, incoming, incomingTele
 	}
 	// Telemetry has shorter age and its own cap. It is always reclaimed before
 	// a decision is evicted, and incoming telemetry may never evict a decision.
-	expired, err := collect(`SELECT seq,size,kind FROM request_events WHERE cluster_id=$1 AND (received_at<$2 OR (kind='telemetry' AND received_at<$3)) ORDER BY seq LIMIT 128`, s.options.ClusterID, now.Add(-s.options.MaxAge), now.Add(-min(s.options.MaxAge, 24*time.Hour)))
+	general, telemetryAge := now.Add(-s.options.MaxAge), now.Add(-min(s.options.MaxAge, 24*time.Hour))
+	var expired []item
+	candidates, err := s.mayHaveExpired(ctx, tx, general, telemetryAge)
 	if err != nil {
 		return false, err
+	}
+	if candidates {
+		// Exact semantics: the earliest 128 expired rows by sequence.
+		expired, err = collect(`SELECT seq,size,kind FROM request_events WHERE cluster_id=$1 AND (received_at<$2 OR (kind='telemetry' AND received_at<$3)) ORDER BY seq LIMIT 128`, s.options.ClusterID, general, telemetryAge)
+		if err != nil {
+			return false, err
+		}
 	}
 	for _, i := range expired {
 		remove(i)
@@ -573,6 +614,24 @@ func (s *Store) trimChunk(ctx context.Context, tx pgx.Tx, incoming, incomingTele
 	}
 	_, err = tx.Exec(ctx, `UPDATE event_ledgers SET payload_bytes=$3,telemetry_bytes=$6,event_count=event_count-$4,expired_count=expired_count+$7,pruned_through=GREATEST(pruned_through,$5) WHERE cluster_id=$1 AND owner_token=$2`, s.options.ClusterID, s.token, used, removed, last, telemetry, removedHistory)
 	return true, err
+}
+
+// expiryProbeMargin covers wall-clock steps between batches. received_at is
+// assigned under the writer gate together with seq, so it is nondecreasing in
+// seq apart from clock adjustments.
+const expiryProbeMargin = 5 * time.Minute
+
+// mayHaveExpired is an index-only negative check that avoids scanning every
+// retained row when nothing has expired. The general age uses the
+// (cluster_id,received_at) index exactly. Telemetry uses its partial seq
+// index: the oldest telemetry row by seq bounds every later row's age within
+// expiryProbeMargin, so a false result proves no telemetry row has expired.
+func (s *Store) mayHaveExpired(ctx context.Context, tx pgx.Tx, general, telemetryAge time.Time) (bool, error) {
+	var found bool
+	err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM request_events WHERE cluster_id=$1 AND received_at<$2)
+ OR COALESCE((SELECT received_at<$3 FROM request_events WHERE cluster_id=$1 AND kind='telemetry' ORDER BY seq LIMIT 1),false)`,
+		s.options.ClusterID, general, telemetryAge.Add(expiryProbeMargin)).Scan(&found)
+	return found, err
 }
 
 type historyKey struct {
