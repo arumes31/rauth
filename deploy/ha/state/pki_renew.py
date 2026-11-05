@@ -467,11 +467,40 @@ def make_issuer(cfg):
             except (ValueError, KeyError, TypeError):
                 self.reply(400, {"error": "bad_request"})
 
+    # The server leaf is itself renewed in place, and the pki role is not in
+    # the renewal restart order: reload it before each accept when it changes.
+    # A failed reload (key and certificate briefly out of step) keeps the old
+    # chain and retries on the next connection.
+    loaded = [cert_stamp(cfg["server_cert"], cfg["server_key"])]
+
+    class Server(http.server.ThreadingHTTPServer):
+        def get_request(self):
+            stamp = cert_stamp(cfg["server_cert"], cfg["server_key"])
+            if stamp != loaded[0]:
+                try:
+                    ctx.load_cert_chain(cfg["server_cert"], cfg["server_key"])
+                    loaded[0] = stamp
+                    print(json.dumps({"issuer": "server_certificate_reloaded"}), flush=True)
+                except (OSError, ssl.SSLError):
+                    pass
+            return super().get_request()
+
     host, port = cfg["listen"].rsplit(":", 1)
-    server = http.server.ThreadingHTTPServer((host, int(port)), Handler)
+    server = Server((host, int(port)), Handler)
     server.daemon_threads = True
     server.socket = ctx.wrap_socket(server.socket, server_side=True, do_handshake_on_connect=False)
     return server
+
+
+def cert_stamp(*paths):
+    out = []
+    for p in paths:
+        try:
+            st = os.stat(p)
+            out.append((st.st_ino, st.st_size, st.st_mtime_ns))
+        except OSError:
+            out.append(None)
+    return tuple(out)
 
 
 def serve_issuer(cfg):
