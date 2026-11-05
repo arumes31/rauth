@@ -250,6 +250,19 @@ class ModelTests(unittest.TestCase):
         self.assertTrue(all(row["State"]["Running"] for row in docker.rows.values()))
         self.assertEqual(ram.calls.count("launcher"), 3)
 
+    def test_consumer_start_waits_for_leaf_commit(self):
+        _, ram, _, docker, _, actor = fixture()
+        docker.rows["rauth-test-patroni"]["State"]["Running"] = False
+        docker.rows["rauth-test-app"]["State"]["Running"] = False
+        actor.renewal_committing = lambda: True
+        actor.tick()
+        starts = [c for c in docker.calls if c[0] == "start"]
+        self.assertNotIn(("start", "container-patroni"), starts)
+        self.assertIn(("start", "container-app"), starts)  # not a leaf consumer
+        actor.renewal_committing = lambda: False
+        actor.tick()
+        self.assertIn(("start", "container-patroni"), docker.calls)
+
     def test_local_role_failure_restarts_only_that_role(self):
         _, ram, _, docker, _, actor = fixture()
         docker.rows["rauth-test-app"]["State"]["Running"] = False

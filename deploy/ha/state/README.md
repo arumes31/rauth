@@ -164,7 +164,7 @@ requirements. Portable tests do not prove actual Alpine/OpenRC boot or fencing.
 
 ## Automatic leaf renewal (`pki` role)
 
-Physical leaves live 90 days and renew automatically when 30 days or fewer remain. CAs are separate, with a 30-year default, and rotate through an operator overlap rollout. The `pki` role is a supervised container on every node, built from this image (`/usr/local/lib/rauth/pki_renew.py run --config /etc/rauth-pki-renew/config.json`). It runs as `user: "0:0"` with `cap_drop: [ALL]`, `cap_add: [DAC_OVERRIDE]` and `no-new-privileges`: leaves keep the owner of their consuming service (etcd 10003, Patroni 999, router 10002), and the supervisor accepts only root-owned `0600` handshake files. The agent refuses to start under any other UID.
+Physical leaves live 90 days and renew automatically when 30 days or fewer remain. CAs are separate, with a 30-year default, and rotate through an operator overlap rollout. The `pki` role is a supervised container on every node, built from this image (`/opt/patroni/bin/python /usr/local/lib/rauth/pki_renew.py run --config /etc/rauth-pki-renew/config.json`; the program is installed mode `0444`, so it is always run through the image's interpreter). It runs as `user: "0:0"` with `cap_drop: [ALL]`, `cap_add: [DAC_OVERRIDE]` and `no-new-privileges`: leaves keep the owner of their consuming service (etcd 10003, Patroni 999, router 10002), and the supervisor accepts only root-owned `0600` handshake files. The agent refuses to start under any other UID.
 
 - **Issuer: CA master only.** The config's `issuer` section enables it. CA keys are bind-mounted read-only and never leave the master.
   - Serves TLS 1.3 mutual TLS on the node's own service IP. A client must present a `<node>-rest-client` leaf from the REST CA bundle.
@@ -179,7 +179,7 @@ Physical leaves live 90 days and renew automatically when 30 days or fewer remai
   4. Rewrites the files in place, preserving inode, owner and mode, so bind mounts and host-guard witnesses stay valid.
   5. Writes a fsynced `restart-request.json`.
   
-  Any failure before the commit aborts without changes. If the commit or the restart request fails, the agent puts every original file back and reports `failed`.
+  Any failure before the commit aborts without changes. If the commit or the restart request fails, the agent puts every original file back and reports `failed`. Restoration itself can fail: the agent then logs `restore_incomplete` with the affected paths. Restore those files from `backup-<generation>/` in the state directory before any consumer restarts. While a commit runs, the agent holds a root-owned `commit-active.json` marker and the supervisor defers starting stopped consumers; a marker older than ten minutes is ignored.
 - **Host supervisor.** With `pki_renewal.directory` configured, it reads the root-owned private handshake. It restarts etcd, Patroni, router and observer once each, through the normal attested start path.
   - If this node holds the leader, it first moves leadership with a supported switchover to the zero-lag synchronous standby.
   - After every role it waits for a healthy three-member cluster, then writes `restart-done.json`.
