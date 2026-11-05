@@ -180,11 +180,30 @@ func CommitSQLAuthenticationCutover(ctx context.Context, cfg *Config) (time.Time
 	if err != nil {
 		return time.Time{}, err
 	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	// Serialize whole cutovers across processes. Key/settings initialization
+	// below runs in its own transactions before the app_meta lock, so two
+	// concurrent cutovers could otherwise deadlock instead of converging.
+	lock, err := PG.Acquire(ctx)
+	if err != nil {
+		return time.Time{}, err
+	}
+	defer lock.Release()
+	if _, err = lock.Exec(ctx, "SELECT pg_advisory_lock(hashtextextended('rauth-auth-state-cutover',0))"); err != nil {
+		return time.Time{}, err
+	}
+	defer func() {
+		unlock, cancelUnlock := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelUnlock()
+		if _, err := lock.Exec(unlock, "SELECT pg_advisory_unlock(hashtextextended('rauth-auth-state-cutover',0))"); err != nil {
+			// A failed unlock must not return the session to the pool holding the lock.
+			_ = lock.Conn().Close(unlock)
+		}
+	}()
 	if _, err = authstate.NewPostgresSessions(ctx, PG, keys); err != nil {
 		return time.Time{}, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
 	var readyAfter time.Time
 	err = pgx.BeginFunc(ctx, PG, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, "LOCK TABLE app_meta IN EXCLUSIVE MODE"); err != nil {
