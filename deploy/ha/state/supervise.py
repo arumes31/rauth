@@ -97,6 +97,9 @@ except urllib.error.HTTPError as e:
 print(json.dumps({'status': status}))
 """
 FAILBACK_RETRY = 900
+# Replicas report a few KiB of lag for an instant on every write. The hold only
+# needs a stable cluster; the switchover itself still requires zero lag.
+FAILBACK_MAX_LAG = 16 * 1024 * 1024
 
 
 class Fault(RuntimeError):
@@ -1238,6 +1241,22 @@ class Supervisor:
             self.failback_restore = True
             self.event("patroni", "failback_sync_count_restore_pending")
 
+    @staticmethod
+    def stable(members):
+        """Healthy topology with every replica streaming within one WAL segment."""
+        leaders = [m for m in members if m["role"] == "leader" and m["state"] == "running"]
+        others = [m for m in members if m["role"] != "leader"]
+        return (
+            len(members) == 3
+            and len(leaders) == 1
+            and all(
+                m["state"] == "streaming"
+                and type(m.get("lag")) is int
+                and 0 <= m["lag"] <= FAILBACK_MAX_LAG
+                for m in others
+            )
+        )
+
     def failback(self):
         """Move leadership back to this preferred node once it is safe.
 
@@ -1257,7 +1276,7 @@ class Supervisor:
         except (Fault, ValueError, KeyError, TypeError):
             self.failback_since = None
             return
-        if any(m["name"] == me and m["role"] == "leader" for m in members) or not self.healthy(members):
+        if any(m["name"] == me and m["role"] == "leader" for m in members) or not self.stable(members):
             self.failback_since = None
             return
         if self.failback_since is None:

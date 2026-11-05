@@ -702,6 +702,39 @@ class FailbackTests(unittest.TestCase):
         self.actor.failback()
         self.assertEqual(self.rest, [])
 
+    def test_transient_small_lag_does_not_reset_the_hold(self):
+        lags = iter([0, 16384, 0, 4096, 0])
+        real = self.docker.patroni
+
+        def lagging(ident, probe, *args):
+            out = real(ident, probe, *args)
+            if probe is not supervise.REST_PROBE:
+                lag = next(lags, 0)
+                for m in out["members"]:
+                    if m["name"] == "state-a":
+                        m["lag"] = lag
+            return out
+
+        self.docker.patroni = lagging
+        self.actor.failback()  # hold starts (lag 0)
+        self.clock[0] += 300
+        self.actor.failback()  # 16 KiB: still holding
+        self.clock[0] += 301
+        self.actor.failback()  # hold elapsed: fails back
+        self.assertIn(("POST", "/switchover", {"leader": "b", "candidate": "state-a"}), self.rest)
+
+    def test_large_or_unknown_lag_resets_the_hold(self):
+        self.assertFalse(supervise.Supervisor.stable([
+            {"name": "a", "role": "leader", "state": "running", "lag": None},
+            {"name": "b", "role": "replica", "state": "streaming", "lag": 17 * 1024 * 1024},
+            {"name": "c", "role": "sync_standby", "state": "streaming", "lag": 0},
+        ]))
+        self.assertFalse(supervise.Supervisor.stable([
+            {"name": "a", "role": "leader", "state": "running", "lag": None},
+            {"name": "b", "role": "replica", "state": "streaming", "lag": "unknown"},
+            {"name": "c", "role": "sync_standby", "state": "streaming", "lag": 0},
+        ]))
+
     def test_unhealthy_interval_resets_the_hold(self):
         self.actor.failback()
         self.clock[0] += 500
