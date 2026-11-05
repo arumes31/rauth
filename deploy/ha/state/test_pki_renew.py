@@ -311,6 +311,24 @@ class AgentTests(unittest.TestCase):
         self.assertFalse(marker.exists())
         self.assertEqual(before, {p.name: p.read_bytes() for p in (self.root / "pki").iterdir()})
 
+    def test_unsettled_commit_is_retried_quickly(self):
+        marker = self.root / "state" / "commit-active.json"
+        pki_renew.atomic_write(marker, json.dumps({"generation": 5}).encode())  # backup missing: blocked
+        sleeps = []
+
+        class Stop(Exception):
+            pass
+
+        def sleep(seconds):
+            sleeps.append(seconds)
+            if len(sleeps) == 1:
+                raise Stop
+
+        agent = pki_renew.Agent(self.cfg, client=self.client, cluster=lambda: [], now=lambda: NOW, sleep=sleep)
+        with self.assertRaises(Stop):
+            agent.run()
+        self.assertEqual(sleeps, [60])
+
     def test_completed_commit_marker_is_cleared_on_resume(self):
         marker = self.root / "state" / "commit-active.json"
         lease = self.state.begin("nl", time.time())
