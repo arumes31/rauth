@@ -67,8 +67,20 @@ func TestCounterCoalescerBurstKeepsExactDistinctCounts(t *testing.T) {
 	if c := f.calls.Load(); c >= 200 || c > 10 {
 		t.Fatalf("burst used %d statements; expected coalescing into a handful", c)
 	}
-	if len(co.open) != 0 || len(co.busy) != 0 {
-		t.Fatalf("coalescer leaked state: open=%d busy=%d", len(co.open), len(co.busy))
+	// Callers return as soon as their batch is done; the flush loop drops its
+	// bookkeeping a moment later, so wait for that under the lock.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		co.mu.Lock()
+		open, busy := len(co.open), len(co.busy)
+		co.mu.Unlock()
+		if open == 0 && busy == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("coalescer leaked state: open=%d busy=%d", open, busy)
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 

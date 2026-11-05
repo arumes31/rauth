@@ -91,7 +91,9 @@ func (co *counterCoalescer) increment(ctx context.Context, h []byte, ttl time.Du
 		co.open[k] = b
 		if !co.busy[k] {
 			co.busy[k] = true
-			go co.flush(k, h, ttl, add)
+			// Detached from cancellation (not from values): one canceled request
+			// must not fail the others joined to the same batch.
+			go co.flush(context.WithoutCancel(ctx), k, h, ttl, add)
 		}
 	}
 	b.n++
@@ -112,9 +114,9 @@ func (co *counterCoalescer) increment(ctx context.Context, h []byte, ttl time.Du
 	}
 }
 
-// flush runs detached from any one caller's context so a canceled request
-// cannot fail the increments of the others joined to the same batch.
-func (co *counterCoalescer) flush(k string, h []byte, ttl time.Duration, add counterAdd) {
+// flush applies batches until none is open; each statement has its own
+// mutation timeout.
+func (co *counterCoalescer) flush(ctx context.Context, k string, h []byte, ttl time.Duration, add counterAdd) {
 	for {
 		co.mu.Lock()
 		b := co.open[k]
@@ -125,7 +127,7 @@ func (co *counterCoalescer) flush(k string, h []byte, ttl time.Duration, add cou
 		}
 		delete(co.open, k)
 		co.mu.Unlock()
-		b.count, b.err = add(context.Background(), h, ttl, b.n)
+		b.count, b.err = add(ctx, h, ttl, b.n)
 		close(b.done)
 	}
 }
