@@ -284,6 +284,41 @@ class AgentTests(unittest.TestCase):
         self.assertTrue(seen and all(seen))
         self.assertFalse(marker.exists())
 
+    def test_failed_restore_keeps_marker_until_recovery(self):
+        before = {p.name: p.read_bytes() for p in (self.root / "pki").iterdir()}
+        marker = self.root / "state" / "commit-active.json"
+        real = pki_renew.rewrite_in_place
+        calls = []
+
+        def broken(path, body):
+            calls.append(path)
+            if len(calls) == 2:
+                raise OSError("disk full")
+            if len(calls) > 2:
+                raise OSError("still broken")  # restoration fails too
+            real(path, body)
+
+        pki_renew.rewrite_in_place = broken
+        try:
+            with self.assertRaises(OSError):
+                self.agent().renew()
+            self.assertTrue(marker.exists())
+            self.assertEqual(self.agent().renew(), "commit_recovery_blocked")
+            self.assertTrue(marker.exists())
+        finally:
+            pki_renew.rewrite_in_place = real
+        self.assertEqual(self.agent().renew(), "commit_recovered")
+        self.assertFalse(marker.exists())
+        self.assertEqual(before, {p.name: p.read_bytes() for p in (self.root / "pki").iterdir()})
+
+    def test_completed_commit_marker_is_cleared_on_resume(self):
+        marker = self.root / "state" / "commit-active.json"
+        lease = self.state.begin("nl", time.time())
+        pki_renew.atomic_write(marker, json.dumps({"generation": 7, "lease": lease}).encode())
+        pki_renew.atomic_write(self.root / "state" / "restart-request.json", json.dumps({"generation": 7, "lease": lease}).encode())
+        self.assertEqual(self.agent().renew(), "resumed_ok")
+        self.assertFalse(marker.exists())
+
     def test_restart_request_failure_restores_originals(self):
         before = {p.name: p.read_bytes() for p in (self.root / "pki").iterdir()}
         real = pki_renew.atomic_write

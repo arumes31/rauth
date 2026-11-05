@@ -31,9 +31,6 @@ STOP_ORDER = ("pki", "patroni", "router", "app", "observer", "etcd", "tailscale"
 # Leaf renewal restarts every TLS consumer once, one at a time, leader last.
 RENEW_ORDER = ("etcd", "patroni", "router", "observer")
 HANDSHAKE_LIMIT = 4096
-# A leaf commit older than this is treated as abandoned (agent crash), so a
-# stale marker can never block consumer starts indefinitely.
-COMMIT_MARKER_MAX_AGE = 600
 NAME = re.compile(r"rauth-[a-z0-9][a-z0-9-]{0,80}\Z")
 SHA = re.compile(r"[0-9a-f]{64}\Z")
 STOP = threading.Event()
@@ -889,7 +886,7 @@ class Supervisor:
                 if info["State"]["Running"]:
                     self.event(kind, "running")
                     continue
-                if kind in RENEW_ORDER and self.renewal_committing():
+                if kind in RENEW_ORDER + ("app",) and self.renewal_committing():
                     # Files are being rewritten in place; the renewal handshake
                     # restarts consumers once the commit is complete.
                     self.event(kind, "start_deferred_for_leaf_commit")
@@ -991,7 +988,11 @@ class Supervisor:
         return value
 
     def renewal_committing(self):
-        """True while the agent rewrites leaves (fresh root-owned marker)."""
+        """True while a leaf commit is unsettled (root-owned marker present).
+
+        There is no age limit: an abandoned commit may have left partial
+        files, so consumers stay stopped until the agent restores them.
+        """
         if "pki_renewal" not in self.config:
             return False
         try:
@@ -1002,10 +1003,8 @@ class Supervisor:
         except FileNotFoundError:
             return False
         except OSError:
-            return True  # unreadable state: fail closed, the age limit still applies below
-        if not stat.S_ISREG(st.st_mode) or st.st_uid != 0:
-            return False
-        return time.time() - st.st_mtime < COMMIT_MARKER_MAX_AGE
+            return True  # unreadable state: fail closed
+        return stat.S_ISREG(st.st_mode) and st.st_uid == 0
 
     def finish_renewal(self, generation, result):
         fd = os.open(

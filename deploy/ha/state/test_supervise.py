@@ -259,10 +259,11 @@ class ModelTests(unittest.TestCase):
         actor.tick()
         starts = [c for c in docker.calls if c[0] == "start"]
         self.assertNotIn(("start", "container-patroni"), starts)
-        self.assertIn(("start", "container-app"), starts)  # not a leaf consumer
+        self.assertNotIn(("start", "container-app"), starts)  # identity is committed in place too
         actor.renewal_committing = lambda: False
         actor.tick()
         self.assertIn(("start", "container-patroni"), docker.calls)
+        self.assertIn(("start", "container-app"), docker.calls)
 
     def test_local_role_failure_restarts_only_that_role(self):
         _, ram, _, docker, _, actor = fixture()
