@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"rauth/internal/authstate"
 )
 
@@ -168,7 +169,26 @@ func InitAuthenticationState(cfg *Config) error {
 // normal startup side effect. The deployment must first stop every old writer,
 // back up the database, and keep it stopped until the fleet starts in SQL mode.
 // Repeating a committed cutover never expires new SQL sessions again.
+// CommitSQLAuthenticationCutover is idempotent. Concurrent runs can abort one
+// another with a deadlock or serialization failure (key initialization reads
+// the session tables that the cutover truncates); an aborted attempt rolls
+// back completely, so it is retried until every caller sees the same marker.
 func CommitSQLAuthenticationCutover(ctx context.Context, cfg *Config) (time.Time, error) {
+	for attempt := 0; ; attempt++ {
+		readyAfter, err := commitSQLAuthenticationCutover(ctx, cfg)
+		var pgErr *pgconn.PgError
+		if err == nil || attempt == 4 || !errors.As(err, &pgErr) || (pgErr.Code != "40P01" && pgErr.Code != "40001") {
+			return readyAfter, err
+		}
+		select {
+		case <-ctx.Done():
+			return time.Time{}, ctx.Err()
+		case <-time.After(time.Duration(attempt+1) * 50 * time.Millisecond):
+		}
+	}
+}
+
+func commitSQLAuthenticationCutover(ctx context.Context, cfg *Config) (time.Time, error) {
 	mode, err := configuredAuthStateMode(cfg)
 	if err != nil {
 		return time.Time{}, err
