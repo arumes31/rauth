@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Small local WAL fixture archive; not an off-host disaster backup."""
+"""Local WAL archive. backup.py prunes it behind verified base backups."""
 
 import hashlib
 import os
@@ -11,7 +11,12 @@ import uuid
 NAME = re.compile(
     r"(?:[0-9A-F]{24}(?:\.[0-9A-F]{8}\.backup|\.partial)?|[0-9A-F]{8}\.history)\Z"
 )
-LIMIT = 512 * 1024**2
+# Hard ceiling for loose archived WAL (base backups live in base/ and are
+# bounded by their own retention). Archiving also stops before the filesystem
+# drops below FREE_FLOOR. Refused WAL stays in pg_wal on the same filesystem
+# and can still fill it, so free space and backup age must be monitored.
+LIMIT = 64 * 1024**3
+FREE_FLOOR = 8 * 1024**3
 
 
 def digest(fd):
@@ -55,9 +60,10 @@ def archive(source, name, directory="/var/lib/rauth-archive"):
             if entry.is_file(follow_symlinks=False)
         )
         if used + st.st_size > LIMIT:
-            raise ValueError(
-                "Fixture archive budget exhausted; take and verify a backup"
-            )
+            raise ValueError("Archive budget exhausted; take and verify a backup")
+        fs = os.statvfs(target)
+        if fs.f_bavail * fs.f_frsize - st.st_size < FREE_FLOOR:
+            raise ValueError("Archive free-space floor reached")
         temporary = ".pending-" + uuid.uuid4().hex
         out = os.open(
             temporary,

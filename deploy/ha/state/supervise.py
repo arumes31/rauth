@@ -120,7 +120,8 @@ def absolute(value):
 
 def validate(config):
     keys = ("schema", "storage", "service_ip", "launcher_file", "launcher_sha256", "roles")
-    exact(config, keys + (("pki_renewal",) if "pki_renewal" in config else ()))
+    optional = tuple(k for k in ("pki_renewal", "backup") if k in config)
+    exact(config, keys + optional)
     if type(config["schema"]) is not int or config["schema"] != 2:
         raise Fault("invalid_configuration_schema")
     s = config["storage"]
@@ -174,6 +175,15 @@ def validate(config):
     program = absolute(config["launcher_file"])
     if not program.is_relative_to(root) or not SHA.fullmatch(config["launcher_sha256"]):
         raise Fault("invalid_launcher_pin")
+    if "backup" in config:
+        exact(config["backup"], ("interval_hours", "keep"))
+        if (
+            type(config["backup"]["interval_hours"]) is not int
+            or not 1 <= config["backup"]["interval_hours"] <= 168
+            or type(config["backup"]["keep"]) is not int
+            or not 1 <= config["backup"]["keep"] <= 30
+        ):
+            raise Fault("invalid_backup_schedule")
     if "pki_renewal" in config:
         exact(config["pki_renewal"], ("directory",))
         if not absolute(config["pki_renewal"]["directory"]).is_relative_to(root):
@@ -403,6 +413,52 @@ def atomic(parent, name, body, mode=0o444, owner=(0, 0)):
             pass
 
 
+class Drained:
+    """A child process whose stdout is drained concurrently into a bounded buffer.
+
+    The pipe never fills, so a child that prints more than the pipe buffer
+    still exits and is not mistaken for a hung backup. Bytes past LIMIT are
+    read and discarded.
+    """
+
+    def __init__(self, process):
+        self.process = process
+        self.buffer = bytearray()
+        self.reader = threading.Thread(target=self.drain, daemon=True)
+        self.reader.start()
+
+    def drain(self):
+        stream = self.process.stdout
+        try:
+            while chunk := stream.read(8192):
+                room = LIMIT - len(self.buffer)
+                if room > 0:
+                    self.buffer += chunk[:room]
+        except (OSError, ValueError):
+            pass
+        finally:
+            with contextlib.suppress(OSError, ValueError):
+                stream.close()
+
+    @property
+    def returncode(self):
+        return self.process.returncode
+
+    def poll(self):
+        return self.process.poll()
+
+    def kill(self):
+        self.process.kill()
+
+    def wait(self, timeout=None):
+        return self.process.wait(timeout)
+
+    def output(self):
+        """Captured stdout; call after the process has exited."""
+        self.reader.join(5)
+        return bytes(self.buffer)
+
+
 class Docker:
     def call(self, args, timeout=15, data=None):
         try:
@@ -426,6 +482,22 @@ class Docker:
 
     def start(self, ident):
         self.call(["start", ident], 30)
+
+    def spawn_backup(self, ident, keep):
+        """Start the in-container base backup without blocking supervision."""
+        try:
+            return Drained(
+                subprocess.Popen(
+                    [
+                        "/usr/bin/docker", "exec", ident, "/opt/patroni/bin/python",
+                        "/usr/local/lib/rauth/backup.py", "--keep", str(keep),
+                    ],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                )
+            )
+        except OSError:
+            raise Fault("docker_operation_unavailable") from None
 
     def patroni(self, ident, probe, *args):
         """Run a fixed probe with the container's own TLS identity."""
@@ -712,6 +784,10 @@ class Supervisor:
         self.config, self.docker, self.storage = config, docker or Docker(), storage
         self.ram, self.now = ram or RAM(config), now
         self.wait = wait or STOP.wait
+        self.backup_process, self.backup_started = None, None
+        # Stagger the first backup per node so nodes do not start together.
+        stagger = int(hashlib.sha256(config["storage"]["node"].encode()).hexdigest(), 16) % 3600
+        self.backup_due = self.now() + 600 + stagger
         self.roles = sorted(config["roles"], key=lambda r: ROLES.index(r["role"]))
         self.known, self.attempts, self.events = {}, {}, {}
 
@@ -1063,6 +1139,41 @@ class Supervisor:
         self.finish_renewal(request["generation"], result)
         self.event("pki", "renewal_" + result)
 
+    # ------------------------------------------------------------ base backups
+
+    def backup(self):
+        """Schedule verified base backups and WAL retention inside Patroni."""
+        spec = self.config.get("backup")
+        if not spec:
+            return
+        process = self.backup_process
+        if process is not None:
+            if process.poll() is None:
+                if self.now() - self.backup_started > 4 * 3600:
+                    process.kill()
+                    process.wait()
+                    self.backup_process = None
+                    self.event("backup", "timed_out")
+                return
+            output = process.output()
+            self.backup_process = None
+            try:
+                ok = process.returncode == 0 and document(output.strip()).get("backup") not in (None, "failed")
+            except (Fault, ValueError, AttributeError):
+                ok = False
+            self.event("backup", "completed" if ok else "failed")
+            return
+        if self.now() < self.backup_due:
+            return
+        info = self.known.get("patroni")
+        if info is None or not info["State"]["Running"] or not self.cluster_healthy():
+            self.backup_due = self.now() + 300
+            return
+        self.backup_process = self.docker.spawn_backup(info["Id"], spec["keep"])
+        self.backup_started = self.now()
+        self.backup_due = self.now() + spec["interval_hours"] * 3600
+        self.event("backup", "started")
+
     def run(self, once=False):
         try:
             while not STOP.is_set():
@@ -1070,6 +1181,7 @@ class Supervisor:
                     self.tick()
                     if not once:
                         self.renewal()
+                        self.backup()
                 except StorageFault:
                     self.event("supervisor", "expected_storage_unavailable")
                     self.stop()
@@ -1091,6 +1203,10 @@ class Supervisor:
                     return
                 STOP.wait(5)
         finally:
+            if self.backup_process is not None and self.backup_process.poll() is None:
+                self.backup_process.kill()
+                with contextlib.suppress(subprocess.TimeoutExpired):
+                    self.backup_process.wait(10)
             if not once:
                 self.stop()
             self.ram.close()
