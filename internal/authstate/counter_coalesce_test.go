@@ -20,11 +20,16 @@ type fakeCounter struct {
 	// gate, when set, holds the first statement until it is closed.
 	gate chan struct{}
 	cap  int64
+	// first is the batch size of the first statement (set before it blocks).
+	first atomic.Int64
 }
 
 func (f *fakeCounter) add(_ context.Context, h []byte, _ time.Duration, n int64) (int64, error) {
-	if f.calls.Add(1) == 1 && f.gate != nil {
-		<-f.gate
+	if f.calls.Add(1) == 1 {
+		f.first.Store(n)
+		if f.gate != nil {
+			<-f.gate
+		}
 	}
 	time.Sleep(f.delay)
 	if f.err != nil {
@@ -63,8 +68,9 @@ func TestCounterCoalescerBurstKeepsExactDistinctCounts(t *testing.T) {
 	var co counterCoalescer
 	f := &fakeCounter{gate: make(chan struct{})}
 	go func() {
-		// Release the first statement only after every other caller has
-		// joined the one open batch behind it.
+		// Release the first statement only after every caller is accounted
+		// for: in the blocked first statement or in the one open batch behind
+		// it (the first statement may already hold several callers).
 		for {
 			co.mu.Lock()
 			joined := int64(0)
@@ -72,7 +78,7 @@ func TestCounterCoalescerBurstKeepsExactDistinctCounts(t *testing.T) {
 				joined = b.n
 			}
 			co.mu.Unlock()
-			if joined == 199 {
+			if first := f.first.Load(); first > 0 && first+joined == 200 {
 				close(f.gate)
 				return
 			}
@@ -90,7 +96,7 @@ func TestCounterCoalescerBurstKeepsExactDistinctCounts(t *testing.T) {
 		t.Fatalf("stored total %d, want 200", f.rows["ip"])
 	}
 	if c := f.calls.Load(); c != 2 {
-		t.Fatalf("burst used %d statements; want 2 (first caller, then one batch of 199)", c)
+		t.Fatalf("burst used %d statements; want 2 (the first statement, then one batch)", c)
 	}
 	// Callers return as soon as their batch is done; the flush loop drops its
 	// bookkeeping a moment later, so wait for that under the lock.
