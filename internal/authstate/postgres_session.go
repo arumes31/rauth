@@ -23,8 +23,9 @@ const maxSessionPayload = 32768
 // PostgresSessions is not a Redis fallback. Select one authority for the whole
 // fleet only after all security-state adapters support the coordinated cutover.
 type PostgresSessions struct {
-	pool *pgxpool.Pool
-	keys *Keyring
+	pool     *pgxpool.Pool
+	keys     *Keyring
+	counters counterCoalescer
 }
 
 var _ SessionStore = (*PostgresSessions)(nil)
