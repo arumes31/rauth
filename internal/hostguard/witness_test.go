@@ -75,6 +75,10 @@ func TestPKIRoleRequiresWritablePKIAndState(t *testing.T) {
 	require.NoError(t, err)
 	_, err = Decode(witness(target("/pki", false), target("/var/lib/rauth-pki", true)), testUUID, "pki")
 	require.ErrorIs(t, err, ErrGuard)
+	_, err = Decode(witness(target("/pki", true), target("/var/lib/rauth-pki", false)), testUUID, "pki")
+	require.ErrorIs(t, err, ErrGuard)
+	_, err = Decode(witness(target("/pki", true), target("/var/lib/rauth-pki", true), target("/authority", true)), testUUID, "pki")
+	require.ErrorIs(t, err, ErrGuard)
 	_, err = Decode(witness(target("/pki", true)), testUUID, "pki")
 	require.ErrorIs(t, err, ErrGuard)
 }

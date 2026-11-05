@@ -12,10 +12,10 @@ try:
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import ec
     from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
-
-    import pki_renew
-except ImportError:  # pragma: no cover - CI installs the hash-locked test deps
+except ImportError:  # pragma: no cover - cryptography is absent outside the hash-locked CI deps
     pki_renew = None
+else:
+    import pki_renew
 
 SCOPE = "rauth-test-state-20261102"
 NODES = {"hodus": "100.72.210.48", "nl": "100.124.226.67", "pi3": "100.84.64.76"}
@@ -243,6 +243,59 @@ class AgentTests(unittest.TestCase):
         with self.assertRaises(pki_renew.Refused):
             self.agent().renew()
         self.assertEqual(before, {p.name: p.read_bytes() for p in (self.root / "pki").iterdir()})
+        self.assertIsNone(self.state.load()["lease"])
+        self.assertIsNone(self.state.load()["blocked"])
+
+    def test_commit_failure_restores_originals_and_reports_failed(self):
+        before = {p.name: p.read_bytes() for p in (self.root / "pki").iterdir()}
+        real = pki_renew.rewrite_in_place
+        calls = []
+
+        def flaky(path, body):
+            calls.append(path)
+            if len(calls) == 3:
+                raise OSError("disk full")
+            real(path, body)
+
+        pki_renew.rewrite_in_place = flaky
+        try:
+            with self.assertRaises(OSError):
+                self.agent().renew()
+        finally:
+            pki_renew.rewrite_in_place = real
+        self.assertEqual(before, {p.name: p.read_bytes() for p in (self.root / "pki").iterdir()})
+        self.assertFalse((self.root / "state" / "restart-request.json").exists())
+        self.assertEqual(self.state.load()["blocked"]["node"], "nl")
+
+    def test_restart_request_failure_restores_originals(self):
+        before = {p.name: p.read_bytes() for p in (self.root / "pki").iterdir()}
+        real = pki_renew.atomic_write
+
+        def no_request(path, body, mode=0o600):
+            if Path(path).name == "restart-request.json":
+                raise OSError("read-only state")
+            real(path, body, mode)
+
+        pki_renew.atomic_write = no_request
+        try:
+            with self.assertRaises(OSError):
+                self.agent().renew()
+        finally:
+            pki_renew.atomic_write = real
+        self.assertEqual(before, {p.name: p.read_bytes() for p in (self.root / "pki").iterdir()})
+        self.assertEqual(self.state.load()["blocked"]["node"], "nl")
+
+    def test_colliding_backup_names_are_refused_before_the_lease(self):
+        p = str(self.root / "pki")
+        (self.root / "pki" / "a").mkdir()
+        (self.root / "pki" / "a" / "b.crt").write_bytes((self.root / "pki" / "observer.crt").read_bytes())
+        (self.root / "pki" / "a_b.crt").write_bytes((self.root / "pki" / "observer.crt").read_bytes())
+        self.cfg["copies"] = [
+            {"from": "patroni/rest-client", "cert": p + "/a/b.crt", "key": p + "/observer.key"},
+            {"from": "patroni/rest-client", "cert": p + "/a_b.crt", "key": p + "/observer.key"},
+        ]
+        with self.assertRaises(pki_renew.Refused):
+            self.agent().renew()
         self.assertIsNone(self.state.load()["lease"])
         self.assertIsNone(self.state.load()["blocked"])
 

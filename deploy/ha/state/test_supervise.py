@@ -584,6 +584,31 @@ class RenewalRoleGroupTests(RenewalTests):
         self.actor.renewal()
         self.assertEqual(self.written, [(3, "failed")])
         self.assertFalse([c for c in self.docker.calls if c[0] == "stop"])
+
+    def test_non_string_role_entry_is_rejected(self):
+        self.files = {"restart-request.json": {"generation": 4, "roles": [{}]}}
+        self.docker.calls.clear()
+        self.actor.renewal()
+        self.assertEqual(self.written, [(4, "failed")])
+        self.assertFalse([c for c in self.docker.calls if c[0] == "stop"])
+
+    def test_configured_role_with_unusable_metadata_waits(self):
+        self.files = {"restart-request.json": {"generation": 6, "roles": ["app"]}}
+        self.actor.available.discard("app")
+        self.docker.calls.clear()
+        self.actor.renewal()
+        self.assertEqual(self.written, [])
+        self.assertFalse([c for c in self.docker.calls if c[0] == "stop"])
+
+    def test_missing_patroni_metadata_does_not_skip_the_health_gate(self):
+        self.actor.available.discard("patroni")
+        self.roles = {"state-a": "replica", "b": "leader"}
+        self.docker.calls.clear()
+        self.actor.renewal()
+        self.assertEqual(self.written, [])
+        self.assertFalse([c for c in self.docker.calls if c[0] == "stop"])
+
+
 class BackupScheduleTests(unittest.TestCase):
     def setUp(self):
         self.cfg, self.ram, self.storage, self.docker, self.clock, _ = fixture()
