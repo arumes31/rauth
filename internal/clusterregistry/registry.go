@@ -131,16 +131,15 @@ func (r *Reader) Authorize(parent context.Context, peer clustertransport.Peer, s
 	}
 	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
 	defer cancel()
-	tx, err := begin(ctx, r.pool)
-	if err != nil {
-		return err
-	}
-	defer rollback(tx)
-	var allowed bool
-	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM cluster_nodes
- WHERE cluster_id=$1 AND node_id=$2 AND enabled AND expires_at>clock_timestamp()
- AND service_ip=$3::inet AND $4::bytea=ANY(spki_pins) AND $5::text=ANY(scopes))`, r.cluster, peer.NodeID, peer.ServiceIP.String(), peer.SPKI[:], string(scope)).Scan(&allowed)
-	if err != nil {
+	// One statement, one snapshot: the writable-authority check and the
+	// enrollment lookup run together in a single round trip. Exec mode skips
+	// the separate describe round trip on cold WAN connections.
+	var primary, allowed bool
+	err := r.pool.QueryRow(ctx, `SELECT NOT pg_is_in_recovery() AND current_setting('transaction_read_only')='off',
+ EXISTS(SELECT 1 FROM cluster_nodes
+ WHERE cluster_id=$1::uuid AND node_id=$2::uuid AND enabled AND expires_at>clock_timestamp()
+ AND service_ip=$3::inet AND $4::bytea=ANY(spki_pins) AND $5::text=ANY(scopes))`, pgx.QueryExecModeExec, r.cluster, peer.NodeID, peer.ServiceIP.String(), peer.SPKI[:], string(scope)).Scan(&primary, &allowed)
+	if err != nil || !primary {
 		return clustertransport.ErrUnavailable
 	}
 	if !allowed {
