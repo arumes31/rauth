@@ -193,6 +193,12 @@ Physical leaves live 90 days and renew automatically when 30 days or fewer remai
 
 Host-guard role `pki` requires writable `/pki` (node PKI) and `/var/lib/rauth-pki` (handshake and backups). The master additionally mounts the authority read-only. The leaf's EKU decides where it is accepted, so renewal never weakens purpose separation.
 
+## Automatic failback to the preferred node
+
+With `"failback": {"hold_seconds": 600}` in its supervisor config, the preferred node (hodus) takes leadership back after a failover. It acts only after the cluster has shown three members, one running leader and every replica streaming at zero lag, for the whole hold period. It also waits while a leaf renewal or base backup is in progress.
+
+Strict synchronous mode accepts only the current sync standby as a switchover candidate. When the preferred node is an asynchronous replica, the supervisor therefore sets `synchronous_node_count` to 2, waits until the node is a sync standby at zero lag, and then switches over. It always sets the count back to 1 and keeps retrying that until it succeeds, because two required standbys would stop writes if one of them failed. A failed or unconfirmed attempt backs off for 15 minutes. A switchover costs about 13 to 16 seconds of write downtime. Configure `failback` on one node only.
+
 ## Base backups and archived-WAL retention
 
 `backup.py` runs inside each node's Patroni container (UID 999), which already holds the replication credential, the SQL CA and the archive bind. With an optional supervisor config `"backup": {"interval_hours": 6, "keep": 4}`, the host supervisor starts it as a non-blocking `docker exec`. It starts only while the cluster is healthy. A running backup continues when health changes, until it completes, fails or is killed at the four-hour limit. The first run on each node is staggered.

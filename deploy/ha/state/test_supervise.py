@@ -1,5 +1,6 @@
 import contextlib
 import copy
+import json
 import io
 from pathlib import PurePosixPath
 import unittest
@@ -621,6 +622,128 @@ class RenewalRoleGroupTests(RenewalTests):
         self.actor.renewal()
         self.assertEqual(self.written, [])
         self.assertFalse([c for c in self.docker.calls if c[0] == "stop"])
+
+
+class FailbackTests(unittest.TestCase):
+    def setUp(self):
+        self.cfg, self.ram, self.storage, self.docker, self.clock, _ = fixture()
+        self.cfg["failback"] = {"hold_seconds": 600}
+        self.actor = supervise.Supervisor(
+            self.cfg, docker=self.docker, storage=self.storage, ram=self.ram,
+            now=lambda: self.clock[0], wait=lambda _s: None,
+        )
+        self.actor.tick()
+        self.roles = {"state-a": "replica", "b": "leader", "c": "sync_standby"}
+        self.rest, self.count, self.promote = [], 1, True
+
+        def patroni(ident, probe, *args):
+            if probe is supervise.REST_PROBE:
+                method, path, body = args
+                self.rest.append((method, path, json.loads(body)))
+                if path == "/config":
+                    self.count = json.loads(body)["synchronous_node_count"]
+                    if self.count == 2:
+                        self.roles["state-a"] = "sync_standby"
+                    return {"status": 200}
+                if self.promote:
+                    old = json.loads(body)["leader"]
+                    self.roles[old], self.roles["state-a"] = "sync_standby", "leader"
+                return {"status": 503}
+            members = [
+                {"name": n, "role": r, "state": "running" if r == "leader" else "streaming", "lag": None if r == "leader" else 0}
+                for n, r in self.roles.items()
+            ]
+            return {"self": "state-a", "members": members}
+
+        self.docker.patroni = patroni
+
+    def test_config_validation(self):
+        supervise.validate(self.cfg)
+        for bad in (59, 86401, "600", True):
+            cfg = copy.deepcopy(self.cfg)
+            cfg["failback"]["hold_seconds"] = bad
+            with self.assertRaises(supervise.Fault):
+                supervise.validate(cfg)
+
+    def test_fails_back_after_hold_and_restores_one_sync_standby(self):
+        self.actor.failback()
+        self.assertEqual(self.rest, [])  # hold starts
+        self.clock[0] += 300
+        self.actor.failback()
+        self.assertEqual(self.rest, [])  # still holding
+        self.clock[0] += 301
+        self.actor.failback()
+        self.assertEqual(
+            self.rest,
+            [
+                ("PATCH", "/config", {"synchronous_node_count": 2}),
+                ("POST", "/switchover", {"leader": "b", "candidate": "state-a"}),
+                ("PATCH", "/config", {"synchronous_node_count": 1}),
+            ],
+        )
+        self.assertEqual(self.roles["state-a"], "leader")
+        self.assertEqual(self.count, 1)
+
+    def test_sync_standby_switches_over_without_config_change(self):
+        self.roles = {"state-a": "sync_standby", "b": "leader", "c": "replica"}
+        self.actor.failback()
+        self.clock[0] += 601
+        self.actor.failback()
+        self.assertEqual(self.rest, [("POST", "/switchover", {"leader": "b", "candidate": "state-a"})])
+
+    def test_leader_or_unhealthy_cluster_does_nothing(self):
+        self.roles = {"state-a": "leader", "b": "sync_standby", "c": "replica"}
+        self.actor.failback()
+        self.clock[0] += 601
+        self.actor.failback()
+        self.roles = {"state-a": "replica", "b": "leader"}  # two members only
+        self.actor.failback()
+        self.clock[0] += 601
+        self.actor.failback()
+        self.assertEqual(self.rest, [])
+
+    def test_unhealthy_interval_resets_the_hold(self):
+        self.actor.failback()
+        self.clock[0] += 500
+        self.roles["c"] = "replica"
+        members = self.roles
+        self.roles = {"state-a": "replica", "b": "leader"}
+        self.actor.failback()  # unhealthy: hold reset
+        self.roles = members
+        self.actor.failback()  # hold restarts here
+        self.clock[0] += 200
+        self.actor.failback()
+        self.assertEqual(self.rest, [])
+
+    def test_unconfirmed_switchover_still_restores_sync_count_and_backs_off(self):
+        self.promote = False
+        self.actor.failback()
+        self.clock[0] += 601
+        self.actor.failback()
+        self.assertEqual(self.rest[-1], ("PATCH", "/config", {"synchronous_node_count": 1}))
+        self.assertEqual(self.count, 1)
+        calls = len(self.rest)
+        self.clock[0] += 601
+        self.actor.failback()
+        self.assertEqual(len(self.rest), calls)  # retry waits for the back-off
+
+    def test_failed_restore_is_retried_before_anything_else(self):
+        self.actor.failback()
+        self.clock[0] += 601
+        real = self.docker.patroni
+
+        def refuse_restore(ident, probe, *args):
+            if probe is supervise.REST_PROBE and args[1] == "/config" and json.loads(args[2])["synchronous_node_count"] == 1:
+                return {"status": 500}
+            return real(ident, probe, *args)
+
+        self.docker.patroni = refuse_restore
+        self.actor.failback()
+        self.assertTrue(self.actor.failback_restore)
+        self.docker.patroni = real
+        self.actor.failback()
+        self.assertFalse(self.actor.failback_restore)
+        self.assertEqual(self.count, 1)
 
 
 class BackupScheduleTests(unittest.TestCase):

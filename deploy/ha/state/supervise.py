@@ -74,6 +74,31 @@ print(json.dumps({'status': status}))
 """
 
 
+REST_PROBE = """
+import base64, json, ssl, sys, urllib.error, urllib.request
+method, path, body = sys.argv[1:4]
+with open('/etc/rauth/patroni.json') as f:
+    cfg = json.load(f)
+with open('/etc/rauth-secrets/patroni-auth.json') as f:
+    secret = json.load(f)['rest']
+ip = cfg['restapi']['connect_address'].split(':')[0]
+c = ssl.create_default_context(cafile='/etc/rauth-pki/rest-ca.crt')
+c.minimum_version = ssl.TLSVersion.TLSv1_3
+c.load_cert_chain('/etc/rauth-pki/rest-client.crt', '/etc/rauth-pki/rest-client.key')
+c.check_hostname = False
+auth = base64.b64encode(('rauth_operator:' + secret).encode()).decode()
+req = urllib.request.Request('https://%s:8008%s' % (ip, path), method=method, data=body.encode(),
+    headers={'Content-Type': 'application/json', 'Authorization': 'Basic ' + auth})
+try:
+    with urllib.request.urlopen(req, context=c, timeout=45) as r:
+        status = r.status
+except urllib.error.HTTPError as e:
+    status = e.code
+print(json.dumps({'status': status}))
+"""
+FAILBACK_RETRY = 900
+
+
 class Fault(RuntimeError):
     """Static operator reason; never carry Docker output, URLs or credentials."""
 
@@ -120,7 +145,7 @@ def absolute(value):
 
 def validate(config):
     keys = ("schema", "storage", "service_ip", "launcher_file", "launcher_sha256", "roles")
-    optional = tuple(k for k in ("pki_renewal", "backup") if k in config)
+    optional = tuple(k for k in ("pki_renewal", "backup", "failback") if k in config)
     exact(config, keys + optional)
     if type(config["schema"]) is not int or config["schema"] != 2:
         raise Fault("invalid_configuration_schema")
@@ -184,6 +209,11 @@ def validate(config):
             or not 1 <= config["backup"]["keep"] <= 30
         ):
             raise Fault("invalid_backup_schedule")
+    if "failback" in config:
+        exact(config["failback"], ("hold_seconds",))
+        hold = config["failback"]["hold_seconds"]
+        if type(hold) is not int or not 60 <= hold <= 86400:
+            raise Fault("invalid_failback_hold")
     if "pki_renewal" in config:
         exact(config["pki_renewal"], ("directory",))
         if not absolute(config["pki_renewal"]["directory"]).is_relative_to(root):
@@ -790,6 +820,8 @@ class Supervisor:
         self.backup_due = self.now() + 600 + stagger
         self.roles = sorted(config["roles"], key=lambda r: ROLES.index(r["role"]))
         self.known, self.attempts, self.events = {}, {}, {}
+        self.failback_since, self.failback_next = None, 0.0
+        self.failback_restore = False
 
     def event(self, role, state):
         if self.events.get(role) != state:
@@ -1174,6 +1206,103 @@ class Supervisor:
         self.backup_due = self.now() + spec["interval_hours"] * 3600
         self.event("backup", "started")
 
+    # ------------------------------------------------------------ failback
+
+    def rest(self, method, path, body, accept=(200,)):
+        info = self.known.get("patroni")
+        if info is None or not info["State"]["Running"]:
+            raise Fault("patroni_unavailable")
+        status = self.docker.patroni(info["Id"], REST_PROBE, method, path, json.dumps(body))["status"]
+        if status not in accept:
+            raise Fault("patroni_rest_refused")
+        return status
+
+    def renewal_busy(self):
+        if "pki_renewal" not in self.config:
+            return False
+        if self.renewal_committing():
+            return True
+        try:
+            request = self.handshake("restart-request.json")
+            done = self.handshake("restart-done.json")
+        except Fault:
+            return True
+        return request is not None and (done is None or done["generation"] != request["generation"])
+
+    def restore_sync_count(self):
+        try:
+            self.rest("PATCH", "/config", {"synchronous_node_count": 1})
+            self.failback_restore = False
+        except Fault:
+            # Two required standbys would stop writes if one fails: keep retrying.
+            self.failback_restore = True
+            self.event("patroni", "failback_sync_count_restore_pending")
+
+    def failback(self):
+        """Move leadership back to this preferred node once it is safe.
+
+        Strict synchronous mode only accepts the current sync standby as a
+        switchover candidate, so the node first asks for two sync standbys,
+        switches over once it is one of them, and always restores one.
+        """
+        spec = self.config.get("failback")
+        if not spec:
+            return
+        if self.failback_restore:
+            self.restore_sync_count()
+            return
+        now = self.now()
+        try:
+            me, members = self.cluster()
+        except (Fault, ValueError, KeyError, TypeError):
+            self.failback_since = None
+            return
+        if any(m["name"] == me and m["role"] == "leader" for m in members) or not self.healthy(members):
+            self.failback_since = None
+            return
+        if self.failback_since is None:
+            self.failback_since = now
+            self.event("patroni", "failback_holding")
+            return
+        if now - self.failback_since < spec["hold_seconds"] or now < self.failback_next:
+            return
+        if self.renewal_busy() or (self.backup_process is not None and self.backup_process.poll() is None):
+            return
+        self.failback_next, self.failback_since = now + FAILBACK_RETRY, None
+        leader = next(m["name"] for m in members if m["role"] == "leader")
+        raised = False
+        try:
+            if not any(m["name"] == me and m["role"] == "sync_standby" for m in members):
+                self.rest("PATCH", "/config", {"synchronous_node_count": 2})
+                raised = True
+                for _ in range(20):
+                    self.wait(3)
+                    try:
+                        members = self.cluster()[1]
+                    except (Fault, ValueError, KeyError, TypeError):
+                        continue
+                    if any(m["name"] == me and m["role"] == "sync_standby" and m.get("lag") == 0 for m in members):
+                        break
+                else:
+                    raise Fault("failback_sync_not_reached")
+            # 503 means Patroni could not confirm in time; the outcome is polled.
+            self.rest("POST", "/switchover", {"leader": leader, "candidate": me}, accept=(200, 503))
+            for _ in range(30):
+                self.wait(4)
+                try:
+                    me, members = self.cluster()
+                except (Fault, ValueError, KeyError, TypeError):
+                    continue
+                if any(m["name"] == me and m["role"] == "leader" for m in members) and self.healthy(members):
+                    self.event("patroni", "failback_completed")
+                    return
+            raise Fault("failback_not_confirmed")
+        except Fault:
+            self.event("patroni", "failback_failed")
+        finally:
+            if raised:
+                self.restore_sync_count()
+
     def run(self, once=False):
         try:
             while not STOP.is_set():
@@ -1182,6 +1311,7 @@ class Supervisor:
                     if not once:
                         self.renewal()
                         self.backup()
+                        self.failback()
                 except StorageFault:
                     self.event("supervisor", "expected_storage_unavailable")
                     self.stop()
