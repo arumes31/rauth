@@ -1294,16 +1294,17 @@ class Supervisor:
             if not any(m["name"] == me and m["role"] == "sync_standby" for m in members):
                 self.rest("PATCH", "/config", {"synchronous_node_count": 2})
                 raised = True
-                for _ in range(20):
-                    self.wait(3)
-                    try:
-                        members = self.cluster()[1]
-                    except (Fault, ValueError, KeyError, TypeError):
-                        continue
-                    if any(m["name"] == me and m["role"] == "sync_standby" and m.get("lag") == 0 for m in members):
-                        break
-                else:
+            # Both paths: switch over only as a zero-lag sync standby.
+            for attempt in range(21):
+                if any(m["name"] == me and m["role"] == "sync_standby" and m.get("lag") == 0 for m in members):
+                    break
+                if attempt == 20:
                     raise Fault("failback_sync_not_reached")
+                self.wait(3)
+                try:
+                    members = self.cluster()[1]
+                except (Fault, ValueError, KeyError, TypeError):
+                    continue
             # 503 means Patroni could not confirm in time; the outcome is polled.
             self.rest("POST", "/switchover", {"leader": leader, "candidate": me}, accept=(200, 503))
             for _ in range(30):
