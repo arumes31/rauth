@@ -51,10 +51,13 @@ func (c *PostgresCounters) add(ctx context.Context, h []byte, ttl time.Duration,
 	defer cancel()
 	var count int64
 	err := c.s.pool.QueryRow(ctx, `INSERT INTO auth_security_counters(key_hash,count,expires_at) VALUES($1,$3,clock_timestamp()+make_interval(secs=>$2))
-  ON CONFLICT(key_hash) DO UPDATE SET count=CASE WHEN auth_security_counters.expires_at<=clock_timestamp() THEN $3 ELSE LEAST(auth_security_counters.count+$3,1000000000) END,
-  expires_at=CASE WHEN auth_security_counters.expires_at<=clock_timestamp() THEN EXCLUDED.expires_at ELSE auth_security_counters.expires_at END RETURNING count`, h, ttl.Seconds(), n).Scan(&count)
+  ON CONFLICT(key_hash) DO UPDATE SET count=CASE WHEN auth_security_counters.expires_at<=clock_timestamp() THEN $3 ELSE LEAST(auth_security_counters.count+$3,$4) END,
+  expires_at=CASE WHEN auth_security_counters.expires_at<=clock_timestamp() THEN EXCLUDED.expires_at ELSE auth_security_counters.expires_at END RETURNING count`, h, ttl.Seconds(), n, int64(counterCap)).Scan(&count)
 	return count, err
 }
+
+// counterCap is where stored counts saturate.
+const counterCap = 1_000_000_000
 
 type counterAdd func(context.Context, []byte, time.Duration, int64) (int64, error)
 
@@ -74,6 +77,9 @@ type counterCoalescer struct {
 	mu   sync.Mutex
 	open map[string]*counterBatch
 	busy map[string]bool
+	// wait bounds how long a caller waits for its batch, including time spent
+	// queued behind an earlier statement (zero means mutationTimeout).
+	wait time.Duration
 }
 
 func (co *counterCoalescer) increment(ctx context.Context, h []byte, ttl time.Duration, add counterAdd) (int64, error) {
@@ -98,11 +104,23 @@ func (co *counterCoalescer) increment(ctx context.Context, h []byte, ttl time.Du
 	}
 	b.n++
 	position := b.n
+	wait := co.wait
 	co.mu.Unlock()
+	if wait <= 0 {
+		wait = mutationTimeout
+	}
+	// A caller that joins while an earlier statement is stalled must not wait
+	// for that statement's timeout and then its own: one budget, fail closed.
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
 	select {
 	case <-b.done:
 		if b.err != nil {
 			return 0, b.err
+		}
+		if b.count >= counterCap {
+			// Saturated: count-n would invent values below the stored count.
+			return b.count, nil
 		}
 		// The batch moved the counter from count-n to count; this caller is
 		// the position-th of those n increments.
@@ -111,6 +129,8 @@ func (co *counterCoalescer) increment(ctx context.Context, h []byte, ttl time.Du
 		// The increment may still be applied; counting an abandoned attempt
 		// only makes the limiter stricter.
 		return 0, ctx.Err()
+	case <-timer.C:
+		return 0, context.DeadlineExceeded
 	}
 }
 
