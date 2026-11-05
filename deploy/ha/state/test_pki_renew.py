@@ -267,6 +267,23 @@ class AgentTests(unittest.TestCase):
         self.assertFalse((self.root / "state" / "restart-request.json").exists())
         self.assertEqual(self.state.load()["blocked"]["node"], "nl")
 
+    def test_commit_marker_is_held_only_during_the_commit(self):
+        marker = self.root / "state" / "commit-active.json"
+        seen = []
+        real = pki_renew.rewrite_in_place
+
+        def watch(path, body):
+            seen.append(marker.exists())
+            real(path, body)
+
+        pki_renew.rewrite_in_place = watch
+        try:
+            self.assertEqual(self.agent().renew(), "renewed")
+        finally:
+            pki_renew.rewrite_in_place = real
+        self.assertTrue(seen and all(seen))
+        self.assertFalse(marker.exists())
+
     def test_restart_request_failure_restores_originals(self):
         before = {p.name: p.read_bytes() for p in (self.root / "pki").iterdir()}
         real = pki_renew.atomic_write

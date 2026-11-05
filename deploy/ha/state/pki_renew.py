@@ -604,8 +604,12 @@ class Agent:
         generation = int(time.time())
         roles = (["physical"] if physical else []) + (["app"] if identity else [])
         request = json.dumps({"generation": generation, "lease": lease, "roles": roles, "requested_at": self.now().isoformat()}).encode()
+        marker = self.state_dir / "commit-active.json"
         try:
             originals = self.backup(generation)
+            # The supervisor defers consumer starts while this marker is fresh,
+            # so nothing starts against a half-written PEM.
+            atomic_write(marker, json.dumps({"generation": generation}).encode())
             try:
                 self.commit(staged)
                 atomic_write(self.state_dir / "restart-request.json", request)
@@ -614,6 +618,8 @@ class Agent:
                 # that no restart will ever load: put the originals back.
                 self.restore(originals)
                 raise
+            finally:
+                marker.unlink(missing_ok=True)
         except Exception:
             self.client("/v1/done", {"lease": lease, "result": "failed"})
             raise
