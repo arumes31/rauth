@@ -92,7 +92,9 @@ func (h *AdminHandler) StatsHistory(c echo.Context) error {
 }
 func (h *AdminHandler) StatsDiagnostics(c echo.Context) error {
 	c.Response().Header().Set("Cache-Control", "no-store")
-	source, ok := h.statsSource()
+	// Per-node diagnostics need the durable cluster event store. Standalone
+	// servers (LocalStats only) deliberately report them as unavailable.
+	source, ok := h.RequestEvents.(StatsSource)
 	if !ok {
 		return statsError(eventstore.ErrUnavailable)
 	}

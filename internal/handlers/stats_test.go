@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/require"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"rauth/internal/core"
 	"rauth/internal/eventstore"
 	"rauth/internal/hahealth"
@@ -153,4 +155,17 @@ func TestStatsSourcePrefersDurableEventsAndFallsBackToLocal(t *testing.T) {
 
 	_, ok = (&AdminHandler{}).statsSource()
 	require.False(t, ok)
+}
+
+func TestStatsDiagnosticsUnavailableWithoutDurableStore(t *testing.T) {
+	e := echo.New()
+	call := func(h *AdminHandler) error {
+		c := e.NewContext(httptest.NewRequest(http.MethodGet, "/rauthmgmt/stats/diagnostics", nil), httptest.NewRecorder())
+		return h.StatsDiagnostics(c)
+	}
+	// Standalone: LocalStats serves statistics but never per-node diagnostics.
+	var httpErr *echo.HTTPError
+	require.ErrorAs(t, call(&AdminHandler{LocalStats: eventstore.NewLocalStats()}), &httpErr)
+	require.Equal(t, http.StatusServiceUnavailable, httpErr.Code)
+	require.NoError(t, call(&AdminHandler{RequestEvents: &statsFixture{}, LocalStats: eventstore.NewLocalStats()}))
 }

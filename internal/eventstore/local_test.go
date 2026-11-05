@@ -161,3 +161,31 @@ func TestLocalStatsSevenDayStartAndRetention(t *testing.T) {
 		t.Fatalf("retained_since=%v", s.RetainedSince)
 	}
 }
+
+func TestLocalStatsClampsPreEpochAndFutureTimes(t *testing.T) {
+	clock := &localClock{time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)}
+	l := newLocalStats(clock.now)
+	for _, at := range []time.Time{
+		time.Date(1969, 12, 31, 23, 59, 0, 0, time.UTC),
+		time.Date(1900, 1, 1, 0, 0, 0, 0, time.UTC),
+		time.Unix(0, 0),
+		clock.t.Add(48 * time.Hour),
+	} {
+		l.Record(localEvent(at, "blocked", "AT", "https://a.example/", "198.51.100.1", 10))
+	}
+	s, err := l.Statistics(context.Background(), StatsQuery{Range: "5m"})
+	if err != nil || s.Total != 4 {
+		t.Fatalf("total=%d err=%v", s.Total, err)
+	}
+	page, _ := l.Decisions(context.Background(), StatsQuery{Range: "5m"})
+	if len(page) != 4 || !page[0].Time.Equal(clock.t) {
+		t.Fatalf("decisions=%v", page)
+	}
+}
+
+func TestLocalStatsAddIndexIsTotalForPreEpochTimes(t *testing.T) {
+	l := newLocalStats(time.Now)
+	at := time.Date(1969, 12, 31, 23, 0, 0, 0, time.UTC)
+	l.add(l.minutes, at, time.Minute, localCell{"blocked", "AT", 0})
+	l.add(l.halves, at, 30*time.Minute, localCell{"blocked", "AT", 0})
+}

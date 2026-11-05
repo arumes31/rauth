@@ -14,17 +14,16 @@ import (
 // cells cover 24h, half-hour cells cover 7d, and the most recent decisions
 // back rankings, free-form filters and decision history. Record never does I/O.
 type LocalStats struct {
-	mu       sync.Mutex
-	started  time.Time
-	now      func() time.Time
-	minutes  []localBucket
-	halves   []localBucket
-	ring     []requestevent.Event
-	start    int
-	count    int
-	seq      uint64
-	overflow uint64
-	latest   time.Time
+	mu      sync.Mutex
+	started time.Time
+	now     func() time.Time
+	minutes []localBucket
+	halves  []localBucket
+	ring    []requestevent.Event
+	start   int
+	count   int
+	seq     uint64
+	latest  time.Time
 }
 
 const (
@@ -69,8 +68,13 @@ func (l *LocalStats) Record(raw requestevent.Event) {
 		return
 	}
 	e := requestevent.Decision(raw)
-	if e.Time.IsZero() {
-		e.Time = l.now()
+	now := l.now()
+	// Record is fed by the local request middleware, so event times should be
+	// "now". Clamp missing, pre-epoch and implausibly future times to the local
+	// clock: slot indexes assume a positive Unix time, and a far-future record
+	// would otherwise look like the clock stepping back on the next event.
+	if e.Time.Unix() <= 0 || e.Time.After(now.Add(localClockStep)) {
+		e.Time = now
 	}
 	e.Time = e.Time.UTC()
 	switch e.Action {
@@ -125,7 +129,13 @@ func (l *LocalStats) discardAfter(at time.Time) {
 }
 
 func (l *LocalStats) add(slots []localBucket, at time.Time, step time.Duration, cell localCell) {
-	slot := &slots[int((at.Unix()/int64(step/time.Second))%int64(len(slots)))]
+	n := int64(len(slots))
+	idx := (at.Unix() / int64(step/time.Second)) % n
+	if idx < 0 {
+		// Record clamps pre-epoch times; keep the index total regardless.
+		idx += n
+	}
+	slot := &slots[idx]
 	if !slot.at.Equal(at) {
 		slot.at = at
 		slot.cells = map[localCell]uint64{}
@@ -135,7 +145,6 @@ func (l *LocalStats) add(slots []localBucket, at time.Time, step time.Duration, 
 			// Keep memory bounded under many distinct countries. Totals,
 			// actions and latency stay exact; see localCellBound.
 			cell.country = localOtherCountry
-			l.overflow++
 		}
 	}
 	slot.cells[cell]++
@@ -227,6 +236,10 @@ func (l *LocalStats) Statistics(ctx context.Context, q StatsQuery) (StatsSnapsho
 		}
 	}
 	l.mu.Unlock()
+	// The remaining work scans up to localRecentLimit decisions.
+	if err := ctx.Err(); err != nil {
+		return StatsSnapshot{}, ErrUnavailable
+	}
 	// Raw text filters can only be answered from retained recent decisions.
 	if q.Node == "" && q.rawFiltered() {
 		if len(recent) == localRecentLimit && recent[0].Time.After(retained) {
