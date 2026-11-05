@@ -62,3 +62,27 @@ func TestWitnessRejectsDuplicateAliasTrailingAndOversizedJSON(t *testing.T) {
 		require.ErrorIs(t, err, ErrGuard)
 	}
 }
+func TestPKIRoleRequiresWritablePKIAndState(t *testing.T) {
+	target := func(path string, writable bool) map[string]any {
+		return map[string]any{"path": path, "device": "1", "fsid": "2", "inode": "3", "writable": writable}
+	}
+	witness := func(targets ...any) []byte {
+		raw, err := json.Marshal(map[string]any{"schema": 1, "uuid": testUUID, "role": "pki", "boot_id": testUUID, "targets": targets})
+		require.NoError(t, err)
+		return raw
+	}
+	_, err := Decode(witness(target("/pki", true), target("/var/lib/rauth-pki", true), target("/authority", false)), testUUID, "pki")
+	require.NoError(t, err)
+	_, err = Decode(witness(target("/pki", false), target("/var/lib/rauth-pki", true)), testUUID, "pki")
+	require.ErrorIs(t, err, ErrGuard)
+	_, err = Decode(witness(target("/pki", true), target("/var/lib/rauth-pki", false)), testUUID, "pki")
+	require.ErrorIs(t, err, ErrGuard)
+	_, err = Decode(witness(target("/pki", true), target("/var/lib/rauth-pki", true), target("/authority", true)), testUUID, "pki")
+	require.ErrorIs(t, err, ErrGuard)
+	_, err = Decode(witness(target("/pki", true), target("/var/lib/rauth-pki", true), target("/authority", false), target("/authority/ca.key", true)), testUUID, "pki")
+	require.ErrorIs(t, err, ErrGuard)
+	_, err = Decode(witness(target("/pki", true), target("/var/lib/rauth-pki", true), target("/authority-other", true)), testUUID, "pki")
+	require.NoError(t, err)
+	_, err = Decode(witness(target("/pki", true)), testUUID, "pki")
+	require.ErrorIs(t, err, ErrGuard)
+}

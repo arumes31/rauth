@@ -250,6 +250,20 @@ class ModelTests(unittest.TestCase):
         self.assertTrue(all(row["State"]["Running"] for row in docker.rows.values()))
         self.assertEqual(ram.calls.count("launcher"), 3)
 
+    def test_consumer_start_waits_for_leaf_commit(self):
+        _, ram, _, docker, _, actor = fixture()
+        docker.rows["rauth-test-patroni"]["State"]["Running"] = False
+        docker.rows["rauth-test-app"]["State"]["Running"] = False
+        actor.renewal_committing = lambda: True
+        actor.tick()
+        starts = [c for c in docker.calls if c[0] == "start"]
+        self.assertNotIn(("start", "container-patroni"), starts)
+        self.assertNotIn(("start", "container-app"), starts)  # identity is committed in place too
+        actor.renewal_committing = lambda: False
+        actor.tick()
+        self.assertIn(("start", "container-patroni"), docker.calls)
+        self.assertIn(("start", "container-app"), docker.calls)
+
     def test_local_role_failure_restarts_only_that_role(self):
         _, ram, _, docker, _, actor = fixture()
         docker.rows["rauth-test-app"]["State"]["Running"] = False
@@ -494,3 +508,115 @@ class ModelTests(unittest.TestCase):
             actor.run(once=True)
         self.assertIn(("start", "container-app"), docker.calls)
         self.assertEqual(len(actor.attempts["patroni"]), 1)
+
+
+class RenewalTests(unittest.TestCase):
+    def setUp(self):
+        self.cfg, self.ram, self.storage, self.docker, self.clock, _ = fixture()
+        self.cfg["pki_renewal"] = {"directory": "/opt/rauth/rauth-test-state/pki-renewal"}
+        self.actor = supervise.Supervisor(
+            self.cfg,
+            docker=self.docker,
+            storage=self.storage,
+            ram=self.ram,
+            now=lambda: self.clock[0],
+            wait=lambda _s: None,
+        )
+        self.actor.tick()
+        self.files = {"restart-request.json": {"generation": 5}}
+        self.written = []
+        self.actor.handshake = lambda name: self.files.get(name)
+        self.actor.finish_renewal = lambda g, r: self.written.append((g, r))
+        self.roles = {"state-a": "sync_standby", "b": "leader", "c": "replica"}
+        self.switchovers = []
+
+        def patroni(ident, probe, *args):
+            if probe is supervise.SWITCHOVER_PROBE:
+                self.switchovers.append(args)
+                self.roles[args[0]], self.roles[args[1]] = "sync_standby", "leader"
+                return {"status": 503}
+            members = [
+                {"name": n, "role": r, "state": "running" if r == "leader" else "streaming", "lag": None if r == "leader" else 0}
+                for n, r in self.roles.items()
+            ]
+            return {"self": "state-a", "members": members}
+
+        self.docker.patroni = patroni
+
+    def test_config_accepts_directory_inside_root_only(self):
+        supervise.validate(self.cfg)
+        bad = copy.deepcopy(self.cfg)
+        bad["pki_renewal"]["directory"] = "/etc/elsewhere"
+        with self.assertRaises(supervise.Fault):
+            supervise.validate(bad)
+
+    def test_replica_restarts_each_role_once_through_attested_start(self):
+        self.docker.calls.clear()
+        self.actor.renewal()
+        self.assertEqual(self.written, [(5, "ok")])
+        self.assertEqual(self.switchovers, [])
+        self.assertIn(("stop", "container-patroni"), self.docker.calls)
+        self.assertIn(("start", "container-patroni"), self.docker.calls)
+        self.assertNotIn(("stop", "container-app"), self.docker.calls)
+        self.assertIn("attest-patroni", self.ram.calls)
+
+    def test_leader_switches_over_before_restart(self):
+        self.roles = {"state-a": "leader", "b": "sync_standby", "c": "replica"}
+        self.docker.calls.clear()
+        self.actor.renewal()
+        self.assertEqual(self.switchovers, [("state-a", "b")])
+        self.assertEqual(self.written, [(5, "ok")])
+
+    def test_waits_while_unhealthy_and_skips_completed_generation(self):
+        self.roles = {"state-a": "replica", "b": "leader"}
+        self.actor.renewal()
+        self.assertEqual(self.written, [])
+        self.roles = {"state-a": "sync_standby", "b": "leader", "c": "replica"}
+        self.files["restart-done.json"] = {"generation": 5, "result": "ok"}
+        self.actor.renewal()
+        self.assertEqual(self.written, [])
+
+    def test_restart_failure_is_reported(self):
+        self.docker.fail_start = True
+        self.actor.renewal()
+        self.assertEqual(self.written, [(5, "failed")])
+
+
+class RenewalRoleGroupTests(RenewalTests):
+    def test_identity_renewal_restarts_only_the_application(self):
+        self.files = {"restart-request.json": {"generation": 9, "roles": ["app"]}}
+        self.docker.calls.clear()
+        self.actor.renewal()
+        self.assertEqual(self.written, [(9, "ok")])
+        self.assertIn(("stop", "container-app"), self.docker.calls)
+        self.assertNotIn(("stop", "container-patroni"), self.docker.calls)
+
+    def test_unknown_role_group_is_rejected(self):
+        self.files = {"restart-request.json": {"generation": 3, "roles": ["tailscale"]}}
+        self.docker.calls.clear()
+        self.actor.renewal()
+        self.assertEqual(self.written, [(3, "failed")])
+        self.assertFalse([c for c in self.docker.calls if c[0] == "stop"])
+
+    def test_non_string_role_entry_is_rejected(self):
+        self.files = {"restart-request.json": {"generation": 4, "roles": [{}]}}
+        self.docker.calls.clear()
+        self.actor.renewal()
+        self.assertEqual(self.written, [(4, "failed")])
+        self.assertFalse([c for c in self.docker.calls if c[0] == "stop"])
+
+    def test_configured_role_with_unusable_metadata_waits(self):
+        self.files = {"restart-request.json": {"generation": 6, "roles": ["app"]}}
+        self.actor.available.discard("app")
+        self.docker.calls.clear()
+        self.actor.renewal()
+        self.assertEqual(self.written, [])
+        self.assertFalse([c for c in self.docker.calls if c[0] == "stop"])
+
+    def test_missing_patroni_metadata_does_not_skip_the_health_gate(self):
+        self.actor.available.discard("patroni")
+        self.roles = {"state-a": "replica", "b": "leader"}
+        self.docker.calls.clear()
+        self.actor.renewal()
+        self.assertEqual(self.written, [])
+        self.assertFalse([c for c in self.docker.calls if c[0] == "stop"])

@@ -35,6 +35,24 @@ var requiredTargets = map[string]map[string]bool{
 	"router":    {"/etc/haproxy/haproxy.cfg": false, "/etc/rauth-router": false},
 	"app":       {"/app/data": true},
 	"observer":  {"/output": true, "/pki": false, "/observer/config.json": false, "/observer/observe.py": false},
+	// Leaf renewal writes node PKI files in place and its handshake state.
+	"pki": {"/pki": true, "/var/lib/rauth-pki": true},
+}
+
+// readOnlyIfPresent lists optional binds that must be read-only when mounted,
+// together with every bind nested below them: only the CA master mounts the
+// authority, and it holds the CA keys.
+var readOnlyIfPresent = map[string][]string{
+	"pki": {"/authority"},
+}
+
+func readOnlyTarget(role, p string) bool {
+	for _, root := range readOnlyIfPresent[role] {
+		if p == root || strings.HasPrefix(p, root+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func canonicalPath(p string) bool {
@@ -167,6 +185,9 @@ func Decode(raw []byte, uuid, role string) (Witness, error) {
 		}
 		t.Writable = value == "true"
 		if want, ok := requiredTargets[role][t.Path]; ok && t.Writable != want {
+			return Witness{}, ErrGuard
+		}
+		if t.Writable && readOnlyTarget(role, t.Path) {
 			return Witness{}, ErrGuard
 		}
 		w.Targets = append(w.Targets, t)

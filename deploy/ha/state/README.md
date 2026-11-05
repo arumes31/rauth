@@ -161,3 +161,34 @@ verified loader/bundle and private bounded RAM metadata. It changes no guard
 identity/schema or Docker restart policy and installs/starts nothing. See
 [OPENRC.md](OPENRC.md) for native namespace, tools, storage, logging and lifecycle
 requirements. Portable tests do not prove actual Alpine/OpenRC boot or fencing.
+
+## Automatic leaf renewal (`pki` role)
+
+Physical leaves live 90 days and renew automatically when 30 days or fewer remain. CAs are separate, with a 30-year default, and rotate through an operator overlap rollout. The `pki` role is a supervised container on every node, built from this image (`/opt/patroni/bin/python /usr/local/lib/rauth/pki_renew.py run --config /etc/rauth-pki-renew/config.json`; the program is installed mode `0444`, so it is always run through the image's interpreter). It runs as `user: "0:0"` with `cap_drop: [ALL]`, `cap_add: [DAC_OVERRIDE]` and `no-new-privileges`: leaves keep the owner of their consuming service (etcd 10003, Patroni 999, router 10002), and the supervisor accepts only root-owned `0600` handshake files. The agent refuses to start under any other UID.
+
+- **Issuer: CA master only.** The config's `issuer` section enables it. CA keys are bind-mounted read-only and never leave the master.
+  - Serves TLS 1.3 mutual TLS on the node's own service IP. A client must present a `<node>-rest-client` leaf from the REST CA bundle.
+  - Never mints new identities. A request must carry an unexpired leaf issued by the authority, whose CN is one of the node's eight purposes and whose SANs are only that node's IP and DNS names. It must also carry a CSR with the same subject and a fresh P-256 key.
+  - The renewed leaf copies subject, SAN and extensions.
+  - Only one node renews at a time (3-hour lease). A failed rollout blocks every other node until an operator clears `issuer-state.json`.
+  - Limit: 32 issuances per node per day. Every issuance is appended to `issued.jsonl` with its SHA-256.
+- **Agent: every node.** Checks hourly. Acts only when the cluster shows one running leader and two streaming members at zero lag.
+  1. Takes the lease and renews every leaf.
+  2. Verifies each result: subject, SAN, EKU, key and chain against the installed trust bundles, and a later expiry.
+  3. Backs up the current files under its state directory.
+  4. Rewrites the files in place, preserving inode, owner and mode, so bind mounts and host-guard witnesses stay valid.
+  5. Writes a fsynced `restart-request.json`.
+  
+  Any failure before the commit aborts without changes. If the commit or the restart request fails, the agent puts every original file back and reports `failed`. Restoration itself can fail: the agent then logs `restore_incomplete` with the affected paths. Restore those files from `backup-<generation>/` in the state directory before any consumer restarts. While a commit runs, the agent holds a root-owned `commit-active.json` marker and the supervisor defers starting stopped consumers, including the application. The marker has no expiry: it is removed only once the files are committed or restored. After a crash or an incomplete restore, the next agent cycle restores the files from that generation's backup, reports the lease as `failed`, and only then removes the marker. If that recovery also fails (`commit_recovery_blocked`), consumers stay stopped until an operator restores the files and deletes the marker.
+- **Host supervisor.** With `pki_renewal.directory` configured, it reads the root-owned private handshake. It restarts etcd, Patroni, router and observer once each, through the normal attested start path.
+  - If this node holds the leader, it first moves leadership with a supported switchover to the zero-lag synchronous standby.
+  - After every role it waits for a healthy three-member cluster, then writes `restart-done.json`.
+  - The agent reports `ok` or `failed` to the issuer. An agent restart resumes the wait.
+
+**Application node identities.** The enrolled `node.crt` used by the private cluster transport also renews 30 days before expiry, through `/v1/identity` when the issuer config has an `identity` section (node CA certificate and key, node name to IP, cluster ID).
+- The identity keeps the **same key**, so controller SPKI pins and registry enrollments stay valid.
+- The issuer requires the leaf's only IP SAN to belong to the authenticated node and its SPIFFE URI to be inside the cluster.
+- An application-only node, such as a worker without a database member, authenticates with its own node identity. It can use only this route, never physical renewal.
+- Its restart request names only the `app` group, so the supervisor restarts just the application. That isn't health-gated where no local Patroni exists.
+
+Host-guard role `pki` requires writable `/pki` (node PKI) and `/var/lib/rauth-pki` (handshake and backups). The master additionally mounts the authority read-only. The leaf's EKU decides where it is accepted, so renewal never weakens purpose separation.
