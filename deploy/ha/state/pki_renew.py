@@ -91,6 +91,9 @@ def fsync_dir(path):
         os.close(fd)
 
 
+MARKER = "commit-active.json"
+
+
 def write_all(fd, body):
     view = memoryview(body)
     while view:
@@ -582,6 +585,9 @@ class Agent:
     def renew(self):
         """One renewal cycle. Returns a status string."""
         request, done = self.handshake("restart-request.json"), self.handshake("restart-done.json")
+        recovered = self.recover_commit(request)
+        if recovered is not None:
+            return recovered
         if request and (not done or done.get("generation") != request["generation"]):
             # Resume after an agent restart: files are committed; await restart.
             ok = self.wait_restart(request["generation"], self.cfg.get("restart_timeout", 7200))
@@ -604,22 +610,23 @@ class Agent:
         generation = int(time.time())
         roles = (["physical"] if physical else []) + (["app"] if identity else [])
         request = json.dumps({"generation": generation, "lease": lease, "roles": roles, "requested_at": self.now().isoformat()}).encode()
-        marker = self.state_dir / "commit-active.json"
+        marker = self.state_dir / MARKER
         try:
             originals = self.backup(generation)
-            # The supervisor defers consumer starts while this marker is fresh,
-            # so nothing starts against a half-written PEM.
-            atomic_write(marker, json.dumps({"generation": generation}).encode())
+            # The supervisor defers consumer starts while this marker exists, so
+            # nothing starts against a half-written PEM. It is removed only once
+            # the files are known to be consistent (committed or restored).
+            atomic_write(marker, json.dumps({"generation": generation, "lease": lease}).encode())
             try:
                 self.commit(staged)
                 atomic_write(self.state_dir / "restart-request.json", request)
             except Exception:
                 # Never leave a mix of old and new files, or committed files
                 # that no restart will ever load: put the originals back.
-                self.restore(originals)
+                if self.restore(originals):
+                    marker.unlink(missing_ok=True)
                 raise
-            finally:
-                marker.unlink(missing_ok=True)
+            marker.unlink(missing_ok=True)
         except Exception:
             self.client("/v1/done", {"lease": lease, "result": "failed"})
             raise
@@ -703,6 +710,39 @@ class Agent:
             atomic_write(target / name, originals[path])
         return originals
 
+    def recover_commit(self, request):
+        """Settle a commit marker left by a crash or an incomplete restore.
+
+        Returns None when there is nothing to recover (or the commit had
+        completed), otherwise a cycle status. Consumers stay blocked until the
+        managed files are back to the backed-up originals.
+        """
+        marker = self.state_dir / MARKER
+        try:
+            state = json.loads(read_private(marker))
+        except FileNotFoundError:
+            return None
+        generation = state["generation"]
+        if request and request.get("generation") == generation:
+            marker.unlink(missing_ok=True)  # commit and restart request completed
+            return None
+        target = self.state_dir / ("backup-%d" % generation)
+        try:
+            originals = {path: read_private(target / name) for path, name in self.backup_paths().items()}
+        except (OSError, Refused):
+            self.log(event="commit_recovery_blocked", generation=generation, reason="backup_unreadable")
+            return "commit_recovery_blocked"
+        if not self.restore(originals):
+            return "commit_recovery_blocked"
+        marker.unlink(missing_ok=True)
+        if state.get("lease"):
+            try:  # may already be reported or expired; the files are what matter
+                self.client("/v1/done", {"lease": state["lease"], "result": "failed"})
+            except Exception as e:
+                self.log(event="commit_recovery_lease_report_failed", reason=type(e).__name__)
+        self.log(event="commit_recovered", generation=generation)
+        return "commit_recovered"
+
     def restore(self, originals):
         failed = []
         for path, body in originals.items():
@@ -713,8 +753,9 @@ class Agent:
                 failed.append(path)
         if failed:
             self.log(event="restore_incomplete", files=failed)
-        else:
-            self.log(event="restored")
+            return False
+        self.log(event="restored")
+        return True
 
     def commit(self, staged):
         # Keys before certificates: a reader that races sees the old cert with
