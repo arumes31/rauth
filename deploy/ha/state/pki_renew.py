@@ -767,12 +767,15 @@ class Agent:
 
     def run(self):
         interval = self.cfg.get("check_interval_seconds", 3600)
+        retry = min(interval, self.cfg.get("recovery_retry_seconds", 60))
         while True:
             try:
                 self.log(event="cycle", status=self.renew(), days_left=round(self.days_left(), 1))
             except Exception as e:  # keep the agent alive; report a static reason
                 self.log(event="cycle", status="error", reason=type(e).__name__, detail=str(e)[:200])
-            self.sleep(interval)
+            # A surviving marker means a commit is unsettled: retry soon, since
+            # leaf consumers stay stopped until it is recovered.
+            self.sleep(retry if (self.state_dir / MARKER).exists() else interval)
 
 
 def main():
