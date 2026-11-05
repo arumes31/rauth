@@ -39,6 +39,12 @@ var requiredTargets = map[string]map[string]bool{
 	"pki": {"/pki": true, "/var/lib/rauth-pki": true},
 }
 
+// readOnlyIfPresent lists optional binds that must be read-only when mounted:
+// only the CA master mounts the authority, and it holds the CA keys.
+var readOnlyIfPresent = map[string]map[string]bool{
+	"pki": {"/authority": true},
+}
+
 func canonicalPath(p string) bool {
 	if p == "/" || !strings.HasPrefix(p, "/") || path.Clean(p) != p || strings.Contains(p, "\\") || len(p) > 2048 {
 		return false
@@ -169,6 +175,9 @@ func Decode(raw []byte, uuid, role string) (Witness, error) {
 		}
 		t.Writable = value == "true"
 		if want, ok := requiredTargets[role][t.Path]; ok && t.Writable != want {
+			return Witness{}, ErrGuard
+		}
+		if t.Writable && readOnlyIfPresent[role][t.Path] {
 			return Witness{}, ErrGuard
 		}
 		w.Targets = append(w.Targets, t)

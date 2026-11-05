@@ -934,7 +934,7 @@ class Supervisor:
             len(members) == 3
             and len(leaders) == 1
             and all(
-                m["state"] == "streaming" and m["lag"] in (0, None) for m in others
+                m["state"] == "streaming" and m.get("lag") == 0 for m in others
             )
         )
 
@@ -1006,21 +1006,28 @@ class Supervisor:
         if done is not None and done["generation"] == request["generation"]:
             return
         groups = request.get("roles", ["physical"])
-        if not isinstance(groups, list) or not groups or not set(groups) <= {"physical", "app"}:
+        if not isinstance(groups, list) or not groups or not all(isinstance(g, str) and g in {"physical", "app"} for g in groups):
             self.finish_renewal(request["generation"], "failed")
             self.event("pki", "renewal_invalid_request")
             return
         kinds = (RENEW_ORDER if "physical" in groups else ()) + (("app",) if "app" in groups else ())
         # Application-only nodes have no local database cluster to gate on.
-        gated = "patroni" in self.available
+        configured = {role["role"] for role in self.roles}
+        gated = "patroni" in configured
         if gated and not self.cluster_healthy():
             self.event("pki", "renewal_waiting_for_healthy_cluster")
+            return
+        if any(kind in configured and kind not in self.available for kind in kinds):
+            # Transient metadata failure: retry later rather than skip a consumer.
+            self.event("pki", "renewal_waiting_for_roles")
             return
         result = "ok"
         try:
             for kind in kinds:
-                if kind not in self.available:
+                if kind not in configured:
                     continue
+                if kind not in self.available:
+                    raise Fault("renewal_role_unavailable")
                 if kind == "patroni":
                     self.step_down()
                 self.restart_for_renewal(kind)

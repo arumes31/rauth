@@ -91,12 +91,21 @@ def fsync_dir(path):
         os.close(fd)
 
 
+def write_all(fd, body):
+    view = memoryview(body)
+    while view:
+        written = os.write(fd, view)
+        if written <= 0:
+            raise OSError("short write")
+        view = view[written:]
+
+
 def atomic_write(path, body, mode=0o600):
     path = Path(path)
     tmp = path.with_name(".pending-" + uuid.uuid4().hex)
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | NOFOLLOW, mode)
     try:
-        os.write(fd, body)
+        write_all(fd, body)
         os.fsync(fd)
     finally:
         os.close(fd)
@@ -115,7 +124,7 @@ def rewrite_in_place(path, body):
             raise ValueError("file replaced during rewrite")
         os.ftruncate(fd, 0)
         os.lseek(fd, 0, os.SEEK_SET)
-        os.write(fd, body)
+        write_all(fd, body)
         os.fsync(fd)
     finally:
         os.close(fd)
@@ -522,7 +531,7 @@ class Agent:
             return False
         leaders = [m for m in members if m.get("role") == "leader" and m.get("state") == "running"]
         replicas = [m for m in members if m.get("role") != "leader"]
-        return len(members) == 3 and len(leaders) == 1 and all(m.get("state") == "streaming" and m.get("lag") in (0, None) for m in replicas)
+        return len(members) == 3 and len(leaders) == 1 and all(m.get("state") == "streaming" and m.get("lag") == 0 for m in replicas)
 
     def leaves(self):
         out = []
@@ -585,6 +594,7 @@ class Agent:
             return "fresh"
         if not self.healthy():
             return "cluster_not_healthy"
+        self.backup_paths()  # reject an unusable backup layout before taking the lease
         lease = self.client("/v1/begin", {})["lease"]
         try:
             staged = (self.issue_all(lease) if physical else []) + (self.issue_identity(lease) if identity else [])
@@ -592,14 +602,21 @@ class Agent:
             self.client("/v1/done", {"lease": lease, "result": "aborted"})
             raise
         generation = int(time.time())
-        self.backup(generation)
+        roles = (["physical"] if physical else []) + (["app"] if identity else [])
+        request = json.dumps({"generation": generation, "lease": lease, "roles": roles, "requested_at": self.now().isoformat()}).encode()
         try:
-            self.commit(staged)
+            originals = self.backup(generation)
+            try:
+                self.commit(staged)
+                atomic_write(self.state_dir / "restart-request.json", request)
+            except Exception:
+                # Never leave a mix of old and new files, or committed files
+                # that no restart will ever load: put the originals back.
+                self.restore(originals)
+                raise
         except Exception:
             self.client("/v1/done", {"lease": lease, "result": "failed"})
             raise
-        roles = (["physical"] if physical else []) + (["app"] if identity else [])
-        atomic_write(self.state_dir / "restart-request.json", json.dumps({"generation": generation, "lease": lease, "roles": roles, "requested_at": self.now().isoformat()}).encode())
         self.log(event="committed", generation=generation, files=len(staged))
         ok = self.wait_restart(generation, self.cfg.get("restart_timeout", 7200))
         self.client("/v1/done", {"lease": lease, "result": "ok" if ok else "failed"})
@@ -656,15 +673,42 @@ class Agent:
             raise Refused("issued_identity_failed_verification")
         return [(spec["cert"], pem.encode())]
 
-    def backup(self, generation):
-        target = self.state_dir / ("backup-%d" % generation)
-        target.mkdir(mode=0o700)
+    def backup_paths(self):
+        """Map each managed file to its flattened backup name; names must not collide."""
         paths = [p for leaf in self.cfg.get("leaves", []) for p in ([leaf["pem"]] if "pem" in leaf else [leaf["cert"], leaf["key"]])]
         if self.cfg.get("identity"):
             paths.append(self.cfg["identity"]["cert"])
         paths += [p for c in self.cfg.get("copies", []) for p in (c["cert"], c["key"])]
-        for path in paths:
-            atomic_write(target / re.sub(r"[^A-Za-z0-9._-]", "_", path.strip("/")), read_private(path))
+        names = {}
+        for path in dict.fromkeys(paths):
+            name = re.sub(r"[^A-Za-z0-9._-]", "_", path.strip("/"))
+            if name in names.values():
+                raise Refused("backup_name_collision")
+            names[path] = name
+        return names
+
+    def backup(self, generation):
+        """Copy every managed file under the state directory; return the originals."""
+        target = self.state_dir / ("backup-%d" % generation)
+        target.mkdir(mode=0o700)
+        originals = {}
+        for path, name in self.backup_paths().items():
+            originals[path] = read_private(path)
+            atomic_write(target / name, originals[path])
+        return originals
+
+    def restore(self, originals):
+        failed = []
+        for path, body in originals.items():
+            try:
+                if read_private(path) != body:
+                    rewrite_in_place(path, body)
+            except Exception:  # keep restoring the rest; report every miss
+                failed.append(path)
+        if failed:
+            self.log(event="restore_incomplete", files=failed)
+        else:
+            self.log(event="restored")
 
     def commit(self, staged):
         # Keys before certificates: a reader that races sees the old cert with
@@ -694,6 +738,12 @@ def main():
     if args.mode == "check":
         print(json.dumps({"node": cfg["agent"]["node"], "days_left": round(Agent(cfg["agent"]).days_left(), 1)}))
         return 0
+    if hasattr(os, "geteuid") and os.geteuid() != 0:
+        # Leaves are owned by their consuming UIDs (etcd, Patroni, router) and
+        # the supervisor accepts only root-owned handshakes, so the agent runs
+        # as UID 0 with every capability dropped except CAP_DAC_OVERRIDE.
+        print("pki role must run as UID 0 (cap_drop ALL, cap_add DAC_OVERRIDE)", file=sys.stderr)
+        return 2
     if "issuer" in cfg:  # only the CA master carries an issuer section
         threading.Thread(target=serve_issuer, args=(cfg["issuer"],), daemon=True).start()
     Agent(cfg["agent"]).run()
