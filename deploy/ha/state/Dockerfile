@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3-venv ca
 COPY requirements.lock /tmp/patroni-requirements.lock
 RUN /opt/patroni/bin/pip install --no-cache-dir --require-hashes -r /tmp/patroni-requirements.lock \
     && rm /tmp/patroni-requirements.lock
-RUN /opt/patroni/bin/patroni --version && postgres --version && pg_basebackup --version && pg_verifybackup --version \
+RUN /opt/patroni/bin/patroni --version && postgres --version && pg_basebackup --version && pg_verifybackup --version && pg_waldump --version \
     && /opt/patroni/bin/python -c "import patroni.dcs.etcd3, psycopg, cryptography"
 RUN install -d -m 0755 /usr/local/lib/rauth
 COPY --chmod=0444 entrypoint.py archive.py pki_renew.py backup.py /usr/local/lib/rauth/

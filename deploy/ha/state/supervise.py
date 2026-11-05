@@ -413,6 +413,52 @@ def atomic(parent, name, body, mode=0o444, owner=(0, 0)):
             pass
 
 
+class Drained:
+    """A child process whose stdout is drained concurrently into a bounded buffer.
+
+    The pipe never fills, so a child that prints more than the pipe buffer
+    still exits and is not mistaken for a hung backup. Bytes past LIMIT are
+    read and discarded.
+    """
+
+    def __init__(self, process):
+        self.process = process
+        self.buffer = bytearray()
+        self.reader = threading.Thread(target=self.drain, daemon=True)
+        self.reader.start()
+
+    def drain(self):
+        stream = self.process.stdout
+        try:
+            while chunk := stream.read(8192):
+                room = LIMIT - len(self.buffer)
+                if room > 0:
+                    self.buffer += chunk[:room]
+        except (OSError, ValueError):
+            pass
+        finally:
+            with contextlib.suppress(OSError, ValueError):
+                stream.close()
+
+    @property
+    def returncode(self):
+        return self.process.returncode
+
+    def poll(self):
+        return self.process.poll()
+
+    def kill(self):
+        self.process.kill()
+
+    def wait(self, timeout=None):
+        return self.process.wait(timeout)
+
+    def output(self):
+        """Captured stdout; call after the process has exited."""
+        self.reader.join(5)
+        return bytes(self.buffer)
+
+
 class Docker:
     def call(self, args, timeout=15, data=None):
         try:
@@ -440,13 +486,15 @@ class Docker:
     def spawn_backup(self, ident, keep):
         """Start the in-container base backup without blocking supervision."""
         try:
-            return subprocess.Popen(
-                [
-                    "/usr/bin/docker", "exec", ident, "/opt/patroni/bin/python",
-                    "/usr/local/lib/rauth/backup.py", "--keep", str(keep),
-                ],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
+            return Drained(
+                subprocess.Popen(
+                    [
+                        "/usr/bin/docker", "exec", ident, "/opt/patroni/bin/python",
+                        "/usr/local/lib/rauth/backup.py", "--keep", str(keep),
+                    ],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                )
             )
         except OSError:
             raise Fault("docker_operation_unavailable") from None
@@ -1076,9 +1124,7 @@ class Supervisor:
                     self.backup_process = None
                     self.event("backup", "timed_out")
                 return
-            output = process.stdout.read(LIMIT) if process.stdout else b""
-            if process.stdout:
-                process.stdout.close()
+            output = process.output()
             self.backup_process = None
             try:
                 ok = process.returncode == 0 and document(output.strip()).get("backup") not in (None, "failed")
@@ -1128,6 +1174,8 @@ class Supervisor:
         finally:
             if self.backup_process is not None and self.backup_process.poll() is None:
                 self.backup_process.kill()
+                with contextlib.suppress(subprocess.TimeoutExpired):
+                    self.backup_process.wait(10)
             if not once:
                 self.stop()
             self.ram.close()

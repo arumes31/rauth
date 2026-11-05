@@ -232,6 +232,12 @@ class ManifestTests(unittest.TestCase):
 
 @unittest.skipUnless(sys.platform == "linux", "Native Linux filesystem guarantees")
 class NativeFilesystemTests(unittest.TestCase):
+    def setUp(self):
+        # Do not depend on the free space of the test machine's temp filesystem.
+        old = wal_archive.FREE_FLOOR
+        wal_archive.FREE_FLOOR = 0
+        self.addCleanup(setattr, wal_archive, "FREE_FLOOR", old)
+
     def test_archive_is_synced_idempotent_and_refuses_conflicts(self):
         with tempfile.TemporaryDirectory() as t:
             root = Path(t)

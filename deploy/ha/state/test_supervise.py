@@ -5,6 +5,7 @@ from pathlib import PurePosixPath
 import unittest
 from unittest import mock
 import subprocess
+import sys
 
 import supervise
 
@@ -599,10 +600,21 @@ class BackupScheduleTests(unittest.TestCase):
         class Process:
             def __init__(proc):
                 proc.returncode, proc.done = None, False
-                proc.stdout = io.BytesIO(b'{"backup": {"verified": true}, "kept": []}')
+                proc.killed, proc.waited = False, False
 
             def poll(proc):
                 return proc.returncode if proc.done else None
+
+            def kill(proc):
+                proc.killed = True
+                proc.returncode, proc.done = -9, True
+
+            def wait(proc, timeout=None):
+                proc.waited = True
+                return proc.returncode
+
+            def output(proc):
+                return b'{"backup": {"verified": true}, "kept": []}'
 
         def spawn(ident, keep):
             proc = Process()
@@ -640,3 +652,37 @@ class BackupScheduleTests(unittest.TestCase):
         self.actor.backup()
         self.assertEqual(self.spawned, [])
         self.assertEqual(self.actor.backup_due, self.clock[0] + 300)
+
+    def test_backup_past_four_hours_is_killed(self):
+        self.clock[0] = self.actor.backup_due
+        self.actor.backup()
+        proc = self.spawned[0][2]
+        self.clock[0] += 4 * 3600
+        self.actor.backup()  # exactly at the limit: still allowed
+        self.assertFalse(proc.killed)
+        self.clock[0] += 1
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            self.actor.backup()
+        self.assertTrue(proc.killed and proc.waited)
+        self.assertIsNone(self.actor.backup_process)
+        self.assertIn('"timed_out"', out.getvalue())
+
+    def test_shutdown_kills_running_backup(self):
+        self.clock[0] = self.actor.backup_due
+        self.actor.backup()
+        proc = self.spawned[0][2]
+        self.actor.run(once=True)
+        self.assertTrue(proc.killed and proc.waited)
+
+    def test_drained_child_output_never_blocks_the_child(self):
+        # Far more than a pipe buffer: without concurrent draining the child
+        # would block on write and never exit.
+        child = supervise.Drained(
+            subprocess.Popen(
+                [sys.executable, "-c", "import sys; sys.stdout.write('x' * (4 * 1024 * 1024))"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+            )
+        )
+        self.assertEqual(child.wait(60), 0)
+        self.assertEqual(child.output(), b"x" * supervise.LIMIT)

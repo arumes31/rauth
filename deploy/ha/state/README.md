@@ -36,7 +36,7 @@ The initial DCS configuration requires strict synchronous replication to one sta
 
 ## Backups and acceptance
 
-`archive.py` performs synced, atomic, no-overwrite local WAL archival with a 512 MiB fixture cap. Complete WAL segments, promotion-generated `.partial` files, timeline history and backup-history names are accepted. Identical retries succeed; conflicting contents or budget exhaustion fail. Archives and PostgreSQL WAL must be monitored: an exhausted archive cannot delete unarchived WAL safely, and WAL can consequently grow. This local archive is **not an independent disaster backup**. Do not run an unattended long-lived test cluster without capacity supervision.
+`archive.py` performs synced, atomic, no-overwrite local WAL archival with a 64 GiB loose-WAL ceiling and an 8 GiB free-space floor. Complete WAL segments, promotion-generated `.partial` files, timeline history and backup-history names are accepted. Identical retries succeed; conflicting contents or budget exhaustion fail. Archives and PostgreSQL WAL must be monitored: an exhausted archive cannot delete unarchived WAL safely, and WAL can consequently grow. This local archive is **not an independent disaster backup**. Do not run an unattended long-lived test cluster without capacity supervision.
 
 Before moving any existing canary data, take a closed/config-consistent backup and verify an isolated restore. For the new fixture, use `pg_basebackup` from an authenticated verified-TLS leader, retain WAL and backup metadata on a host bind, verify with `pg_verifybackup`, then restore into a fresh guarded root with `restore_command`/`recovery_target_time` and a separate namespace/network boundary. Use a copy of the verified backup, never modify the original. Before standalone recovery, remove every copied `recovery_target*` assignment from the cloned PostgreSQL/Patroni configuration, including empty assignments, then explicitly set exactly one desired target and timeline/action. Multiple configured targets can prevent recovery from starting. Keep the restore unable to reach DCS, applications or the live leader. Prove both a base restore and a timestamped PITR marker with acknowledged records before and after the target. Never restore an earlier authorization snapshot into a live fleet: this can revive consumed/revoked credentials. Retain the old canary database until replacement and rollback tests pass.
 
@@ -195,16 +195,18 @@ Host-guard role `pki` requires writable `/pki` (node PKI) and `/var/lib/rauth-pk
 
 ## Base backups and archived-WAL retention
 
-`backup.py` runs inside each node's Patroni container (UID 999), which already holds the replication credential, the SQL CA and the archive bind. With an optional supervisor config `"backup": {"interval_hours": 6, "keep": 4}`, the host supervisor starts it as a non-blocking `docker exec`. It runs only while the cluster is healthy, and the first run on each node is staggered.
+`backup.py` runs inside each node's Patroni container (UID 999), which already holds the replication credential, the SQL CA and the archive bind. With an optional supervisor config `"backup": {"interval_hours": 6, "keep": 4}`, the host supervisor starts it as a non-blocking `docker exec`. It starts only while the cluster is healthy. A running backup continues when health changes, until it completes, fails or is killed at the four-hour limit. The first run on each node is staggered.
 
 Each run:
-1. Takes a self-contained base backup of the local server over verified TLS (`pg_basebackup -F t -z -X stream --manifest-checksums=SHA256`) into `archive/base/<UTC>.pending`.
-2. Verifies it with `pg_verifybackup` and publishes it by atomic rename.
-3. Keeps the newest `keep` verified backups.
-4. Prunes archived WAL segments that end at or before the oldest kept backup's start LSN. Timeline history files are always kept.
+1. Removes pending directories older than six hours, left by killed runs. It refuses to start unless the archive filesystem has room for the largest retained backup plus an 8 GiB reserve.
+2. Takes a self-contained base backup of the local server over verified TLS (`pg_basebackup -F t -z -X stream --manifest-checksums=SHA256`) into `archive/base/<UTC>.pending`.
+3. Verifies the files against the manifest with `pg_verifybackup -n`. `pg_verifybackup` cannot parse WAL inside a tar archive, so the run extracts the streamed `pg_wal.tar.gz` and parses every manifest WAL range with `pg_waldump`.
+4. Publishes the backup by atomic rename.
+5. Keeps the newest `keep` verified backups.
+6. Prunes archived WAL segments that end at or before the oldest kept backup's start LSN. Timeline history files are always kept.
 
-A failed or unverified run removes only its own pending directory and prunes nothing.
+Before publication, a failed or unverified run removes only its own pending directory and prunes nothing. Retention does not run after a failed run. A failure after publication leaves the published backup in place. A failure during retention can leave some old backups or WAL segments already removed.
 
-`archive.py` stops archiving at 64 GiB of loose WAL or 8 GiB free space. A missing backup therefore keeps WAL in `pg_wal` rather than filling the disk.
+`archive.py` stops archiving at 64 GiB of loose WAL or 8 GiB free space. A missing backup keeps unarchived WAL in `pg_wal` on the same filesystem. That WAL can still exhaust the disk. Monitor free space and backup age.
 
 These are local, per-node backups for point-in-time recovery inside each site. Off-host disaster recovery is a separate step.

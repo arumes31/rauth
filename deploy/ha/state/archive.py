@@ -13,8 +13,8 @@ NAME = re.compile(
 )
 # Hard ceiling for loose archived WAL (base backups live in base/ and are
 # bounded by their own retention). Archiving also stops before the filesystem
-# drops below FREE_FLOOR, so a missing backup degrades to WAL retained in
-# pg_wal rather than a full disk.
+# drops below FREE_FLOOR. Refused WAL stays in pg_wal on the same filesystem
+# and can still fill it, so free space and backup age must be monitored.
 LIMIT = 64 * 1024**3
 FREE_FLOOR = 8 * 1024**3
 
