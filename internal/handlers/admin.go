@@ -18,7 +18,10 @@ type RequestEventSource interface {
 }
 
 type AdminHandler struct {
-	RequestEvents    RequestEventSource
+	RequestEvents RequestEventSource
+	// LocalStats serves Stats when RequestEvents has no durable statistics,
+	// such as a standalone server without a cluster event store.
+	LocalStats       StatsSource
 	ReadHAStatus     func() hahealth.View
 	Cfg              *core.Config
 	ReadPolicyStatus func(context.Context) (any, error)

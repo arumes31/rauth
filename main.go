@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"rauth/internal/clusterconfig"
 	"rauth/internal/core"
+	"rauth/internal/eventstore"
 	"rauth/internal/hahealth"
 	"rauth/internal/handlers"
 	"rauth/internal/middleware"
@@ -128,8 +129,13 @@ func main() {
 	e.IPExtractor = CreateIPExtractor(cfg)
 
 	// Setup everything
+	var localStats handlers.StatsSource
 	if cluster == nil {
-		setupMiddleware(e, cfg)
+		// Standalone servers have no cluster event store; keep bounded
+		// process-local statistics so the admin Stats page still works.
+		local := eventstore.NewLocalStats()
+		localStats = local
+		setupMiddlewareEventSink(e, cfg, nil, local.Record)
 	} else {
 		e.Use(cluster.AdminRelay(cfg))
 		setupMiddlewareEventSink(e, cfg, cluster.worker, cluster.events.record)
@@ -147,7 +153,7 @@ func main() {
 	if cluster != nil && cluster.haObserver != nil {
 		haStatus = cluster.haObserver.View
 	}
-	setupRoutesWithEventHistory(e, cfg, cluster != nil && cluster.spec.Role == clusterconfig.Worker, policyStatus, requestEvents, haStatus)
+	setupRoutesWithStats(e, cfg, cluster != nil && cluster.spec.Role == clusterconfig.Worker, policyStatus, requestEvents, localStats, haStatus)
 	if cluster != nil {
 		e.GET("/health", cluster.Health)
 		e.GET("/livez", func(c echo.Context) error { return c.NoContent(http.StatusOK) })
@@ -525,10 +531,13 @@ func setupRoutesWithPolicyStatus(e *echo.Echo, cfg *core.Config, worker bool, re
 	setupRoutesWithEventHistory(e, cfg, worker, readStatus, nil, nil)
 }
 func setupRoutesWithEventHistory(e *echo.Echo, cfg *core.Config, worker bool, readStatus func(context.Context) (any, error), events handlers.RequestEventSource, readHA func() hahealth.View) {
+	setupRoutesWithStats(e, cfg, worker, readStatus, events, nil, readHA)
+}
+func setupRoutesWithStats(e *echo.Echo, cfg *core.Config, worker bool, readStatus func(context.Context) (any, error), events handlers.RequestEventSource, localStats handlers.StatsSource, readHA func() hahealth.View) {
 	e.GET("/static/*", echo.WrapHandler(http.FileServer(http.FS(noDirListingFS{staticFS}))))
 
 	authHandler := &handlers.AuthHandler{Cfg: cfg}
-	adminHandler := &handlers.AdminHandler{Cfg: cfg, ReadPolicyStatus: readStatus, RequestEvents: events, ReadHAStatus: readHA}
+	adminHandler := &handlers.AdminHandler{Cfg: cfg, ReadPolicyStatus: readStatus, RequestEvents: events, LocalStats: localStats, ReadHAStatus: readHA}
 	profileHandler := &handlers.ProfileHandler{Cfg: cfg}
 	webauthnHandler := &handlers.WebAuthnHandler{Cfg: cfg}
 	healthHandler := &handlers.HealthHandler{Cfg: cfg}

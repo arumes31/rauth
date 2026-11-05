@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/require"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"rauth/internal/core"
 	"rauth/internal/eventstore"
 	"rauth/internal/hahealth"
@@ -131,4 +133,39 @@ func TestHAOperationsRemainAdministratorOnlyAndUnavailableTelemetryIsExplicit(t 
 	require.NoError(t, core.UpdateUser("feedadmin", map[string]interface{}{"is_admin": "0"}))
 	denied := statsGet(t, srv.URL, "operations", cookie)
 	require.Equal(t, 403, denied.StatusCode)
+}
+
+func TestStatsSourcePrefersDurableEventsAndFallsBackToLocal(t *testing.T) {
+	local := eventstore.NewLocalStats()
+	durable := &statsFixture{}
+	h := &AdminHandler{RequestEvents: durable, LocalStats: local}
+	source, ok := h.statsSource()
+	require.True(t, ok)
+	require.Same(t, durable, source.(*statsFixture))
+
+	// A standalone server has no durable event source but still serves Stats.
+	h = &AdminHandler{LocalStats: local}
+	source, ok = h.statsSource()
+	require.True(t, ok)
+	require.Same(t, local, source.(*eventstore.LocalStats))
+	local.Record(core.RequestEvent{Action: "authenticated", Country: "AT", URL: "https://example.test/a", Source: "192.0.2.5", ProcessingMicros: 20})
+	snapshot, err := source.Statistics(context.Background(), eventstore.StatsQuery{Range: "5m"})
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), snapshot.Total)
+
+	_, ok = (&AdminHandler{}).statsSource()
+	require.False(t, ok)
+}
+
+func TestStatsDiagnosticsUnavailableWithoutDurableStore(t *testing.T) {
+	e := echo.New()
+	call := func(h *AdminHandler) error {
+		c := e.NewContext(httptest.NewRequest(http.MethodGet, "/rauthmgmt/stats/diagnostics", nil), httptest.NewRecorder())
+		return h.StatsDiagnostics(c)
+	}
+	// Standalone: LocalStats serves statistics but never per-node diagnostics.
+	var httpErr *echo.HTTPError
+	require.ErrorAs(t, call(&AdminHandler{LocalStats: eventstore.NewLocalStats()}), &httpErr)
+	require.Equal(t, http.StatusServiceUnavailable, httpErr.Code)
+	require.NoError(t, call(&AdminHandler{RequestEvents: &statsFixture{}, LocalStats: eventstore.NewLocalStats()}))
 }
