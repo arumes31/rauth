@@ -1,6 +1,7 @@
 import datetime
 import json
 import os
+import socket
 from pathlib import Path
 import tempfile
 import threading
@@ -412,6 +413,23 @@ class TransportTests(unittest.TestCase):
                 stranger = pki_renew.Agent({**base, "client_cert": str(d / "bad.crt"), "client_key": str(d / "bad.key")})
                 with self.assertRaises(pki_renew.Refused):
                     stranger.client("/v1/begin", {})
+                # Renew the server leaf in place: the issuer must present the new one.
+                saved, NOW = NOW, now
+                try:
+                    renewed, rkey = make_leaf(rest, "hodus-rest-server", ["127.0.0.1"])
+                finally:
+                    NOW = saved
+                pki_renew.rewrite_in_place(d / "server.key", keypem(rkey))
+                pki_renew.rewrite_in_place(d / "server.crt", pem(renewed))
+                import ssl as _ssl
+                ctx = _ssl.SSLContext(_ssl.PROTOCOL_TLS_CLIENT)  # as the agent builds it
+                ctx.load_verify_locations(str(d / "ca.crt"))
+                ctx.load_cert_chain(str(d / "good.crt"), str(d / "good.key"))
+                for _ in range(2):  # the first accept after the change reloads
+                    with socket.create_connection(("127.0.0.1", issuer.server_address[1]), timeout=5) as raw:
+                        with ctx.wrap_socket(raw, server_hostname="127.0.0.1") as tls:
+                            presented = x509.load_der_x509_certificate(tls.getpeercert(binary_form=True))
+                self.assertEqual(presented.serial_number, renewed.serial_number)
             finally:
                 issuer.shutdown()
                 issuer.server_close()
