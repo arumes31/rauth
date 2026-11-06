@@ -50,7 +50,12 @@ jobs:
       - name: Run govulncheck
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
-          govulncheck ./...
+          # Readable report for the log; the gate below decides pass/fail.
+          govulncheck ./... || true
+          govulncheck -format json ./... > govulncheck.json
+          # Fails on any called vulnerability not accepted in .govulncheck-allow.json
+          # (each entry has a reason and a review date that must not pass).
+          python3 scripts/govulncheck_gate.py < govulncheck.json
 
       - name: Run Gosec Security Scanner
         if: ${{ always() }}

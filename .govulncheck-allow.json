@@ -1,0 +1,16 @@
+[
+  {
+    "id": "GO-2026-6875",
+    "module": "github.com/labstack/echo/v4",
+    "reason": "Affects echo's reverse proxy middleware forwarding X-Real-IP. rauth does not use middleware.Proxy/ProxyWithConfig; client IPs come from rauth's own trusted-proxy handling. No fixed echo release yet.",
+    "added": "2026-11-06",
+    "review_by": "2026-12-06"
+  },
+  {
+    "id": "GO-2026-6872",
+    "module": "github.com/labstack/echo/v4",
+    "reason": "Affects echo's default RealIP/IP extraction trusting spoofed X-Forwarded-For (e.g. in its RateLimiter). rauth installs its own IPExtractor (main.go CreateIPExtractor) that honours forwarding headers only from TRUSTED_PROXIES and does not use echo's RateLimiter. No fixed echo release yet.",
+    "added": "2026-11-06",
+    "review_by": "2026-12-06"
+  }
+]
