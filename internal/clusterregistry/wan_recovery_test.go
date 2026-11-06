@@ -246,8 +246,10 @@ func TestAuthorityWarmupCancellationAndShutdownAreBounded(t *testing.T) {
 	require.Zero(t, pool.Stat().AcquiredConns())
 	cancel() // Runtime Close cancels its parent before closing authority pools.
 	started := time.Now()
-	pool.Close()
-	require.Less(t, time.Since(started), 3*time.Second)
+	// pgx may wait for connections still being established; shutdown is
+	// bounded by CloseBounded regardless of how the driver closes.
+	clusterpool.CloseBounded(clusterpool.CloseTimeout, pool)
+	require.Less(t, time.Since(started), clusterpool.CloseTimeout+500*time.Millisecond)
 }
 
 func TestAuthorityConstructorFinishesAfterAcquireCancellation(t *testing.T) {

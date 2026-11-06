@@ -152,3 +152,38 @@ func Warm(parent context.Context, pools ...*pgxpool.Pool) error {
 	}
 	return ctx.Err()
 }
+
+// CloseTimeout bounds how long shutdown waits for authority pools to close.
+const CloseTimeout = 2 * time.Second
+
+// CloseBounded closes pools in parallel and returns once all have closed or
+// timeout elapses, reporting whether every pool finished. pgx waits for
+// connections that are still being established when a pool closes, and over a
+// slow WAN that can take seconds; shutdown must not depend on it. Pools that
+// are still closing finish in the background.
+func CloseBounded(timeout time.Duration, pools ...*pgxpool.Pool) bool {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		finished := make(chan struct{}, len(pools))
+		for _, pool := range pools {
+			go func() {
+				if pool != nil {
+					pool.Close()
+				}
+				finished <- struct{}{}
+			}()
+		}
+		for range pools {
+			<-finished
+		}
+	}()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-done:
+		return true
+	case <-timer.C:
+		return false
+	}
+}
