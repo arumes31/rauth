@@ -299,6 +299,13 @@ func quantile(counts []uint64, p float64) *float64 {
 
 const nodeSamplesSQL = `WITH nodes AS (SELECT DISTINCT node_id FROM event_node_samples WHERE cluster_id=$1 AND NOT is_diagnostic AND occurred_at>=$2 AND ($3='' OR node_id::text=$3) ORDER BY node_id LIMIT 64) SELECT n.node_id::text,s.node_name,s.occurred_at,s.received_at,s.snapshot FROM nodes n CROSS JOIN LATERAL(SELECT * FROM event_node_samples e WHERE e.cluster_id=$1 AND e.node_id=n.node_id AND NOT is_diagnostic ORDER BY occurred_at DESC,seq DESC LIMIT 2) s ORDER BY n.node_id,s.occurred_at DESC`
 
+// Nodes sample telemetry every 15 s. A sample is stale after three missed
+// intervals, and rates need two consecutive samples at most that far apart.
+const (
+	sampleStaleAfter  = 45 * time.Second
+	sampleMaxInterval = 45.0 // seconds
+)
+
 func readNodeSamples(rows pgx.Rows, now time.Time) ([]NodeSample, error) {
 	defer rows.Close()
 	out := []NodeSample{}
@@ -313,7 +320,7 @@ func readNodeSamples(rows pgx.Rows, now time.Time) ([]NodeSample, error) {
 			return nil, ErrUnavailable
 		}
 		if sample.NodeID != last {
-			sample.Stale = now.Sub(sample.Time) > 15*time.Second || sample.Time.After(now.Add(time.Second))
+			sample.Stale = now.Sub(sample.Time) > sampleStaleAfter || sample.Time.After(now.Add(time.Second))
 			sample.Rates = map[string]float64{}
 			out = append(out, sample)
 			last = sample.NodeID
@@ -321,7 +328,7 @@ func readNodeSamples(rows pgx.Rows, now time.Time) ([]NodeSample, error) {
 		}
 		latest := &out[len(out)-1]
 		interval := latest.Time.Sub(sample.Time).Seconds()
-		latest.IntervalCovered = interval >= 1 && interval <= 15 && latest.Snapshot.InstanceID == sample.Snapshot.InstanceID && !sample.Snapshot.Partial && !latest.Snapshot.Partial
+		latest.IntervalCovered = interval >= 1 && interval <= sampleMaxInterval && latest.Snapshot.InstanceID == sample.Snapshot.InstanceID && !sample.Snapshot.Partial && !latest.Snapshot.Partial
 		if latest.IntervalCovered {
 			previous := map[string]float64{}
 			for _, point := range sample.Snapshot.Points {

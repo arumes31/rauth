@@ -403,9 +403,16 @@ func (e *clusterEvents) observeLoop() {
 	}
 }
 
+// telemetryInterval is how often each node records a telemetry sample.
+// Diagnostics follow every diagnosticsEvery samples (every 30 s).
+const (
+	telemetryInterval = 15 * time.Second
+	diagnosticsEvery  = 2
+)
+
 func (e *clusterEvents) telemetryLoop() {
 	collector := nodetelemetry.New(nil)
-	tick := time.NewTicker(5 * time.Second)
+	tick := time.NewTicker(telemetryInterval)
 	defer tick.Stop()
 	sampleNumber := 0
 	for {
@@ -433,7 +440,7 @@ func (e *clusterEvents) telemetryLoop() {
 				}
 				writer.OfferMetrics(snapshot)
 				sampleNumber++
-				if sampleNumber%6 == 1 {
+				if sampleNumber%diagnosticsEvery == 1 {
 					for _, snapshot := range collector.Diagnostics() {
 						writer.OfferMetrics(snapshot)
 					}
