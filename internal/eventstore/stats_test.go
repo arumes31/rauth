@@ -90,6 +90,27 @@ func TestNodeSamplesCounterResetAndMissingCoverage(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, view.Nodes[0].Stale)
 }
+func TestNodeSamplesFifteenSecondCadence(t *testing.T) {
+	pool := setup(t)
+	s := open(t, pool, options())
+	node := uuid.NewString()
+	now := time.Now().UTC()
+	s.now = func() time.Time { return now }
+	instance := uuid.NewString()
+	sample := func(at time.Time, value float64) requestevent.Event {
+		return requestevent.Event{Kind: "telemetry", EventID: uuid.NewString(), NodeID: node, NodeName: "fixture", Time: at, Metrics: &requestevent.MetricSnapshot{Schema: 1, InstanceID: instance, StartedAt: now.Add(-time.Hour), Points: []requestevent.MetricPoint{{Name: "rauth_login_success_total", Value: value}}}}
+	}
+	for _, e := range []requestevent.Event{sample(now.Add(-45*time.Second), 10), sample(now.Add(-30*time.Second), 40)} {
+		_, err := s.Ingest(background, node, []requestevent.Event{e})
+		require.NoError(t, err)
+	}
+	view, err := s.Statistics(background, StatsQuery{Range: "5m"})
+	require.NoError(t, err)
+	require.Len(t, view.Nodes, 1)
+	require.True(t, view.Nodes[0].IntervalCovered, "15 s between samples is one regular interval")
+	require.Equal(t, 2.0, view.Nodes[0].Rates["rauth_login_success_total"])
+	require.False(t, view.Nodes[0].Stale, "a 30 s old sample is within three intervals")
+}
 func TestVersionOnePopulatedLedgerUpgradeKeepsEpochAndCursor(t *testing.T) {
 	pool := setup(t)
 	cfg := pool.Config()
