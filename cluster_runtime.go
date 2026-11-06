@@ -294,8 +294,8 @@ func (r *clusterRuntime) Close() {
 		if client, ok := r.adminRelayClient.(interface{ CloseIdleConnections() }); ok {
 			client.CloseIdleConnections()
 		}
-		for _, pool := range r.pools {
-			pool.Close()
+		if !clusterpool.CloseBounded(clusterpool.CloseTimeout, r.pools...) {
+			slog.Warn("Cluster authority pools still closing at shutdown deadline", "timeout", clusterpool.CloseTimeout)
 		}
 	})
 }
