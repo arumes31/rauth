@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/labstack/echo/v4"
-	echoMiddleware "github.com/labstack/echo/v4/middleware"
+	"github.com/labstack/echo/v5"
+	echoMiddleware "github.com/labstack/echo/v5/middleware"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -22,7 +22,7 @@ func TestCSRFProtection(t *testing.T) {
 		CookieName:  "_csrf",
 	}))
 
-	e.POST("/test", func(c echo.Context) error {
+	e.POST("/test", func(c *echo.Context) error {
 		return c.String(http.StatusOK, "passed")
 	})
 

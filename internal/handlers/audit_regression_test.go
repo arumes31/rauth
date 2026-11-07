@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/go-webauthn/webauthn/webauthn"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/pquerna/otp/totp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,7 +36,7 @@ func regressionConfig() *core.Config {
 	}
 }
 
-func loginPost(t *testing.T, h *AuthHandler, e *echo.Echo, ip, username, password string) (echo.Context, int) {
+func loginPost(t *testing.T, h *AuthHandler, e *echo.Echo, ip, username, password string) (*echo.Context, int) {
 	t.Helper()
 	f := url.Values{"username": {username}, "password": {password}}
 	c, rec := createTestContext(e, http.MethodPost, "/rauthlogin", f)
@@ -266,7 +266,7 @@ func TestRegression_AdminCredentialsNeedStepUp(t *testing.T) {
 	require.NoError(t, core.CreateUser("peer", "PeerPassword1", "", true, ""))
 	require.NoError(t, core.CreateUser("member", "MemberPassword1", "", false, ""))
 
-	run := func(fn func(echo.Context) error, path string, f url.Values) int {
+	run := func(fn func(*echo.Context) error, path string, f url.Values) int {
 		c, rec := createTestContext(e, http.MethodPost, path, f)
 		c.Set("username", "boss")
 		if err := fn(c); err != nil {

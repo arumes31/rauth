@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -158,7 +158,7 @@ func TestAdminHandler_BypassRules(t *testing.T) {
 	current := "session-a"
 	var lastCookies []*http.Cookie
 
-	postAs := func(token string, fn func(echo.Context) error, f url.Values) (int, string, error) {
+	postAs := func(token string, fn func(*echo.Context) error, f url.Values) (int, string, error) {
 		c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/bypass", f)
 		c.Set("username", "adminuser")
 		c.Set("token", token)
@@ -169,7 +169,7 @@ func TestAdminHandler_BypassRules(t *testing.T) {
 		}
 		return rec.Code, rec.Header().Get("Location"), err
 	}
-	post := func(fn func(echo.Context) error, f url.Values) (int, string, error) {
+	post := func(fn func(*echo.Context) error, f url.Values) (int, string, error) {
 		return postAs(current, fn, f)
 	}
 

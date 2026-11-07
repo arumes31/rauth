@@ -8,7 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"io"
@@ -150,7 +150,7 @@ func TestWorkerAdmissionPreservesInnerErrorAndPinnedTelemetryAfterRelease(t *tes
 	e.IPExtractor = func(*http.Request) string { return "203.0.113.43" }
 	e.Use(middleware.RequestFeed(cfg))
 	e.Use(middleware.WorkerPolicyAdmission(cfg, pin))
-	e.GET("/rauthvalidate", func(c echo.Context) error {
+	e.GET("/rauthvalidate", func(c *echo.Context) error {
 		active, ok := core.PolicySnapshotFromContext(c.Request().Context())
 		require.True(t, ok)
 		require.Same(t, snapshot, active)

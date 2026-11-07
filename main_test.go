@@ -17,7 +17,7 @@ import (
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -45,7 +45,7 @@ func TestTemplateRenderer_Render(t *testing.T) {
 		templates: template.Must(template.New("t.html").Parse("hello {{.}}")),
 	}
 	var buf bytes.Buffer
-	err := tr.Render(&buf, "t.html", "world", nil)
+	err := tr.Render(nil, &buf, "t.html", "world")
 	require.NoError(t, err)
 	assert.Equal(t, "hello world", buf.String())
 }
@@ -62,7 +62,7 @@ func TestManagementDeletionControls(t *testing.T) {
 			e := echo.New()
 			setupRenderer(e)
 			var page bytes.Buffer
-			err := e.Renderer.Render(&page, "management.html", map[string]interface{}{
+			err := e.Renderer.Render(nil, &page, "management.html", map[string]interface{}{
 				"username":  actor,
 				"root_user": "owner",
 				"csrf":      "test-csrf",
@@ -76,7 +76,7 @@ func TestManagementDeletionControls(t *testing.T) {
 				"sessions":     []map[string]string{},
 				"logs":         []core.AuditLog{},
 				"bypass_rules": []handlers.BypassRuleView{},
-			}, nil)
+			})
 			require.NoError(t, err)
 			body := page.String()
 			assert.Contains(t, body, "Root Administrator")
@@ -94,7 +94,7 @@ func TestProfileRendersCreatedAt(t *testing.T) {
 		e := echo.New()
 		setupRenderer(e)
 		var page bytes.Buffer
-		err := e.Renderer.Render(&page, "profile.html", map[string]interface{}{
+		err := e.Renderer.Render(nil, &page, "profile.html", map[string]interface{}{
 			"username":  "alice",
 			"groups":    "default",
 			"createdAt": createdAt,
@@ -102,7 +102,7 @@ func TestProfileRendersCreatedAt(t *testing.T) {
 			"logs":      []core.AuditLog{{Timestamp: 1700000000, Action: "LOGIN", Username: "alice"}},
 			"passkeys":  []core.StoredCredential{},
 			"csrf":      "test-csrf",
-		}, nil)
+		})
 		require.NoError(t, err)
 		if createdAt == 0 {
 			assert.NotContains(t, page.String(), "Member since")
@@ -123,7 +123,7 @@ func TestErrorHandlerJSONForFetchClients(t *testing.T) {
 	e := echo.New()
 	setupRenderer(e)
 	setupErrorHandlers(e)
-	e.POST("/rauthprofile/password", func(c echo.Context) error {
+	e.POST("/rauthprofile/password", func(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "Current password incorrect")
 	})
 
@@ -150,7 +150,7 @@ func TestSetupSecurityMiddlewareIncludesTrustedFormActions(t *testing.T) {
 		CookieDomains: []string{"example.com"},
 	}
 	setupSecurityMiddleware(e, cfg)
-	e.GET("/", func(c echo.Context) error {
+	e.GET("/", func(c *echo.Context) error {
 		return c.NoContent(http.StatusNoContent)
 	})
 
@@ -169,7 +169,7 @@ func TestSetupRoutes(t *testing.T) {
 	}
 	setupRoutes(e, cfg)
 
-	routes := e.Routes()
+	routes := e.Router().Routes()
 	require.NotEmpty(t, routes)
 
 	paths := make(map[string]bool)
@@ -474,7 +474,7 @@ func TestStatsPageRendersLocallyAndStatsAliasContainsNoData(t *testing.T) {
 	e := echo.New()
 	setupRenderer(e)
 	var page bytes.Buffer
-	require.NoError(t, e.Renderer.Render(&page, "stats.html", map[string]any{"username": "<operator>", "root_user": "owner", "csrf": "token", "users": []any{}, "sessions": []any{}, "bypass_rules": []any{}, "ip_feeds": []any{}, "stats_page": true}, nil))
+	require.NoError(t, e.Renderer.Render(nil, &page, "stats.html", map[string]any{"username": "<operator>", "root_user": "owner", "csrf": "token", "users": []any{}, "sessions": []any{}, "bypass_rules": []any{}, "ip_feeds": []any{}, "stats_page": true}))
 	html := page.String()
 	require.Contains(t, html, "/static/js/stats.js")
 	require.Contains(t, html, "Registered metric diagnostics")

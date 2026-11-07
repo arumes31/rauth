@@ -8,12 +8,12 @@ import (
 	"rauth/internal/authstate"
 	"rauth/internal/core"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 func AuthMiddleware(cfg *core.Config) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
+		return func(c *echo.Context) error {
 			cookie, err := c.Cookie(cfg.SessionCookieName())
 			if err != nil {
 				// Sanitize the redirect URI to prevent open redirect in the rd param itself
@@ -101,7 +101,7 @@ func AuthMiddleware(cfg *core.Config) echo.MiddlewareFunc {
 }
 
 func AdminMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
-	return func(c echo.Context) error {
+	return func(c *echo.Context) error {
 		username, ok := c.Get("username").(string)
 		if !ok {
 			return c.Redirect(http.StatusFound, "/rauthlogin")

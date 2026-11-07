@@ -7,7 +7,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"io"
 	"log/slog"
@@ -299,7 +299,7 @@ func (r *clusterRuntime) Close() {
 		}
 	})
 }
-func (r *clusterRuntime) Health(c echo.Context) error {
+func (r *clusterRuntime) Health(c *echo.Context) error {
 	status := r.worker.Status()
 	ready := status.Policy.Ready
 	checks := map[string]bool{"policy": ready}
@@ -365,7 +365,7 @@ func (r *clusterRuntime) PrivateServer(public http.Handler) (*http.Server, error
 }
 
 // StartHTTP binds both configured addresses before serving either listener.
-func (r *clusterRuntime) StartHTTP(e *echo.Echo) (*http.Server, error) {
+func (r *clusterRuntime) StartHTTP(e *echo.Echo, public *http.Server) (*http.Server, error) {
 	private, err := r.PrivateServer(e)
 	if err != nil {
 		return nil, err
@@ -374,13 +374,12 @@ func (r *clusterRuntime) StartHTTP(e *echo.Echo) (*http.Server, error) {
 	if err != nil {
 		return nil, errClusterRuntime
 	}
-	public, err := net.Listen("tcp", r.spec.PublicListen)
+	publicListener, err := net.Listen("tcp", r.spec.PublicListen)
 	if err != nil {
 		_ = local.Close()
 		return nil, errClusterRuntime
 	}
 	r.Start() // Publication begins only after both listeners bind successfully.
-	e.Server.Handler = e
 	go func() {
 		if err := private.Serve(tls.NewListener(local, private.TLSConfig)); err != nil && err != http.ErrServerClosed {
 			slog.Error("Private node listener stopped")
@@ -388,7 +387,7 @@ func (r *clusterRuntime) StartHTTP(e *echo.Echo) (*http.Server, error) {
 		}
 	}()
 	go func() {
-		if err := e.Server.Serve(public); err != nil && err != http.ErrServerClosed {
+		if err := public.Serve(publicListener); err != nil && err != http.ErrServerClosed {
 			slog.Error("Public authentication listener stopped")
 			r.cancel()
 		}

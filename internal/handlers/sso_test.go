@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/pquerna/otp/totp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,7 +16,7 @@ import (
 	rauthmiddleware "rauth/internal/middleware"
 )
 
-func ssoHTTPContext(e *echo.Echo, method, origin, path string, cookies ...*http.Cookie) (echo.Context, *httptest.ResponseRecorder) {
+func ssoHTTPContext(e *echo.Echo, method, origin, path string, cookies ...*http.Cookie) (*echo.Context, *httptest.ResponseRecorder) {
 	c, rec := createTestContext(e, method, origin+path, nil)
 	for _, cookie := range cookies {
 		c.Request().AddCookie(cookie)
@@ -137,7 +137,7 @@ func TestSSOHTTPPasswordAndTOTPOnDifferentNodesCrossDomainAndGlobalLogout(t *tes
 	assert.Equal(t, "/rauthlogin", root.Header().Get("Location"))
 	c, profile := ssoHTTPContext(e, http.MethodGet, cfg.SSOCanonicalOrigin, "/rauthprofile", &copied)
 	called := false
-	require.NoError(t, rauthmiddleware.AuthMiddleware(cfg)(func(c echo.Context) error { called = true; return c.NoContent(http.StatusOK) })(c))
+	require.NoError(t, rauthmiddleware.AuthMiddleware(cfg)(func(c *echo.Context) error { called = true; return c.NoContent(http.StatusOK) })(c))
 	assert.False(t, called)
 	assert.Equal(t, http.StatusFound, profile.Code)
 	// Exercise app-cookie rotation and ensure the refresh remains host-only.
@@ -226,12 +226,12 @@ func TestSSOOperationalFailureKeepsResponsePrivateAndLogsCause(t *testing.T) {
 	err := ssoFailure(cause)
 	var he *echo.HTTPError
 	require.ErrorAs(t, err, &he)
-	require.ErrorIs(t, he.Internal, cause)
+	require.ErrorIs(t, err, cause)
 	assert.Contains(t, he.Error(), cause.Error())
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodGet, "/_rauth/authorize", nil)
 	rec := httptest.NewRecorder()
-	e.HTTPErrorHandler(err, e.NewContext(req, rec))
+	e.HTTPErrorHandler(e.NewContext(req, rec), err)
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	assert.NotContains(t, rec.Body.String(), cause.Error())
 }

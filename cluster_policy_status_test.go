@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"io"
 	"net/http"
@@ -59,7 +59,7 @@ func TestClusterPolicyStatusOnlyRegistersOnProtectedControlRoutes(t *testing.T) 
 		cfg := relayConfig()
 		setupRoutesWithPolicyStatus(e, cfg, worker, func(context.Context) (any, error) { called = true; return map[string]bool{"ready": true}, nil })
 		registered := false
-		for _, route := range e.Routes() {
+		for _, route := range e.Router().Routes() {
 			if route.Path == "/rauthmgmt/policy-status" {
 				registered = true
 			}

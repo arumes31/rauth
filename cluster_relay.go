@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/json"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"golang.org/x/net/http/httpguts"
 	"io"
 	"net"
@@ -80,7 +80,7 @@ func validRelayEnvelope(cfg *core.Config, e adminRelayEnvelope) bool {
 }
 func (r *clusterRuntime) AdminRelay(cfg *core.Config) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
+		return func(c *echo.Context) error {
 			if r.spec.Role != clusterconfig.Worker || !adminNamespace(c.Request().URL.Path) {
 				return next(c)
 			}

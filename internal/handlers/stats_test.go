@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 	"io"
 	"net/http"

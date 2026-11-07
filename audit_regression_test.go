@@ -8,7 +8,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -19,7 +19,7 @@ import (
 func TestRegression_CrossOriginStateChangeBlocked(t *testing.T) {
 	e := echo.New()
 	setupCSRFMiddleware(e, &core.Config{})
-	e.POST("/rauthmgmt/user/create", func(c echo.Context) error { return c.String(http.StatusOK, "created") })
+	e.POST("/rauthmgmt/user/create", func(c *echo.Context) error { return c.String(http.StatusOK, "created") })
 
 	post := func(headers map[string]string) int {
 		req := httptest.NewRequest(http.MethodPost, "https://auth.example.com/rauthmgmt/user/create", strings.NewReader("csrf=planted"))
@@ -42,7 +42,7 @@ func TestRegression_CrossOriginStateChangeBlocked(t *testing.T) {
 func TestRegression_CrossOriginTrustedOrigin(t *testing.T) {
 	e := echo.New()
 	setupCSRFMiddleware(e, &core.Config{CSRFTrustedOrigins: []string{"https://portal.example.com/"}})
-	e.POST("/x", func(c echo.Context) error { return c.String(http.StatusOK, "ok") })
+	e.POST("/x", func(c *echo.Context) error { return c.String(http.StatusOK, "ok") })
 	req := httptest.NewRequest(http.MethodPost, "https://auth.example.com/x", strings.NewReader("csrf=t"))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
 	req.Header.Set("Sec-Fetch-Site", "same-site")
@@ -119,4 +119,16 @@ func TestRegression_CloudflareHeaderRequiresCloudflareEdge(t *testing.T) {
 
 	req.Header.Set("X-Real-IP", "198.51.100.9")
 	assert.Equal(t, "198.51.100.9", extract(req), "direct-to-origin requests cannot forge CF-Connecting-IP")
+}
+
+func TestNormalizeOrigin(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://Portal.Example.com:443/": "https://portal.example.com",
+		"HTTP://a.test:80":                "http://a.test",
+		" https://a.test:8443 ":           "https://a.test:8443",
+		"https://[::1]:443":               "https://[::1]",
+		"not a url":                       "not a url",
+	} {
+		assert.Equal(t, want, normalizeOrigin(in), in)
+	}
 }

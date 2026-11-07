@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 // bypassUnlockTTL is how long one step-up keeps the Public Access tab
@@ -37,7 +37,7 @@ func bypassRuleViews() []BypassRuleView {
 
 // bypassUnlockRemaining returns how long the current session stays unlocked
 // for bypass rule changes (0 when locked).
-func bypassUnlockRemaining(c echo.Context) time.Duration {
+func bypassUnlockRemaining(c *echo.Context) time.Duration {
 	token, _ := c.Get("token").(string)
 	if token == "" {
 		return 0
@@ -52,7 +52,7 @@ func bypassUnlockRemaining(c echo.Context) time.Duration {
 
 // bypassUnlockMinutes is the remaining unlock time rounded up to whole
 // minutes for the dashboard (0 when locked).
-func bypassUnlockMinutes(c echo.Context) int {
+func bypassUnlockMinutes(c *echo.Context) int {
 	ttl := bypassUnlockRemaining(c)
 	if ttl <= 0 {
 		return 0
@@ -63,7 +63,7 @@ func bypassUnlockMinutes(c echo.Context) int {
 // requireBypassUnlock rejects bypass rule changes unless this session passed
 // the step-up recently. Opening an application to anonymous access is high
 // impact, so a hijacked admin session alone cannot do it.
-func requireBypassUnlock(c echo.Context) *echo.HTTPError {
+func requireBypassUnlock(c *echo.Context) *echo.HTTPError {
 	if bypassUnlockRemaining(c) <= 0 {
 		return echo.NewHTTPError(http.StatusForbidden, "Public access management is locked. Unlock it with your 2FA code (or password) first.")
 	}
@@ -72,7 +72,7 @@ func requireBypassUnlock(c echo.Context) *echo.HTTPError {
 
 // UnlockBypass verifies a step-up (TOTP code, or current password for admins
 // without TOTP) once and unlocks bypass rule changes for this session.
-func (h *AdminHandler) UnlockBypass(c echo.Context) error {
+func (h *AdminHandler) UnlockBypass(c *echo.Context) error {
 	admin := c.Get("username").(string)
 	token, _ := c.Get("token").(string)
 	if token == "" {
@@ -106,7 +106,7 @@ func (h *AdminHandler) UnlockBypass(c echo.Context) error {
 }
 
 // LockBypass ends the unlock early.
-func (h *AdminHandler) LockBypass(c echo.Context) error {
+func (h *AdminHandler) LockBypass(c *echo.Context) error {
 	if token, _ := c.Get("token").(string); token != "" {
 		if err := core.LockPublicAccessGrant(c.Request().Context(), token); err != nil {
 			return echo.NewHTTPError(http.StatusServiceUnavailable, "Failed to lock public access management")
@@ -117,7 +117,7 @@ func (h *AdminHandler) LockBypass(c echo.Context) error {
 
 // AddBypassRule creates a UI-managed auth bypass rule (unlock required,
 // audit-logged).
-func (h *AdminHandler) AddBypassRule(c echo.Context) error {
+func (h *AdminHandler) AddBypassRule(c *echo.Context) error {
 	admin := c.Get("username").(string)
 	if herr := requireBypassUnlock(c); herr != nil {
 		return herr
@@ -139,7 +139,7 @@ func (h *AdminHandler) AddBypassRule(c echo.Context) error {
 
 // UpdateBypassRule edits a UI-managed auth bypass rule (unlock required,
 // audit-logged with the before and after state).
-func (h *AdminHandler) UpdateBypassRule(c echo.Context) error {
+func (h *AdminHandler) UpdateBypassRule(c *echo.Context) error {
 	admin := c.Get("username").(string)
 	if herr := requireBypassUnlock(c); herr != nil {
 		return herr
@@ -166,7 +166,7 @@ func (h *AdminHandler) UpdateBypassRule(c echo.Context) error {
 
 // DeleteBypassRule removes a UI-managed auth bypass rule (also unlock gated,
 // so a hijacked admin session cannot silently reshape access either way).
-func (h *AdminHandler) DeleteBypassRule(c echo.Context) error {
+func (h *AdminHandler) DeleteBypassRule(c *echo.Context) error {
 	admin := c.Get("username").(string)
 	if herr := requireBypassUnlock(c); herr != nil {
 		return herr
@@ -186,7 +186,7 @@ func (h *AdminHandler) DeleteBypassRule(c echo.Context) error {
 	return c.Redirect(http.StatusFound, "/rauthmgmt?success=bypass_deleted#bypass")
 }
 
-func bypassPolicyForm(c echo.Context) ([]core.RulePolicy, error) {
+func bypassPolicyForm(c *echo.Context) ([]core.RulePolicy, error) {
 	if c.FormValue("policy_fields") == "" {
 		return nil, nil
 	}

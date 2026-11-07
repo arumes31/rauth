@@ -7,7 +7,7 @@ import (
 	"rauth/internal/authstate"
 	"rauth/internal/core"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 func prepareSessionViews(sessions []map[string]string) {

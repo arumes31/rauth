@@ -1,14 +1,13 @@
 package middleware
 
 import (
-	"errors"
 	"net"
 	"net/http"
 	"rauth/internal/core"
 	"strings"
 	"time"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 // RequestFeed observes forward-auth decisions, including rejections by the
@@ -18,18 +17,22 @@ func RequestFeed(cfg *core.Config) echo.MiddlewareFunc { return RequestFeedSink(
 // RequestFeedSink adds an optional nonblocking local observer. It must not do I/O.
 func RequestFeedSink(cfg *core.Config, sink func(core.RequestEvent)) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
+		return func(c *echo.Context) error {
 			if c.Path() != "/rauthvalidate" {
 				return next(c)
 			}
 			started := time.Now()
 			err := next(c)
-			status := c.Response().Status
-			if err != nil && !c.Response().Committed {
+			status, committed := 0, false
+			if resp, uerr := echo.UnwrapResponse(c.Response()); uerr == nil {
+				status, committed = resp.Status, resp.Committed
+			}
+			if err != nil && !committed {
+				// echo.StatusCode also covers predefined errors such as
+				// echo.ErrNotFound, which are not *echo.HTTPError in v5.
 				status = http.StatusInternalServerError
-				var he *echo.HTTPError
-				if errors.As(err, &he) {
-					status = he.Code
+				if code := echo.StatusCode(err); code != 0 {
+					status = code
 				}
 			}
 			action := "blocked"
@@ -72,7 +75,7 @@ func RequestFeedSink(cfg *core.Config, sink func(core.RequestEvent)) echo.Middle
 	}
 }
 
-func requestFeedTarget(c echo.Context, cfg *core.Config) (target, source string) {
+func requestFeedTarget(c *echo.Context, cfg *core.Config) (target, source string) {
 	source = c.RealIP()
 	if cfg.IsTrustedProxyPeer(c.Request().RemoteAddr) {
 		headers := c.Request().Header
