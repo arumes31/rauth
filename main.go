@@ -348,7 +348,7 @@ func setupCSRFMiddleware(e *echo.Echo, cfg *core.Config) {
 func trustedCSRFOrigins(cfg *core.Config) []string {
 	var trusted []string
 	for _, origin := range cfg.CSRFTrustedOrigins {
-		origin = strings.TrimSuffix(strings.TrimSpace(origin), "/")
+		origin = normalizeOrigin(origin)
 		if err := http.NewCrossOriginProtection().AddTrustedOrigin(origin); err != nil {
 			slog.Warn("Ignoring invalid CSRF_TRUSTED_ORIGINS entry", "origin", origin, "error", err)
 			continue
@@ -356,6 +356,29 @@ func trustedCSRFOrigins(cfg *core.Config) []string {
 		trusted = append(trusted, origin)
 	}
 	return trusted
+}
+
+// normalizeOrigin converts a configured origin to the form browsers send in
+// the Origin header: lowercase scheme and host, no default port, no trailing
+// slash. Unparseable values are returned trimmed so validation can reject them.
+func normalizeOrigin(origin string) string {
+	origin = strings.TrimSuffix(strings.TrimSpace(origin), "/")
+	u, err := url.Parse(origin)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return origin
+	}
+	scheme, host, port := strings.ToLower(u.Scheme), strings.ToLower(u.Hostname()), u.Port()
+	if (scheme == "https" && port == "443") || (scheme == "http" && port == "80") {
+		port = ""
+	}
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	if port != "" {
+		host += ":" + port
+	}
+	u.Scheme, u.Host = scheme, host
+	return u.String()
 }
 
 // newCrossOriginProtection builds the origin check for the given trusted origins.

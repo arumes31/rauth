@@ -120,3 +120,15 @@ func TestRegression_CloudflareHeaderRequiresCloudflareEdge(t *testing.T) {
 	req.Header.Set("X-Real-IP", "198.51.100.9")
 	assert.Equal(t, "198.51.100.9", extract(req), "direct-to-origin requests cannot forge CF-Connecting-IP")
 }
+
+func TestNormalizeOrigin(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://Portal.Example.com:443/": "https://portal.example.com",
+		"HTTP://a.test:80":                "http://a.test",
+		" https://a.test:8443 ":           "https://a.test:8443",
+		"https://[::1]:443":               "https://[::1]",
+		"not a url":                       "not a url",
+	} {
+		assert.Equal(t, want, normalizeOrigin(in), in)
+	}
+}
