@@ -6,7 +6,7 @@ import (
 	"rauth/internal/core"
 	"testing"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -27,12 +27,12 @@ func TestRequestFeedDecisionsAndTrustedMetadata(t *testing.T) {
 		e := echo.New()
 		e.IPExtractor = func(*http.Request) string { return "100.64.1.2" }
 		e.Use(RequestFeed(&core.Config{TrustedProxies: []string{"10.0.0.0/8"}, AuthBypassHostHeader: "X-Forwarded-Host", AuthBypassURIHeader: "X-Forwarded-Uri"}))
-		e.GET("/rauthvalidate", func(c echo.Context) error {
+		e.GET("/rauthvalidate", func(c *echo.Context) error {
 			if tc.anonymous {
 				c.Response().Header().Set("X-RAuth-Anonymous", "1")
 			}
 			if tc.status == 500 {
-				return echo.NewHTTPError(500)
+				return echo.NewHTTPError(500, http.StatusText(500))
 			}
 			return c.NoContent(tc.status)
 		})
@@ -58,8 +58,8 @@ func TestRequestFeedRejectsSpoofedTargetAndIgnoresOtherRoutes(t *testing.T) {
 	t.Cleanup(func() { core.LiveRequests = old })
 	e := echo.New()
 	e.Use(RequestFeed(&core.Config{TrustedProxies: []string{"10.0.0.0/8"}, AuthBypassHostHeader: "X-Forwarded-Host", AuthBypassURIHeader: "X-Forwarded-Uri"}))
-	e.GET("/rauthvalidate", func(c echo.Context) error { return c.NoContent(401) })
-	e.GET("/health", func(c echo.Context) error { return c.NoContent(200) })
+	e.GET("/rauthvalidate", func(c *echo.Context) error { return c.NoContent(401) })
+	e.GET("/health", func(c *echo.Context) error { return c.NoContent(200) })
 	req := httptest.NewRequest(http.MethodGet, "/rauthvalidate", nil)
 	req.RemoteAddr = "203.0.113.1:1234"
 	req.Header.Set("X-Forwarded-Host", "cloud.example.com")
@@ -84,7 +84,7 @@ func TestRequestFeedOptionalOriginalIPDoesNotChangeAuthenticationIP(t *testing.T
 		e := echo.New()
 		e.IPExtractor = func(*http.Request) string { return "100.64.1.2" }
 		e.Use(RequestFeed(&core.Config{TrustedProxies: []string{"10.0.0.0/8"}, RequestFeedIPHeader: "X-RAuth-Observed-IP"}))
-		e.GET("/rauthvalidate", func(c echo.Context) error {
+		e.GET("/rauthvalidate", func(c *echo.Context) error {
 			assert.Equal(t, "100.64.1.2", c.RealIP(), "telemetry must not alter authorization IP")
 			return c.NoContent(401)
 		})
@@ -107,7 +107,7 @@ func TestRequestFeedObserverReceivesSanitizedDecisionAndPinnedVersion(t *testing
 	e.IPExtractor = func(*http.Request) string { return "8.8.8.8" }
 	cfg := &core.Config{TrustedProxies: []string{"10.1.2.3"}, AuthBypassHostHeader: "X-Forwarded-Host", AuthBypassURIHeader: "X-Forwarded-Uri"}
 	e.Use(RequestFeedSink(cfg, func(event core.RequestEvent) { captured = append(captured, event) }))
-	e.GET("/rauthvalidate", func(c echo.Context) error { c.Set(policyFeedVersionKey, int64(42)); return c.NoContent(401) })
+	e.GET("/rauthvalidate", func(c *echo.Context) error { c.Set(policyFeedVersionKey, int64(42)); return c.NoContent(401) })
 	req := httptest.NewRequest(http.MethodGet, "/rauthvalidate", nil)
 	req.RemoteAddr = "10.1.2.3:1234"
 	req.Header.Set("X-Forwarded-Host", "example.test")

@@ -9,7 +9,7 @@ import (
 	"rauth/internal/hahealth"
 	"strings"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 type RequestEventSource interface {
@@ -27,7 +27,7 @@ type AdminHandler struct {
 	ReadPolicyStatus func(context.Context) (any, error)
 }
 
-func (h *AdminHandler) Dashboard(c echo.Context) error {
+func (h *AdminHandler) Dashboard(c *echo.Context) error {
 	users, err := core.ListUsers()
 	if err != nil {
 		slog.Error("Failed to list users", "error", err)
@@ -83,7 +83,7 @@ func (h *AdminHandler) Dashboard(c echo.Context) error {
 	})
 }
 
-func (h *AdminHandler) CreateUser(c echo.Context) error {
+func (h *AdminHandler) CreateUser(c *echo.Context) error {
 	user := strings.TrimSpace(c.FormValue("new_username"))
 	pass := c.FormValue("new_password")
 	email := strings.TrimSpace(c.FormValue("new_email"))
@@ -132,7 +132,7 @@ func (h *AdminHandler) CreateUser(c echo.Context) error {
 	return c.Redirect(http.StatusFound, "/rauthmgmt?success=user_created")
 }
 
-func (h *AdminHandler) DeleteUser(c echo.Context) error {
+func (h *AdminHandler) DeleteUser(c *echo.Context) error {
 	target := strings.TrimSpace(c.FormValue("username"))
 	if target == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "Username is required")
@@ -167,7 +167,7 @@ func (h *AdminHandler) DeleteUser(c echo.Context) error {
 	return c.Redirect(http.StatusFound, "/rauthmgmt?success=user_deleted")
 }
 
-func (h *AdminHandler) ResetUser2FA(c echo.Context) error {
+func (h *AdminHandler) ResetUser2FA(c *echo.Context) error {
 	target := strings.TrimSpace(c.FormValue("username"))
 	if target == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "Username is required")
@@ -209,7 +209,7 @@ func (h *AdminHandler) ResetUser2FA(c echo.Context) error {
 	return c.Redirect(http.StatusFound, "/rauthmgmt?success=2fa_reset")
 }
 
-func (h *AdminHandler) ChangeUserPassword(c echo.Context) error {
+func (h *AdminHandler) ChangeUserPassword(c *echo.Context) error {
 	target := strings.TrimSpace(c.FormValue("username"))
 	if target == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "Username is required")
@@ -265,7 +265,7 @@ func (h *AdminHandler) ChangeUserPassword(c echo.Context) error {
 	return c.Redirect(http.StatusFound, "/rauthmgmt?success=password_changed")
 }
 
-func (h *AdminHandler) UpdateUserEmail(c echo.Context) error {
+func (h *AdminHandler) UpdateUserEmail(c *echo.Context) error {
 	target := strings.TrimSpace(c.FormValue("username"))
 	if target == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "Username is required")
@@ -301,7 +301,7 @@ func (h *AdminHandler) UpdateUserEmail(c echo.Context) error {
 	return c.Redirect(http.StatusFound, "/rauthmgmt?success=email_updated")
 }
 
-func (h *AdminHandler) InvalidateSession(c echo.Context) error {
+func (h *AdminHandler) InvalidateSession(c *echo.Context) error {
 	token := c.FormValue("token")
 	if token == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "Token is required")
@@ -323,7 +323,7 @@ func (h *AdminHandler) InvalidateSession(c echo.Context) error {
 // administrator's password or 2FA. Otherwise a hijacked admin session could
 // mint an administrator whose credentials it controls and use them for
 // actions that demand fresh proof, such as unlocking Public Access.
-func (h *AdminHandler) requireAdminStepUp(c echo.Context) *echo.HTTPError {
+func (h *AdminHandler) requireAdminStepUp(c *echo.Context) *echo.HTTPError {
 	admin := c.Get("username").(string)
 	return verifyStepUp(h.Cfg, admin, c.FormValue("otp_code"), c.FormValue("current_password"))
 }
@@ -348,7 +348,7 @@ func sweepUserSessions(username string) {
 	}
 }
 
-func (h *AdminHandler) PolicyStatus(c echo.Context) error {
+func (h *AdminHandler) PolicyStatus(c *echo.Context) error {
 	c.Response().Header().Set("Cache-Control", "no-store")
 	if h.ReadPolicyStatus == nil {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "Policy confirmations unavailable")

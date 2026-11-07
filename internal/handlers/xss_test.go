@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -44,6 +44,6 @@ type xssMockRenderer struct {
 	tmpl *template.Template
 }
 
-func (r *xssMockRenderer) Render(w io.Writer, name string, data interface{}, c echo.Context) error {
+func (r *xssMockRenderer) Render(c *echo.Context, w io.Writer, name string, data any) error {
 	return r.tmpl.Execute(w, data)
 }

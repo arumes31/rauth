@@ -2,7 +2,7 @@ package middleware
 
 import (
 	"errors"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"net/http"
 	"rauth/internal/clusterpolicy"
 	"rauth/internal/core"
@@ -25,7 +25,7 @@ type policyFeedCountry struct{ source, country string }
 // remains safe after the pin releases and the old GeoIP reader closes.
 func WorkerPolicyAdmission(cfg *core.Config, pinner PolicyPinner) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
+		return func(c *echo.Context) error {
 			admitted := false
 			err := error(clusterpolicy.ErrNotCurrent)
 			if pinner != nil {
@@ -56,7 +56,7 @@ func WorkerPolicyAdmission(cfg *core.Config, pinner PolicyPinner) echo.Middlewar
 			if err == nil {
 				err = errors.New("policy pin did not invoke request callback")
 			}
-			return echo.NewHTTPError(http.StatusServiceUnavailable, "Policy service is temporarily unavailable; retry").SetInternal(err)
+			return echo.NewHTTPError(http.StatusServiceUnavailable, "Policy service is temporarily unavailable; retry").Wrap(err)
 		}
 	}
 }

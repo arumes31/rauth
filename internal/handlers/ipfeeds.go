@@ -1,14 +1,14 @@
 package handlers
 
 import (
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"net/http"
 	"rauth/internal/core"
 	"strconv"
 )
 
 func feedFormError(err error) error { return echo.NewHTTPError(http.StatusBadRequest, err.Error()) }
-func (h *AdminHandler) AddIPFeed(c echo.Context) error {
+func (h *AdminHandler) AddIPFeed(c *echo.Context) error {
 	if err := requireBypassUnlock(c); err != nil {
 		return err
 	}
@@ -23,7 +23,7 @@ func (h *AdminHandler) AddIPFeed(c echo.Context) error {
 	core.LogAudit("ADMIN_IP_FEED_ADD", c.Get("username").(string), c.RealIP(), map[string]interface{}{"feed_id": f.ID, "name": f.Name})
 	return c.Redirect(303, "/rauthmgmt?success=feed_added#ip-feeds")
 }
-func (h *AdminHandler) UpdateIPFeed(c echo.Context) error {
+func (h *AdminHandler) UpdateIPFeed(c *echo.Context) error {
 	if err := requireBypassUnlock(c); err != nil {
 		return err
 	}
@@ -43,7 +43,7 @@ func (h *AdminHandler) UpdateIPFeed(c echo.Context) error {
 	core.LogAudit("ADMIN_IP_FEED_UPDATE", c.Get("username").(string), c.RealIP(), map[string]interface{}{"feed_id": id, "enabled": enabled == "on"})
 	return c.Redirect(303, "/rauthmgmt?success=feed_updated#ip-feeds")
 }
-func (h *AdminHandler) DeleteIPFeed(c echo.Context) error {
+func (h *AdminHandler) DeleteIPFeed(c *echo.Context) error {
 	if err := requireBypassUnlock(c); err != nil {
 		return err
 	}
@@ -54,7 +54,7 @@ func (h *AdminHandler) DeleteIPFeed(c echo.Context) error {
 	core.LogAudit("ADMIN_IP_FEED_DELETE", c.Get("username").(string), c.RealIP(), map[string]interface{}{"feed_id": id})
 	return c.Redirect(303, "/rauthmgmt?success=feed_deleted#ip-feeds")
 }
-func (h *AdminHandler) RefreshIPFeed(c echo.Context) error {
+func (h *AdminHandler) RefreshIPFeed(c *echo.Context) error {
 	if err := requireBypassUnlock(c); err != nil {
 		return err
 	}
@@ -71,7 +71,7 @@ func (h *AdminHandler) RefreshIPFeed(c echo.Context) error {
 	return c.Redirect(303, "/rauthmgmt?success=feed_refreshed#ip-feeds")
 }
 
-func (h *AdminHandler) PreviewPolicy(c echo.Context) error {
+func (h *AdminHandler) PreviewPolicy(c *echo.Context) error {
 	result, err := core.PreviewURLPolicyForContext(c.Request().Context(), c.FormValue("url"), c.FormValue("client_ip"))
 	if err != nil {
 		return feedFormError(err)

@@ -9,7 +9,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,7 +24,7 @@ func TestAuthMiddleware(t *testing.T) {
 	e := echo.New()
 	cfg := &core.Config{ServerSecret: "32byte-secret-key-for-testing-!!"}
 
-	handler := AuthMiddleware(cfg)(func(c echo.Context) error {
+	handler := AuthMiddleware(cfg)(func(c *echo.Context) error {
 		return c.String(http.StatusOK, "OK")
 	})
 
@@ -90,7 +90,7 @@ func TestAdminMiddleware(t *testing.T) {
 	usePG(t)
 
 	e := echo.New()
-	handler := AdminMiddleware(func(c echo.Context) error {
+	handler := AdminMiddleware(func(c *echo.Context) error {
 		return c.String(http.StatusOK, "Admin OK")
 	})
 
@@ -154,7 +154,7 @@ func TestAuthMiddlewareDistinguishesOutageFromRevocation(t *testing.T) {
 	encrypted, err := core.EncryptToken(token, cfg.ServerSecret)
 	require.NoError(t, err)
 	reached := false
-	handler := AuthMiddleware(cfg)(func(c echo.Context) error { reached = true; return c.NoContent(http.StatusOK) })
+	handler := AuthMiddleware(cfg)(func(c *echo.Context) error { reached = true; return c.NoContent(http.StatusOK) })
 	check := func() {
 		req := httptest.NewRequest(http.MethodGet, "/rauthprofile", nil)
 		req.AddCookie(&http.Cookie{Name: "X-rauth-authtoken", Value: encrypted})

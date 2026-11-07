@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
@@ -22,7 +22,7 @@ func TestSSOLogoutKeepsCSRFProtection(t *testing.T) {
 	e := echo.New()
 	setupCSRFMiddleware(e, &core.Config{})
 	reached := false
-	e.POST("/_rauth/logout", func(c echo.Context) error { reached = true; return c.NoContent(http.StatusNoContent) })
+	e.POST("/_rauth/logout", func(c *echo.Context) error { reached = true; return c.NoContent(http.StatusNoContent) })
 	for _, headers := range []map[string]string{{"Sec-Fetch-Site": "cross-site", "Origin": "https://evil.test"}, {"Sec-Fetch-Site": "same-site", "Origin": "https://sibling.example.org"}, {}} {
 		reached = false
 		req := httptest.NewRequest(http.MethodPost, "https://app.example.org/_rauth/logout", strings.NewReader("csrf=forged"))

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	dto "github.com/prometheus/client_model/go"
 	"net/http"
 	"rauth/internal/core"
@@ -20,7 +20,7 @@ type StatsSource interface {
 	Diagnostics(context.Context, string) (eventstore.Diagnostics, error)
 }
 
-func statsQuery(c echo.Context) (eventstore.StatsQuery, error) {
+func statsQuery(c *echo.Context) (eventstore.StatsQuery, error) {
 	q := eventstore.StatsQuery{Range: c.QueryParam("range"), Node: c.QueryParam("node"), Country: c.QueryParam("country"), Action: c.QueryParam("action"), Domain: c.QueryParam("domain"), Source: c.QueryParam("source"), URL: c.QueryParam("url"), Reason: c.QueryParam("reason")}
 	if q.Range == "" {
 		q.Range = "1h"
@@ -35,7 +35,7 @@ func statsQuery(c echo.Context) (eventstore.StatsQuery, error) {
 	_, _, err := q.Window(time.Now())
 	return q, err
 }
-func (h *AdminHandler) StatsPage(c echo.Context) error {
+func (h *AdminHandler) StatsPage(c *echo.Context) error {
 	c.Response().Header().Set("Cache-Control", "no-store")
 	return c.Render(http.StatusOK, "stats.html", map[string]any{"username": c.Get("username"), "root_user": h.Cfg.InitialUser, "csrf": c.Get("csrf"), "stats_page": true, "cluster_enabled": h.ReadPolicyStatus != nil, "users": []any{}, "sessions": []any{}, "bypass_rules": []any{}, "ip_feeds": []any{}})
 }
@@ -45,7 +45,7 @@ func (h *AdminHandler) statsSource() (StatsSource, bool) {
 	}
 	return h.LocalStats, h.LocalStats != nil
 }
-func (h *AdminHandler) statistics(c echo.Context, q eventstore.StatsQuery) (eventstore.StatsSnapshot, error) {
+func (h *AdminHandler) statistics(c *echo.Context, q eventstore.StatsQuery) (eventstore.StatsSnapshot, error) {
 	source, ok := h.statsSource()
 	if !ok {
 		return eventstore.StatsSnapshot{}, eventstore.ErrUnavailable
@@ -58,7 +58,7 @@ func statsError(err error) error {
 	}
 	return echo.NewHTTPError(http.StatusServiceUnavailable, "Statistics unavailable; authentication remains independent")
 }
-func (h *AdminHandler) StatsData(c echo.Context) error {
+func (h *AdminHandler) StatsData(c *echo.Context) error {
 	c.Response().Header().Set("Cache-Control", "no-store")
 	q, err := statsQuery(c)
 	if err != nil {
@@ -70,7 +70,7 @@ func (h *AdminHandler) StatsData(c echo.Context) error {
 	}
 	return c.JSON(http.StatusOK, data)
 }
-func (h *AdminHandler) StatsHistory(c echo.Context) error {
+func (h *AdminHandler) StatsHistory(c *echo.Context) error {
 	c.Response().Header().Set("Cache-Control", "no-store")
 	q, err := statsQuery(c)
 	if err != nil {
@@ -90,7 +90,7 @@ func (h *AdminHandler) StatsHistory(c echo.Context) error {
 	}
 	return c.JSON(http.StatusOK, map[string]any{"events": events, "before": next})
 }
-func (h *AdminHandler) StatsDiagnostics(c echo.Context) error {
+func (h *AdminHandler) StatsDiagnostics(c *echo.Context) error {
 	c.Response().Header().Set("Cache-Control", "no-store")
 	// Per-node diagnostics need the durable cluster event store. Standalone
 	// servers (LocalStats only) deliberately report them as unavailable.
@@ -110,7 +110,7 @@ func (h *AdminHandler) StatsDiagnostics(c echo.Context) error {
 
 // Shared gauges are read once on the control node. They must not be added across
 // worker snapshots, since each node sees the same authentication session store.
-func (h *AdminHandler) StatsOperations(c echo.Context) error {
+func (h *AdminHandler) StatsOperations(c *echo.Context) error {
 	c.Response().Header().Set("Cache-Control", "no-store")
 	metric := &dto.Metric{}
 	var active *float64
@@ -146,23 +146,23 @@ func (h *AdminHandler) StatsOperations(c echo.Context) error {
 	}
 	return c.JSON(http.StatusOK, out)
 }
-func (h *AdminHandler) StatsStream(c echo.Context) error {
+func (h *AdminHandler) StatsStream(c *echo.Context) error {
 	user, _ := c.Get("username").(string)
 	token, _ := c.Get("token").(string)
 	if user == "" || token == "" {
-		return echo.NewHTTPError(http.StatusUnauthorized)
+		return echo.NewHTTPError(http.StatusUnauthorized, http.StatusText(http.StatusUnauthorized))
 	}
 	if valid, err := h.feedSessionValid(c, user, token); err != nil {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "Authorization temporarily unavailable")
 	} else if !valid {
-		return echo.NewHTTPError(http.StatusForbidden)
+		return echo.NewHTTPError(http.StatusForbidden, http.StatusText(http.StatusForbidden))
 	}
 	q, err := statsQuery(c)
 	if err != nil {
 		return statsError(err)
 	}
-	if _, ok := c.Response().Writer.(http.Flusher); !ok {
-		return echo.NewHTTPError(http.StatusInternalServerError)
+	if _, ok := c.Response().(http.Flusher); !ok {
+		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 	if !acquireFeedStream(user) {
 		return echo.NewHTTPError(http.StatusTooManyRequests, "Too many admin streams")
@@ -176,7 +176,7 @@ func (h *AdminHandler) StatsStream(c echo.Context) error {
 	c.Response().Header().Set("Cache-Control", "no-store")
 	c.Response().Header().Set("X-Accel-Buffering", "no")
 	c.Response().WriteHeader(http.StatusOK)
-	controller := http.NewResponseController(c.Response().Writer)
+	controller := http.NewResponseController(c.Response())
 	write := func(kind string, data any) error {
 		if err := controller.SetWriteDeadline(time.Now().Add(liveFeedWriteTimeout)); err != nil && !errors.Is(err, http.ErrNotSupported) {
 			return err

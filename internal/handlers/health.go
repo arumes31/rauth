@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -37,7 +37,7 @@ func redisPing(client *redis.Client) func() error {
 	}
 }
 
-func (h *HealthHandler) Check(c echo.Context) error {
+func (h *HealthHandler) Check(c *echo.Context) error {
 	// /health is public. File paths and runtime details are only returned to
 	// clients inside METRICS_ALLOWED_IPS; everyone gets the status and
 	// per-check verdicts. Raw errors are logged, never returned.

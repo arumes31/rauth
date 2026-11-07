@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -16,17 +16,14 @@ func TestCustomNotFoundHandler(t *testing.T) {
 	e.Renderer = &mockRenderer{}
 
 	// Setup the handler logic (copied from main.go for testing)
-	e.HTTPErrorHandler = func(err error, c echo.Context) {
-		code := http.StatusInternalServerError
-		if he, ok := err.(*echo.HTTPError); ok {
-			code = he.Code
-		}
-
+	e.HTTPErrorHandler = func(c *echo.Context, err error) {
+		// Router errors such as echo.ErrNotFound are not *echo.HTTPError in v5.
+		code := echo.StatusCode(err)
 		if code == http.StatusNotFound {
 			_ = c.Render(http.StatusNotFound, "error.html", nil)
 			return
 		}
-		e.DefaultHTTPErrorHandler(err, c)
+		echo.DefaultHTTPErrorHandler(false)(c, err)
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/non-existent-page", nil)

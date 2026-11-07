@@ -8,7 +8,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"errors"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"io"
@@ -59,7 +59,7 @@ func TestClusterAdminRelayPreservesBrowserContextAndResponse(t *testing.T) {
 	e := echo.New()
 	e.IPExtractor = CreateIPExtractor(cfg)
 	e.Use(runtime.AdminRelay(cfg))
-	e.POST("/rauthmgmt/user/create", func(echo.Context) error { t.Fatal("worker must not run local mutation"); return nil })
+	e.POST("/rauthmgmt/user/create", func(*echo.Context) error { t.Fatal("worker must not run local mutation"); return nil })
 	req := httptest.NewRequest(http.MethodPost, "https://auth.example.com/rauthmgmt/user/create?view=users", strings.NewReader("csrf=one&username=example"))
 	req.RemoteAddr = "10.253.42.2:45000"
 	req.Header.Set("X-Real-IP", "203.0.113.7")
@@ -81,11 +81,11 @@ func TestClusterAdminRelayPreservesBrowserContextAndResponse(t *testing.T) {
 func TestClusterWorkerRegistersNoLocalAdminMutations(t *testing.T) {
 	e := echo.New()
 	setupRoutesRole(e, relayConfig(), true)
-	for _, route := range e.Routes() {
+	for _, route := range e.Router().Routes() {
 		assert.False(t, adminNamespace(route.Path), route.Method+" "+route.Path)
 	}
 	paths := map[string]bool{}
-	for _, route := range e.Routes() {
+	for _, route := range e.Router().Routes() {
 		paths[route.Path] = true
 	}
 	assert.True(t, paths["/rauthlogin"])
@@ -102,7 +102,7 @@ func TestClusterAdminRelayRejectsInvalidTargetsBoundsAndUnavailableControl(t *te
 	}))
 	e := echo.New()
 	e.Use(runtime.AdminRelay(cfg))
-	e.Any("/rauthmgmt/*", func(echo.Context) error { t.Fatal("local administration must never run"); return nil })
+	e.Any("/rauthmgmt/*", func(*echo.Context) error { t.Fatal("local administration must never run"); return nil })
 	for _, target := range []string{"https://evil.example/rauthmgmt/user/create", "https://auth.example.com/rauthmgmt/user/../create", "https://auth.example.com/rauthmgmt//user/create"} {
 		out := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, target, nil)
@@ -152,8 +152,8 @@ func TestClusterAdminReceiverRechecksBrowserAuthAndCSRF(t *testing.T) {
 	mutations := 0
 	group := public.Group("/rauthmgmt")
 	group.Use(middleware.AuthMiddleware(cfg))
-	group.GET("", func(c echo.Context) error { mutations++; return c.NoContent(http.StatusOK) })
-	group.POST("/user/create", func(c echo.Context) error { mutations++; return c.NoContent(http.StatusOK) })
+	group.GET("", func(c *echo.Context) error { mutations++; return c.NoContent(http.StatusOK) })
+	group.POST("/user/create", func(c *echo.Context) error { mutations++; return c.NoContent(http.StatusOK) })
 	handler := relayGateFixture(t, clustertransport.AdminRelay, runtime.receiveAdminRelay(public))
 	envelope := adminRelayEnvelope{Method: http.MethodGet, Host: "auth.example.com", Path: "/rauthmgmt", Source: "203.0.113.9", Headers: http.Header{}}
 	out := httptest.NewRecorder()
@@ -247,7 +247,7 @@ func TestClusterAdmissionKeepsLivenessIndependentAndRejectsAuthWithoutPolicy(t *
 	setupMiddlewarePolicy(e, cfg, pinner)
 	setupRenderer(e)
 	for _, path := range []string{"/health", "/livez", "/metrics", "/static/status", "/rauthvalidate", "/static-looking"} {
-		e.GET(path, func(c echo.Context) error { return c.NoContent(http.StatusOK) })
+		e.GET(path, func(c *echo.Context) error { return c.NoContent(http.StatusOK) })
 	}
 	for _, path := range []string{"/health", "/livez", "/metrics", "/static/status"} {
 		out := httptest.NewRecorder()

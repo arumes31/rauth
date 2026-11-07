@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"rauth/internal/core"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 // verifyStepUp re-authenticates the signed-in user before a sensitive

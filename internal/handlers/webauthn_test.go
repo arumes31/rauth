@@ -13,7 +13,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/go-webauthn/webauthn/webauthn"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -358,7 +358,7 @@ func TestWebAuthnHandler_identifyWebAuthnUser(t *testing.T) {
 	})
 }
 
-func setRegistrationIdentity(t *testing.T, c echo.Context, user string) {
+func setRegistrationIdentity(t *testing.T, c *echo.Context, user string) {
 	t.Helper()
 	gen, err := core.AuthGeneration(user)
 	require.NoError(t, err)
@@ -369,7 +369,7 @@ func setRegistrationIdentity(t *testing.T, c echo.Context, user string) {
 	require.NoError(t, core.TokenDB.HSet(core.Ctx, "X-rauth-authtoken="+token, "username", user, "status", "valid", "auth_gen", gen).Err())
 	require.NoError(t, core.TokenDB.Expire(core.Ctx, "X-rauth-authtoken="+token, time.Hour).Err())
 }
-func seedRegistrationProof(t *testing.T, c echo.Context, cfg *core.Config, user, sessionJSON string, corrupt bool) string {
+func seedRegistrationProof(t *testing.T, c *echo.Context, cfg *core.Config, user, sessionJSON string, corrupt bool) string {
 	t.Helper()
 	gen, _ := c.Get("auth_gen").(string)
 	tok, _ := c.Get("token").(string)

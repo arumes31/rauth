@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -229,7 +229,7 @@ func TestAdminHandler_DeleteUserPermissions(t *testing.T) {
 			c, rec := createTestContext(e, http.MethodPost, "/rauthmgmt/user/delete", url.Values{"username": {tc.target}})
 			c.Set("username", tc.actor)
 			if err := middleware.AdminMiddleware(h.DeleteUser)(c); err != nil {
-				e.HTTPErrorHandler(err, c)
+				e.HTTPErrorHandler(c, err)
 			}
 			require.Equal(t, tc.wantStatus, rec.Code)
 			wantExists := int64(1)
@@ -342,7 +342,7 @@ func TestAdminHandler_ChangeUserPassword_Full(t *testing.T) {
 		err := h.ChangeUserPassword(c)
 		he := err.(*echo.HTTPError)
 		assert.Equal(t, http.StatusBadRequest, he.Code)
-		assert.Contains(t, he.Message.(string), "Username is required")
+		assert.Contains(t, he.Message, "Username is required")
 	})
 
 	t.Run("Invalid Username", func(t *testing.T) {
@@ -354,7 +354,7 @@ func TestAdminHandler_ChangeUserPassword_Full(t *testing.T) {
 		err := h.ChangeUserPassword(c)
 		he := err.(*echo.HTTPError)
 		assert.Equal(t, http.StatusBadRequest, he.Code)
-		assert.Contains(t, he.Message.(string), "username must be between 3 and 32 characters long")
+		assert.Contains(t, he.Message, "username must be between 3 and 32 characters long")
 	})
 
 	t.Run("User Not Found", func(t *testing.T) {
@@ -366,7 +366,7 @@ func TestAdminHandler_ChangeUserPassword_Full(t *testing.T) {
 		err := h.ChangeUserPassword(c)
 		he := err.(*echo.HTTPError)
 		assert.Equal(t, http.StatusNotFound, he.Code)
-		assert.Contains(t, he.Message.(string), "User not found")
+		assert.Contains(t, he.Message, "User not found")
 	})
 
 	t.Run("Missing Password", func(t *testing.T) {
@@ -381,7 +381,7 @@ func TestAdminHandler_ChangeUserPassword_Full(t *testing.T) {
 		err := h.ChangeUserPassword(c)
 		he := err.(*echo.HTTPError)
 		assert.Equal(t, http.StatusBadRequest, he.Code)
-		assert.Contains(t, he.Message.(string), "Password is required")
+		assert.Contains(t, he.Message, "Password is required")
 	})
 
 	t.Run("Change Own Password", func(t *testing.T) {
@@ -396,7 +396,7 @@ func TestAdminHandler_ChangeUserPassword_Full(t *testing.T) {
 		err := h.ChangeUserPassword(c)
 		he := err.(*echo.HTTPError)
 		assert.Equal(t, http.StatusBadRequest, he.Code)
-		assert.Contains(t, he.Message.(string), "Cannot change your own password")
+		assert.Contains(t, he.Message, "Cannot change your own password")
 	})
 
 	t.Run("Weak Password", func(t *testing.T) {
@@ -409,7 +409,7 @@ func TestAdminHandler_ChangeUserPassword_Full(t *testing.T) {
 		err := h.ChangeUserPassword(c)
 		he := err.(*echo.HTTPError)
 		assert.Equal(t, http.StatusBadRequest, he.Code)
-		assert.Contains(t, he.Message.(string), "password must be at least")
+		assert.Contains(t, he.Message, "password must be at least")
 	})
 }
 
@@ -432,7 +432,7 @@ func TestAdminHandler_UserOperations_Validation(t *testing.T) {
 	testCases := []struct {
 		name         string
 		method       string
-		handler      func(echo.Context) error
+		handler      func(*echo.Context) error
 		username     string
 		extraKey     string
 		extraValue   string
@@ -478,7 +478,7 @@ func TestAdminHandler_UserOperations_Validation(t *testing.T) {
 			if err != nil {
 				if he, ok := err.(*echo.HTTPError); ok {
 					assert.Equal(t, tc.expectedCode, he.Code)
-					assert.Contains(t, he.Message.(string), tc.expectedMsg)
+					assert.Contains(t, he.Message, tc.expectedMsg)
 				} else {
 					t.Errorf("expected echo.HTTPError, got %T", err)
 				}

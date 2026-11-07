@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -51,7 +51,7 @@ func setupHandlersTest(t *testing.T) {
 
 }
 
-func createTestContext(e *echo.Echo, method, path string, f url.Values) (echo.Context, *httptest.ResponseRecorder) {
+func createTestContext(e *echo.Echo, method, path string, f url.Values) (*echo.Context, *httptest.ResponseRecorder) {
 	var body io.Reader
 	if f != nil {
 		body = strings.NewReader(f.Encode())
@@ -82,7 +82,7 @@ type mockRenderer struct {
 	LastData interface{}
 }
 
-func (r *mockRenderer) Render(w io.Writer, name string, data interface{}, c echo.Context) error {
+func (r *mockRenderer) Render(c *echo.Context, w io.Writer, name string, data any) error {
 	r.LastData = data
 	return nil
 }

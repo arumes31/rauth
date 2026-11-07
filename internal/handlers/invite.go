@@ -9,7 +9,7 @@ import (
 	"rauth/internal/core"
 	"time"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"strings"
 )
 
@@ -17,7 +17,7 @@ type InviteHandler struct {
 	Cfg *core.Config
 }
 
-func (h *InviteHandler) Create(c echo.Context) error {
+func (h *InviteHandler) Create(c *echo.Context) error {
 	email := strings.TrimSpace(c.FormValue("email"))
 	if err := core.ValidateEmail(email); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
@@ -45,7 +45,7 @@ func (h *InviteHandler) Create(c echo.Context) error {
 	})
 }
 
-func (h *InviteHandler) RedeemPage(c echo.Context) error {
+func (h *InviteHandler) RedeemPage(c *echo.Context) error {
 	token := c.QueryParam("token")
 	if token == "" {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
@@ -64,7 +64,7 @@ func (h *InviteHandler) RedeemPage(c echo.Context) error {
 	})
 }
 
-func (h *InviteHandler) Redeem(c echo.Context) error {
+func (h *InviteHandler) Redeem(c *echo.Context) error {
 	clientIP := c.RealIP()
 	if core.IsRateLimitExceeded("reg_ip:"+core.RateLimitIP(clientIP), h.Cfg.RateLimitRegistrationMax) {
 		return echo.NewHTTPError(http.StatusTooManyRequests, fmt.Sprintf("Too many registration attempts from this IP (%s)", clientIP))
@@ -109,7 +109,7 @@ func (h *InviteHandler) Redeem(c echo.Context) error {
 // renderRedeemError re-renders the redemption form with an error message. The
 // form is a plain HTML POST, so a JSON body here would replace the page with
 // raw JSON and strand the user.
-func (h *InviteHandler) renderRedeemError(c echo.Context, status int, token, email, msg string) error {
+func (h *InviteHandler) renderRedeemError(c *echo.Context, status int, token, email, msg string) error {
 	return c.Render(status, "redeem.html", map[string]interface{}{
 		"token": token,
 		"email": email,

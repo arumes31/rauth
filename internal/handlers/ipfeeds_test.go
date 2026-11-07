@@ -10,14 +10,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestIPFeedAdminMutationsRequireUnlock(t *testing.T) {
 	h := &AdminHandler{Cfg: bypassTestConfig()}
-	for _, action := range []func(echo.Context) error{h.AddIPFeed, h.UpdateIPFeed, h.DeleteIPFeed, h.RefreshIPFeed} {
+	for _, action := range []func(*echo.Context) error{h.AddIPFeed, h.UpdateIPFeed, h.DeleteIPFeed, h.RefreshIPFeed} {
 		c, _ := createTestContext(echo.New(), http.MethodPost, "/rauthmgmt/ip-feeds", url.Values{})
 		err := action(c)
 		require.Error(t, err)
@@ -30,7 +30,7 @@ func TestIPFeedAdminCreateUpdateDelete(t *testing.T) {
 	setupHandlersTest(t)
 	h := &AdminHandler{Cfg: bypassTestConfig()}
 	core.TokenDB.Set(core.Ctx, bypassUnlockKey("feed-admin"), "admin", time.Minute)
-	post := func(fn func(echo.Context) error, form url.Values) (int, error) {
+	post := func(fn func(*echo.Context) error, form url.Values) (int, error) {
 		c, r := createTestContext(echo.New(), http.MethodPost, "/rauthmgmt/ip-feeds", form)
 		c.Set("token", "feed-admin")
 		c.Set("username", "admin")

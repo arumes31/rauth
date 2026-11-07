@@ -8,14 +8,14 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"rauth/internal/authstate"
 	"rauth/internal/core"
 )
 
 const ssoBrowserCookiePrefix = "__Host-rauth-sso-"
 
-func ssoHeaders(c echo.Context) {
+func ssoHeaders(c *echo.Context) {
 	c.Response().Header().Set("Cache-Control", "no-store")
 	c.Response().Header().Set("Referrer-Policy", "no-referrer")
 	c.Response().Header().Set("Pragma", "no-cache")
@@ -27,7 +27,7 @@ func newSSOSecret() (string, error) {
 	}
 	return hex.EncodeToString(b[:]), nil
 }
-func ssoParam(c echo.Context, name string) (string, bool) {
+func ssoParam(c *echo.Context, name string) (string, bool) {
 	values := c.QueryParams()[name]
 	if len(values) != 1 || len(values[0]) != 64 {
 		return "", false
@@ -39,19 +39,19 @@ func ssoFailure(err error) error {
 	if errors.Is(err, authstate.ErrSSOInvalid) || errors.Is(err, authstate.ErrNotFound) || errors.Is(err, authstate.ErrStaleGeneration) {
 		return echo.NewHTTPError(http.StatusBadRequest, "Login transfer is invalid or expired; start again from the application")
 	}
-	return echo.NewHTTPError(http.StatusServiceUnavailable, "Login transfer is temporarily unavailable; retry").SetInternal(err)
+	return echo.NewHTTPError(http.StatusServiceUnavailable, "Login transfer is temporarily unavailable; retry").Wrap(err)
 }
-func (h *AuthHandler) ssoOrigin(c echo.Context, canonical bool) (string, error) {
+func (h *AuthHandler) ssoOrigin(c *echo.Context, canonical bool) (string, error) {
 	ssoHeaders(c)
 	if h.Cfg.SSOCanonicalOrigin == "" {
-		return "", echo.NewHTTPError(http.StatusNotFound)
+		return "", echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	origin, ok := h.Cfg.SSORequestOrigin(c.Request())
 	if !ok {
 		return "", echo.NewHTTPError(http.StatusForbidden, "Untrusted login transfer route")
 	}
 	if (canonical && origin != h.Cfg.SSOCanonicalOrigin) || (!canonical && !h.Cfg.SSOApplication(origin)) {
-		return "", echo.NewHTTPError(http.StatusNotFound)
+		return "", echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 	}
 	return origin, nil
 }
@@ -59,7 +59,7 @@ func (h *AuthHandler) ssoOrigin(c echo.Context, canonical bool) (string, error) 
 // SSOStart must be reverse-proxied locally on the enrolled application's exact
 // host. The per-transaction __Host cookie permits parallel tabs without sharing
 // a broad domain cookie or putting the browser's binding in the URL.
-func (h *AuthHandler) SSOStart(c echo.Context) error {
+func (h *AuthHandler) SSOStart(c *echo.Context) error {
 	origin, err := h.ssoOrigin(c, false)
 	if err != nil {
 		return err
@@ -99,7 +99,7 @@ func (h *AuthHandler) SSOStart(c echo.Context) error {
 	return c.Redirect(http.StatusFound, h.Cfg.SSOCanonicalOrigin+"/_rauth/authorize?transaction="+id)
 }
 
-func (h *AuthHandler) ssoSession(c echo.Context, cookieName, audience string) (string, error) {
+func (h *AuthHandler) ssoSession(c *echo.Context, cookieName, audience string) (string, error) {
 	cookie, err := c.Cookie(cookieName)
 	if err != nil {
 		return "", authstate.ErrNotFound
@@ -137,7 +137,7 @@ func (h *AuthHandler) ssoSession(c echo.Context, cookieName, audience string) (s
 	return token, nil
 }
 
-func (h *AuthHandler) SSOAuthorize(c echo.Context) error {
+func (h *AuthHandler) SSOAuthorize(c *echo.Context) error {
 	if _, err := h.ssoOrigin(c, true); err != nil {
 		return err
 	}
@@ -166,7 +166,7 @@ func (h *AuthHandler) SSOAuthorize(c echo.Context) error {
 	return c.Redirect(http.StatusFound, origin+"/_rauth/callback?"+url.Values{"state": {id}, "code": {code}}.Encode())
 }
 
-func (h *AuthHandler) SSOCallback(c echo.Context) error {
+func (h *AuthHandler) SSOCallback(c *echo.Context) error {
 	origin, err := h.ssoOrigin(c, false)
 	if err != nil {
 		return err
@@ -204,7 +204,7 @@ func (h *AuthHandler) SSOCallback(c echo.Context) error {
 // SSOLogoutPage exposes the middleware's HttpOnly-cookie CSRF proof through a
 // same-origin confirmation form. Legacy clients need this explicit token path;
 // merely reading the confirmation page never revokes a session.
-func (h *AuthHandler) SSOLogoutPage(c echo.Context) error {
+func (h *AuthHandler) SSOLogoutPage(c *echo.Context) error {
 	origin, err := h.ssoOrigin(c, false)
 	if err != nil {
 		return err
@@ -225,7 +225,7 @@ func (h *AuthHandler) SSOLogoutPage(c echo.Context) error {
 
 // SSOSignOut revokes the common family before clearing this host's cookie.
 // The route is POST-only and uses the same CSRF middleware as account mutations.
-func (h *AuthHandler) SSOSignOut(c echo.Context) error {
+func (h *AuthHandler) SSOSignOut(c *echo.Context) error {
 	origin, err := h.ssoOrigin(c, false)
 	if err != nil {
 		return err
@@ -243,14 +243,14 @@ func (h *AuthHandler) SSOSignOut(c echo.Context) error {
 	c.SetCookie(&http.Cookie{Name: core.SSOAppCookie, Value: "", Path: "/", MaxAge: -1, Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
 	return c.Redirect(http.StatusFound, h.Cfg.SSOCanonicalOrigin+"/rauthlogin")
 }
-func writeAppSessionCookie(c echo.Context, value string, validity time.Duration) {
+func writeAppSessionCookie(c *echo.Context, value string, validity time.Duration) {
 	c.SetCookie(&http.Cookie{Name: core.SSOAppCookie, Value: value, Path: "/", Expires: time.Now().Add(validity), MaxAge: int(validity / time.Second), HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode})
 }
 
 // validationCookie selects a host-only app cookie only for an exactly enrolled
 // forwarded target from a trusted proxy. Central tokens never become app tokens
 // merely because COOKIE_DOMAIN also covers that application.
-func (h *AuthHandler) validationCookie(c echo.Context) (string, string, error) {
+func (h *AuthHandler) validationCookie(c *echo.Context) (string, string, error) {
 	if h.Cfg.SSOCanonicalOrigin == "" {
 		return h.Cfg.SessionCookieName(), "", nil
 	}

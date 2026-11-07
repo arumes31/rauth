@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"rauth/internal/core"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/pquerna/otp/totp"
 )
 
@@ -15,7 +15,7 @@ type ProfileHandler struct {
 	Cfg *core.Config
 }
 
-func (h *ProfileHandler) Show(c echo.Context) error {
+func (h *ProfileHandler) Show(c *echo.Context) error {
 	username := c.Get("username").(string)
 	currentToken := c.Get("token").(string)
 	userData, err := core.GetUser(username)
@@ -59,7 +59,7 @@ func (h *ProfileHandler) Show(c echo.Context) error {
 
 // GenerateRecoveryCodes issues a fresh batch of single-use 2FA recovery codes
 // after re-verifying the user's current TOTP code, and displays them once.
-func (h *ProfileHandler) GenerateRecoveryCodes(c echo.Context) error {
+func (h *ProfileHandler) GenerateRecoveryCodes(c *echo.Context) error {
 	username := c.Get("username").(string)
 
 	rec, err := core.GetUser(username)
@@ -92,7 +92,7 @@ func (h *ProfileHandler) GenerateRecoveryCodes(c echo.Context) error {
 	})
 }
 
-func (h *ProfileHandler) RenamePasskey(c echo.Context) error {
+func (h *ProfileHandler) RenamePasskey(c *echo.Context) error {
 	username := c.Get("username").(string)
 	credID := c.FormValue("id")
 	nickname := c.FormValue("nickname")
@@ -109,7 +109,7 @@ func (h *ProfileHandler) RenamePasskey(c echo.Context) error {
 	return c.Redirect(http.StatusFound, "/rauthprofile?success=passkey_renamed")
 }
 
-func (h *ProfileHandler) RevokePasskey(c echo.Context) error {
+func (h *ProfileHandler) RevokePasskey(c *echo.Context) error {
 	username := c.Get("username").(string)
 	credID := c.FormValue("id")
 
@@ -139,7 +139,7 @@ func (h *ProfileHandler) RevokePasskey(c echo.Context) error {
 	return c.Redirect(http.StatusFound, "/rauthprofile?success=passkey_revoked")
 }
 
-func (h *ProfileHandler) DisableTOTP(c echo.Context) error {
+func (h *ProfileHandler) DisableTOTP(c *echo.Context) error {
 	username := c.Get("username").(string)
 	otpCode := c.FormValue("otp_code")
 
@@ -151,7 +151,7 @@ func (h *ProfileHandler) DisableTOTP(c echo.Context) error {
 
 	if secret != "" {
 		if err := h.validateTOTP(username, otpCode, secret); err != nil {
-			return c.JSON(err.Code, map[string]string{"error": err.Message.(string)})
+			return c.JSON(err.Code, map[string]string{"error": err.Message})
 		}
 	}
 
@@ -181,7 +181,7 @@ func (h *ProfileHandler) DisableTOTP(c echo.Context) error {
 	return c.Redirect(http.StatusFound, "/rauthprofile?success=totp_disabled")
 }
 
-func (h *ProfileHandler) TerminateSession(c echo.Context) error {
+func (h *ProfileHandler) TerminateSession(c *echo.Context) error {
 	username := c.Get("username").(string)
 	token := c.FormValue("token")
 	if token == "" {
@@ -200,7 +200,7 @@ func (h *ProfileHandler) TerminateSession(c echo.Context) error {
 	return c.Redirect(http.StatusFound, "/rauthprofile?success=session_terminated")
 }
 
-func (h *ProfileHandler) TerminateAllOtherSessions(c echo.Context) error {
+func (h *ProfileHandler) TerminateAllOtherSessions(c *echo.Context) error {
 	username := c.Get("username").(string)
 	currentToken := c.Get("token").(string)
 
@@ -217,7 +217,7 @@ func (h *ProfileHandler) TerminateAllOtherSessions(c echo.Context) error {
 	return c.Redirect(http.StatusFound, "/rauthprofile?success=sessions_terminated")
 }
 
-func (h *ProfileHandler) ChangePassword(c echo.Context) error {
+func (h *ProfileHandler) ChangePassword(c *echo.Context) error {
 	username := c.Get("username").(string)
 
 	if core.IsRateLimitExceeded("login_fail_user:"+username, h.Cfg.RateLimitLoginFailUserMax) {
@@ -242,7 +242,7 @@ func (h *ProfileHandler) ChangePassword(c echo.Context) error {
 	// 2FA Verification if enabled
 	if userData.TwoFactor != "" {
 		if err := h.validateTOTP(username, otpCode, userData.TwoFactor); err != nil {
-			return c.JSON(err.Code, map[string]string{"error": err.Message.(string)})
+			return c.JSON(err.Code, map[string]string{"error": err.Message})
 		}
 	}
 

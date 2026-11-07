@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 const liveFeedAuthInterval = 5 * time.Second
@@ -60,7 +60,7 @@ func feedCursor(raw string) (string, uint64, bool) {
 	return epoch, cursor, err == nil
 }
 
-func (h *AdminHandler) feedSessionValid(c echo.Context, user, token string) (bool, error) {
+func (h *AdminHandler) feedSessionValid(c *echo.Context, user, token string) (bool, error) {
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 3*time.Second)
 	defer cancel()
 	data, err := core.ReadAuthSession(ctx, token)
@@ -88,19 +88,19 @@ func (h *AdminHandler) feedSessionValid(c echo.Context, user, token string) (boo
 // LiveFeed streams only operational request metadata. The route is also
 // protected by AuthMiddleware and AdminMiddleware; ongoing access is rechecked
 // so revocations and demotions do not leave a long-lived privileged stream.
-func (h *AdminHandler) LiveFeed(c echo.Context) error {
+func (h *AdminHandler) LiveFeed(c *echo.Context) error {
 	user, _ := c.Get("username").(string)
 	token, _ := c.Get("token").(string)
 	if user == "" || token == "" {
-		return echo.NewHTTPError(http.StatusUnauthorized)
+		return echo.NewHTTPError(http.StatusUnauthorized, http.StatusText(http.StatusUnauthorized))
 	}
 	if valid, err := h.feedSessionValid(c, user, token); err != nil {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "Authorization temporarily unavailable")
 	} else if !valid {
-		return echo.NewHTTPError(http.StatusForbidden)
+		return echo.NewHTTPError(http.StatusForbidden, http.StatusText(http.StatusForbidden))
 	}
-	if _, ok := c.Response().Writer.(http.Flusher); !ok {
-		return echo.NewHTTPError(http.StatusInternalServerError)
+	if _, ok := c.Response().(http.Flusher); !ok {
+		return echo.NewHTTPError(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
 	}
 	if !acquireFeedStream(user) {
 		return echo.NewHTTPError(http.StatusTooManyRequests, "Too many live-feed connections")
@@ -193,7 +193,7 @@ func (h *AdminHandler) LiveFeed(c echo.Context) error {
 	if valid, err := h.feedSessionValid(c, user, token); err != nil {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "Authorization temporarily unavailable")
 	} else if !valid {
-		return echo.NewHTTPError(http.StatusForbidden)
+		return echo.NewHTTPError(http.StatusForbidden, http.StatusText(http.StatusForbidden))
 	}
 	lastAuth := time.Now()
 	hdr := c.Response().Header()
@@ -201,7 +201,7 @@ func (h *AdminHandler) LiveFeed(c echo.Context) error {
 	hdr.Set(echo.HeaderCacheControl, "no-store")
 	hdr.Set("X-Accel-Buffering", "no")
 	c.Response().WriteHeader(http.StatusOK)
-	controller := http.NewResponseController(c.Response().Writer)
+	controller := http.NewResponseController(c.Response())
 	write := func(kind, id string, data any) error {
 		if err := controller.SetWriteDeadline(time.Now().Add(liveFeedWriteTimeout)); err != nil && !errors.Is(err, http.ErrNotSupported) {
 			return err

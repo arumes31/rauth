@@ -14,7 +14,7 @@ import (
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 type WebAuthnHandler struct {
@@ -30,7 +30,7 @@ type registrationProof struct {
 	BrowserBinding string
 }
 
-func (h *WebAuthnHandler) BeginRegistration(c echo.Context) error {
+func (h *WebAuthnHandler) BeginRegistration(c *echo.Context) error {
 	clientIP := c.RealIP()
 	if !core.CheckRateLimit("reg_ip:"+core.RateLimitIP(clientIP), h.Cfg.RateLimitRegistrationMax, h.Cfg.RateLimitRegistrationDecay) {
 		return echo.NewHTTPError(http.StatusTooManyRequests, fmt.Sprintf("Too many registration attempts from this IP (%s)", clientIP))
@@ -38,7 +38,7 @@ func (h *WebAuthnHandler) BeginRegistration(c echo.Context) error {
 
 	username, ok := c.Get("username").(string)
 	if !ok {
-		return echo.NewHTTPError(http.StatusUnauthorized)
+		return echo.NewHTTPError(http.StatusUnauthorized, http.StatusText(http.StatusUnauthorized))
 	}
 
 	// Step-up: a session cookie alone must not be able to enrol a passkey,
@@ -90,7 +90,7 @@ func (h *WebAuthnHandler) BeginRegistration(c echo.Context) error {
 	return c.JSON(http.StatusOK, options.Response)
 }
 
-func (h *WebAuthnHandler) FinishRegistration(c echo.Context) error {
+func (h *WebAuthnHandler) FinishRegistration(c *echo.Context) error {
 	clientIP := c.RealIP()
 	if !core.CheckRateLimit("reg_ip:"+core.RateLimitIP(clientIP), h.Cfg.RateLimitRegistrationMax, h.Cfg.RateLimitRegistrationDecay) {
 		return echo.NewHTTPError(http.StatusTooManyRequests, fmt.Sprintf("Too many registration attempts from this IP (%s)", clientIP))
@@ -98,7 +98,7 @@ func (h *WebAuthnHandler) FinishRegistration(c echo.Context) error {
 
 	username, ok := c.Get("username").(string)
 	if !ok {
-		return echo.NewHTTPError(http.StatusUnauthorized)
+		return echo.NewHTTPError(http.StatusUnauthorized, http.StatusText(http.StatusUnauthorized))
 	}
 
 	userRecord, err := core.GetUser(username)
@@ -171,7 +171,7 @@ func (h *WebAuthnHandler) FinishRegistration(c echo.Context) error {
 	return c.JSON(http.StatusOK, "Registration Success")
 }
 
-func (h *WebAuthnHandler) BeginLogin(c echo.Context) error {
+func (h *WebAuthnHandler) BeginLogin(c *echo.Context) error {
 	clientIP := c.RealIP()
 	if !core.CheckRateLimit("login_access:"+core.RateLimitIP(clientIP), h.Cfg.RateLimitLoginAccessMax, h.Cfg.RateLimitLoginAccessDecay) {
 		return echo.NewHTTPError(http.StatusTooManyRequests, fmt.Sprintf("Too many login attempts from this IP (%s)", clientIP))
@@ -229,7 +229,7 @@ func (h *WebAuthnHandler) BeginLogin(c echo.Context) error {
 	return c.JSON(http.StatusOK, options.Response)
 }
 
-func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
+func (h *WebAuthnHandler) FinishLogin(c *echo.Context) error {
 	clientIP := c.RealIP()
 	if !core.CheckRateLimit("login_ip:"+core.RateLimitIP(clientIP), h.Cfg.RateLimitLoginMax, h.Cfg.RateLimitLoginDecay) {
 		return echo.NewHTTPError(http.StatusTooManyRequests, fmt.Sprintf("Too many login attempts from this IP (%s)", clientIP))
@@ -324,7 +324,7 @@ func (h *WebAuthnHandler) FinishLogin(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{"redirect": redirect})
 }
 
-func (h *WebAuthnHandler) getWebAuthnLoginSession(c echo.Context) (*webauthn.SessionData, error) {
+func (h *WebAuthnHandler) getWebAuthnLoginSession(c *echo.Context) (*webauthn.SessionData, error) {
 	cookie, err := c.Cookie("rauth_webauthn_session")
 	if err != nil {
 		return nil, echo.NewHTTPError(http.StatusBadRequest, "Session expired or invalid")
@@ -342,7 +342,7 @@ func (h *WebAuthnHandler) getWebAuthnLoginSession(c echo.Context) (*webauthn.Ses
 	return &sessionData, nil
 }
 
-func (h *WebAuthnHandler) identifyWebAuthnUser(c echo.Context, parsedResponse *protocol.ParsedCredentialAssertionData) (string, []byte, *core.User, error) {
+func (h *WebAuthnHandler) identifyWebAuthnUser(c *echo.Context, parsedResponse *protocol.ParsedCredentialAssertionData) (string, []byte, *core.User, error) {
 	var username string
 	var userID []byte
 	usernameParam := c.QueryParam("username")
@@ -401,7 +401,7 @@ func (h *WebAuthnHandler) identifyWebAuthnUser(c echo.Context, parsedResponse *p
 
 // issuePasskeyToken creates the session for a verified passkey login. authGen
 // is the generation read before the credentials were loaded.
-func (h *WebAuthnHandler) issuePasskeyToken(c echo.Context, username string, userRecord *core.User, authGen string) error {
+func (h *WebAuthnHandler) issuePasskeyToken(c *echo.Context, username string, userRecord *core.User, authGen string) error {
 	clientIP := c.RealIP()
 	ua := c.Request().UserAgent()
 	token := core.GenerateRandomString(32)

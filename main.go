@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -21,8 +22,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/labstack/echo/v4"
-	echoMiddleware "github.com/labstack/echo/v4/middleware"
+	"github.com/labstack/echo/v5"
+	echoMiddleware "github.com/labstack/echo/v5/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -120,7 +121,6 @@ func main() {
 	defer stopSync()
 
 	e := echo.New()
-	e.HideBanner = true
 
 	// Configure real IP extraction from headers behind reverse proxies
 	if len(cfg.TrustedProxies) == 0 {
@@ -156,20 +156,24 @@ func main() {
 	setupRoutesWithStats(e, cfg, cluster != nil && cluster.spec.Role == clusterconfig.Worker, policyStatus, requestEvents, localStats, haStatus)
 	if cluster != nil {
 		e.GET("/health", cluster.Health)
-		e.GET("/livez", func(c echo.Context) error { return c.NoContent(http.StatusOK) })
+		e.GET("/livez", func(c *echo.Context) error { return c.NoContent(http.StatusOK) })
 	}
 
-	configureServerTimeouts(e.Server)
+	// Echo v5 no longer owns an http.Server; rauth keeps its own so the
+	// timeouts and graceful shutdown stay explicit.
+	publicServer := &http.Server{Addr: cfg.ListenAddr, Handler: e}
+	configureServerTimeouts(publicServer)
 
 	var privateServer *http.Server
 	if cluster == nil {
 		go func() {
-			if err := e.Start(cfg.ListenAddr); err != nil && err != http.ErrServerClosed {
-				e.Logger.Fatal("shutting down the server")
+			if err := publicServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				slog.Error("HTTP server stopped", "error", err)
+				os.Exit(1)
 			}
 		}()
 	} else {
-		privateServer, err = cluster.StartHTTP(e)
+		privateServer, err = cluster.StartHTTP(e, publicServer)
 		if err != nil {
 			slog.Error("Cluster listeners could not bind")
 			os.Exit(1)
@@ -194,12 +198,9 @@ func main() {
 			_ = privateServer.Close()
 		}
 	}
-	if err := e.Shutdown(ctx); err != nil {
-		if cluster == nil {
-			e.Logger.Fatal(err)
-		} else {
-			_ = e.Server.Close()
-		}
+	if err := publicServer.Shutdown(ctx); err != nil {
+		slog.Warn("HTTP server did not drain in time; closing", "error", err)
+		_ = publicServer.Close()
 	}
 }
 
@@ -277,7 +278,7 @@ func setupMiddlewareEventSink(e *echo.Echo, cfg *core.Config, pinner middleware.
 		admission := middleware.WorkerPolicyAdmission(cfg, pinner)
 		e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 			pinned := admission(next)
-			return func(c echo.Context) error {
+			return func(c *echo.Context) error {
 				path := c.Request().URL.Path
 				if path == "/health" || path == "/livez" || path == "/metrics" || strings.HasPrefix(path, "/static/") {
 					return next(c)
@@ -313,7 +314,7 @@ func setupSecurityMiddleware(e *echo.Echo, cfg *core.Config) {
 		HSTSPreloadEnabled:    true,
 		ContentSecurityPolicy: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'self'; form-action " + formActionSources + "; frame-ancestors 'self'",
 	}))
-	e.Use(echoMiddleware.BodyLimit("1M"))
+	e.Use(echoMiddleware.BodyLimit(1 << 20)) // 1 MiB
 }
 
 func setupCSRFMiddleware(e *echo.Echo, cfg *core.Config) {
@@ -321,7 +322,8 @@ func setupCSRFMiddleware(e *echo.Echo, cfg *core.Config) {
 	// state-changing requests whose Sec-Fetch-Site / Origin show they come from
 	// another origin — including same-site sibling subdomains, which share the
 	// session cookie and could otherwise plant a matching double-submit cookie.
-	e.Use(echo.WrapMiddleware(newCrossOriginProtection(cfg).Handler))
+	trusted := trustedCSRFOrigins(cfg)
+	e.Use(echo.WrapMiddleware(newCrossOriginProtection(trusted).Handler))
 
 	// 2. Token-based protection for clients that send neither header. The
 	// __Host- prefix pins the cookie to this exact host so no other subdomain
@@ -333,17 +335,32 @@ func setupCSRFMiddleware(e *echo.Echo, cfg *core.Config) {
 		CookieHTTPOnly: true,
 		CookieSecure:   true,
 		CookieSameSite: http.SameSiteLaxMode,
+		// Echo v5 runs its own Sec-Fetch-Site check first and rejects same-site
+		// requests unless the origin is trusted here as well.
+		TrustedOrigins: trusted,
 	}))
 }
 
-// newCrossOriginProtection builds the origin check, trusting any extra origins
-// configured in CSRF_TRUSTED_ORIGINS. Invalid entries are logged and skipped.
-func newCrossOriginProtection(cfg *core.Config) *http.CrossOriginProtection {
-	cop := http.NewCrossOriginProtection()
+// trustedCSRFOrigins normalises CSRF_TRUSTED_ORIGINS. Invalid entries are
+// logged and skipped so both CSRF layers trust exactly the same origins.
+func trustedCSRFOrigins(cfg *core.Config) []string {
+	var trusted []string
 	for _, origin := range cfg.CSRFTrustedOrigins {
-		if err := cop.AddTrustedOrigin(strings.TrimSuffix(strings.TrimSpace(origin), "/")); err != nil {
+		origin = strings.TrimSuffix(strings.TrimSpace(origin), "/")
+		if err := http.NewCrossOriginProtection().AddTrustedOrigin(origin); err != nil {
 			slog.Warn("Ignoring invalid CSRF_TRUSTED_ORIGINS entry", "origin", origin, "error", err)
+			continue
 		}
+		trusted = append(trusted, origin)
+	}
+	return trusted
+}
+
+// newCrossOriginProtection builds the origin check for the given trusted origins.
+func newCrossOriginProtection(trusted []string) *http.CrossOriginProtection {
+	cop := http.NewCrossOriginProtection()
+	for _, origin := range trusted {
+		_ = cop.AddTrustedOrigin(origin) // validated by trustedCSRFOrigins
 	}
 	cop.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("Cross-origin state-changing request blocked", "path", r.URL.Path, "origin", r.Header.Get("Origin"), "sec_fetch_site", r.Header.Get("Sec-Fetch-Site"))
@@ -360,9 +377,8 @@ func setupLoggingMiddleware(e *echo.Echo) {
 		LogMethod:   true,
 		LogRemoteIP: true,
 		LogLatency:  true,
-		LogError:    true,
 		HandleError: true,
-		LogValuesFunc: func(c echo.Context, v echoMiddleware.RequestLoggerValues) error {
+		LogValuesFunc: func(c *echo.Context, v echoMiddleware.RequestLoggerValues) error {
 			req := c.Request()
 
 			// client_ip is the IP resolved by CreateIPExtractor (honouring the
@@ -430,7 +446,7 @@ func redactURI(uri string) string {
 func setupClientHintsMiddleware(e *echo.Echo) {
 	// User-Agent Client Hints negotiation middleware
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
+		return func(c *echo.Context) error {
 			c.Response().Header().Set("Accept-CH", "Sec-CH-UA-Platform, Sec-CH-UA-Mobile, Sec-CH-UA-Model")
 
 			// Only negotiate Critical-CH on idempotent GET/HEAD requests to prevent non-idempotent retries (like POST logins)
@@ -448,17 +464,22 @@ func setupClientHintsMiddleware(e *echo.Echo) {
 
 func setupErrorHandlers(e *echo.Echo) {
 	// Custom HTTP Error Handler
-	e.HTTPErrorHandler = func(err error, c echo.Context) {
-		if c.Response().Committed {
+	e.HTTPErrorHandler = func(c *echo.Context, err error) {
+		if resp, uerr := echo.UnwrapResponse(c.Response()); uerr == nil && resp.Committed {
 			return
 		}
 		code := http.StatusInternalServerError
 		message := "An unexpected error occurred."
-		if he, ok := err.(*echo.HTTPError); ok {
-			code = he.Code
-			if he.Message != nil {
-				message = fmt.Sprintf("%v", he.Message)
-			}
+		// echo.StatusCode covers *echo.HTTPError and the predefined router
+		// errors (echo.ErrNotFound, echo.ErrMethodNotAllowed), which are not
+		// *echo.HTTPError in v5 and would otherwise all become 500s.
+		if sc := echo.StatusCode(err); sc != 0 {
+			code = sc
+			message = http.StatusText(sc)
+		}
+		var he *echo.HTTPError
+		if errors.As(err, &he) && he.Message != "" {
+			message = he.Message
 		}
 
 		// API and forward-auth endpoints expect machine-readable responses, not
@@ -509,11 +530,6 @@ func setupErrorHandlers(e *echo.Echo) {
 			slog.Error("Failed to render error page", "error", renderErr)
 		}
 	}
-
-	// Explicitly set NotFoundHandler to use our error handler
-	echo.NotFoundHandler = func(c echo.Context) error {
-		return echo.NewHTTPError(http.StatusNotFound)
-	}
 }
 
 // wantsJSON reports whether the client asked for a JSON error, as the console
@@ -560,14 +576,14 @@ func setupRoutesWithStats(e *echo.Echo, cfg *core.Config, worker bool, readStatu
 	e.POST("/rauthredeem", inviteHandler.Redeem)
 
 	e.GET("/health", healthHandler.Check)
-	e.GET("/stats", func(c echo.Context) error { return c.Redirect(http.StatusTemporaryRedirect, "/rauthmgmt/stats") })
+	e.GET("/stats", func(c *echo.Context) error { return c.Redirect(http.StatusTemporaryRedirect, "/rauthmgmt/stats") })
 
 	// WebAuthn Public Login
 	e.GET("/webauthn/login/begin", webauthnHandler.BeginLogin)
 	e.POST("/webauthn/login/finish", webauthnHandler.FinishLogin)
 
 	e.GET("/metrics", echo.WrapHandler(promhttp.Handler()), func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
+		return func(c *echo.Context) error {
 			if cfg.IsClientAllowed(c.RealIP(), c.Request().RemoteAddr, cfg.MetricsAllowedIPs) {
 				return next(c)
 			}
@@ -584,7 +600,7 @@ func setupRoutesWithStats(e *echo.Echo, cfg *core.Config, worker bool, readStatu
 	protected.POST("/webauthn/register/begin", webauthnHandler.BeginRegistration)
 	protected.POST("/webauthn/register/finish", webauthnHandler.FinishRegistration)
 
-	protected.POST("/logout", func(c echo.Context) error {
+	protected.POST("/logout", func(c *echo.Context) error {
 		// Get token from context (set by AuthMiddleware)
 		if token, ok := c.Get("token").(string); ok {
 			if err := core.RevokeAuthSession(c.Request().Context(), token); err != nil {

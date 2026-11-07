@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/pquerna/otp"
 	"github.com/pquerna/otp/totp"
 )
@@ -38,11 +38,11 @@ const (
 
 // getRD returns the post-login redirect target from the URL. Login forms keep
 // rd in their action query so rate-limit responses never need to parse a body.
-func getRD(c echo.Context) string {
+func getRD(c *echo.Context) string {
 	return c.QueryParam("rd")
 }
 
-func (h *AuthHandler) Root(c echo.Context) error {
+func (h *AuthHandler) Root(c *echo.Context) error {
 	cookie, err := c.Cookie(h.Cfg.SessionCookieName())
 	if err != nil {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
@@ -64,7 +64,7 @@ func (h *AuthHandler) Root(c echo.Context) error {
 	return c.Redirect(http.StatusFound, "/rauthprofile")
 }
 
-func (h *AuthHandler) Validate(c echo.Context) error {
+func (h *AuthHandler) Validate(c *echo.Context) error {
 	clientIP := c.RealIP()
 	rateLimitKey := "validate:" + core.RateLimitIP(clientIP)
 
@@ -201,12 +201,12 @@ func (h *AuthHandler) rotateSession(oldToken, username, clientIP string, now int
 }
 
 // setSessionCookie writes the domain-wide session cookie.
-func (h *AuthHandler) setSessionCookie(c echo.Context, value string, validity time.Duration) {
+func (h *AuthHandler) setSessionCookie(c *echo.Context, value string, validity time.Duration) {
 	writeSessionCookie(c, h.Cfg, value, validity)
 }
 
 // writeSessionCookie preserves legacy scope, or uses host-only scope in SSO.
-func writeSessionCookie(c echo.Context, cfg *core.Config, value string, validity time.Duration) {
+func writeSessionCookie(c *echo.Context, cfg *core.Config, value string, validity time.Duration) {
 	if c.Get("session_cookie_name") == core.SSOAppCookie {
 		writeAppSessionCookie(c, value, validity)
 		return
@@ -232,7 +232,7 @@ func writeSessionCookie(c echo.Context, cfg *core.Config, value string, validity
 // request. If an auth bypass rule matches the originally requested host and
 // URI, the request is allowed anonymously instead (200 with empty identity
 // headers); otherwise it is rejected, optionally through the validate rate limit.
-func (h *AuthHandler) denyOrBypass(c echo.Context, rateLimitKey string, rateLimit bool) error {
+func (h *AuthHandler) denyOrBypass(c *echo.Context, rateLimitKey string, rateLimit bool) error {
 	if rule, ok := h.matchBypass(c); ok {
 		core.AuthBypassTotal.Inc()
 		slog.Debug("Forward-auth request allowed by bypass rule", "rule", rule.Rule, "ip", c.RealIP())
@@ -251,7 +251,7 @@ func (h *AuthHandler) denyOrBypass(c echo.Context, rateLimitKey string, rateLimi
 
 // A valid local public policy remains usable during an auth-state outage.
 // Private URLs fail closed with an operational status, never a login redirect.
-func (h *AuthHandler) sessionAuthorityUnavailable(c echo.Context) error {
+func (h *AuthHandler) sessionAuthorityUnavailable(c *echo.Context) error {
 	if _, ok := h.matchBypass(c); ok {
 		return h.denyOrBypass(c, "", false)
 	}
@@ -267,7 +267,7 @@ func (h *AuthHandler) sessionAuthorityUnavailable(c echo.Context) error {
 // honoured from TRUSTED_PROXIES or, when that list is empty (legacy smart
 // mode), from private/loopback peers, so a client reaching rauth directly
 // over a public address cannot pick a bypassed host.
-func (h *AuthHandler) matchBypass(c echo.Context) (core.BypassRule, bool) {
+func (h *AuthHandler) matchBypass(c *echo.Context) (core.BypassRule, bool) {
 	if !core.HasBypassRulesForContext(c.Request().Context()) {
 		return core.BypassRule{}, false
 	}
@@ -280,7 +280,7 @@ func (h *AuthHandler) matchBypass(c echo.Context) (core.BypassRule, bool) {
 
 // rateLimitedUnauthorized applies the validate rate limit and returns 429 once
 // it is exceeded, otherwise 401. Used for every pre-authentication failure path.
-func (h *AuthHandler) rateLimitedUnauthorized(c echo.Context, rateLimitKey string) error {
+func (h *AuthHandler) rateLimitedUnauthorized(c *echo.Context, rateLimitKey string) error {
 	exceeded, _, err := core.ReserveRateLimitAttempt(rateLimitKey, h.Cfg.RateLimitValidateMax, h.Cfg.RateLimitValidateDecay)
 	if err != nil {
 		return h.sessionAuthorityUnavailable(c)
@@ -291,7 +291,7 @@ func (h *AuthHandler) rateLimitedUnauthorized(c echo.Context, rateLimitKey strin
 	return c.NoContent(http.StatusUnauthorized)
 }
 
-func (h *AuthHandler) Login(c echo.Context) error {
+func (h *AuthHandler) Login(c *echo.Context) error {
 	clientIP := c.RealIP()
 	ipBucket := core.RateLimitIP(clientIP)
 	slog.Debug("Login attempt", "ip", clientIP, "method", c.Request().Method)
@@ -372,7 +372,7 @@ func loginFailUserKey(username, clientIP string) string {
 	return "login_fail_user:" + username + "@" + core.RateLimitIP(clientIP)
 }
 
-func (h *AuthHandler) checkUserThrottling(c echo.Context, username string) (bool, error) {
+func (h *AuthHandler) checkUserThrottling(c *echo.Context, username string) (bool, error) {
 	clientIP := c.RealIP()
 	if username != "" && core.IsRateLimitExceeded(loginFailUserKey(username, clientIP), h.Cfg.RateLimitLoginFailUserMax) {
 		slog.Warn("Login user rate limit exceeded", "username", username, "ip", clientIP)
@@ -417,7 +417,7 @@ func (h *AuthHandler) verifyCredentials(username, password string) (*core.User, 
 	return &userRecord, true
 }
 
-func (h *AuthHandler) handleAuthFailure(c echo.Context, username string) error {
+func (h *AuthHandler) handleAuthFailure(c *echo.Context, username string) error {
 	clientIP := c.RealIP()
 	h.logLoginFailed(username, clientIP)
 	core.LoginFailedTotal.Inc()
@@ -451,7 +451,7 @@ func (h *AuthHandler) logLoginFailed(username, clientIP string) {
 	core.LogAudit("LOGIN_FAILED", username, clientIP, nil)
 }
 
-func (h *AuthHandler) initiate2FASession(c echo.Context, username, authGen string) error {
+func (h *AuthHandler) initiate2FASession(c *echo.Context, username, authGen string) error {
 	tempToken := h.issueTempToken(username, authGen)
 	if tempToken == "" {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "Failed to create login challenge")
@@ -478,7 +478,7 @@ func (h *AuthHandler) initiate2FASession(c echo.Context, username, authGen strin
 	})
 }
 
-func (h *AuthHandler) initiate2FASetupSession(c echo.Context, username, authGen string) error {
+func (h *AuthHandler) initiate2FASetupSession(c *echo.Context, username, authGen string) error {
 	setupToken := h.issueSetupToken(username, authGen)
 	if setupToken == "" {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "Failed to create login challenge")
@@ -504,7 +504,7 @@ func (h *AuthHandler) initiate2FASetupSession(c echo.Context, username, authGen 
 	return c.Redirect(http.StatusFound, redirectURL)
 }
 
-func (h *AuthHandler) checkLoginIPRateLimits(c echo.Context, clientIP, template string, extraContext map[string]interface{}) error {
+func (h *AuthHandler) checkLoginIPRateLimits(c *echo.Context, clientIP, template string, extraContext map[string]interface{}) error {
 	ipBucket := core.RateLimitIP(clientIP)
 	if core.IsRateLimitExceeded("login_access:"+ipBucket, h.Cfg.RateLimitLoginAccessMax) {
 		ctx := map[string]interface{}{"error": "Too many requests. Please wait a minute.", "csrf": c.Get("csrf"), "rd": c.QueryParam("rd")}
@@ -532,7 +532,7 @@ func (h *AuthHandler) checkLoginIPRateLimits(c echo.Context, clientIP, template 
 
 // validatePendingToken resolves a pending 2FA/setup cookie to its username,
 // token and the auth generation the first factor was checked under.
-func (h *AuthHandler) validatePendingToken(c echo.Context, cookieName string, kind core.AuthArtifactKind) (string, string, string, error) {
+func (h *AuthHandler) validatePendingToken(c *echo.Context, cookieName string, kind core.AuthArtifactKind) (string, string, string, error) {
 	cookie, err := c.Cookie(cookieName)
 	if err != nil {
 		return "", "", "", err
@@ -559,7 +559,7 @@ func (h *AuthHandler) validatePendingToken(c echo.Context, cookieName string, ki
 
 var errStalePendingToken = errors.New("pending token predates a credential change")
 
-func (h *AuthHandler) handle2FASuccess(c echo.Context, username, clientIP, pendingToken, authGen string, usedRecovery bool, userRecord *core.User) error {
+func (h *AuthHandler) handle2FASuccess(c *echo.Context, username, clientIP, pendingToken, authGen string, usedRecovery bool, userRecord *core.User) error {
 	data, err := core.TakeAuthArtifact(core.PendingSecondFactor, pendingToken)
 	if err != nil || !core.PendingArtifactMatches(data, username, authGen) {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
@@ -602,7 +602,7 @@ func (h *AuthHandler) reserve2FAAttempt(username string) bool {
 	return !exceeded
 }
 
-func (h *AuthHandler) handle2FAFailure(c echo.Context, username, clientIP string) error {
+func (h *AuthHandler) handle2FAFailure(c *echo.Context, username, clientIP string) error {
 	core.SecondFactorTotal.WithLabelValues("failed").Inc()
 	core.LogAudit("2FA_FAILED", username, clientIP, nil)
 
@@ -618,7 +618,7 @@ func (h *AuthHandler) handle2FAFailure(c echo.Context, username, clientIP string
 	})
 }
 
-func (h *AuthHandler) Verify2FA(c echo.Context) error {
+func (h *AuthHandler) Verify2FA(c *echo.Context) error {
 	clientIP := c.RealIP()
 	if err := h.checkLoginIPRateLimits(c, clientIP, "login.html", map[string]interface{}{"display2fa": true}); err != nil {
 		return err
@@ -666,7 +666,7 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 	return h.handle2FAFailure(c, username, clientIP)
 }
 
-func (h *AuthHandler) Setup2FA(c echo.Context) error {
+func (h *AuthHandler) Setup2FA(c *echo.Context) error {
 	username, setupToken, authGen, err := h.validatePendingToken(c, "rauth_setup_pending", core.PendingEnrollment)
 	if err != nil {
 		return c.Redirect(http.StatusFound, "/rauthlogin")
@@ -695,7 +695,7 @@ func (h *AuthHandler) Setup2FA(c echo.Context) error {
 	})
 }
 
-func (h *AuthHandler) CompleteSetup2FA(c echo.Context) error {
+func (h *AuthHandler) CompleteSetup2FA(c *echo.Context) error {
 	clientIP := c.RealIP()
 	if err := h.checkLoginIPRateLimits(c, clientIP, "setup_2fa.html", map[string]interface{}{}); err != nil {
 		return err
@@ -822,7 +822,7 @@ func (h *AuthHandler) issueSetupToken(username, authGen string) string {
 // issueToken creates the authenticated session at the end of a login. authGen
 // is the generation the login's first factor was checked under; it is stamped
 // as is, so a revocation during the login leaves the session invalid.
-func (h *AuthHandler) issueToken(c echo.Context, username, authGen string) error {
+func (h *AuthHandler) issueToken(c *echo.Context, username, authGen string) error {
 	tokenBytes := make([]byte, sessionTokenBytes)
 	if _, err := rand.Read(tokenBytes); err != nil {
 		slog.Error("Failed to generate random token", "error", err)
@@ -898,7 +898,7 @@ func (h *AuthHandler) issueToken(c echo.Context, username, authGen string) error
 	return c.Redirect(http.StatusFound, redirect)
 }
 
-func denyRequestPolicy(c echo.Context, reason string) error {
+func denyRequestPolicy(c *echo.Context, reason string) error {
 	c.Set("policy_reason", reason)
 	for _, name := range []string{"X-RAuth-User", "X-RAuth-Groups", "X-RAuth-Anonymous"} {
 		c.Response().Header().Set(name, "")

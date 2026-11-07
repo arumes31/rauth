@@ -8,7 +8,7 @@ import (
 	"rauth/internal/handlers"
 	"testing"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -37,7 +37,7 @@ func TestProfileTemplateRenders(t *testing.T) {
 	setupRenderer(e)
 	for _, has2FA := range []bool{true, false} {
 		var page bytes.Buffer
-		err := e.Renderer.Render(&page, "profile.html", map[string]interface{}{
+		err := e.Renderer.Render(nil, &page, "profile.html", map[string]interface{}{
 			"username":      "alice",
 			"email":         "alice@example.com",
 			"groups":        "staff",
@@ -53,7 +53,7 @@ func TestProfileTemplateRenders(t *testing.T) {
 			"logs":     []core.AuditLog{{Timestamp: 1700000000, Action: "LOGIN_FAILED", Username: "alice", IP: "10.0.0.1", Details: map[string]interface{}{"country": "AT"}}},
 			"passkeys": []core.StoredCredential{{Nickname: "YubiKey", CreatedAt: 1700000000}},
 			"csrf":     "test-csrf",
-		}, nil)
+		})
 		require.NoError(t, err)
 		body := page.String()
 		assert.Contains(t, body, `<meta name="csrf-token" content="test-csrf">`)
@@ -79,7 +79,7 @@ func TestManagementTemplateNeverRendersSecrets(t *testing.T) {
 	e := echo.New()
 	setupRenderer(e)
 	var page bytes.Buffer
-	err := e.Renderer.Render(&page, "management.html", map[string]interface{}{
+	err := e.Renderer.Render(nil, &page, "management.html", map[string]interface{}{
 		"username":  "boss",
 		"root_user": "boss",
 		"csrf":      "test-csrf",
@@ -90,7 +90,7 @@ func TestManagementTemplateNeverRendersSecrets(t *testing.T) {
 		"bypass_rules": []handlers.BypassRuleView{
 			{BypassRule: core.BypassRule{Rule: "app.example.com/", Action: core.BypassAllow, Source: "env"}, Scope: "Only the root page"},
 		},
-	}, nil)
+	})
 	require.NoError(t, err)
 	body := page.String()
 	assert.Contains(t, body, "/static/js/management.js")
@@ -144,14 +144,14 @@ func TestIPFeedManagementRenderingAndSourceRedaction(t *testing.T) {
 	e := echo.New()
 	setupRenderer(e)
 	var page bytes.Buffer
-	err := e.Renderer.Render(&page, "management.html", map[string]interface{}{
+	err := e.Renderer.Render(nil, &page, "management.html", map[string]interface{}{
 		"username": "admin", "users": []handlers.AdminUserView{}, "sessions": []map[string]string{}, "stats": handlers.AdminStats{},
 		"csrf": "preview-csrf", "bypass_unlock_m": 5,
 		"policy_countries": core.PolicyCountries(),
 		"bypass_rules":     []handlers.BypassRuleView{},
 		"logs":             []core.AuditLog{},
 		"ip_feeds":         []core.IPFeed{{ID: "12345678-1234-1234-1234-123456789abc", Name: "<script>feed</script>", SourceURL: "https://example.org/list?token=DO_NOT_LEAK", Enabled: true, Version: 1, EntryCount: 10}},
-	}, nil)
+	})
 	require.NoError(t, err)
 	body := page.String()
 	assert.Contains(t, body, `data-panel="ip-feeds"`)
@@ -166,12 +166,12 @@ func TestDefaultFeedCheckboxIsSelectedForNewPublicRules(t *testing.T) {
 	e := echo.New()
 	setupRenderer(e)
 	var page bytes.Buffer
-	err := e.Renderer.Render(&page, "management.html", map[string]interface{}{
+	err := e.Renderer.Render(nil, &page, "management.html", map[string]interface{}{
 		"username": "admin", "users": []handlers.AdminUserView{}, "sessions": []map[string]string{}, "stats": handlers.AdminStats{},
 		"csrf": "test", "bypass_unlock_m": 5, "policy_countries": core.PolicyCountries(),
 		"bypass_rules": []handlers.BypassRuleView{}, "logs": []core.AuditLog{},
 		"ip_feeds": []core.IPFeed{{ID: core.DefaultIPFeedID, Name: "Eworx default blocklist", SourceURL: core.DefaultIPFeedURL, Enabled: true, Version: 1}},
-	}, nil)
+	})
 	require.NoError(t, err)
 	assert.Contains(t, page.String(), "data-default-feed checked")
 	assert.Contains(t, page.String(), "Public-access default")
