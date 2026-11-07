@@ -161,7 +161,7 @@ func main() {
 
 	// Echo v5 no longer owns an http.Server; rauth keeps its own so the
 	// timeouts and graceful shutdown stay explicit.
-	publicServer := &http.Server{Addr: cfg.ListenAddr, Handler: e}
+	publicServer := &http.Server{Addr: cfg.ListenAddr, Handler: e, ReadHeaderTimeout: readHeaderTimeout}
 	configureServerTimeouts(publicServer)
 
 	var privateServer *http.Server
@@ -240,8 +240,10 @@ func validateServerSecret(secret string) error {
 // configureServerTimeouts bounds how long a client may hold a connection.
 // Without them a slow or idle client keeps a goroutine and socket forever,
 // and every protected app depends on this forward-auth server answering.
+const readHeaderTimeout = 10 * time.Second
+
 func configureServerTimeouts(s *http.Server) {
-	s.ReadHeaderTimeout = 10 * time.Second
+	s.ReadHeaderTimeout = readHeaderTimeout
 	s.ReadTimeout = 30 * time.Second
 	s.WriteTimeout = 30 * time.Second
 	s.IdleTimeout = 120 * time.Second
