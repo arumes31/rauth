@@ -5,8 +5,18 @@ permissions:
 on:
   push:
     branches: [ main, test ]
+    paths:
+      - 'go.mod'
+      - 'go.sum'
+      - '**.go'
+      - '.github/workflows/licenses.yml'
   pull_request:
     branches: [ main, test ]
+    paths:
+      - 'go.mod'
+      - 'go.sum'
+      - '**.go'
+      - '.github/workflows/licenses.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -23,8 +33,17 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache: true
+      - name: Cache go-licenses
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/go/bin/go-licenses
+          key: ${{ runner.os }}-go-licenses-v2.0.1
       - name: Install go-licenses
-        run: go install github.com/google/go-licenses/v2@v2.0.1
+        run: |
+          if ! command -v go-licenses >/dev/null 2>&1; then
+            go install github.com/google/go-licenses/v2@v2.0.1
+          fi
       - name: Check Licenses
         run: |
           # Fails if any forbidden licenses (GPL, etc) are found

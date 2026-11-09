@@ -88,31 +88,41 @@ func Open(t testing.TB, migrate func(context.Context, *pgxpool.Pool) error) *pgx
 	return pool
 }
 
+var (
+	truncateOnce     sync.Once
+	truncateStmt     string
+	policySourceSeed bool
+)
+
 // Reset empties application tables and restores required singleton seed rows.
 func Reset(t testing.TB, p *pgxpool.Pool) {
 	t.Helper()
 	ctx := context.Background()
-	rows, err := p.Query(ctx, `SELECT tablename FROM pg_tables
-		WHERE schemaname = current_schema() AND tablename <> 'schema_migrations'`)
-	if err != nil {
-		t.Fatalf("list tables: %v", err)
-	}
-	var tables []string
-	policySourceSeed := false
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err == nil {
-			tables = append(tables, pgx.Identifier{name}.Sanitize())
-			if name == "cluster_policy_source_state" {
-				policySourceSeed = true
+	truncateOnce.Do(func() {
+		rows, err := p.Query(ctx, `SELECT tablename FROM pg_tables
+			WHERE schemaname = current_schema() AND tablename <> 'schema_migrations'`)
+		if err != nil {
+			t.Fatalf("list tables: %v", err)
+		}
+		var tables []string
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err == nil {
+				tables = append(tables, pgx.Identifier{name}.Sanitize())
+				if name == "cluster_policy_source_state" {
+					policySourceSeed = true
+				}
 			}
 		}
-	}
-	rows.Close()
-	if len(tables) == 0 {
+		rows.Close()
+		if len(tables) > 0 {
+			truncateStmt = "TRUNCATE " + strings.Join(tables, ", ") + " RESTART IDENTITY CASCADE"
+		}
+	})
+	if truncateStmt == "" {
 		return
 	}
-	if _, err := p.Exec(ctx, "TRUNCATE "+strings.Join(tables, ", ")+" RESTART IDENTITY CASCADE"); err != nil {
+	if _, err := p.Exec(ctx, truncateStmt); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
 	if policySourceSeed {

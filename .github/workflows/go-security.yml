@@ -3,8 +3,22 @@ name: gsec, govul, godep,
 on:
   push:
     branches: [ main ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - '.gitleaksignore'
+      - 'docker-compose*.yml'
+      - 'nginx-proxy-example.conf'
   pull_request:
     branches: [ main ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - '.gitleaksignore'
+      - 'docker-compose*.yml'
+      - 'nginx-proxy-example.conf'
   schedule:
     - cron: '0 0 * * *' # Daily at midnight
   workflow_dispatch:
@@ -38,6 +52,12 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Cache security tools
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/go/bin
+          key: ${{ runner.os }}-go-security-tools-v1.7.0-7b1b5ce
+
       - name: Check dependency metadata
         run: go mod tidy -diff
 
@@ -49,19 +69,18 @@ jobs:
 
       - name: Run govulncheck
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
-          # Readable report for the log; the gate below decides pass/fail.
-          govulncheck ./... || true
-          govulncheck -format json ./... > govulncheck.json
-          # Fails on any called vulnerability not accepted in .govulncheck-allow.json
-          # (each entry has a reason and a review date that must not pass).
-          python3 scripts/govulncheck_gate.py < govulncheck.json
+          if ! command -v govulncheck >/dev/null 2>&1; then
+            go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+          fi
+          govulncheck ./...
 
       - name: Run Gosec Security Scanner
         if: ${{ always() }}
         run: |
-          go run github.com/securego/gosec/v2/cmd/gosec@7b1b5cebe007d62fb58eacb90fc571112939ec30 \
-            -no-fail -fmt sarif -out results.sarif ./...
+          if ! command -v gosec >/dev/null 2>&1; then
+            go install github.com/securego/gosec/v2/cmd/gosec@7b1b5cebe007d62fb58eacb90fc571112939ec30
+          fi
+          gosec -no-fail -fmt sarif -out results.sarif ./...
 
       - name: Upload Gosec SARIF file
         uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1

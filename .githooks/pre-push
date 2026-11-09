@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Local pre-push verification hook for rauth
+# Automatically runs fast static checks before pushing to remote
+set -euo pipefail
+
+echo "==> Running local pre-push checks..."
+
+if command -v go >/dev/null 2>&1; then
+    echo "--> Verifying dependency metadata (go mod tidy -diff)..."
+    if ! go mod tidy -diff; then
+        echo "::error::go.mod or go.sum is not tidy. Run 'go mod tidy' and commit the changes."
+        exit 1
+    fi
+
+    echo "--> Running go vet ./..."
+    if ! go vet ./...; then
+        echo "::error::go vet failed. Please fix issues before pushing."
+        exit 1
+    fi
+else
+    echo "--> Warning: 'go' not found in PATH; skipping local go vet and tidy checks."
+fi
+
+if command -v golangci-lint >/dev/null 2>&1; then
+    echo "--> Running golangci-lint on modified code..."
+    golangci-lint run --new-from-rev=HEAD~1
+fi
+
+echo "==> All local pre-push checks passed!"
