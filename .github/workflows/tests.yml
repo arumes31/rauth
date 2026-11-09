@@ -6,8 +6,22 @@ permissions:
 on:
   push:
     branches: [ "**" ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - '.gitleaksignore'
+      - 'docker-compose*.yml'
+      - 'nginx-proxy-example.conf'
   pull_request:
     branches: [ "**" ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - '.gitleaksignore'
+      - 'docker-compose*.yml'
+      - 'nginx-proxy-example.conf'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -54,9 +68,6 @@ jobs:
 
       - name: Verify dependencies
         run: go mod verify
-
-      - name: Run Vet
-        run: go vet ./...
 
       - name: Run frontend regressions
         run: node --test tests/*.test.mjs

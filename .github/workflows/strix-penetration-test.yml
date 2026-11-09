@@ -2,6 +2,13 @@ name: strix-penetration-test
 
 on:
   pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - '.gitleaksignore'
+      - 'docker-compose*.yml'
+      - 'nginx-proxy-example.conf'
   workflow_dispatch:
 
 # Read-only by default; only the comment job below gets a write scope.

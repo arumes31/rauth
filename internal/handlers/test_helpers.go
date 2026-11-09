@@ -17,8 +17,9 @@ import (
 )
 
 var (
-	globalTestMu    sync.Mutex
-	sharedMiniredis *miniredis.Miniredis
+	globalTestMu      sync.Mutex
+	sharedMiniredis   *miniredis.Miniredis
+	sharedRedisClient *redis.Client
 )
 
 func setupHandlersTest(t *testing.T) {
@@ -37,18 +38,17 @@ func setupHandlersTest(t *testing.T) {
 			t.Fatalf("failed to run miniredis: %v", err)
 		}
 		sharedMiniredis = s
+		sharedRedisClient = redis.NewClient(&redis.Options{Addr: sharedMiniredis.Addr()})
 	}
 
-	client := redis.NewClient(&redis.Options{Addr: sharedMiniredis.Addr()})
-	core.TokenDB = client
-	core.RateLimitDB = client
-	core.InviteDB = client
+	core.TokenDB = sharedRedisClient
+	core.RateLimitDB = sharedRedisClient
+	core.InviteDB = sharedRedisClient
 
 	// Clean slate for each test
 	sharedMiniredis.FlushAll()
 	core.PG = pgtest.Open(t, core.Migrate)
 	pgtest.Reset(t, core.PG)
-
 }
 
 func createTestContext(e *echo.Echo, method, path string, f url.Values) (*echo.Context, *httptest.ResponseRecorder) {

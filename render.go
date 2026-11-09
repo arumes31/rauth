@@ -7,6 +7,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -20,6 +21,11 @@ var templatePatterns = []string{
 	"templates/partials/*/*.html",
 }
 
+var (
+	cachedRendererOnce sync.Once
+	cachedTemplates    *template.Template
+)
+
 type TemplateRenderer struct {
 	templates *template.Template
 }
@@ -29,8 +35,11 @@ func (t *TemplateRenderer) Render(c *echo.Context, w io.Writer, name string, dat
 }
 
 func setupRenderer(e *echo.Echo) {
+	cachedRendererOnce.Do(func() {
+		cachedTemplates = template.Must(template.New("").Funcs(templateFuncs()).ParseFS(templateFS, templatePatterns...))
+	})
 	e.Renderer = &TemplateRenderer{
-		templates: template.Must(template.New("").Funcs(templateFuncs()).ParseFS(templateFS, templatePatterns...)),
+		templates: cachedTemplates,
 	}
 }
 

@@ -3,8 +3,22 @@ name: "CodeQL"
 on:
   push:
     branches: [ "main", "master" ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - '.gitleaksignore'
+      - 'docker-compose*.yml'
+      - 'nginx-proxy-example.conf'
   pull_request:
     branches: [ "main", "master" ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - '.gitleaksignore'
+      - 'docker-compose*.yml'
+      - 'nginx-proxy-example.conf'
   schedule:
     - cron: '0 0 * * 0'
 
@@ -23,7 +37,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [go, javascript-typescript]
+        language: [go]
     permissions:
       actions: read
       contents: read

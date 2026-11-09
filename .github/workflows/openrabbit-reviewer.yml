@@ -3,6 +3,13 @@ name: OpenRabbit Reviewer
 on:
   pull_request:
     types: [opened, reopened, edited, synchronize]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - '.gitleaksignore'
+      - 'docker-compose*.yml'
+      - 'nginx-proxy-example.conf'
 
 permissions:
   contents: read
