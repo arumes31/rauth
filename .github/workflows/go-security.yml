@@ -20,12 +20,12 @@ on:
       - 'docker-compose*.yml'
       - 'nginx-proxy-example.conf'
   schedule:
-    - cron: '0 0 * * *' # Daily at midnight
+    - cron: '0 0 * * 1' # Weekly (Mon); PRs, pushes and Dependabot already run these scanners
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
