@@ -25,7 +25,7 @@ jobs:
       contents: read
       # Required only for posting COMMENT reviews and inline suggestions via the API.
       pull-requests: write
-    if: ${{ !github.event.pull_request.draft && github.actor != 'dependabot[bot]' }}
+    if: ${{ !github.event.pull_request.draft && github.event.pull_request.user.login != 'dependabot[bot]' }}
     runs-on: ubuntu-latest
     continue-on-error: true
     timeout-minutes: 90

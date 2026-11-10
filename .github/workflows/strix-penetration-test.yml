@@ -23,7 +23,7 @@ concurrency:
 jobs:
   security-scan:
     name: Strix (advisory)
-    if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft && github.actor != 'dependabot[bot]')
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft && github.event.pull_request.user.login != 'dependabot[bot]')
     runs-on: ubuntu-latest
     continue-on-error: true
     timeout-minutes: 90
