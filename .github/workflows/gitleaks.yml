@@ -8,7 +8,8 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: gitleaks-${{ github.event.pull_request.number || github.ref }}
+  # gitleaks-action scans only each push's commits, so pending main scans must never be replaced
+  group: gitleaks-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   scan:
