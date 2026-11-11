@@ -2,7 +2,8 @@ name: OpenRabbit Reviewer
 
 on:
   pull_request:
-    types: [opened, reopened, edited, synchronize]
+    # edited: only base-branch changes re-review (they change the diff without a new commit)
+    types: [opened, reopened, synchronize, ready_for_review, edited]
     paths-ignore:
       - '**.md'
       - 'docs/**'
@@ -15,7 +16,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: openrabbit-${{ github.event.pull_request.number }}
+  # title/body edits get their own group so they never cancel an active review
+  group: openrabbit-${{ github.event.pull_request.number }}-${{ (github.event.action == 'edited' && !github.event.changes.base) && github.run_id || 'review' }}
   cancel-in-progress: true
 
 jobs:
@@ -25,6 +27,7 @@ jobs:
       contents: read
       # Required only for posting COMMENT reviews and inline suggestions via the API.
       pull-requests: write
+    if: ${{ !github.event.pull_request.draft && github.event.pull_request.user.login != 'dependabot[bot]' && (github.event.action != 'edited' || github.event.changes.base) }}
     runs-on: ubuntu-latest
     continue-on-error: true
     timeout-minutes: 90

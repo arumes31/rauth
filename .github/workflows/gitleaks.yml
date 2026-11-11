@@ -8,7 +8,8 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: gitleaks-${{ github.ref }}
+  # gitleaks-action scans only each push's commits, so pending main scans must never be replaced
+  group: gitleaks-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   scan:
@@ -20,7 +21,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          fetch-depth: ${{ github.event_name == 'pull_request' && (github.event.pull_request.commits + 1) || 0 }}
+          # Expressions have no arithmetic (`commits + 1` made this workflow invalid,
+          # so secret scanning silently stopped running); gitleaks needs the PR range.
+          fetch-depth: 0
           persist-credentials: false
       - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3
         env:
