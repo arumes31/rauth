@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"rauth/internal/clusterpolicy"
 	"rauth/internal/clusterstate"
 	"sync"
@@ -111,23 +112,23 @@ func NewWithContext[T io.Closer](parent context.Context, root string, v *cluster
 		defer cancelRestore()
 		bundle, e := store.LoadActive(func(b clusterpolicy.Blob, r io.Reader) error { return compiler.Validate(restoreCtx, b, r) })
 		if e != nil {
-			w.stageErr = errors.Join(e, compiler.Close())
+			w.reportStage(errors.Join(e, compiler.Close()))
 			return w, nil // retained watermark + unready runtime can reconcile
 		}
 		value, e := compiler.Finish(restoreCtx, bundle)
 		closeErr := compiler.Close()
 		if e != nil {
-			w.stageErr = errors.Join(e, closeErr)
+			w.reportStage(errors.Join(e, closeErr))
 			return w, nil
 		}
 		if closeErr != nil {
 			_ = value.Close()
-			w.stageErr = closeErr
+			w.reportStage(closeErr)
 			return w, nil
 		}
 		if e = freshness.Restore(bundle); e != nil {
 			_ = value.Close()
-			w.stageErr = e
+			w.reportStage(e)
 			return w, nil
 		}
 		w.active = &snapshot[T]{bundle: bundle, value: value, refs: 1}
@@ -135,7 +136,16 @@ func NewWithContext[T io.Closer](parent context.Context, root string, v *cluster
 	return w, nil
 }
 func (w *Worker[T]) reportHead(err error)  { w.mu.Lock(); w.headErr = err; w.mu.Unlock() }
-func (w *Worker[T]) reportStage(err error) { w.mu.Lock(); w.stageErr = err; w.mu.Unlock() }
+func (w *Worker[T]) reportStage(err error) {
+	w.mu.Lock()
+	changed := err != nil && (w.stageErr == nil || w.stageErr.Error() != err.Error())
+	w.stageErr = err
+	w.mu.Unlock()
+	// Without this, a profile/fingerprint mismatch leaves the node unready silently.
+	if changed {
+		slog.Warn("Cluster policy staging failed; node stays unready", "error", err)
+	}
+}
 
 // check serializes head observations, but never waits for payload staging.
 func (w *Worker[T]) check(ctx context.Context) error {
