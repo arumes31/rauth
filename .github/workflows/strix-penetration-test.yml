@@ -148,8 +148,9 @@ jobs:
     # A separate job so the one that executes PR code and the LLM never holds a
     # write-capable token. Runs for every same-repo PR scan (the scan job is
     # skipped for forks), including ones that produced no result, so an older
-    # comment is never left looking current.
-    if: always() && github.event_name == 'pull_request' && needs.security-scan.result != 'skipped'
+    # comment is never left looking current. When the scan is skipped for a
+    # same-repo draft PR, an existing comment is marked stale (none is created).
+    if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     continue-on-error: true
     timeout-minutes: 5
@@ -167,10 +168,15 @@ jobs:
           SUMMARY: ${{ needs.security-scan.outputs.summary }}
           EXIT_CODE: ${{ needs.security-scan.outputs.exit_code }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SCAN_RESULT: ${{ needs.security-scan.result }}
         shell: bash
         run: |
           marker='<!-- strix-report -->'
+          if [[ "$SCAN_RESULT" == skipped ]]; then
+            OUTCOME=skipped
+          fi
           case "$OUTCOME" in
+            skipped) status="not scanned (draft PR); the scan runs when the PR is marked ready for review" ;;
             clean) status="no vulnerabilities reported" ;;
             findings) status="vulnerabilities reported" ;;
             timeout) status="scan timed out, result incomplete" ;;
@@ -203,6 +209,6 @@ jobs:
             --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\"))) | .id" | head -n1)
           if [[ -n "$existing" ]]; then
             gh api --method PATCH "repos/$REPO/issues/comments/$existing" -F body=@comment.md > /dev/null
-          else
+          elif [[ "$OUTCOME" != skipped ]]; then
             gh pr comment "$PR" --repo "$REPO" --body-file comment.md
           fi
