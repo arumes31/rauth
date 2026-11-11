@@ -31,6 +31,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        id: setup-go
         with:
           go-version-file: go.mod
           cache: true
@@ -38,7 +39,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/go/bin/go-licenses
-          key: ${{ runner.os }}-go-licenses-v2.0.1
+          key: ${{ runner.os }}-go-licenses-v2.0.1-go${{ steps.setup-go.outputs.go-version }}
       - name: Install go-licenses
         run: |
           if ! command -v go-licenses >/dev/null 2>&1; then
