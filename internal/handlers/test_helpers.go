@@ -17,9 +17,8 @@ import (
 )
 
 var (
-	globalTestMu      sync.Mutex
-	sharedMiniredis   *miniredis.Miniredis
-	sharedRedisClient *redis.Client
+	globalTestMu    sync.Mutex
+	sharedMiniredis *miniredis.Miniredis
 )
 
 func setupHandlersTest(t *testing.T) {
@@ -38,12 +37,16 @@ func setupHandlersTest(t *testing.T) {
 			t.Fatalf("failed to run miniredis: %v", err)
 		}
 		sharedMiniredis = s
-		sharedRedisClient = redis.NewClient(&redis.Options{Addr: sharedMiniredis.Addr()})
 	}
 
-	core.TokenDB = sharedRedisClient
-	core.RateLimitDB = sharedRedisClient
-	core.InviteDB = sharedRedisClient
+	// Use a fresh client per test: outage tests close core.TokenDB on
+	// purpose, and a client shared across tests would stay closed for every
+	// test that runs afterwards ("redis: client is closed").
+	client := redis.NewClient(&redis.Options{Addr: sharedMiniredis.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+	core.TokenDB = client
+	core.RateLimitDB = client
+	core.InviteDB = client
 
 	// Clean slate for each test
 	sharedMiniredis.FlushAll()
